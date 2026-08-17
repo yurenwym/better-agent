@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Protocol
 
+from .context import ContextAssembler, MemoryForContext
 from .db import Database
 from .domain import (
     AgentState,
@@ -145,6 +146,7 @@ class AgentRuntime:
         self.config = config or RuntimeConfig()
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
+        self.context_assembler = ContextAssembler()
         self.state_machine = StateMachine()
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -527,7 +529,7 @@ class AgentRuntime:
                     return "approval"
                 result = self.checkpoints.completed_tool_result(run_id, call.id)
                 if result is None:
-                    self.tools.authorize(call, run_id=run_id, skill_tools=None)
+                    self.tools.authorize(call, run_id=run_id, skill_tools=self._skill_tools_for("react"))
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -535,7 +537,7 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "name": call.name},
                     )
-                    tool_result = self.tools.execute(call, run_id=run_id, skill_tools=None)
+                    tool_result = self.tools.execute(call, run_id=run_id, skill_tools=self._skill_tools_for("react"))
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -712,6 +714,7 @@ class AgentRuntime:
     async def _model_call(self, run: RunSnapshot, kind: str, method, *args):
         invocation_id = f"invocation_{uuid.uuid4().hex}"
         attempt_id = f"{invocation_id}_attempt_1"
+        self._prepare_model_context(run, kind, args)
         self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
         self.events.append(
             run.id,
@@ -755,6 +758,47 @@ class AgentRuntime:
             self._record_model_response(run, invocation_id, attempt_id, response)
             self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
+
+    def _prepare_model_context(self, run: RunSnapshot, kind: str, args: tuple[Any, ...]) -> None:
+        setter = getattr(self.model, "set_context_snapshot", None)
+        if setter is None:
+            return
+        goal = self._goal(run.goal_id)
+        interactions = self._interaction_text(run.id)
+        memories = [
+            MemoryForContext(
+                id=record.id,
+                content=record.content,
+                scope=record.scope,
+                status=record.status,
+                project_id=record.project_id,
+                skill_name=record.skill_name,
+            )
+            for record in self.memory.all_records()
+        ]
+        plan = args[1] if kind == "reflection" and len(args) > 1 else ""
+        step = args[0] if kind == "react" and args else ""
+        observation = args[1] if kind == "react" and len(args) > 1 else ""
+        snapshot = self.context_assembler.assemble(
+            user_instruction=interactions[-1] if interactions else "",
+            goal=json.dumps(goal, ensure_ascii=False, sort_keys=True),
+            plan=json.dumps(plan, ensure_ascii=False, default=str) if plan else "",
+            step=json.dumps(step, ensure_ascii=False, default=str),
+            skill="goal-planning" if kind in {"clarification", "planning", "react"} else "reflection",
+            history=interactions + ([observation] if observation else []),
+            tool_results=[],
+            memories=memories,
+            project_id=run.project_id,
+            skill_name="goal-planning" if kind in {"clarification", "planning", "react"} else "reflection",
+        )
+        setter(snapshot.snapshot_hash, snapshot.text)
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "context.snapshot_created",
+            "runtime",
+            {"snapshot_hash": snapshot.snapshot_hash, "cropped": snapshot.cropped, "crop_count": snapshot.crop_count},
+        )
 
     def _record_model_response(self, run: RunSnapshot, invocation_id: str, attempt_id: str, response: Any) -> None:
         if response is None:
@@ -827,6 +871,14 @@ class AgentRuntime:
 
     def _lock(self, run_id: str) -> asyncio.Lock:
         return self._locks.setdefault(run_id, asyncio.Lock())
+
+    @staticmethod
+    def _skill_tools_for(skill_name: str) -> set[str]:
+        if skill_name in {"goal-planning", "planning", "reflection"}:
+            return {"local_time", "calculator", "read_note"}
+        if skill_name == "react":
+            return {"local_time", "calculator", "read_note", "write_note"}
+        return set()
 
 
 def _now() -> str:

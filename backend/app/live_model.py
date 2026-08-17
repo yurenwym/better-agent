@@ -14,6 +14,12 @@ class LiveRuntimeModel:
         self.gateway = gateway
         self.tool_schemas = tool_schemas or []
         self.last_response = None
+        self.context_hash = None
+        self.context_text = ""
+
+    def set_context_snapshot(self, snapshot_hash: str, text: str) -> None:
+        self.context_hash = snapshot_hash
+        self.context_text = text
 
     async def needs_clarification(self, goal: dict[str, Any], interactions: list[str]) -> bool:
         payload = await self._json(
@@ -82,6 +88,10 @@ class LiveRuntimeModel:
             {"role": "system", "content": instruction},
             {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
         ]
+        request_data = dict(input_data)
+        if self.context_hash:
+            request_data["context_snapshot"] = {"hash": self.context_hash, "text": self.context_text}
+            messages[1] = {"role": "user", "content": json.dumps(request_data, ensure_ascii=False)}
         response = await self.gateway.complete(ModelRequest(messages=messages, tools=self.tool_schemas))
         self.last_response = response
         try:

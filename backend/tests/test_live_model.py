@@ -30,3 +30,25 @@ async def test_live_runtime_model_parses_structured_plan_and_decision(monkeypatc
 
     assert plan.steps[0]["title"] == "Draft"
     assert decision.action == "complete_step"
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_includes_context_snapshot_in_request(monkeypatch) -> None:
+    from app.live_model import LiveRuntimeModel
+    from app.model_gateway import ModelGateway, ModelProfile
+
+    monkeypatch.setenv("LIVE_MODEL_KEY", "configured")
+    seen: list[dict] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, content=_response('{"needs_clarification":false}'))
+
+    model = LiveRuntimeModel(ModelGateway(ModelProfile("https://provider.test", "demo", "LIVE_MODEL_KEY"), transport=httpx.MockTransport(handler)))
+    model.set_context_snapshot("snapshot-hash", "[security]\nconfirmed memory")
+
+    await model.needs_clarification({"title": "Ship"}, ["Ship"])
+
+    assert seen[0]["messages"][1]["content"]
+    assert "snapshot-hash" in seen[0]["messages"][1]["content"]
+    assert "confirmed memory" in seen[0]["messages"][1]["content"]

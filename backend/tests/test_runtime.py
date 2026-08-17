@@ -190,3 +190,33 @@ async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_pa
 
     assert blocked.state.value == "BLOCKED"
     assert any(event.type == "run.blocked" for event in runtime.events.list(run.id))
+
+
+@pytest.mark.asyncio
+async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+
+    class ContextModel(MockModelGateway):
+        def __init__(self):
+            super().__init__()
+            self.snapshots = []
+
+        def set_context_snapshot(self, snapshot_hash, text):
+            self.snapshots.append((snapshot_hash, text))
+
+    model = ContextModel()
+    runtime = make_runtime(tmp_path, model)
+    run = await runtime.create_goal("Context", "Use confirmed context")
+    await runtime.handle_message(run.id, "Plan with context")
+
+    assert model.snapshots
+    assert any(event.type == "context.snapshot_created" for event in runtime.events.list(run.id))
+
+
+def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+
+    assert "write_note" in runtime._skill_tools_for("react")
+    assert "shell" not in runtime._skill_tools_for("react")

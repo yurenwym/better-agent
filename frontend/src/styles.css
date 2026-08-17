@@ -86,9 +86,11 @@ input::placeholder, textarea::placeholder { color: var(--color-faint); }
 .event-row { display: grid; grid-template-columns: 12px 1fr; gap: var(--space-4); padding: var(--space-4) 0; border-bottom: 1px solid oklch(36% 0.045 165 / 0.55); }
 .event-row:last-child { border-bottom: 0; }
 .event-marker { width: 8px; height: 8px; margin-top: 6px; border-radius: 50%; background: var(--color-accent); }
+.lane-input .event-marker { background: var(--color-user); }
+.lane-context .event-marker { background: var(--color-accent-strong); }
 .lane-model .event-marker { background: var(--color-model); }
-.lane-tool .event-marker { background: var(--color-tool); }
-.lane-user .event-marker { background: var(--color-user); }
+.lane-tools .event-marker { background: var(--color-tool); }
+.lane-memory .event-marker { background: var(--color-warning); }
 .event-main { display: grid; gap: var(--space-3); min-width: 0; }
 .event-meta { justify-content: flex-start; flex-wrap: wrap; }
 .event-meta strong { color: var(--color-ink); font-family: var(--font-mono); font-size: 12px; }

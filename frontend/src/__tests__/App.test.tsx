@@ -59,6 +59,22 @@ describe("personal agent workspace", () => {
     expect(screen.getByText("runtime")).toBeTruthy();
   });
 
+  it("supports text search across trajectory events", () => {
+    render(
+      <EventStream
+        events={[
+          { schema_version: 1, event_id: "evt-1", seq: 1, run_id: "run-1", goal_id: "goal-1", type: "state.transitioned", occurred_at: "2026-08-18T00:00:00Z", actor: "runtime", correlation: {}, data: {} },
+          { schema_version: 1, event_id: "evt-2", seq: 2, run_id: "run-1", goal_id: "goal-1", type: "tool.execution.finished", occurred_at: "2026-08-18T00:00:01Z", actor: "tool", correlation: {}, data: {} },
+        ]}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText("搜索事件"), { target: { value: "tool" } });
+
+    expect(screen.queryByText("state.transitioned")).toBeNull();
+    expect(screen.getByText("tool.execution.finished")).toBeTruthy();
+  });
+
   it("exposes explicit grant and reject controls for a pending approval", () => {
     const grant = () => undefined;
     const reject = () => undefined;

@@ -5,20 +5,26 @@ interface EventStreamProps {
   events: EventRecord[];
 }
 
-const lanes = ["all", "runtime", "model", "tool", "user"] as const;
+const lanes = ["all", "input", "context", "model", "tools", "state", "memory"] as const;
 
 function laneFor(event: EventRecord): string {
+  if (event.type.startsWith("interaction.") || event.actor === "user") return "input";
+  if (event.type.startsWith("context.")) return "context";
   if (event.actor === "model" || event.type.startsWith("model.")) return "model";
-  if (event.actor === "tool" || event.type.startsWith("tool.")) return "tool";
-  if (event.actor === "user") return "user";
-  return "runtime";
+  if (event.actor === "tool" || event.type.startsWith("tool.") || event.type.startsWith("approval.")) return "tools";
+  if (event.type.startsWith("memory.")) return "memory";
+  return "state";
 }
 
 export default function EventStream({ events }: EventStreamProps) {
   const [filter, setFilter] = useState<(typeof lanes)[number]>("all");
+  const [query, setQuery] = useState("");
   const visible = useMemo(
-    () => events.filter((event) => filter === "all" || laneFor(event) === filter),
-    [events, filter],
+    () => events.filter((event) => {
+      const searchable = JSON.stringify(event).toLowerCase();
+      return (filter === "all" || laneFor(event) === filter) && (!query.trim() || searchable.includes(query.trim().toLowerCase()));
+    }),
+    [events, filter, query],
   );
 
   return (
@@ -32,11 +38,17 @@ export default function EventStream({ events }: EventStreamProps) {
           <span>筛选</span>
           <select aria-label="轨迹筛选" value={filter} onChange={(event) => setFilter(event.target.value as (typeof lanes)[number])}>
             <option value="all">全部</option>
-            <option value="runtime">运行时</option>
+            <option value="input">Input</option>
+            <option value="context">Context</option>
             <option value="model">模型</option>
-            <option value="tool">工具</option>
-            <option value="user">用户</option>
+            <option value="tools">Tools</option>
+            <option value="state">State</option>
+            <option value="memory">Memory</option>
           </select>
+        </label>
+        <label className="select-label">
+          <span>搜索</span>
+          <input aria-label="搜索事件" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="type / seq / actor" />
         </label>
       </div>
       {visible.length === 0 ? (
