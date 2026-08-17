@@ -1,0 +1,64 @@
+def test_context_selects_only_confirmed_scope_memories_in_priority_order() -> None:
+    from app.context import ContextAssembler, MemoryForContext
+
+    assembler = ContextAssembler()
+    result = assembler.assemble(
+        user_instruction="finish this week",
+        goal="Ship a proposal",
+        plan="Draft -> review",
+        step="Draft",
+        skill="goal-planning",
+        history=["old", "current"],
+        tool_results=[{"summary": "tool result", "artifact_ref": None}],
+        memories=[
+            MemoryForContext("global-1", "global habit", "global", "confirmed"),
+            MemoryForContext("project-1", "project preference", "project", "confirmed", project_id="p1"),
+            MemoryForContext("candidate", "not allowed", "global", "proposed"),
+            MemoryForContext("other", "wrong project", "project", "confirmed", project_id="p2"),
+            MemoryForContext("skill-1", "skill preference", "skill", "confirmed", skill_name="goal-planning"),
+        ],
+        project_id="p1",
+        max_chars=10000,
+    )
+
+    assert [memory.id for memory in result.memories] == ["project-1", "skill-1", "global-1"]
+    assert "not allowed" not in result.text
+    assert "wrong project" not in result.text
+    assert result.blocks[0].name == "security"
+    assert result.blocks[1].name == "user_instruction"
+
+
+def test_context_crops_once_and_preserves_current_instruction_and_snapshot_hash() -> None:
+    from app.context import ContextAssembler
+
+    assembler = ContextAssembler()
+    result = assembler.assemble(
+        user_instruction="keep this instruction",
+        goal="goal",
+        plan="plan",
+        step="step",
+        skill="skill",
+        history=["old " * 100, "current"],
+        tool_results=[{"summary": "summary", "artifact_ref": "artifact-1", "raw": "large" * 100}],
+        memories=[],
+        project_id=None,
+        max_chars=180,
+    )
+
+    assert result.cropped is True
+    assert result.crop_count == 1
+    assert "keep this instruction" in result.text
+    assert result.snapshot_hash
+    assert result.snapshot_hash == assembler.assemble(
+        user_instruction="keep this instruction",
+        goal="goal",
+        plan="plan",
+        step="step",
+        skill="skill",
+        history=["old " * 100, "current"],
+        tool_results=[{"summary": "summary", "artifact_ref": "artifact-1", "raw": "large" * 100}],
+        memories=[],
+        project_id=None,
+        max_chars=180,
+    ).snapshot_hash
+
