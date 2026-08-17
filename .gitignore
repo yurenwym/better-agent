@@ -18,6 +18,7 @@ venv/
 # Node / frontend
 node_modules/
 dist/
+*.tsbuildinfo
 coverage/
 
 # Local runtime data
