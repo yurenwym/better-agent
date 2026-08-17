@@ -293,9 +293,9 @@ class ApprovalService:
         params_hash = normalized_params_hash(params)
         with self.db.transaction() as connection:
             connection.execute(
-                "INSERT INTO approvals(id, run_id, tool_call_id, params_hash, status, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, 'pending', ?, ?)",
-                (approval_id, run_id, tool_call_id, params_hash, _now(), expires_at),
+                "INSERT INTO approvals(id, run_id, tool_call_id, params_hash, params_json, status, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
+                (approval_id, run_id, tool_call_id, params_hash, json.dumps(params, ensure_ascii=False, sort_keys=True), _now(), expires_at),
             )
         return Approval(approval_id, run_id, tool_call_id, params_hash, "pending")
 
@@ -356,6 +356,7 @@ class Checkpoint:
     artifact_refs: list[str] = field(default_factory=list)
     pending_approvals: list[str] = field(default_factory=list)
     applied_memory_versions: list[str] = field(default_factory=list)
+    pending_actions: list[dict[str, Any]] = field(default_factory=list)
     last_event_seq: int = 0
     id: str = ""
 
@@ -374,6 +375,7 @@ class CheckpointStore:
             "artifact_refs": checkpoint.artifact_refs,
             "pending_approvals": checkpoint.pending_approvals,
             "applied_memory_versions": checkpoint.applied_memory_versions,
+            "pending_actions": checkpoint.pending_actions,
         }
         with self.db.transaction() as connection:
             connection.execute(

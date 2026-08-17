@@ -117,6 +117,7 @@ CREATE TABLE IF NOT EXISTS approvals (
     run_id TEXT NOT NULL,
     tool_call_id TEXT NOT NULL,
     params_hash TEXT NOT NULL,
+    params_json TEXT NOT NULL DEFAULT '{}',
     status TEXT NOT NULL DEFAULT 'pending',
     created_at TEXT NOT NULL,
     acted_at TEXT,
@@ -191,7 +192,8 @@ class Database:
         return connection
 
     def _initialize(self) -> None:
-        with self._connect() as connection:
+        connection = self._connect()
+        try:
             connection.executescript(SCHEMA)
             plan_columns = {
                 row["name"]
@@ -200,6 +202,14 @@ class Database:
             if "goal_id" not in plan_columns:
                 connection.execute(
                     "ALTER TABLE plan_versions ADD COLUMN goal_id TEXT NOT NULL DEFAULT ''"
+                )
+            approval_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(approvals)").fetchall()
+            }
+            if "params_json" not in approval_columns:
+                connection.execute(
+                    "ALTER TABLE approvals ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}'"
                 )
             step_columns = {
                 row["name"]
@@ -233,6 +243,8 @@ class Database:
                     DROP TABLE plan_steps_legacy;
                     """
                 )
+        finally:
+            connection.close()
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:

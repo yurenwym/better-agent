@@ -103,14 +103,7 @@ class ToolRegistry:
         run_id: str,
         skill_tools: set[str] | None,
     ) -> ToolResult:
-        spec = self._tools.get(call.name)
-        if spec is None:
-            raise ToolRejected("unknown tool")
-        if skill_tools is not None and call.name not in skill_tools:
-            raise ToolRejected("skill does not allow tool")
-        _validate_schema(spec.schema, call.params)
-        for field_name in spec.path_fields:
-            self.safe_path(call.params[field_name])
+        spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools)
         params_hash = normalized_params_hash(call.params)
         existing = self._existing_call(call.id)
         if existing:
@@ -127,6 +120,27 @@ class ToolRegistry:
             raise TypeError("tool handler must return ToolResult")
         self._record_call(call, run_id, params_hash, spec.risk, result)
         return result
+
+    def authorize(
+        self,
+        call: ToolCall,
+        *,
+        run_id: str,
+        skill_tools: set[str] | None,
+    ) -> ToolSpec:
+        spec = self._tools.get(call.name)
+        if spec is None:
+            raise ToolRejected("unknown tool")
+        if skill_tools is not None and call.name not in skill_tools:
+            raise ToolRejected("skill does not allow tool")
+        _validate_schema(spec.schema, call.params)
+        for field_name in spec.path_fields:
+            self.safe_path(call.params[field_name])
+        if spec.risk == ToolRisk.WRITE:
+            if self.approval_service is None:
+                raise ApprovalRequired("WRITE tool requires approval")
+            self.approval_service.require_granted(run_id, call.id, call.params)
+        return spec
 
     def safe_path(self, value: str) -> Path:
         if not isinstance(value, str) or not value.strip():
@@ -304,4 +318,3 @@ def _validate_schema(schema: dict[str, Any], params: dict[str, Any]) -> None:
         expected = properties.get(name, {}).get("type")
         if expected == "string" and not isinstance(value, str):
             raise ToolRejected(f"parameter {name} must be a string")
-
