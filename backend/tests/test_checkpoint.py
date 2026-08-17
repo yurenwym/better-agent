@@ -28,4 +28,27 @@ def test_checkpoint_persists_runtime_state_and_deduplicates_completed_side_effec
     assert loaded.last_event_seq == 12
     assert store.completed_tool_result("run-1", "call-1") == {"ok": True}
     assert store.completed_tool_result("run-1", "call-2") is None
+import pytest
 
+from test_runtime import make_runtime
+
+
+@pytest.mark.asyncio
+async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(tmp_path, MockModelGateway(
+        plan_steps=[{"id": "step-1", "title": "Observe"}],
+        decisions=[ModelDecision.await_outcome("wait")],
+    ))
+    candidate = runtime.memory.create_candidate("memory", "memory", "preference", "Use concise plans", "global", 0.9, [])
+    runtime.memory.confirm(candidate.id)
+    run = await runtime.create_goal("Memory", "Use memory")
+    await runtime.handle_message(run.id, "Use memory")
+    await runtime.approve_plan(run.id, 1)
+
+    checkpoint = runtime.checkpoints.latest(run.id)
+
+    assert checkpoint is not None
+    assert checkpoint.applied_memory_versions
+    assert any(event.type == "memory.applied" for event in runtime.events.list(run.id))

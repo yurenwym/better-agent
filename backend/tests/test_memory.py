@@ -48,4 +48,56 @@ def test_memory_reject_disable_edit_and_rollback_preserve_file_versions(tmp_path
     service.rollback(second.id, 1)
     assert (root / "preferences.md").read_text(encoding="utf-8") == "Use bullets\n"
     assert service.disable(second.id).status == "disabled"
+    assert any(event.type == "memory.disabled" for event in events.list("run-1"))
     assert service.context_memories(None, None) == []
+
+
+def test_manual_markdown_edit_creates_version_and_updates_confirmed_content(tmp_path) -> None:
+    from app.db import Database
+    from app.events import EventStore
+    from app.memory import MemoryService
+
+    root = tmp_path / "memory"
+    db = Database(tmp_path / "agent.db")
+    service = MemoryService(db, EventStore(db), root)
+    record = service.create_candidate("run-1", "goal-1", "preference", "Original", "global", 0.8, [])
+    service.confirm(record.id)
+    (root / "preferences.md").write_text("Manual edit\n", encoding="utf-8")
+
+    changed = service.sync_manual_edits()
+
+    assert changed == ["preferences.md"]
+    assert service.get(record.id).content == "Manual edit"
+    assert len(service.versions(record.id)) == 2
+
+
+def test_skill_scoped_memory_is_written_to_skill_markdown(tmp_path) -> None:
+    from app.db import Database
+    from app.events import EventStore
+    from app.memory import MemoryService
+
+    root = tmp_path / "memory"
+    db = Database(tmp_path / "agent.db")
+    service = MemoryService(db, EventStore(db), root)
+    record = service.create_candidate("run-1", "goal-1", "habit", "Use the planner", "skill", 0.8, [], skill_name="goal-planning")
+
+    service.confirm(record.id)
+
+    assert (root / "skills" / "goal-planning.md").read_text(encoding="utf-8") == "Use the planner\n"
+
+
+def test_scoped_memory_requires_its_scope_identifier(tmp_path) -> None:
+    import pytest
+
+    from app.db import Database
+    from app.events import EventStore
+    from app.memory import MemoryService
+
+    db = Database(tmp_path / "agent.db")
+    service = MemoryService(db, EventStore(db), tmp_path / "memory")
+
+    with pytest.raises(ValueError):
+        service.create_candidate("run", "goal", "preference", "missing project", "project", 0.5, [])
+
+    with pytest.raises(ValueError):
+        service.create_candidate("run", "goal", "preference", "escape", "project", 0.5, [], project_id="../outside")

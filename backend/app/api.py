@@ -78,6 +78,10 @@ def register_routes(app) -> None:
     async def resume_run(run_id: str, service=Depends(runtime)) -> dict[str, Any]:
         return _run_json(await service.resume(run_id), service)
 
+    @app.post("/api/runs/{run_id}/outcome", dependencies=[Depends(mutate)])
+    async def continue_outcome(run_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        return _run_json(await service.continue_outcome(run_id, bool(payload.get("finished", False))), service)
+
     @app.post("/api/runs/{run_id}/cancel", dependencies=[Depends(mutate)])
     async def cancel_run(run_id: str, service=Depends(runtime)) -> dict[str, Any]:
         return _run_json(await service.cancel(run_id), service)
@@ -136,7 +140,7 @@ def register_routes(app) -> None:
     @app.get("/api/runs/{run_id}/events/stream")
     async def event_stream(run_id: str, request: Request) -> StreamingResponse:
         service = runtime(request)
-        last_event_id = request.headers.get("last-event-id", "0")
+        last_event_id = request.headers.get("last-event-id") or request.query_params.get("after_seq", "0")
         try:
             after_seq = int(last_event_id or 0)
         except ValueError:
@@ -167,19 +171,27 @@ def register_routes(app) -> None:
         service = runtime(request)
         return {"memories": [_memory_json(record) for record in service.memory.all_records()]}
 
+    @app.get("/api/memories/{memory_id}/versions")
+    async def list_memory_versions(memory_id: str, request: Request) -> dict[str, Any]:
+        service = runtime(request)
+        return {"versions": [_memory_version_json(version) for version in service.memory.versions(memory_id)]}
+
     @app.post("/api/memories", dependencies=[Depends(mutate)])
     async def create_memory(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
-        record = service.memory.create_candidate(
-            payload.get("run_id", "memory"),
-            payload.get("goal_id", "memory"),
-            payload["kind"],
-            payload["content"],
-            payload.get("scope", "global"),
-            float(payload.get("confidence", 1.0)),
-            payload.get("evidence_event_ids", []),
-            payload.get("project_id"),
-            payload.get("skill_name"),
-        )
+        try:
+            record = service.memory.create_candidate(
+                payload.get("run_id", "memory"),
+                payload.get("goal_id", "memory"),
+                payload["kind"],
+                payload["content"],
+                payload.get("scope", "global"),
+                float(payload.get("confidence", 1.0)),
+                payload.get("evidence_event_ids", []),
+                payload.get("project_id"),
+                payload.get("skill_name"),
+            )
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _memory_json(record)
 
     @app.patch("/api/memories/{memory_id}", dependencies=[Depends(mutate)])
@@ -193,6 +205,10 @@ def register_routes(app) -> None:
     @app.post("/api/memories/{memory_id}/reject", dependencies=[Depends(mutate)])
     async def reject_memory(memory_id: str, service=Depends(runtime)) -> dict[str, Any]:
         return _memory_json(service.memory.reject(memory_id))
+
+    @app.post("/api/memories/{memory_id}/disable", dependencies=[Depends(mutate)])
+    async def disable_memory(memory_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        return _memory_json(service.memory.disable(memory_id))
 
     @app.post("/api/memories/{memory_id}/rollback", dependencies=[Depends(mutate)])
     async def rollback_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
@@ -209,7 +225,7 @@ def _run_json(run, service) -> dict[str, Any]:
         "current_plan_version_id": run.current_plan_version_id,
         "current_step_id": run.current_step_id,
         "version": run.version,
-        "budget": run.budget,
+        "budget": _public_budget(run.budget),
         "pending_approvals": [approval.id for approval in service.pending_approvals(run.id)],
     }
 
@@ -247,8 +263,25 @@ def _memory_json(record) -> dict[str, Any]:
         "confidence": record.confidence,
         "status": record.status,
         "version": record.version,
+        "evidence_event_ids": list(record.evidence_event_ids),
         "path": record.path,
     }
+
+
+def _memory_version_json(version) -> dict[str, Any]:
+    return {
+        "path": version.path,
+        "version": version.version,
+        "content": version.content,
+        "content_hash": version.content_hash,
+    }
+
+
+def _public_budget(budget: dict[str, Any]) -> dict[str, Any]:
+    visible = {key: value for key, value in budget.items() if key != "identical_actions"}
+    if "identical_actions" in budget:
+        visible["identical_action_count"] = len(budget["identical_actions"])
+    return visible
 
 
 def _event_json(event) -> dict[str, Any]:
@@ -264,4 +297,3 @@ def _event_json(event) -> dict[str, Any]:
         "correlation": event.correlation,
         "data": event.data,
     }
-

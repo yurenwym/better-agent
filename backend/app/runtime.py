@@ -23,7 +23,8 @@ from .domain import (
 )
 from .events import EventStore
 from .memory import MemoryService
-from .tools import ToolCall, ToolRegistry, ToolResult
+from .stats import StatsProjector
+from .tools import ToolCall, ToolRegistry, ToolRejected, ToolResult
 
 
 @dataclass
@@ -142,6 +143,8 @@ class AgentRuntime:
         self.tools = tools
         self.model = model
         self.config = config or RuntimeConfig()
+        self.stats = StatsProjector(db, events)
+        self.events.projector = self.stats
         self.state_machine = StateMachine()
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -155,6 +158,7 @@ class AgentRuntime:
             "react_iteration": 0,
             "consecutive_tool_errors": 0,
             "identical_actions": {},
+            "applied_memory_versions": [],
         }
         with self.db.transaction() as connection:
             connection.execute(
@@ -194,6 +198,13 @@ class AgentRuntime:
             project_id=row["project_id"],
         )
 
+    def recoverable_runs(self) -> list[RunSnapshot]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT id FROM runs WHERE state NOT IN ('COMPLETED', 'FAILED', 'CANCELLED') ORDER BY updated_at, id"
+            ).fetchall()
+        return [self.get_run(row["id"]) for row in rows]
+
     async def handle_message(self, run_id: str, content: str) -> RunSnapshot:
         lock = self._lock(run_id)
         async with lock:
@@ -220,6 +231,8 @@ class AgentRuntime:
                     goal,
                     interactions,
                 )
+                if needs_clarification is None:
+                    return self.get_run(run_id)
                 if needs_clarification:
                     self._transition(run, AgentState.CLARIFYING, {"reason": "more information required"})
                     return self.get_run(run_id)
@@ -230,6 +243,8 @@ class AgentRuntime:
                 run = self.get_run(run_id)
             if run.state == AgentState.PLANNING:
                 draft = await self._model_call(run, "planning", self.model.plan, goal, interactions)
+                if draft is None:
+                    return self.get_run(run_id)
                 plan = self.plans.create(run_id, run.goal_id, draft.steps, draft.summary)
                 self._set_run_fields(run_id, current_plan_version_id=plan.id)
                 self.events.append(
@@ -412,7 +427,16 @@ class AgentRuntime:
                 "runtime",
                 {"plan_step_id": step.id, "plan_version_id": plan.id},
             )
-            self.memory.apply_confirmed(run_id, run.goal_id, run.project_id, None)
+            applied = self.memory.apply_confirmed(run_id, run.goal_id, run.project_id, None)
+            if applied:
+                budget = dict(self.get_run(run_id).budget)
+                versions = list(budget.get("applied_memory_versions", []))
+                for record in applied:
+                    reference = f"{record.id}:{record.version or 0}"
+                    if reference not in versions:
+                        versions.append(reference)
+                budget["applied_memory_versions"] = versions
+                self._set_run_fields(run_id, budget=budget)
             outcome = await self._execute_step(run_id, plan, step.id)
             if outcome in {"blocked", "awaiting_outcome", "approval"}:
                 return self.get_run(run_id)
@@ -422,6 +446,7 @@ class AgentRuntime:
         observation = ""
         pending = self._pending_action(run_id)
         while True:
+            resumed_pending_action = pending is not None
             run = self.get_run(run_id)
             budget = dict(run.budget)
             iteration = int(budget.get("react_iteration", 0))
@@ -447,6 +472,8 @@ class AgentRuntime:
                     observation,
                     iteration + 1,
                 )
+                if decision is None:
+                    return "blocked"
             iteration = int(self.get_run(run_id).budget.get("react_iteration", iteration))
             correlation = {"plan_version_id": plan.id, "plan_step_id": step_id, "react_iteration": iteration}
             self.events.append(run_id, run.goal_id, "react.iteration_started", "runtime", correlation)
@@ -481,13 +508,14 @@ class AgentRuntime:
                 ensure_ascii=False,
                 sort_keys=True,
             )
-            actions = dict(self.get_run(run_id).budget.get("identical_actions", {}))
-            actions[action_key] = int(actions.get(action_key, 0)) + 1
-            budget = dict(self.get_run(run_id).budget)
-            budget["identical_actions"] = actions
-            self._set_run_fields(run_id, budget=budget)
-            if actions[action_key] > self.config.max_identical_actions:
-                return self._block(run_id, "identical action budget exhausted", budget, "budget.exhausted")
+            if not resumed_pending_action:
+                actions = dict(self.get_run(run_id).budget.get("identical_actions", {}))
+                actions[action_key] = int(actions.get(action_key, 0)) + 1
+                budget = dict(self.get_run(run_id).budget)
+                budget["identical_actions"] = actions
+                self._set_run_fields(run_id, budget=budget)
+                if actions[action_key] > self.config.max_identical_actions:
+                    return self._block(run_id, "identical action budget exhausted", budget, "budget.exhausted")
             call = decision.tool_call
             self.events.append(run_id, run.goal_id, "tool.proposed", "model", {**correlation, "tool_call_id": call.id, "name": call.name})
             try:
@@ -533,6 +561,8 @@ class AgentRuntime:
                     [approval.id],
                 )
                 return "approval"
+            except ToolRejected as exc:
+                return self._block(run_id, f"tool rejected: {exc}", self.get_run(run_id).budget, "run.blocked")
             if not tool_result.ok:
                 budget = dict(self.get_run(run_id).budget)
                 budget["consecutive_tool_errors"] = int(budget.get("consecutive_tool_errors", 0)) + 1
@@ -550,6 +580,8 @@ class AgentRuntime:
         run = self.get_run(run_id)
         plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
         candidates = await self._model_call(run, "reflection", self.model.reflect, self._goal(run.goal_id), plan, run_id)
+        if candidates is None:
+            return self.get_run(run_id)
         for candidate in candidates:
             self.memory.create_candidate(
                 run_id,
@@ -607,7 +639,7 @@ class AgentRuntime:
                 observation=observation,
                 artifact_refs=[],
                 pending_approvals=pending_approvals or [],
-                applied_memory_versions=[],
+                applied_memory_versions=list(run.budget.get("applied_memory_versions", [])),
                 pending_actions=pending_actions or [],
                 last_event_seq=self.events.list(run_id)[-1].seq if self.events.list(run_id) else 0,
             )
@@ -619,13 +651,18 @@ class AgentRuntime:
         checkpoint = self.checkpoints.latest(run_id)
         if not checkpoint or not checkpoint.pending_actions:
             return None
-        pending = self._pending_approval_for(checkpoint.pending_actions[0]["id"], run_id)
-        return checkpoint.pending_actions[0] if pending or self.checkpoints.completed_tool_result(run_id, checkpoint.pending_actions[0]["id"]) else checkpoint.pending_actions[0]
+        approval = self._approval_for(checkpoint.pending_actions[0]["id"], run_id)
+        completed = self.checkpoints.completed_tool_result(run_id, checkpoint.pending_actions[0]["id"])
+        return checkpoint.pending_actions[0] if (approval and approval["status"] in {"pending", "granted"}) or completed is not None else None
 
     def _pending_approval_for(self, tool_call_id: str, run_id: str) -> dict[str, Any] | None:
+        approval = self._approval_for(tool_call_id, run_id)
+        return approval if approval and approval["status"] == "pending" else None
+
+    def _approval_for(self, tool_call_id: str, run_id: str) -> dict[str, Any] | None:
         with self.db.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND status = 'pending' "
+                "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? "
                 "ORDER BY created_at DESC LIMIT 1",
                 (run_id, tool_call_id),
             ).fetchone()
@@ -674,11 +711,94 @@ class AgentRuntime:
 
     async def _model_call(self, run: RunSnapshot, kind: str, method, *args):
         invocation_id = f"invocation_{uuid.uuid4().hex}"
+        attempt_id = f"{invocation_id}_attempt_1"
         self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.attempt_started",
+            "runtime",
+            {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
+        )
         try:
-            return await method(*args)
-        finally:
-            self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
+            result = await method(*args)
+        except Exception as exc:
+            from .model_gateway import GatewayError
+
+            if not isinstance(exc, GatewayError):
+                raise
+            self.events.append(
+                run.id,
+                run.goal_id,
+                "model.attempt_finished",
+                "runtime",
+                {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "failed", "error_kind": exc.kind},
+            )
+            self.events.append(
+                run.id,
+                run.goal_id,
+                "model.invocation_finished",
+                "runtime",
+                {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
+            )
+            current = self.get_run(run.id)
+            reason = f"model {exc.kind}"
+            if current.state == AgentState.RECEIVED:
+                self._transition(current, AgentState.FAILED, {"reason": reason})
+                self.events.append(run.id, run.goal_id, "run.failed", "runtime", {"reason": reason})
+                self._save_checkpoint(run.id, reason)
+            elif current.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
+                self._block(run.id, reason, current.budget, "run.blocked")
+            return None
+        else:
+            response = getattr(self.model, "last_response", None)
+            self._record_model_response(run, invocation_id, attempt_id, response)
+            self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
+            return result
+
+    def _record_model_response(self, run: RunSnapshot, invocation_id: str, attempt_id: str, response: Any) -> None:
+        if response is None:
+            self.events.append(
+                run.id,
+                run.goal_id,
+                "model.attempt_finished",
+                "runtime",
+                {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "success"},
+            )
+            return
+        attempts = max(int(getattr(response, "attempts", 1)), 1)
+        for number in range(2, attempts + 1):
+            retry_id = f"{invocation_id}_attempt_{number}"
+            self.events.append(run.id, run.goal_id, "model.attempt_started", "runtime", {"model_invocation_id": invocation_id, "model_attempt_id": retry_id, "attempt": number, "status": "retry"})
+            self.events.append(run.id, run.goal_id, "model.attempt_finished", "runtime", {"model_invocation_id": invocation_id, "model_attempt_id": retry_id, "attempt": number, "status": "retry"})
+        timing = response.timing
+        if timing.ttft_seconds is not None:
+            self.events.append(run.id, run.goal_id, "model.first_token", "runtime", {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "ttft_seconds": timing.ttft_seconds})
+        usage = response.usage
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.usage_updated",
+            "runtime",
+            {
+                "model_invocation_id": invocation_id,
+                "model_attempt_id": attempt_id,
+                "usage": {
+                    "uncached_input_tokens": usage.uncached_input_tokens,
+                    "cache_read_tokens": usage.cache_read_tokens,
+                    "cache_write_tokens": usage.cache_write_tokens,
+                    "output_tokens": usage.output_tokens,
+                    "reasoning_tokens": usage.reasoning_tokens,
+                },
+            },
+        )
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.attempt_finished",
+            "runtime",
+            {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "decode_seconds": timing.decode_seconds, "status": "success"},
+        )
 
     def _interaction_text(self, run_id: str) -> list[str]:
         with self.db.connection() as connection:

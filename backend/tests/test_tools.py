@@ -67,3 +67,23 @@ def test_read_and_write_tools_require_skill_intersection_and_write_approval(tmp_
     repeated = registry.execute(call, run_id="run-1", skill_tools={"write_note"})
     assert repeated.data == result.data
 
+
+def test_tool_registry_returns_standard_timeout_result(tmp_path) -> None:
+    import time
+
+    from app.tools import ToolCall, ToolRegistry, ToolResult, ToolRisk, ToolSpec
+
+    registry = ToolRegistry(tmp_path / "workspace")
+    registry.register(ToolSpec(
+        name="slow",
+        description="slow",
+        schema={"type": "object", "properties": {}, "additionalProperties": False},
+        risk=ToolRisk.PURE,
+        handler=lambda params: (time.sleep(0.05), ToolResult(True, "done"))[1],
+        timeout_seconds=0.001,
+    ))
+
+    result = registry.execute(ToolCall("slow-1", "slow", {}), run_id="run-1", skill_tools=None)
+
+    assert result.ok is False
+    assert result.error == "timeout"

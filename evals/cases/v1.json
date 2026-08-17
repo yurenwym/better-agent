@@ -1,0 +1,18 @@
+{
+  "suite": "v1",
+  "version": 1,
+  "scenarios": [
+    {"id": "normal-loop", "kind": "state-machine"},
+    {"id": "clarification", "kind": "state-machine"},
+    {"id": "plan-revision", "kind": "plan-version"},
+    {"id": "step-cancel", "kind": "checkpoint"},
+    {"id": "write-rejection", "kind": "approval"},
+    {"id": "unknown-tool", "kind": "tool-safety"},
+    {"id": "rate-limit-retry", "kind": "model-gateway"},
+    {"id": "authentication-blocked", "kind": "model-gateway"},
+    {"id": "budget-recovery", "kind": "budget"},
+    {"id": "tool-failure", "kind": "tool-result"},
+    {"id": "memory-confirmation", "kind": "memory"},
+    {"id": "restart-recovery", "kind": "recovery"}
+  ]
+}

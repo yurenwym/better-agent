@@ -161,7 +161,7 @@ class ModelGateway:
     ) -> ModelResponse:
         started = time.perf_counter()
         content: list[str] = []
-        tool_calls: list[dict[str, Any]] = []
+        tool_call_fragments: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
         usage = UsageBuckets()
         first_token_at: float | None = None
@@ -220,7 +220,16 @@ class ModelGateway:
                                     first_token_at = time.perf_counter()
                                 content.append(token)
                             if delta.get("tool_calls"):
-                                tool_calls.extend(delta["tool_calls"])
+                                for fragment in delta["tool_calls"]:
+                                    index = int(fragment.get("index", len(tool_call_fragments)))
+                                    current = tool_call_fragments.setdefault(index, {"index": index, "function": {"arguments": ""}})
+                                    if fragment.get("id"):
+                                        current["id"] = fragment["id"]
+                                    function = fragment.get("function") or {}
+                                    if function.get("name"):
+                                        current["function"]["name"] = function["name"]
+                                    if function.get("arguments"):
+                                        current["function"]["arguments"] += function["arguments"]
                             if choice.get("finish_reason"):
                                 finish_reason = choice["finish_reason"]
         except httpx.TimeoutException as exc:
@@ -228,7 +237,7 @@ class ModelGateway:
         finished = time.perf_counter()
         return ModelResponse(
             message="".join(content),
-            tool_calls=tool_calls,
+            tool_calls=[tool_call_fragments[index] for index in sorted(tool_call_fragments)],
             finish_reason=finish_reason,
             usage=usage,
             timing=Timing(started, first_token_at, finished),
@@ -258,4 +267,3 @@ def normalize_usage(payload: dict[str, Any]) -> UsageBuckets:
 
 def _int(value: Any) -> int | None:
     return int(value) if value is not None else None
-

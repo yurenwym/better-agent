@@ -1,0 +1,181 @@
+import type {
+  Bootstrap,
+  EventRecord,
+  GoalResponse,
+  MemoryRecord,
+  PlanResponse,
+  PlanVersion,
+  Run,
+  Stats,
+} from "./types";
+
+export type Fetcher = typeof fetch;
+
+async function json<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(detail || `Request failed (${response.status})`);
+  }
+  return response.json() as Promise<T>;
+}
+
+function mutationHeaders(csrfToken: string): HeadersInit {
+  return { "Content-Type": "application/json", "X-CSRF-Token": csrfToken };
+}
+
+export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap> {
+  return json<Bootstrap>(await fetcher("/api/bootstrap"));
+}
+
+export async function createGoal(
+  payload: { title: string; description: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<GoalResponse> {
+  return json<GoalResponse>(await fetcher("/api/goals", {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
+}
+
+export async function sendMessage(goalId: string, content: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/goals/${goalId}/messages`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify({ content }),
+  }));
+}
+
+export async function getRun(runId: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}`));
+}
+
+export async function resumeRun(runId: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/resume`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function continueOutcome(runId: string, finished: boolean, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/outcome`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify({ finished }),
+  }));
+}
+
+export async function cancelRun(runId: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/cancel`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function addBudget(runId: string, amount: number, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/budget`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify({ amount }),
+  }));
+}
+
+export async function getPlans(runId: string): Promise<PlanResponse> {
+  return json<PlanResponse>(await fetch(`/api/runs/${runId}/plans`));
+}
+
+export async function approvePlan(runId: string, version: number, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/plans/${version}/approve`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function revisePlan(
+  runId: string,
+  expectedVersion: number,
+  steps: Array<{ id: string; title: string }>,
+  csrfToken: string,
+): Promise<PlanVersion> {
+  return json<PlanVersion>(await fetch(`/api/runs/${runId}/plans/revise`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify({ expected_version: expectedVersion, steps }),
+  }));
+}
+
+export async function cancelStep(runId: string, stepId: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/runs/${runId}/steps/${stepId}/cancel`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function grantApproval(approvalId: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/approvals/${approvalId}/grant`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function rejectApproval(approvalId: string, csrfToken: string): Promise<Run> {
+  return json<Run>(await fetch(`/api/approvals/${approvalId}/reject`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function getEvents(runId: string, afterSeq = 0): Promise<{ events: EventRecord[] }> {
+  return json<{ events: EventRecord[] }>(await fetch(`/api/runs/${runId}/events?after_seq=${afterSeq}`));
+}
+
+export async function getStats(runId: string): Promise<Stats> {
+  return json<Stats>(await fetch(`/api/runs/${runId}/stats`));
+}
+
+export async function getMemories(): Promise<{ memories: MemoryRecord[] }> {
+  return json<{ memories: MemoryRecord[] }>(await fetch("/api/memories"));
+}
+
+export async function confirmMemory(memoryId: string, csrfToken: string, content?: string): Promise<MemoryRecord> {
+  return json<MemoryRecord>(await fetch(`/api/memories/${memoryId}/confirm`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify(content ? { content } : {}),
+  }));
+}
+
+export async function rejectMemory(memoryId: string, csrfToken: string): Promise<MemoryRecord> {
+  return json<MemoryRecord>(await fetch(`/api/memories/${memoryId}/reject`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function disableMemory(memoryId: string, csrfToken: string): Promise<MemoryRecord> {
+  return json<MemoryRecord>(await fetch(`/api/memories/${memoryId}/disable`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function editMemory(memoryId: string, content: string, csrfToken: string): Promise<MemoryRecord> {
+  return json<MemoryRecord>(await fetch(`/api/memories/${memoryId}`, {
+    method: "PATCH", headers: mutationHeaders(csrfToken), body: JSON.stringify({ content }),
+  }));
+}
+
+export async function rollbackMemory(memoryId: string, version: number, csrfToken: string): Promise<MemoryRecord> {
+  return json<MemoryRecord>(await fetch(`/api/memories/${memoryId}/rollback`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify({ version }),
+  }));
+}
+
+export function subscribeToEvents(
+  runId: string,
+  lastEventId: number,
+  onEvent: (event: EventRecord) => void,
+): () => void {
+  let cursor = lastEventId;
+  const source = new EventSource(`/api/runs/${runId}/events/stream?after_seq=${encodeURIComponent(lastEventId)}`, { withCredentials: false });
+  const handler = (raw: Event) => {
+    const message = raw as MessageEvent<string>;
+    try {
+      const event = JSON.parse(message.data) as EventRecord;
+      const eventSeq = event.seq || Number(message.lastEventId || 0);
+      if (eventSeq <= cursor) return;
+      cursor = eventSeq;
+      onEvent(event);
+    } catch { /* malformed SSE is ignored until reconnect */ }
+  };
+  source.addEventListener("trajectory", handler);
+  source.onerror = () => { /* native EventSource reconnects and carries Last-Event-ID */ };
+  return () => source.close();
+}

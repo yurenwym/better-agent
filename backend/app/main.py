@@ -1,15 +1,17 @@
 from __future__ import annotations
 
 import secrets
+from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from .api import register_routes
 from .config import AppConfig
 
 
-def create_app(config: AppConfig | None = None, runtime=None) -> FastAPI:
+def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | Path | None = None) -> FastAPI:
     settings = config or AppConfig()
     app = FastAPI(title="better-agent", version=settings.version)
     app.state.config = settings
@@ -28,6 +30,11 @@ def create_app(config: AppConfig | None = None, runtime=None) -> FastAPI:
         return settings.public_view()
 
     register_routes(app)
+
+    if static_dir is not None:
+        static_path = Path(static_dir)
+        if static_path.is_dir() and (static_path / "index.html").is_file():
+            app.mount("/", StaticFiles(directory=static_path, html=True), name="frontend")
 
     return app
 

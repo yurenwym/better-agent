@@ -53,6 +53,7 @@ class EventStore:
     def __init__(self, db: Database, workspace: str | Path | None = None) -> None:
         self.db = db
         self.workspace = Path(workspace) if workspace else db.workspace
+        self.projector = None
 
     def append(
         self,
@@ -101,7 +102,10 @@ class EventStore:
                     _json(event.data),
                 ),
             )
-        return Event(**{**asdict(event), "seq": next_seq})
+        stored = Event(**{**asdict(event), "seq": next_seq})
+        if self.projector is not None:
+            self.projector.project(run_id)
+        return stored
 
     def list(self, run_id: str, after_seq: int = 0) -> list[Event]:
         with self.db.connection() as connection:
@@ -186,4 +190,3 @@ def _redact_value(value: Any, workspace: Path | None, key: str) -> Any:
 
 def content_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
-

@@ -46,3 +46,24 @@ def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY"):
         model=values["LLM_MODEL_ID"],
         api_key_env=api_key_env,
     )
+
+
+def load_model_profile_from_env():
+    """Load a single named OpenAI-compatible profile without exposing its key."""
+    base_url = os.getenv("AGENT_MODEL_BASE_URL")
+    model = os.getenv("AGENT_MODEL_ID")
+    api_key_env = os.getenv("AGENT_MODEL_API_KEY_ENV", "AGENT_MODEL_API_KEY")
+    if not base_url or not model:
+        raise ValueError("AGENT_MODEL_BASE_URL and AGENT_MODEL_ID are required")
+    if not os.getenv(api_key_env):
+        raise ValueError(f"model key is not configured in {api_key_env}")
+    from .model_gateway import ModelProfile
+
+    return ModelProfile(
+        base_url=base_url,
+        model=model,
+        api_key_env=api_key_env,
+        timeout_seconds=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "60")),
+        max_attempts=int(os.getenv("AGENT_MODEL_MAX_ATTEMPTS", "4")),
+        network_retries=int(os.getenv("AGENT_MODEL_NETWORK_RETRIES", "2")),
+    )

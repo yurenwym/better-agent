@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ast
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 import json
 import os
 import tempfile
@@ -115,7 +116,18 @@ class ToolRegistry:
             if self.approval_service is None:
                 raise ApprovalRequired("WRITE tool requires approval")
             self.approval_service.require_granted(run_id, call.id, call.params)
-        result = spec.handler(call.params)
+        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="better-agent-tool")
+        future = executor.submit(spec.handler, call.params)
+        try:
+            result = future.result(timeout=spec.timeout_seconds)
+        except FutureTimeout:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
+            self._record_call(call, run_id, params_hash, spec.risk, timeout_result)
+            return timeout_result
+        else:
+            executor.shutdown(wait=True)
         if not isinstance(result, ToolResult):
             raise TypeError("tool handler must return ToolResult")
         self._record_call(call, run_id, params_hash, spec.risk, result)

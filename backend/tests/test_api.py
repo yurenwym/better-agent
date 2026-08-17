@@ -81,3 +81,118 @@ def test_mutating_routes_require_json_and_csrf_and_plan_revision_is_optimistic(t
     )
     assert conflict.status_code == 409
 
+
+def test_stats_route_returns_projected_event_metrics(tmp_path) -> None:
+    import asyncio
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = asyncio.run(runtime.create_goal("Stats", "Project events"))
+    runtime.events.append(run.id, run.goal_id, "interaction.started", "user", {})
+    app = create_app(runtime=runtime)
+
+    response = TestClient(app).get(f"/api/runs/{run.id}/stats", headers={"host": "127.0.0.1:8000"})
+
+    assert response.status_code == 200
+    assert response.json()["interactions"] == 1
+
+
+def test_memory_disable_route_removes_confirmed_memory_from_context(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    created = client.post(
+        "/api/memories",
+        json={"kind": "preference", "content": "Use bullets", "scope": "global"},
+        headers=_headers(app),
+    )
+    memory_id = created.json()["id"]
+    client.post(f"/api/memories/{memory_id}/confirm", json={}, headers=_headers(app))
+
+    disabled = client.post(f"/api/memories/{memory_id}/disable", json={}, headers=_headers(app))
+
+    assert disabled.status_code == 200
+    assert disabled.json()["status"] == "disabled"
+    assert runtime.memory.context_memories(None, None) == []
+
+
+def test_outcome_route_can_finish_an_awaiting_run(tmp_path) -> None:
+    import asyncio
+    from app.main import create_app
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "Wait"}],
+            decisions=[ModelDecision.await_outcome("external result")],
+        ),
+    )
+    run = asyncio.run(runtime.create_goal("Outcome", "Wait for result"))
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    client.post(f"/api/goals/{run.goal_id}/messages", json={"content": "Wait"}, headers=_headers(app))
+    client.post(f"/api/runs/{run.id}/plans/1/approve", json={}, headers=_headers(app))
+
+    response = client.post(f"/api/runs/{run.id}/outcome", json={"finished": True}, headers=_headers(app))
+
+    assert response.status_code == 200
+    assert response.json()["state"] == "COMPLETED"
+
+
+def test_memory_api_exposes_evidence_event_ids_for_audit(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    created = client.post(
+        "/api/memories",
+        json={"kind": "preference", "content": "Use bullets", "scope": "global", "evidence_event_ids": ["evt-1"]},
+        headers=_headers(app),
+    )
+
+    assert created.status_code == 200
+    assert created.json()["evidence_event_ids"] == ["evt-1"]
+
+
+def test_memory_versions_endpoint_exposes_markdown_history(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    created = client.post(
+        "/api/memories",
+        json={"kind": "preference", "content": "First", "scope": "global"},
+        headers=_headers(app),
+    )
+    memory_id = created.json()["id"]
+    client.post(f"/api/memories/{memory_id}/confirm", json={}, headers=_headers(app))
+    client.patch(f"/api/memories/{memory_id}", json={"content": "Second"}, headers=_headers(app))
+
+    response = client.get(f"/api/memories/{memory_id}/versions", headers={"host": "127.0.0.1:8000"})
+
+    assert response.status_code == 200
+    assert [item["version"] for item in response.json()["versions"]] == [1, 2]
+
+
+def test_memory_create_rejects_missing_scope_identifier(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    response = TestClient(app).post(
+        "/api/memories",
+        json={"kind": "preference", "content": "Project only", "scope": "project"},
+        headers=_headers(app),
+    )
+
+    assert response.status_code == 422

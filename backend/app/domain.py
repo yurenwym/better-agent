@@ -302,6 +302,18 @@ class ApprovalService:
         approval_id = f"approval_{uuid.uuid4().hex}"
         params_hash = normalized_params_hash(params)
         with self.db.transaction() as connection:
+            existing = connection.execute(
+                "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND params_hash = ?",
+                (run_id, tool_call_id, params_hash),
+            ).fetchone()
+            if existing is not None:
+                if existing["status"] == "rejected" or _expired(existing["expires_at"]):
+                    connection.execute(
+                        "UPDATE approvals SET status = 'pending', acted_at = NULL, created_at = ?, expires_at = ? WHERE id = ?",
+                        (_now(), expires_at, existing["id"]),
+                    )
+                    return Approval(existing["id"], run_id, tool_call_id, params_hash, "pending")
+                return Approval(existing["id"], run_id, tool_call_id, params_hash, existing["status"])
             connection.execute(
                 "INSERT INTO approvals(id, run_id, tool_call_id, params_hash, params_json, status, created_at, expires_at) "
                 "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
@@ -407,7 +419,7 @@ class CheckpointStore:
     def latest(self, run_id: str) -> Checkpoint | None:
         with self.db.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                "SELECT * FROM checkpoints WHERE run_id = ? ORDER BY rowid DESC LIMIT 1",
                 (run_id,),
             ).fetchone()
         if row is None:

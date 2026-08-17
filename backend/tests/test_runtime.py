@@ -142,3 +142,51 @@ async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_can
     assert current.state == "AWAITING_APPROVAL"
     assert runtime.plans.current(run.id).steps[0].status == "cancelled"
     assert runtime.checkpoints.latest(run.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_model_gateway_failure_blocks_run_and_saves_checkpoint(tmp_path) -> None:
+    from app.model_gateway import GatewayError
+
+    class FailingModel:
+        async def needs_clarification(self, goal, interactions):
+            return False
+
+        async def plan(self, goal, interactions):
+            raise GatewayError("retry exhausted", "server", 4)
+
+        async def decide(self, step, observation, iteration):
+            raise AssertionError("react should not run")
+
+        async def reflect(self, goal, plan, run_id):
+            raise AssertionError("reflection should not run")
+
+    runtime = make_runtime(tmp_path, FailingModel())
+    run = await runtime.create_goal("Failure", "Model unavailable")
+
+    blocked = await runtime.handle_message(run.id, "Try")
+
+    assert blocked.state.value == "BLOCKED"
+    assert runtime.checkpoints.latest(run.id) is not None
+    assert any(event.type == "run.blocked" for event in runtime.events.list(run.id))
+
+
+@pytest.mark.asyncio
+async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+    from app.tools import ToolCall
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "Use tool"}],
+            decisions=[ModelDecision.tool(ToolCall("unknown-call", "shell", {}))],
+        ),
+    )
+    run = await runtime.create_goal("Unknown tool", "Reject it")
+    await runtime.handle_message(run.id, "Use it")
+
+    blocked = await runtime.approve_plan(run.id, 1)
+
+    assert blocked.state.value == "BLOCKED"
+    assert any(event.type == "run.blocked" for event in runtime.events.list(run.id))

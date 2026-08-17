@@ -25,6 +25,7 @@ class MemoryRecord:
     confidence: float
     status: str
     version: int | None
+    evidence_event_ids: tuple[str, ...]
     path: str
 
 
@@ -58,6 +59,10 @@ class MemoryService:
     ) -> MemoryRecord:
         if kind not in {"preference", "habit"} or scope not in {"global", "project", "skill"}:
             raise ValueError("invalid memory kind or scope")
+        if scope == "project" and (not project_id or not _safe_identifier(project_id)):
+            raise ValueError("project memory requires project_id")
+        if scope == "skill" and (not skill_name or not _safe_identifier(skill_name)):
+            raise ValueError("skill memory requires skill_name")
         if not 0 <= confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
         memory_id = f"memory_{uuid.uuid4().hex}"
@@ -140,7 +145,15 @@ class MemoryService:
                 (_now(), memory_id),
             )
         self._rewrite_path(record.path)
-        return self.get(memory_id)
+        updated = self.get(memory_id)
+        self.events.append(
+            updated.run_id or "memory",
+            "memory",
+            "memory.disabled",
+            "user",
+            {"memory_id": memory_id, "path": updated.path},
+        )
+        return updated
 
     def edit(self, memory_id: str, content: str) -> MemoryRecord:
         record = self.get(memory_id)
@@ -221,29 +234,39 @@ class MemoryService:
     def sync_manual_edits(self) -> list[str]:
         changed: list[str] = []
         with self.db.connection() as connection:
-            rows = connection.execute("SELECT DISTINCT path FROM memory_candidates WHERE status = 'confirmed'").fetchall()
-        for row in rows:
-            path = self.root / row["path"]
+            rows = connection.execute(
+                "SELECT * FROM memory_candidates WHERE status = 'confirmed' ORDER BY created_at, id"
+            ).fetchall()
+        records = [self._record(row) for row in rows]
+        for relative_path in sorted({record.path for record in records}):
+            path = self.root / relative_path
             if not path.exists():
                 continue
             content = path.read_text(encoding="utf-8")
             with self.db.connection() as connection:
                 latest = connection.execute(
                     "SELECT content_hash FROM memory_file_versions WHERE path = ? ORDER BY version DESC LIMIT 1",
-                    (row["path"],),
+                    (relative_path,),
                 ).fetchone()
             if latest and latest["content_hash"] != content_hash(content):
-                self._store_version(row["path"], content)
-                changed.append(row["path"])
+                version = self._store_version(relative_path, content)
+                with self.db.transaction() as connection:
+                    for record in records:
+                        if record.path == relative_path:
+                            connection.execute(
+                                "UPDATE memory_candidates SET content = ?, memory_version = ?, updated_at = ? WHERE id = ?",
+                                (content.rstrip("\n"), version, _now(), record.id),
+                            )
+                changed.append(relative_path)
         return changed
 
     def _rewrite_path(self, relative_path: str) -> None:
         with self.db.connection() as connection:
             rows = connection.execute(
                 "SELECT content FROM memory_candidates WHERE status = 'confirmed' AND "
-                "((scope = 'global' AND ? = 'preferences.md') OR (scope = 'project' AND ? LIKE 'projects/%')) "
+                "((scope = 'global' AND ? = 'preferences.md') OR (scope = 'project' AND ? LIKE 'projects/%') OR (scope = 'skill' AND ? LIKE 'skills/%')) "
                 "ORDER BY created_at, id",
-                (relative_path, relative_path),
+                (relative_path, relative_path, relative_path),
             ).fetchall()
         content = "".join(f"{row['content'].rstrip(chr(10))}\n" for row in rows)
         self._write_versioned(relative_path, content)
@@ -254,8 +277,8 @@ class MemoryService:
             ).fetchone()[0]
             connection.execute(
                 "UPDATE memory_candidates SET memory_version = ? WHERE status = 'confirmed' AND "
-                "((scope = 'global' AND ? = 'preferences.md') OR (scope = 'project' AND ? LIKE 'projects/%'))",
-                (version, relative_path, relative_path),
+                "((scope = 'global' AND ? = 'preferences.md') OR (scope = 'project' AND ? LIKE 'projects/%') OR (scope = 'skill' AND ? LIKE 'skills/%'))",
+                (version, relative_path, relative_path, relative_path),
             )
 
     def _write_versioned(self, relative_path: str, content: str) -> None:
@@ -303,6 +326,7 @@ class MemoryService:
             confidence=row["confidence"],
             status=row["status"],
             version=row["memory_version"],
+            evidence_event_ids=tuple(json.loads(row["evidence_event_ids_json"])),
             path=self._path_for(row["scope"], row["project_id"], row["skill_name"]),
         )
 
@@ -317,3 +341,7 @@ class MemoryService:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_identifier(value: str) -> bool:
+    return bool(value.strip()) and not Path(value).is_absolute() and not os.path.splitdrive(value)[0] and "/" not in value and "\\" not in value and value not in {".", ".."}

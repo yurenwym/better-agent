@@ -135,3 +135,45 @@ async def test_gateway_reports_cancellation_without_retry(monkeypatch) -> None:
     with pytest.raises(GatewayError, match="cancelled"):
         await gateway.complete(ModelRequest(messages=[]), cancel_event=cancelled)
 
+
+@pytest.mark.asyncio
+async def test_gateway_assembles_streamed_tool_call_fragments(monkeypatch) -> None:
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    monkeypatch.setenv("TEST_MODEL_KEY", "secret-key")
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        first = {"choices": [{"delta": {"tool_calls": [{"index": 0, "id": "call-1", "function": {"name": "calculator", "arguments": "{\\\"expression\\\":\\\"2"}}]}, "finish_reason": None}]}
+        second = {"choices": [{"delta": {"tool_calls": [{"index": 0, "function": {"arguments": " + 2\\\"}"}}]}, "finish_reason": "tool_calls"}]}
+        return httpx.Response(200, content=_sse(first, second))
+
+    response = await ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "TEST_MODEL_KEY"),
+        transport=httpx.MockTransport(handler),
+    ).complete(ModelRequest(messages=[]))
+
+    assert response.tool_calls == [{"index": 0, "id": "call-1", "function": {"name": "calculator", "arguments": "{\\\"expression\\\":\\\"2 + 2\\\"}"}}]
+
+
+@pytest.mark.asyncio
+async def test_gateway_retries_one_invalid_structured_stream(monkeypatch) -> None:
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    monkeypatch.setenv("TEST_MODEL_KEY", "secret-key")
+    attempts = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(200, content=b"data: {not-json}\n\ndata: [DONE]\n\n")
+        return httpx.Response(200, content=_sse({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}))
+
+    response = await ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "TEST_MODEL_KEY", retry_base_seconds=0),
+        transport=httpx.MockTransport(handler),
+    ).complete(ModelRequest(messages=[]))
+
+    assert response.message == "ok"
+    assert response.attempts == 2
+    assert attempts == 2
