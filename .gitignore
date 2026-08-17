@@ -1,0 +1,34 @@
+# Local planning and brainstorming artifacts
+.superpowers/
+
+# Secrets and local configuration
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+
+# Node / frontend
+node_modules/
+dist/
+coverage/
+
+# Local runtime data
+data/*.db
+data/*.db-*
+data/memory/
+data/artifacts/
+evals/results/
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
