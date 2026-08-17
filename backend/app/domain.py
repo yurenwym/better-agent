@@ -194,6 +194,16 @@ class PlanVersionService:
             if updated != 1:
                 raise PlanConflict("unknown plan step")
 
+    def mark_step_cancelled(self, plan_id: str, step_id: str) -> None:
+        with self.db.transaction() as connection:
+            updated = connection.execute(
+                "UPDATE plan_steps SET status = 'cancelled', canceled_at = ? "
+                "WHERE plan_version_id = ? AND id = ? AND status NOT IN ('completed', 'cancelled')",
+                (_now(), plan_id, step_id),
+            ).rowcount
+            if updated != 1:
+                raise PlanConflict("unknown or finished plan step")
+
     def current(self, run_id: str) -> PlanVersion:
         with self.db.connection() as connection:
             row = connection.execute(

@@ -115,3 +115,30 @@ async def test_runtime_revises_plan_as_a_new_version(tmp_path) -> None:
     assert revised.version == 2
     assert [step.id for step in revised.steps] == ["new"]
 
+
+@pytest.mark.asyncio
+async def test_runtime_cancel_is_a_global_terminal_transition(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = await runtime.create_goal("Cancel", "Stop it")
+
+    cancelled = await runtime.cancel(run.id)
+
+    assert cancelled.state == "CANCELLED"
+    assert any(event.type == "run.cancelled" for event in runtime.events.list(run.id))
+
+
+@pytest.mark.asyncio
+async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_cancelled(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Cancel me"}]))
+    run = await runtime.create_goal("Cancel step", "Stop one step")
+    await runtime.handle_message(run.id, "Stop one step")
+
+    current = await runtime.cancel_step(run.id, "step-1")
+
+    assert current.state == "AWAITING_APPROVAL"
+    assert runtime.plans.current(run.id).steps[0].status == "cancelled"
+    assert runtime.checkpoints.latest(run.id) is not None

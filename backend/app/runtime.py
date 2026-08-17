@@ -331,6 +331,32 @@ class AgentRuntime:
             self.events.append(run_id, run.goal_id, "budget.warning", "user", {"added": amount})
             return self.get_run(run_id)
 
+    async def cancel(self, run_id: str) -> RunSnapshot:
+        lock = self._lock(run_id)
+        async with lock:
+            run = self.get_run(run_id)
+            if run.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
+                self._transition(run, AgentState.CANCELLED, {"reason": "user cancelled"})
+                self.events.append(run_id, run.goal_id, "run.cancelled", "user", {})
+            return self.get_run(run_id)
+
+    async def cancel_step(self, run_id: str, step_id: str) -> RunSnapshot:
+        lock = self._lock(run_id)
+        async with lock:
+            run = self.get_run(run_id)
+            plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
+            self.plans.mark_step_cancelled(plan.id, step_id)
+            self._set_run_fields(run_id, current_step_id=None)
+            self.events.append(
+                run_id,
+                run.goal_id,
+                "plan.step_cancelled",
+                "user",
+                {"plan_version_id": plan.id, "plan_step_id": step_id},
+            )
+            self._save_checkpoint(run_id, "step cancelled")
+            return self.get_run(run_id)
+
     async def resume(self, run_id: str) -> RunSnapshot:
         lock = self._lock(run_id)
         async with lock:

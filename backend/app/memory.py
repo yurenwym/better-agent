@@ -97,6 +97,11 @@ class MemoryService:
             raise KeyError(memory_id)
         return self._record(row)
 
+    def all_records(self) -> list[MemoryRecord]:
+        with self.db.connection() as connection:
+            rows = connection.execute("SELECT * FROM memory_candidates ORDER BY created_at, id").fetchall()
+        return [self._record(row) for row in rows]
+
     def confirm(self, memory_id: str, content: str | None = None) -> MemoryRecord:
         record = self.get(memory_id)
         if record.status not in {"proposed", "confirmed"}:
@@ -312,4 +317,3 @@ class MemoryService:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
