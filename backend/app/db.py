@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS interactions (
 CREATE TABLE IF NOT EXISTS plan_versions (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL DEFAULT '',
     version INTEGER NOT NULL,
     status TEXT NOT NULL DEFAULT 'draft',
     summary TEXT NOT NULL DEFAULT '',
@@ -56,7 +57,8 @@ CREATE TABLE IF NOT EXISTS plan_versions (
     UNIQUE(run_id, version)
 );
 CREATE TABLE IF NOT EXISTS plan_steps (
-    id TEXT PRIMARY KEY,
+    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL,
     plan_version_id TEXT NOT NULL,
     position INTEGER NOT NULL,
     title TEXT NOT NULL,
@@ -65,7 +67,8 @@ CREATE TABLE IF NOT EXISTS plan_steps (
     atomic INTEGER NOT NULL DEFAULT 1,
     completed_at TEXT,
     canceled_at TEXT,
-    UNIQUE(plan_version_id, position)
+    UNIQUE(plan_version_id, position),
+    UNIQUE(plan_version_id, id)
 );
 CREATE TABLE IF NOT EXISTS checkpoints (
     id TEXT PRIMARY KEY,
@@ -190,6 +193,46 @@ class Database:
     def _initialize(self) -> None:
         with self._connect() as connection:
             connection.executescript(SCHEMA)
+            plan_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(plan_versions)").fetchall()
+            }
+            if "goal_id" not in plan_columns:
+                connection.execute(
+                    "ALTER TABLE plan_versions ADD COLUMN goal_id TEXT NOT NULL DEFAULT ''"
+                )
+            step_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(plan_steps)").fetchall()
+            }
+            if "row_id" not in step_columns:
+                connection.execute("ALTER TABLE plan_steps RENAME TO plan_steps_legacy")
+                connection.executescript(
+                    """
+                    CREATE TABLE plan_steps (
+                        row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        id TEXT NOT NULL,
+                        plan_version_id TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        title TEXT NOT NULL,
+                        description TEXT NOT NULL DEFAULT '',
+                        status TEXT NOT NULL DEFAULT 'pending',
+                        atomic INTEGER NOT NULL DEFAULT 1,
+                        completed_at TEXT,
+                        canceled_at TEXT,
+                        UNIQUE(plan_version_id, position),
+                        UNIQUE(plan_version_id, id)
+                    );
+                    INSERT INTO plan_steps(
+                        id, plan_version_id, position, title, description, status,
+                        atomic, completed_at, canceled_at
+                    )
+                    SELECT id, plan_version_id, position, title, description, status,
+                           atomic, completed_at, canceled_at
+                    FROM plan_steps_legacy;
+                    DROP TABLE plan_steps_legacy;
+                    """
+                )
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
@@ -211,4 +254,3 @@ class Database:
             raise
         finally:
             connection.close()
-
