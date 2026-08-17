@@ -1,0 +1,214 @@
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Iterator
+
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS goals (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    project_id TEXT,
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runs (
+    id TEXT PRIMARY KEY,
+    goal_id TEXT NOT NULL,
+    session_id TEXT,
+    state TEXT NOT NULL,
+    resume_state TEXT,
+    current_plan_version_id TEXT,
+    current_step_id TEXT,
+    checkpoint_id TEXT,
+    version INTEGER NOT NULL DEFAULT 0,
+    budget_json TEXT NOT NULL DEFAULT '{}',
+    error_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS interactions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plan_versions (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    status TEXT NOT NULL DEFAULT 'draft',
+    summary TEXT NOT NULL DEFAULT '',
+    base_version INTEGER,
+    created_at TEXT NOT NULL,
+    approved_at TEXT,
+    UNIQUE(run_id, version)
+);
+CREATE TABLE IF NOT EXISTS plan_steps (
+    id TEXT PRIMARY KEY,
+    plan_version_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    atomic INTEGER NOT NULL DEFAULT 1,
+    completed_at TEXT,
+    canceled_at TEXT,
+    UNIQUE(plan_version_id, position)
+);
+CREATE TABLE IF NOT EXISTS checkpoints (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    state TEXT NOT NULL,
+    plan_version_id TEXT,
+    step_id TEXT,
+    payload_json TEXT NOT NULL,
+    last_event_seq INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS messages (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    interaction_id TEXT,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS events (
+    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_version INTEGER NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    seq INTEGER NOT NULL,
+    run_id TEXT NOT NULL,
+    goal_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    correlation_json TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    UNIQUE(run_id, seq)
+);
+CREATE TRIGGER IF NOT EXISTS events_append_only_update
+BEFORE UPDATE ON events
+BEGIN
+    SELECT RAISE(ABORT, 'events are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS events_append_only_delete
+BEFORE DELETE ON events
+BEGIN
+    SELECT RAISE(ABORT, 'events are append-only');
+END;
+CREATE TABLE IF NOT EXISTS approvals (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    tool_call_id TEXT NOT NULL,
+    params_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    created_at TEXT NOT NULL,
+    acted_at TEXT,
+    expires_at TEXT,
+    UNIQUE(run_id, tool_call_id, params_hash)
+);
+CREATE TABLE IF NOT EXISTS memory_candidates (
+    id TEXT PRIMARY KEY,
+    run_id TEXT,
+    kind TEXT NOT NULL,
+    content TEXT NOT NULL,
+    scope TEXT NOT NULL,
+    project_id TEXT,
+    skill_name TEXT,
+    confidence REAL NOT NULL,
+    evidence_event_ids_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'proposed',
+    memory_version INTEGER,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memory_file_versions (
+    id TEXT PRIMARY KEY,
+    path TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    content_hash TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    UNIQUE(path, version)
+);
+CREATE TABLE IF NOT EXISTS run_stats (
+    run_id TEXT PRIMARY KEY,
+    projection_version INTEGER NOT NULL DEFAULT 1,
+    stats_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS tool_calls (
+    id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    params_hash TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    status TEXT NOT NULL,
+    result_json TEXT,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+"""
+
+
+class Database:
+    def __init__(self, path: str | Path, workspace: str | Path | None = None) -> None:
+        self.path = Path(path)
+        if str(path) != ":memory:":
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.workspace = Path(workspace) if workspace else self.path.parent / "workspace"
+        self.workspace.mkdir(parents=True, exist_ok=True)
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(
+            ":memory:" if str(self.path) == ":memory:" else self.path,
+            timeout=30,
+            isolation_level=None,
+            check_same_thread=False,
+        )
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        connection.execute("PRAGMA busy_timeout = 30000")
+        connection.execute("PRAGMA journal_mode = WAL")
+        connection.execute("PRAGMA synchronous = NORMAL")
+        return connection
+
+    def _initialize(self) -> None:
+        with self._connect() as connection:
+            connection.executescript(SCHEMA)
+
+    @contextmanager
+    def connection(self) -> Iterator[sqlite3.Connection]:
+        connection = self._connect()
+        try:
+            yield connection
+        finally:
+            connection.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[sqlite3.Connection]:
+        connection = self._connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            yield connection
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
