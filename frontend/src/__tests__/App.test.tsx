@@ -20,6 +20,16 @@ describe("personal agent workspace", () => {
     expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
   });
 
+  it("uses a wider shell for the trajectory workspace", () => {
+    render(<App />);
+
+    fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
+
+    const main = screen.getByRole("main");
+    expect(main.querySelector(".workspace-page-header")?.className).toContain("workspace-page-header-trajectory");
+    expect(main.querySelector(".workspace-page")?.className).toContain("workspace-page-trajectory");
+  });
+
   it("exposes a labelled goal message form", () => {
     render(<App />);
 

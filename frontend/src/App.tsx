@@ -62,12 +62,12 @@ export default function App() {
           </div>
         </header>
 
-        <div className="workspace-page-header">
+        <div className={`workspace-page-header workspace-page-header-${page}`}>
           <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
           {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
         </div>
 
-        <div className="workspace-page">
+        <div className={`workspace-page workspace-page-${page}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
           {page === "trajectory" && <TrajectoryPage run={run} />}
