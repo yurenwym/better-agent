@@ -22,6 +22,20 @@ const headings: Record<Page, string> = {
   memory: "长期记忆",
 };
 
+const stateLabels: Record<string, string> = {
+  RECEIVED: "已收到目标",
+  CLARIFYING: "正在澄清",
+  PLANNING: "正在规划",
+  AWAITING_APPROVAL: "等待审批",
+  EXECUTING: "执行中",
+  AWAITING_OUTCOME: "等待结果",
+  REFLECTING: "复盘中",
+  COMPLETED: "已完成",
+  BLOCKED: "已阻塞",
+  FAILED: "运行失败",
+  CANCELLED: "已取消",
+};
+
 export default function App() {
   const [page, setPage] = useState<Page>("chat");
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
@@ -41,12 +55,13 @@ export default function App() {
     <main className="shell">
       <header className="topbar">
         <div className="brand-lockup">
-          <span className="eyebrow">LOCAL / SINGLE USER</span>
+          <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
           <h1>Better Agent</h1>
+          <p className="brand-caption">一条可追溯、可暂停、可恢复的个人工作流。</p>
         </div>
         <div className="topbar-meta">
-          <span className={`state-pill state-${(run?.state ?? "RECEIVED").toLowerCase()}`}>{run?.state ?? "RECEIVED"}</span>
-          <span className="local-mark"><span aria-hidden="true" />127.0.0.1</span>
+          <span className={`state-pill state-${(run?.state ?? "RECEIVED").toLowerCase()}`}>{stateLabels[run?.state ?? "RECEIVED"]}</span>
+          <span className="local-mark"><span aria-hidden="true" />LOCALHOST / 127.0.0.1</span>
         </div>
       </header>
       <nav className="tabs" aria-label="主页面">
@@ -56,8 +71,8 @@ export default function App() {
           </button>
         ))}
       </nav>
-      <div className="content-header"><div><span className="eyebrow">V1 WORKSPACE</span><span className="page-name">{headings[page]}</span></div>{run && <span className="run-id">{run.id}</span>}</div>
-      {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} />}
+      <div className="content-header"><div><span className="eyebrow">V1 WORKSPACE</span><span className="page-name">{headings[page]}</span></div>{run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}</div>
+      {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} />}
       {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
       {page === "trajectory" && <TrajectoryPage run={run} />}
       {page === "memory" && <MemoryPage csrfToken={csrfToken} />}

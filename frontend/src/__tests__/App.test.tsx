@@ -55,8 +55,8 @@ describe("personal agent workspace", () => {
       />,
     );
 
-    expect(screen.getByText("state.transitioned")).toBeTruthy();
-    expect(screen.getByText("runtime")).toBeTruthy();
+    expect(screen.getByText("已进入规划阶段")).toBeTruthy();
+    expect(screen.getAllByText("状态").length).toBeGreaterThan(0);
   });
 
   it("supports text search across trajectory events", () => {
@@ -69,10 +69,10 @@ describe("personal agent workspace", () => {
       />,
     );
 
-    fireEvent.change(screen.getByLabelText("搜索事件"), { target: { value: "tool" } });
+    fireEvent.change(screen.getByLabelText("搜索轨迹"), { target: { value: "工具" } });
 
-    expect(screen.queryByText("state.transitioned")).toBeNull();
-    expect(screen.getByText("tool.execution.finished")).toBeTruthy();
+    expect(screen.queryByText("已进入规划阶段")).toBeNull();
+    expect(screen.getByText("工具执行完成")).toBeTruthy();
   });
 
   it("exposes explicit grant and reject controls for a pending approval", () => {
