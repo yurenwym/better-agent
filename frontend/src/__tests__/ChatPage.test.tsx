@@ -86,6 +86,26 @@ describe("ChatPage streaming bootstrap", () => {
     expect(screen.queryByRole("button", { name: "追加 1 轮预算" })).toBeNull();
   });
 
+  it("keeps a visible cancel task action available during execution", async () => {
+    const onRun = vi.fn();
+    api.cancelRun.mockResolvedValue({ ...initialRun, state: "CANCELLED" });
+
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={{ ...initialRun, state: "EXECUTING" }}
+        onRun={onRun}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "取消任务" }));
+
+    await waitFor(() => expect(api.cancelRun).toHaveBeenCalledWith("run-1", "csrf"));
+    expect(onRun).toHaveBeenCalledWith(expect.objectContaining({ state: "CANCELLED" }));
+  });
+
   it("offers one-step recovery only after a react budget block", async () => {
     const blockedRun: Run = {
       ...initialRun,

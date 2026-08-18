@@ -9,6 +9,8 @@ interface ConversationThreadProps {
   title?: string;
   description?: string;
   composerDisabled?: boolean;
+  cancelBusy?: boolean;
+  onCancel?: () => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
@@ -28,7 +30,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, onCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -56,7 +58,10 @@ export default function ConversationThread({ messages, busy = false, title = "�
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
-        <span className="conversation-count">{messages.length} 条消息</span>
+        <div className="conversation-header-meta">
+          <span className="conversation-count">{messages.length} 条消息</span>
+          {onCancel && <button className="button button-danger conversation-cancel" disabled={cancelBusy} type="button" onClick={onCancel}>{cancelBusy ? "正在取消…" : "取消任务"}</button>}
+        </div>
       </div>
 
       <div className={`conversation-thread${messages.length === 0 ? " conversation-thread-empty" : ""}`} aria-live="polite" aria-label="消息列表">

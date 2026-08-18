@@ -256,6 +256,28 @@ async def test_live_runtime_model_keeps_stream_callbacks_isolated_per_task() -> 
 
 
 @pytest.mark.asyncio
+async def test_live_runtime_model_forwards_cancel_event_to_gateway() -> None:
+    from app.live_model import LiveRuntimeModel
+    from app.model_gateway import GatewayError
+
+    cancel_event = asyncio.Event()
+
+    class CancelAwareGateway:
+        async def complete(self, request, **kwargs):
+            assert kwargs["cancel_event"] is cancel_event
+            raise GatewayError("model request cancelled", "cancelled")
+
+    model = LiveRuntimeModel(CancelAwareGateway())
+    cancel_event.set()
+    token = model.set_cancel_event(cancel_event)
+    try:
+        with pytest.raises(GatewayError, match="cancelled"):
+            await model._json("Return JSON", {"label": "cancel"})
+    finally:
+        model.reset_cancel_event(token)
+
+
+@pytest.mark.asyncio
 async def test_live_runtime_model_resets_partial_output_before_json_repair() -> None:
     from app.live_model import LiveRuntimeModel
 

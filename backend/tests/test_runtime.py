@@ -242,6 +242,48 @@ async def test_runtime_cancel_is_a_global_terminal_transition(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_runtime_cancel_interrupts_inflight_message_without_waiting_for_run_lock(tmp_path) -> None:
+    import asyncio
+
+    from app.runtime import PlanDraft
+
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    class BlockingModel:
+        async def needs_clarification(self, goal, interactions):
+            started.set()
+            await release.wait()
+            return False
+
+        async def plan(self, goal, interactions):
+            return PlanDraft([{"id": "step-1", "title": "Continue"}])
+
+        async def decide(self, step, observation, iteration):
+            raise AssertionError("cancelled run must not enter ReAct")
+
+        async def reflect(self, goal, plan, run_id):
+            return []
+
+    runtime = make_runtime(tmp_path, BlockingModel())
+    run = await runtime.create_goal("Cancel", "Stop while the model is responding")
+    message_task = asyncio.create_task(runtime.handle_message(run.id, "Start"))
+    await asyncio.wait_for(started.wait(), timeout=1)
+
+    try:
+        cancelled = await asyncio.wait_for(runtime.cancel(run.id), timeout=0.2)
+        await asyncio.sleep(0)
+        assert message_task.done()
+    finally:
+        release.set()
+        await message_task
+
+    assert cancelled.state == "CANCELLED"
+    assert runtime.get_run(run.id).state.value == "CANCELLED"
+    assert any(event.type == "run.cancelled" for event in runtime.events.list(run.id))
+
+
+@pytest.mark.asyncio
 async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_cancelled(tmp_path) -> None:
     from app.runtime import MockModelGateway
 

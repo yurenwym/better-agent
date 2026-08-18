@@ -153,6 +153,9 @@ class AgentRuntime:
         self.context_assembler = ContextAssembler()
         self.state_machine = StateMachine()
         self._locks: dict[str, asyncio.Lock] = {}
+        self._cancel_events: dict[str, asyncio.Event] = {}
+        self._active_model_tasks: dict[str, asyncio.Task[Any]] = {}
+        self._cancel_guard = asyncio.Lock()
 
     async def create_goal(self, title: str, description: str, project_id: str | None = None) -> RunSnapshot:
         goal_id = f"goal_{uuid.uuid4().hex}"
@@ -373,12 +376,17 @@ class AgentRuntime:
             return self.get_run(run_id)
 
     async def cancel(self, run_id: str) -> RunSnapshot:
-        lock = self._lock(run_id)
-        async with lock:
+        self._cancel_event(run_id).set()
+        async with self._cancel_guard:
             run = self.get_run(run_id)
             if run.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
                 self._transition(run, AgentState.CANCELLED, {"reason": "user cancelled"})
                 self.events.append(run_id, run.goal_id, "run.cancelled", "user", {})
+                self._save_checkpoint(run_id, "user cancelled")
+            active_task = self._active_model_tasks.get(run_id)
+            current_task = asyncio.current_task()
+            if active_task is not None and active_task is not current_task:
+                active_task.cancel("run cancelled")
             return self.get_run(run_id)
 
     async def cancel_step(self, run_id: str, step_id: str) -> RunSnapshot:
@@ -426,10 +434,12 @@ class AgentRuntime:
 
     async def _execute_locked(self, run_id: str) -> RunSnapshot:
         run = self.get_run(run_id)
-        if run.state != AgentState.EXECUTING:
+        if run.state != AgentState.EXECUTING or self._is_cancelled(run_id):
             return run
         while True:
             run = self.get_run(run_id)
+            if self._is_cancelled(run_id):
+                return run
             plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
             step = next(
                 (
@@ -464,7 +474,7 @@ class AgentRuntime:
                 budget["applied_memory_versions"] = versions
                 self._set_run_fields(run_id, budget=budget)
             outcome = await self._execute_step(run_id, plan, step.id)
-            if outcome in {"blocked", "awaiting_outcome", "approval"}:
+            if outcome in {"blocked", "awaiting_outcome", "approval", "cancelled"}:
                 return self.get_run(run_id)
 
     async def _execute_step(self, run_id: str, plan: PlanVersion, step_id: str) -> str:
@@ -473,6 +483,8 @@ class AgentRuntime:
         step = next(item for item in plan.steps if item.id == step_id)
         pending = self._pending_action(run_id)
         while True:
+            if self._is_cancelled(run_id):
+                return "cancelled"
             resumed_pending_action = pending is not None
             run = self.get_run(run_id)
             budget = dict(run.budget)
@@ -506,7 +518,9 @@ class AgentRuntime:
                     iteration + 1,
                 )
                 if decision is None:
-                    return "blocked"
+                    return "cancelled" if self._is_cancelled(run_id) else "blocked"
+            if self._is_cancelled(run_id):
+                return "cancelled"
             iteration = int(self.get_run(run_id).budget.get("react_iteration", iteration))
             correlation = {"plan_version_id": plan.id, "plan_step_id": step_id, "react_iteration": iteration}
             self.events.append(run_id, run.goal_id, "react.iteration_started", "runtime", correlation)
@@ -584,6 +598,8 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "result": tool_result.as_dict()},
                     )
+                    if self._is_cancelled(run_id):
+                        return "cancelled"
                 else:
                     tool_result = ToolResult(**result)
             except ApprovalRequired:
@@ -623,9 +639,11 @@ class AgentRuntime:
 
     async def _reflect_locked(self, run_id: str) -> RunSnapshot:
         run = self.get_run(run_id)
+        if self._is_cancelled(run_id):
+            return run
         plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
         candidates = await self._model_call(run, "reflection", self.model.reflect, self._goal(run.goal_id), plan, run_id)
-        if candidates is None:
+        if candidates is None or self._is_cancelled(run_id):
             return self.get_run(run_id)
         for candidate in candidates:
             try:
@@ -660,6 +678,8 @@ class AgentRuntime:
         budget: dict[str, Any],
         event_type: str,
     ) -> str:
+        if self._is_cancelled(run_id):
+            return "cancelled"
         run = self.get_run(run_id)
         budget = dict(budget)
         budget["blocked_reason"] = reason
@@ -764,6 +784,11 @@ class AgentRuntime:
             )
 
     async def _model_call(self, run: RunSnapshot, kind: str, method, *args):
+        if self._is_cancelled(run.id):
+            return None
+        current_task = asyncio.current_task()
+        if current_task is not None:
+            self._active_model_tasks[run.id] = current_task
         invocation_id = f"invocation_{uuid.uuid4().hex}"
         attempt_id = f"{invocation_id}_attempt_1"
         self._prepare_model_context(run, kind, args)
@@ -780,6 +805,8 @@ class AgentRuntime:
         resetter = getattr(self.model, "set_text_reset_callback", None)
         reset_delta = getattr(self.model, "reset_text_delta_callback", None)
         reset_stream = getattr(self.model, "reset_text_reset_callback", None)
+        cancel_setter = getattr(self.model, "set_cancel_event", None)
+        cancel_resetter = getattr(self.model, "reset_cancel_event", None)
         streamed = False
 
         def on_delta(delta: str) -> None:
@@ -795,8 +822,11 @@ class AgentRuntime:
 
         delta_token = setter(on_delta) if setter is not None else None
         reset_token = resetter(on_reset) if resetter is not None else None
+        cancel_token = cancel_setter(self._cancel_event(run.id)) if cancel_setter is not None else None
 
         def clear_callbacks() -> None:
+            if cancel_resetter is not None and cancel_token is not None:
+                cancel_resetter(cancel_token)
             if reset_stream is not None and reset_token is not None:
                 reset_stream(reset_token)
             elif resetter is not None:
@@ -807,12 +837,19 @@ class AgentRuntime:
                 setter(None)
         try:
             result = await method(*args)
+        except asyncio.CancelledError:
+            clear_callbacks()
+            self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+            return None
         except Exception as exc:
             clear_callbacks()
             from .model_gateway import GatewayError
 
             if not isinstance(exc, GatewayError):
                 raise
+            if exc.kind == "cancelled" or self._is_cancelled(run.id):
+                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                return None
             self.events.append(
                 run.id,
                 run.goal_id,
@@ -838,11 +875,33 @@ class AgentRuntime:
             return None
         else:
             clear_callbacks()
+            if self._is_cancelled(run.id):
+                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                return None
             response = getattr(self.model, "last_response", None)
             self._record_model_response(run, invocation_id, attempt_id, response)
             self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
             self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
+        finally:
+            if current_task is not None and self._active_model_tasks.get(run.id) is current_task:
+                self._active_model_tasks.pop(run.id, None)
+
+    def _record_cancelled_model_call(self, run: RunSnapshot, invocation_id: str, attempt_id: str, kind: str) -> None:
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.attempt_finished",
+            "runtime",
+            {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "kind": kind, "status": "cancelled"},
+        )
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.invocation_finished",
+            "runtime",
+            {"model_invocation_id": invocation_id, "kind": kind, "status": "cancelled"},
+        )
 
     def _prepare_model_context(self, run: RunSnapshot, kind: str, args: tuple[Any, ...]) -> None:
         setter = getattr(self.model, "set_context_snapshot", None)
@@ -1082,6 +1141,13 @@ class AgentRuntime:
 
     def _lock(self, run_id: str) -> asyncio.Lock:
         return self._locks.setdefault(run_id, asyncio.Lock())
+
+    def _cancel_event(self, run_id: str) -> asyncio.Event:
+        return self._cancel_events.setdefault(run_id, asyncio.Event())
+
+    def _is_cancelled(self, run_id: str) -> bool:
+        event = self._cancel_events.get(run_id)
+        return bool(event and event.is_set()) or self.get_run(run_id).state == AgentState.CANCELLED
 
     @staticmethod
     def _skill_tools_for(skill_name: str) -> set[str]:

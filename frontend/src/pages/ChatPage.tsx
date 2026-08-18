@@ -23,6 +23,7 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [cancelBusy, setCancelBusy] = useState(false);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
@@ -82,6 +83,15 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
     }
   }
 
+  async function cancelCurrentRun(runId: string): Promise<Run> {
+    setCancelBusy(true);
+    try {
+      return await cancelRun(runId, csrfToken);
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   async function approveCurrentPlan(currentRun: Run): Promise<Run> {
     const plans = await getPlans(currentRun.id);
     if (!plans.current) throw new Error("当前没有可批准的计划");
@@ -113,6 +123,8 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
           title={run ? "推动当前目标" : "从一个目标开始"}
           description={run ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "先写下你要达成的结果，模型会在这条对话中澄清、规划并等待你的确认。"}
           composerDisabled={Boolean(approvalRun)}
+          cancelBusy={cancelBusy}
+          onCancel={run && !['COMPLETED', 'CANCELLED', 'FAILED'].includes(run.state) ? () => void runAction(() => cancelCurrentRun(run.id)) : undefined}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
@@ -141,7 +153,6 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
             {run && isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => recoverFromReactBudget(run))}>继续执行一次</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-primary" type="button" onClick={() => void runAction(() => continueOutcome(run.id, true, csrfToken))}>目标已完成</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-quiet" type="button" onClick={() => void runAction(() => continueOutcome(run.id, false, csrfToken))}>继续观察</button>}
-            {!['COMPLETED', 'CANCELLED', 'FAILED'].includes(run.state) && <button className="button button-danger" type="button" onClick={() => void runAction(() => cancelRun(run.id, csrfToken))}>取消 Run</button>}
           </div>
         )}
         {error && <p className="error-message" role="alert">{error}</p>}

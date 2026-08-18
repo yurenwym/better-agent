@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from contextvars import ContextVar
 from typing import Any, Callable
@@ -25,6 +26,7 @@ class LiveRuntimeModel:
             "live_model_text_reset_callback",
             default=None,
         )
+        self._cancel_event: ContextVar[asyncio.Event | None] = ContextVar("live_model_cancel_event", default=None)
 
     def set_context_snapshot(self, snapshot_hash: str, text: str) -> None:
         self._context_hash.set(snapshot_hash)
@@ -49,6 +51,12 @@ class LiveRuntimeModel:
 
     def reset_text_reset_callback(self, token) -> None:
         self._text_reset_callback.reset(token)
+
+    def set_cancel_event(self, event: asyncio.Event):
+        return self._cancel_event.set(event)
+
+    def reset_cancel_event(self, token) -> None:
+        self._cancel_event.reset(token)
 
     async def needs_clarification(self, goal: dict[str, Any], interactions: list[str]) -> bool:
         payload = await self._json(
@@ -164,6 +172,7 @@ class LiveRuntimeModel:
             messages[1] = {"role": "user", "content": json.dumps(request_data, ensure_ascii=False)}
         response = await self.gateway.complete(
             ModelRequest(messages=messages, tools=self.tool_schemas),
+            cancel_event=self._cancel_event.get(),
             on_text_delta=self._text_delta_callback.get(),
             on_text_reset=self._text_reset_callback.get(),
         )
@@ -180,6 +189,7 @@ class LiveRuntimeModel:
                 ModelRequest(messages=messages + [
                     {"role": "user", "content": "The previous response was not valid JSON. Return only the requested JSON object."},
                 ], tools=self.tool_schemas),
+                cancel_event=self._cancel_event.get(),
                 on_text_delta=self._text_delta_callback.get(),
                 on_text_reset=self._text_reset_callback.get(),
             )
