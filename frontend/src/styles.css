@@ -85,6 +85,7 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .run-context code { color: var(--color-muted); font-size: 11px; letter-spacing: 0; text-transform: none; }
 .workspace-page { max-width: 1240px; margin: 0 auto; padding: 24px 48px 64px; }
 .workspace-page-header-wide, .workspace-page-wide { max-width: 1440px; padding-left: 32px; padding-right: 32px; }
+.workspace-page-header-fluid, .workspace-page-fluid { width: 100%; max-width: none; padding-left: clamp(16px, 2vw, 32px); padding-right: clamp(16px, 2vw, 32px); }
 
 .state-pill, .version-badge { display: inline-flex; align-items: center; min-height: 30px; border: 1px solid var(--color-line-strong); border-radius: var(--radius-pill); padding: 0 11px; color: var(--color-accent-strong); font-family: var(--font-mono); font-size: 10px; font-weight: 700; white-space: nowrap; }
 .state-planning, .state-executing, .state-reflecting, .state-clarifying { border-color: #b8c8ec; background: var(--color-info-soft); color: var(--color-info); }

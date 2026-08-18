@@ -42,6 +42,8 @@ describe("personal agent workspace", () => {
     const main = screen.getByRole("main");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-wide");
     expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-wide");
+    expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-fluid");
+    expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-fluid");
   });
 
   it("exposes a labelled goal message form", () => {

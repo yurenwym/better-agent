@@ -40,6 +40,7 @@ export default function App() {
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
   const widePage = page === "chat" || page === "trajectory";
+  const fluidPage = page === "chat";
 
   return (
     <div className="workspace-app">
@@ -63,12 +64,12 @@ export default function App() {
           </div>
         </header>
 
-        <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}`}>
+        <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}${fluidPage ? " workspace-page-header-fluid" : ""}`}>
           <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
           {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
         </div>
 
-        <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}`}>
+        <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
           {page === "trajectory" && <TrajectoryPage run={run} />}
