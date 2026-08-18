@@ -40,6 +40,7 @@ describe("personal agent workspace", () => {
     render(<App />);
 
     const main = screen.getByRole("main");
+    expect(main.className).toContain("workspace-main-viewport");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-wide");
     expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-wide");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-fluid");

@@ -51,7 +51,7 @@ export default function App() {
         onNavigate={setPage}
         onNewConversation={() => { setRun(null); setPage("chat"); }}
       />
-      <main className="workspace-main" id="main-content">
+      <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
         <header className="workspace-topbar">
           <div className="workspace-title-lockup">
             <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
