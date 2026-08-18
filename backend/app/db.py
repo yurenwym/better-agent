@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS runs (
     checkpoint_id TEXT,
     version INTEGER NOT NULL DEFAULT 0,
     budget_json TEXT NOT NULL DEFAULT '{}',
+    skill_names_json TEXT NOT NULL DEFAULT '[]',
     error_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -211,6 +212,12 @@ class Database:
                 connection.execute(
                     "ALTER TABLE approvals ADD COLUMN params_json TEXT NOT NULL DEFAULT '{}'"
                 )
+            run_columns = {
+                row["name"]
+                for row in connection.execute("PRAGMA table_info(runs)").fetchall()
+            }
+            if "skill_names_json" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
             step_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(plan_steps)").fetchall()

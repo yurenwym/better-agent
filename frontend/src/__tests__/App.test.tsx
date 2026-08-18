@@ -56,7 +56,7 @@ describe("personal agent workspace", () => {
   it("exposes a labelled goal message form", () => {
     render(<App />);
 
-    expect(screen.getByLabelText("继续推动目标")).toBeTruthy();
+    expect(screen.getByLabelText("输入消息")).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
   });
 

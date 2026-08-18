@@ -18,6 +18,13 @@ export interface Bootstrap {
   api_key_configured: boolean;
 }
 
+export interface SkillDefinition {
+  name: string;
+  title: string;
+  description: string;
+  enabled: boolean;
+}
+
 export interface Run {
   id: string;
   goal_id: string;
@@ -29,6 +36,7 @@ export interface Run {
   version: number;
   budget: Record<string, unknown>;
   pending_approvals: string[];
+  skill_names?: string[];
 }
 
 export interface MessageRecord {

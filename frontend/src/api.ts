@@ -7,6 +7,7 @@ import type {
   PlanResponse,
   PlanVersion,
   Run,
+  SkillDefinition,
   Stats,
 } from "./types";
 
@@ -28,6 +29,10 @@ export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap>
   return json<Bootstrap>(await fetcher("/api/bootstrap"));
 }
 
+export async function getSkills(fetcher: Fetcher = fetch): Promise<{ skills: SkillDefinition[] }> {
+  return json<{ skills: SkillDefinition[] }>(await fetcher("/api/skills"));
+}
+
 export async function createGoal(
   payload: { title: string; description: string },
   csrfToken: string,
@@ -40,11 +45,17 @@ export async function createGoal(
   }));
 }
 
-export async function sendMessage(goalId: string, content: string, csrfToken: string): Promise<Run> {
-  return json<Run>(await fetch(`/api/goals/${goalId}/messages`, {
+export async function sendMessage(
+  goalId: string,
+  content: string,
+  csrfToken: string,
+  skillNames: string[] = [],
+  fetcher: Fetcher = fetch,
+): Promise<Run> {
+  return json<Run>(await fetcher(`/api/goals/${goalId}/messages`, {
     method: "POST",
     headers: mutationHeaders(csrfToken),
-    body: JSON.stringify({ content }),
+    body: JSON.stringify({ content, skill_names: skillNames }),
   }));
 }
 

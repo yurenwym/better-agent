@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import ConversationThread from "../components/ConversationThread";
 import WorkspaceSidebar from "../components/WorkspaceSidebar";
 import type { Bootstrap, MessageRecord, Run } from "../types";
@@ -53,8 +53,49 @@ describe("conversation workspace", () => {
     expect(screen.getByText("我还需要更多信息，才能继续推进这个目标。")).toBeTruthy();
     expect(screen.queryByText("查看模型原始结果")).toBeNull();
     expect(screen.queryByText('{"needs_clarification":true}')).toBeNull();
-    expect(screen.getByRole("textbox", { name: "继续推动目标" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "输入消息" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
+  });
+
+  it("sends on Enter, keeps Shift+Enter for a newline, and selects skills for this conversation", async () => {
+    const onSubmit = vi.fn().mockResolvedValue(true);
+    const onToggleSkill = vi.fn();
+    render(
+      <ConversationThread
+        messages={[]}
+        busy={false}
+        onSubmit={onSubmit}
+        skills={[
+          { name: "goal-planning", title: "目标规划", description: "把目标拆成可审批步骤。", enabled: true },
+          { name: "reflection", title: "执行复盘", description: "从结果中提炼可确认记忆。", enabled: true },
+        ]}
+        selectedSkills={[]}
+        onToggleSkill={onToggleSkill}
+      />,
+    );
+
+    const input = screen.getByRole("textbox", { name: "输入消息" });
+    expect(input.getAttribute("placeholder")).toBe("输入信息，Enter发送，Shift+Enter换行");
+    expect(screen.queryByText("继续推动目标")).toBeNull();
+
+    fireEvent.change(input, { target: { value: "继续" } });
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter", shiftKey: false });
+    await waitFor(() => expect(onSubmit).toHaveBeenCalledWith("继续"));
+
+    fireEvent.click(screen.getByRole("button", { name: /技能/ }));
+    expect(screen.getByText("已安装的 Skill")).toBeTruthy();
+    fireEvent.click(screen.getByRole("checkbox", { name: "目标规划" }));
+    expect(onToggleSkill).toHaveBeenCalledWith("goal-planning");
+  });
+
+  it("shows an empty state when no skills are installed", () => {
+    render(<ConversationThread messages={[]} onSubmit={() => undefined} skills={[]} selectedSkills={[]} onToggleSkill={() => undefined} />);
+
+    fireEvent.click(screen.getByRole("button", { name: /技能/ }));
+
+    expect(screen.getByText("暂无已安装 Skill")).toBeTruthy();
   });
 
   it("renders ordinary assistant Markdown as readable content", () => {
@@ -97,7 +138,7 @@ describe("conversation workspace", () => {
           onSecondary: () => { edited += 1; },
         }}
         composerDisabled
-        composerHint="请使用上方按钮选择是否继续"
+        composerHint="输入信息，Enter发送，Shift+Enter换行"
       />,
     );
 
@@ -105,8 +146,8 @@ describe("conversation workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "修改计划" }));
     expect(approved).toBe(1);
     expect(edited).toBe(1);
-    expect(screen.getByRole("textbox", { name: "继续推动目标" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText("请使用上方按钮选择是否继续")).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("输入信息，Enter发送，Shift+Enter换行")).toBeTruthy();
   });
 
   it("keeps navigation and settings discoverable in the sidebar", () => {

@@ -59,6 +59,11 @@ def register_routes(app) -> None:
             "api_key_configured": getattr(config, "api_key_configured", False),
         }
 
+    @app.get("/api/skills")
+    async def list_skills(request: Request) -> dict[str, Any]:
+        service = runtime(request)
+        return {"skills": [skill.public_view() for skill in service.skills.list()]}
+
     @app.post("/api/goals", status_code=201, dependencies=[Depends(mutate)])
     async def create_goal(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         if not payload.get("title"):
@@ -80,13 +85,22 @@ def register_routes(app) -> None:
     async def post_message(goal_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         if not payload.get("content"):
             raise HTTPException(status_code=422, detail="content is required")
+        skill_names = payload.get("skill_names")
+        if skill_names is not None and (
+            not isinstance(skill_names, list)
+            or not all(isinstance(name, str) for name in skill_names)
+        ):
+            raise HTTPException(status_code=422, detail="skill_names must be an array of strings")
         with service.db.connection() as connection:
             row = connection.execute(
                 "SELECT id FROM runs WHERE goal_id = ? ORDER BY created_at DESC LIMIT 1", (goal_id,)
             ).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="goal run not found")
-        run = await service.handle_message(row["id"], payload["content"])
+        try:
+            run = await service.handle_message(row["id"], payload["content"], skill_names)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _run_json(run, service)
 
     @app.get("/api/runs/{run_id}")
@@ -279,6 +293,7 @@ def _run_json(run, service) -> dict[str, Any]:
         "version": run.version,
         "budget": _public_budget(run.budget),
         "pending_approvals": [approval.id for approval in service.pending_approvals(run.id)],
+        "skill_names": list(run.skill_names),
     }
 
 

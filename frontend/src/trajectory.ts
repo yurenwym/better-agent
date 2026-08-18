@@ -129,7 +129,7 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
     case "model.response": {
       const kind = text(data, "kind");
       const label = kind === "clarification" ? "澄清回复已到达" : kind === "planning" ? "计划回复已到达" : kind === "react" ? "执行判断已到达" : kind === "reflection" ? "复盘回复已到达" : "模型回复已到达";
-      return make(event, "model", label, "完整回复已加入对话，可以直接据此继续推动目标");
+      return make(event, "model", label, "完整回复已加入对话，可以直接据此继续下一步");
     }
     case "plan.version_created":
       return make(event, "plan", "新的计划版本已生成", `当前版本 v${text(data, "version", "1")}`);

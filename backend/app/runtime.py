@@ -24,6 +24,7 @@ from .domain import (
 )
 from .events import EventStore
 from .memory import MemoryService
+from .skill_registry import SkillCatalog
 from .stats import StatsProjector
 from .tools import ToolCall, ToolRegistry, ToolRejected, ToolResult
 
@@ -119,6 +120,7 @@ class RunSnapshot:
     version: int
     budget: dict[str, Any]
     project_id: str | None = None
+    skill_names: tuple[str, ...] = ()
 
 
 class AgentRuntime:
@@ -134,6 +136,7 @@ class AgentRuntime:
         tools: ToolRegistry,
         model: RuntimeModel,
         config: RuntimeConfig | None = None,
+        skill_catalog: SkillCatalog | None = None,
     ) -> None:
         self.db = db
         self.events = events
@@ -144,6 +147,7 @@ class AgentRuntime:
         self.tools = tools
         self.model = model
         self.config = config or RuntimeConfig()
+        self.skills = skill_catalog or SkillCatalog()
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
         self.context_assembler = ContextAssembler()
@@ -198,6 +202,7 @@ class AgentRuntime:
             version=row["version"],
             budget=json.loads(row["budget_json"]),
             project_id=row["project_id"],
+            skill_names=tuple(json.loads(row["skill_names_json"] or "[]")),
         )
 
     def recoverable_runs(self) -> list[RunSnapshot]:
@@ -207,10 +212,27 @@ class AgentRuntime:
             ).fetchall()
         return [self.get_run(row["id"]) for row in rows]
 
-    async def handle_message(self, run_id: str, content: str) -> RunSnapshot:
+    async def handle_message(
+        self,
+        run_id: str,
+        content: str,
+        skill_names: list[str] | tuple[str, ...] | None = None,
+    ) -> RunSnapshot:
         lock = self._lock(run_id)
         async with lock:
             run = self.get_run(run_id)
+            if skill_names is not None:
+                selected_skills = self.skills.validate(skill_names)
+                if selected_skills != run.skill_names:
+                    self._set_run_fields(run_id, skill_names_json=json.dumps(selected_skills, ensure_ascii=False))
+                    self.events.append(
+                        run_id,
+                        run.goal_id,
+                        "skills.selected",
+                        "user",
+                        {"skill_names": list(selected_skills)},
+                    )
+                    run = self.get_run(run_id)
             interaction_id = f"interaction_{uuid.uuid4().hex}"
             now = _now()
             with self.db.transaction() as connection:
@@ -545,7 +567,8 @@ class AgentRuntime:
                     return "approval"
                 result = self.checkpoints.completed_tool_result(run_id, call.id)
                 if result is None:
-                    self.tools.authorize(call, run_id=run_id, skill_tools=self._skill_tools_for("react"))
+                    skill_tools = self._skill_tools_for_run(run, "react")
+                    self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools)
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -553,7 +576,7 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "name": call.name},
                     )
-                    tool_result = self.tools.execute(call, run_id=run_id, skill_tools=self._skill_tools_for("react"))
+                    tool_result = self.tools.execute(call, run_id=run_id, skill_tools=skill_tools)
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -841,17 +864,20 @@ class AgentRuntime:
         plan = args[1] if kind == "reflection" and len(args) > 1 else ""
         step = args[0] if kind == "react" and args else ""
         observation = args[1] if kind == "react" and len(args) > 1 else ""
+        phase_skill_name = "goal-planning" if kind in {"clarification", "planning", "react"} else "reflection"
+        memory_skill_names = tuple(dict.fromkeys((phase_skill_name, *run.skill_names)))
         snapshot = self.context_assembler.assemble(
             user_instruction=interactions[-1] if interactions else "",
             goal=json.dumps(goal, ensure_ascii=False, sort_keys=True),
             plan=json.dumps(plan, ensure_ascii=False, default=str) if plan else "",
             step=json.dumps(step, ensure_ascii=False, default=str),
-            skill="goal-planning" if kind in {"clarification", "planning", "react"} else "reflection",
+            skill=self.skills.context_text(run.skill_names, phase_skill_name),
             history=interactions + ([observation] if observation else []),
             tool_results=[],
             memories=memories,
             project_id=run.project_id,
-            skill_name="goal-planning" if kind in {"clarification", "planning", "react"} else "reflection",
+            skill_name=phase_skill_name,
+            skill_names=memory_skill_names,
         )
         setter(snapshot.snapshot_hash, snapshot.text)
         self.events.append(
@@ -1064,6 +1090,18 @@ class AgentRuntime:
         if skill_name == "react":
             return {"local_time", "calculator", "read_note", "write_note"}
         return set()
+
+    def _skill_tools_for_run(self, run: RunSnapshot, phase_name: str) -> set[str]:
+        allowed = self._skill_tools_for(phase_name)
+        selected_policies = [
+            policy
+            for name in run.skill_names
+            if (policy := self.skills.allowed_tools(name)) is not None
+        ]
+        if selected_policies:
+            selected_tools = set().union(*(set(policy) for policy in selected_policies))
+            return allowed & selected_tools
+        return allowed
 
 
 def _model_result_payload(kind: str, result: Any) -> dict[str, Any]:

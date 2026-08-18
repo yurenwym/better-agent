@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import ApprovalCard from "../components/ApprovalCard";
 import ActivityRail from "../components/ActivityRail";
 import ConversationThread from "../components/ConversationThread";
-import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, getRun, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
+import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, getRun, getSkills, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
-import type { Run } from "../types";
+import type { Run, SkillDefinition } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -23,7 +23,31 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
+  const [skills, setSkills] = useState<SkillDefinition[]>([]);
+  const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
+
+  useEffect(() => {
+    let active = true;
+    getSkills()
+      .then((result) => { if (active) setSkills(result.skills); })
+      .catch(() => { if (active) setSkills([]); });
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (!run) {
+      setSelectedSkills([]);
+    } else if (run.skill_names && run.skill_names.length > 0) {
+      setSelectedSkills(run.skill_names);
+    }
+  }, [run?.id]);
+
+  function toggleSkill(name: string) {
+    setSelectedSkills((current) => current.includes(name)
+      ? current.filter((item) => item !== name)
+      : [...current, name]);
+  }
 
   async function submitContent(content: string): Promise<boolean> {
     setError("");
@@ -33,9 +57,9 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
         const firstLine = content.split(/\r?\n/)[0].trim();
         const created = await createGoal({ title: firstLine.slice(0, 80) || "新的工作目标", description: content }, csrfToken);
         onRun(await getRun(created.run_id));
-        onRun(await sendMessage(created.id, content, csrfToken));
+        onRun(await sendMessage(created.id, content, csrfToken, selectedSkills));
       } else {
-        onRun(await sendMessage(run.goal_id, content, csrfToken));
+        onRun(await sendMessage(run.goal_id, content, csrfToken, selectedSkills));
       }
       return true;
     } catch (caught) {
@@ -89,7 +113,9 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
           title={run ? "推动当前目标" : "从一个目标开始"}
           description={run ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "先写下你要达成的结果，模型会在这条对话中澄清、规划并等待你的确认。"}
           composerDisabled={Boolean(approvalRun)}
-          composerHint={approvalRun ? "请使用上方按钮选择是否继续" : undefined}
+          skills={skills}
+          selectedSkills={selectedSkills}
+          onToggleSkill={toggleSkill}
           decision={decision}
           onSubmit={submitContent}
         />

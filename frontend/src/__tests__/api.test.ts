@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGoal, getBootstrap, subscribeToEvents } from "../api";
+import { createGoal, getBootstrap, getSkills, sendMessage, subscribeToEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -24,6 +24,25 @@ describe("REST client", () => {
 
     expect(result.csrf_token).toBe("csrf");
     expect(fetcher).toHaveBeenCalledWith("/api/bootstrap");
+  });
+
+  it("sends the selected skills only with the current message", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ state: "RECEIVED" }) });
+
+    await sendMessage("goal-1", "Continue", "csrf", ["reflection"], fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/goals/goal-1/messages",
+      expect.objectContaining({ body: JSON.stringify({ content: "Continue", skill_names: ["reflection"] }) }),
+    );
+  });
+
+  it("loads installed skills from the local runtime", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ skills: [] }) });
+
+    await getSkills(fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith("/api/skills");
   });
 
   it("keeps the event stream in follow mode and stops reconnecting after a terminal event", () => {
