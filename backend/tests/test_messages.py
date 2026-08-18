@@ -92,3 +92,29 @@ def test_default_mock_model_also_creates_visible_assistant_messages(tmp_path) ->
     assert any(item.get("needs_clarification") is False for item in payloads)
     assert any(item.get("steps") == [{"id": "step-1", "title": "准备饮食计划"}] for item in payloads)
     assert len([event for event in runtime.events.list(run.id) if event.type == "model.response"]) == 2
+
+
+def test_empty_provider_message_uses_safe_decision_payload(tmp_path) -> None:
+    from app.runtime import ModelDecision
+    from app.tools import ToolCall
+
+    runtime = make_runtime(tmp_path, ResponseModel())
+    run = asyncio.run(runtime.create_goal("Tool", "Use a tool"))
+    decision = ModelDecision.tool(ToolCall("call-1", "calculator", {"expression": "2 + 2"}), "计算结果")
+
+    runtime._append_model_message(
+        run,
+        "react",
+        "invocation-1",
+        SimpleNamespace(message=""),
+        decision,
+    )
+
+    with runtime.db.connection() as connection:
+        row = connection.execute(
+            "SELECT content FROM messages WHERE run_id = ? ORDER BY created_at DESC LIMIT 1",
+            (run.id,),
+        ).fetchone()
+    payload = json.loads(row["content"])
+    assert payload["summary"] == "计算结果"
+    assert payload["tool_call"]["name"] == "calculator"

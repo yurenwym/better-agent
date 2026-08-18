@@ -23,7 +23,9 @@ class LiveRuntimeModel:
 
     async def needs_clarification(self, goal: dict[str, Any], interactions: list[str]) -> bool:
         payload = await self._json(
-            "Return JSON only: {\"needs_clarification\": true|false}. Ask for clarification only when the goal lacks enough information to plan.",
+            "Return JSON only: {\"needs_clarification\": true|false}. Ask for clarification only when the objective or deliverable is genuinely missing. "
+            "A broad content request is enough for an assumption-based first version; do not ask for personal details before providing it. "
+            "For example, a request for a 7-day diet plan can be planned with clearly stated assumptions and safety notes. Do not ask for personal details.",
             {"goal": goal, "interactions": interactions},
         )
         return bool(payload.get("needs_clarification", False))
@@ -53,18 +55,23 @@ class LiveRuntimeModel:
     async def decide(self, step: dict[str, Any], observation: str, iteration: int) -> ModelDecision:
         payload = await self._json(
             "Return JSON only. action must be one of complete_step, continue, await_outcome, tool_call, blocked. "
+            "Put the user-visible result in output or summary; do not use a generic label when a concrete result is available. "
+            "For a content deliverable, return the visible answer as soon as the step and observation contain enough information. "
+            "Do not call tools just to fill assumptions, get the current time, or repeat a result already present in observation. "
+            "Use at most one tool only when the current step explicitly requires it. "
             "For tool_call include tool_call: {id,name,params}. Never return hidden reasoning.",
-            {"step": step, "observation": observation, "iteration": iteration, "tools": self.tool_schemas},
+            {"step": step, "observation": observation, "iteration": iteration},
+            allow_tool_calls=True,
         )
         action = str(payload.get("action", "blocked"))
         if action == "complete_step":
-            return ModelDecision.complete(str(payload.get("summary", "completed")))
+            return ModelDecision.complete(_visible_result(payload, "completed"))
         if action == "continue":
-            return ModelDecision.continue_(str(payload.get("observation", "continue")))
+            return ModelDecision.continue_(_visible_result(payload, "continue", "observation"))
         if action == "await_outcome":
-            return ModelDecision.await_outcome(str(payload.get("observation", "awaiting outcome")))
+            return ModelDecision.await_outcome(_visible_result(payload, "awaiting outcome", "observation"))
         if action == "blocked":
-            return ModelDecision.blocked(str(payload.get("summary", "blocked")))
+            return ModelDecision.blocked(_visible_result(payload, "blocked"))
         if action == "tool_call":
             tool = payload.get("tool_call")
             if not isinstance(tool, dict) or not isinstance(tool.get("params"), dict) or not tool.get("name"):
@@ -73,7 +80,7 @@ class LiveRuntimeModel:
 
             return ModelDecision.tool(
                 ToolCall(str(tool.get("id") or f"model-call-{iteration}"), str(tool["name"]), tool["params"]),
-                str(payload.get("summary", "tool proposed")),
+                _visible_result(payload, "tool proposed"),
             )
         raise GatewayError("unknown structured model action", "structure")
 
@@ -83,9 +90,39 @@ class LiveRuntimeModel:
             {"goal": goal, "plan": _plan_json(plan), "run_id": run_id},
         )
         candidates = payload.get("candidates", [])
-        return [candidate for candidate in candidates if isinstance(candidate, dict)] if isinstance(candidates, list) else []
+        if not isinstance(candidates, list):
+            return []
+        valid: list[dict[str, Any]] = []
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            kind = candidate.get("kind")
+            content = candidate.get("content")
+            scope = candidate.get("scope")
+            confidence = candidate.get("confidence", 0.5)
+            evidence = candidate.get("evidence_event_ids", [])
+            if kind not in {"preference", "habit"} or not isinstance(content, str) or not content.strip():
+                continue
+            if scope not in {"global", "project", "skill"}:
+                continue
+            if not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+                continue
+            if not isinstance(evidence, list) or not all(isinstance(item, str) for item in evidence):
+                continue
+            if scope == "project" and not candidate.get("project_id"):
+                continue
+            if scope == "skill" and not candidate.get("skill_name"):
+                continue
+            valid.append(candidate)
+        return valid
 
-    async def _json(self, instruction: str, input_data: dict[str, Any]) -> dict[str, Any]:
+    async def _json(
+        self,
+        instruction: str,
+        input_data: dict[str, Any],
+        *,
+        allow_tool_calls: bool = False,
+    ) -> dict[str, Any]:
         self.last_response = None
         messages = [
             {"role": "system", "content": instruction},
@@ -97,6 +134,8 @@ class LiveRuntimeModel:
             messages[1] = {"role": "user", "content": json.dumps(request_data, ensure_ascii=False)}
         response = await self.gateway.complete(ModelRequest(messages=messages, tools=self.tool_schemas))
         self.last_response = response
+        if allow_tool_calls and response.tool_calls:
+            return _tool_call_payload(response.tool_calls)
         try:
             return _parse_json(response.message)
         except (ValueError, json.JSONDecodeError) as exc:
@@ -104,6 +143,8 @@ class LiveRuntimeModel:
                 {"role": "user", "content": "The previous response was not valid JSON. Return only the requested JSON object."},
             ], tools=self.tool_schemas))
             self.last_response = repair
+            if allow_tool_calls and repair.tool_calls:
+                return _tool_call_payload(repair.tool_calls)
             try:
                 return _parse_json(repair.message)
             except (ValueError, json.JSONDecodeError) as repair_exc:
@@ -122,6 +163,48 @@ def _parse_json(content: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise ValueError("JSON response must be an object")
     return value
+
+
+def _visible_result(payload: dict[str, Any], fallback: str, secondary: str = "summary") -> str:
+    """Normalize provider naming variants into the user-visible decision text."""
+    for key in ("output", secondary, "summary", "observation"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, (int, float)):
+            return str(value)
+    return fallback
+
+
+def _tool_call_payload(tool_calls: list[dict[str, Any]]) -> dict[str, Any]:
+    if not tool_calls:
+        raise GatewayError("streamed tool call is empty", "structure")
+    # Some compatible providers still emit a batch even when V1 must execute
+    # actions sequentially. Keep the first action and let the next ReAct turn
+    # decide whether another action is needed; never execute the batch in parallel.
+    call = tool_calls[0]
+    function = call.get("function") or {}
+    name = function.get("name")
+    arguments = function.get("arguments", "{}")
+    if not isinstance(name, str) or not name.strip():
+        raise GatewayError("streamed tool call is missing a name", "structure")
+    if isinstance(arguments, str):
+        try:
+            params = json.loads(arguments or "{}")
+        except json.JSONDecodeError as exc:
+            raise GatewayError("streamed tool call arguments are invalid", "structure") from exc
+    else:
+        params = arguments
+    if not isinstance(params, dict):
+        raise GatewayError("streamed tool call arguments must be an object", "structure")
+    return {
+        "action": "tool_call",
+        "tool_call": {
+            "id": str(call.get("id") or ""),
+            "name": name,
+            "params": params,
+        },
+    }
 
 
 def _plan_json(plan: Any) -> dict[str, Any]:

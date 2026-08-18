@@ -58,8 +58,9 @@ function rawPresentation(parsed: Record<string, unknown>): MessagePresentation {
     const tool = parsed.tool_call && typeof parsed.tool_call === "object"
       ? stringValue((parsed.tool_call as Record<string, unknown>).name)
       : "";
+    const visibleResult = stringValue(parsed.output) || stringValue(parsed.summary);
     return {
-      summary: stringValue(parsed.summary) || actionLabels[parsed.action] || "我已经更新了当前步骤。",
+      summary: visibleResult || actionLabels[parsed.action] || "我已经更新了当前步骤。",
       detail: tool ? `工具：${tool}` : stringValue(parsed.observation) || actionLabels[parsed.action] || null,
       bullets: [],
     };

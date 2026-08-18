@@ -53,6 +53,118 @@ async def test_runtime_runs_received_planning_approval_execution_reflection_loop
 
 
 @pytest.mark.asyncio
+async def test_react_observation_includes_tool_result_data(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+    from app.tools import ToolCall
+
+    class RecordingModel(MockModelGateway):
+        def __init__(self):
+            super().__init__(
+                plan_steps=[{"id": "step-1", "title": "计算结果"}],
+                decisions=[
+                    ModelDecision.tool(ToolCall("calc-1", "calculator", {"expression": "2 + 2"})),
+                    ModelDecision.complete("已得到结果"),
+                ],
+            )
+            self.observations = []
+
+        async def decide(self, step, observation, iteration):
+            self.observations.append(observation)
+            return await super().decide(step, observation, iteration)
+
+    model = RecordingModel()
+    runtime = make_runtime(tmp_path, model)
+    run = await runtime.create_goal("Calculate", "Calculate 2 + 2")
+    await runtime.handle_message(run.id, "Calculate 2 + 2")
+
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state == "COMPLETED"
+    assert '"value": 4' in model.observations[1]
+
+
+@pytest.mark.asyncio
+async def test_react_receives_full_plan_step_deliverable(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    class RecordingModel(MockModelGateway):
+        def __init__(self):
+            super().__init__(
+                plan_steps=[{
+                    "id": "step-1",
+                    "title": "生成菜单",
+                    "description": "输出 7 天的每日三餐和热量分配",
+                }],
+                decisions=[ModelDecision.complete("已生成菜单")],
+            )
+            self.steps = []
+
+        async def decide(self, step, observation, iteration):
+            self.steps.append(step)
+            return await super().decide(step, observation, iteration)
+
+    model = RecordingModel()
+    runtime = make_runtime(tmp_path, model)
+    run = await runtime.create_goal("Diet", "Prepare a diet plan")
+    await runtime.handle_message(run.id, "Prepare a diet plan")
+
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state == "COMPLETED"
+    assert model.steps[0]["description"] == "输出 7 天的每日三餐和热量分配"
+
+
+@pytest.mark.asyncio
+async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision, RuntimeConfig
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[
+                {"id": "step-1", "title": "第一步"},
+                {"id": "step-2", "title": "第二步"},
+            ],
+            decisions=[ModelDecision.complete("完成第一步"), ModelDecision.complete("完成第二步")],
+        ),
+    )
+    runtime.config = RuntimeConfig(max_react_iterations_per_step=1)
+    run = await runtime.create_goal("Two steps", "Complete two steps")
+    await runtime.handle_message(run.id, "Complete two steps")
+
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "完成交付"}],
+            decisions=[ModelDecision.complete("已完成")],
+            reflection_candidates=[{
+                "kind": "preference",
+                "content": "Nutrition topic",
+                "scope": "nutrition",
+                "confidence": 0.8,
+                "evidence_event_ids": [],
+            }],
+        ),
+    )
+    run = await runtime.create_goal("Goal", "Complete it")
+    await runtime.handle_message(run.id, "Complete it")
+
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state == "COMPLETED"
+    assert runtime.memory.all_records() == []
+
+
+@pytest.mark.asyncio
 async def test_runtime_enters_clarifying_before_planning_when_information_is_missing(tmp_path) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 

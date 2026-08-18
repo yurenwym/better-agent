@@ -446,6 +446,7 @@ class AgentRuntime:
     async def _execute_step(self, run_id: str, plan: PlanVersion, step_id: str) -> str:
         started = time.monotonic()
         observation = ""
+        step = next(item for item in plan.steps if item.id == step_id)
         pending = self._pending_action(run_id)
         while True:
             resumed_pending_action = pending is not None
@@ -470,7 +471,13 @@ class AgentRuntime:
                     run,
                     "react",
                     self.model.decide,
-                    {"id": step_id, "title": self._step_title(plan, step_id)},
+                    {
+                        "id": step.id,
+                        "title": step.title,
+                        "description": step.description,
+                        "position": step.position,
+                        "status": step.status,
+                    },
                     observation,
                     iteration + 1,
                 )
@@ -489,7 +496,14 @@ class AgentRuntime:
                     {**correlation, "summary": decision.summary},
                 )
                 self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
-                self._set_run_fields(run_id, current_step_id=None, budget=self._reset_step_budget(self.get_run(run_id).budget))
+                self._set_run_fields(
+                    run_id,
+                    current_step_id=None,
+                    budget=self._reset_step_budget(
+                        self.get_run(run_id).budget,
+                        self.config.max_react_iterations_per_step,
+                    ),
+                )
                 return "completed"
             if decision.action == "await_outcome":
                 self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
@@ -576,6 +590,10 @@ class AgentRuntime:
                 budget["consecutive_tool_errors"] = 0
                 self._set_run_fields(run_id, budget=budget)
             observation = tool_result.summary
+            if tool_result.data:
+                observation += "\n" + json.dumps(tool_result.data, ensure_ascii=False, sort_keys=True, default=str)
+            if tool_result.artifact_ref:
+                observation += f"\nartifact_ref={tool_result.artifact_ref}"
             self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
 
     async def _reflect_locked(self, run_id: str) -> RunSnapshot:
@@ -585,17 +603,26 @@ class AgentRuntime:
         if candidates is None:
             return self.get_run(run_id)
         for candidate in candidates:
-            self.memory.create_candidate(
-                run_id,
-                run.goal_id,
-                candidate["kind"],
-                candidate["content"],
-                candidate["scope"],
-                candidate.get("confidence", 0.5),
-                candidate.get("evidence_event_ids", []),
-                candidate.get("project_id"),
-                candidate.get("skill_name"),
-            )
+            try:
+                self.memory.create_candidate(
+                    run_id,
+                    run.goal_id,
+                    candidate["kind"],
+                    candidate["content"],
+                    candidate["scope"],
+                    candidate.get("confidence", 0.5),
+                    candidate.get("evidence_event_ids", []),
+                    candidate.get("project_id"),
+                    candidate.get("skill_name"),
+                )
+            except (KeyError, TypeError, ValueError):
+                self.events.append(
+                    run_id,
+                    run.goal_id,
+                    "memory.candidate_discarded",
+                    "runtime",
+                    {"reason": "invalid model candidate"},
+                )
         if self.get_run(run_id).state == AgentState.REFLECTING:
             self._transition(self.get_run(run_id), AgentState.COMPLETED, {"candidates": len(candidates)})
         self.events.append(run_id, run.goal_id, "run.completed", "runtime", {"candidate_count": len(candidates)})
@@ -846,9 +873,9 @@ class AgentRuntime:
         )
 
     def _append_model_message(self, run: RunSnapshot, kind: str, invocation_id: str, response: Any, result: Any) -> None:
-        content = str(getattr(response, "message", "")) if response is not None else json.dumps(
-            _model_result_payload(kind, result), ensure_ascii=False, default=str
-        )
+        content = str(getattr(response, "message", "") or "") if response is not None else ""
+        if not content:
+            content = json.dumps(_model_result_payload(kind, result), ensure_ascii=False, default=str)
         message_id = f"message_{uuid.uuid4().hex}"
         interaction_id = self._latest_interaction_id(run.id)
         now = _now()
@@ -897,8 +924,9 @@ class AgentRuntime:
         return next(step.title for step in plan.steps if step.id == step_id)
 
     @staticmethod
-    def _reset_step_budget(budget: dict[str, Any]) -> dict[str, Any]:
+    def _reset_step_budget(budget: dict[str, Any], max_react_iterations: int = 5) -> dict[str, Any]:
         result = dict(budget)
+        result["react_iterations_remaining"] = max_react_iterations
         result["react_iteration"] = 0
         result["consecutive_tool_errors"] = 0
         result["identical_actions"] = {}

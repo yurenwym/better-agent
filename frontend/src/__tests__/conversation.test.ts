@@ -52,4 +52,14 @@ describe("conversation message presentation", () => {
     expect(decision.detail).toContain("read_note");
     expect(plain.summary).toBe("我已经完成第一步。");
   });
+
+  it("shows the model output instead of the generic completed label", () => {
+    const view = presentMessage(message("assistant", JSON.stringify({
+      action: "complete_step",
+      summary: "completed",
+      output: "先按基础代谢估算热量，再给出一周菜单。",
+    })));
+
+    expect(view.summary).toBe("先按基础代谢估算热量，再给出一周菜单。");
+  });
 });
