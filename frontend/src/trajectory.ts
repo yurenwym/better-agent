@@ -122,6 +122,11 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
       return make(event, "model", "模型开始输出", `首 token 延迟 ${text(data, "ttft_seconds", "不可用")} 秒`);
     case "model.usage_updated":
       return make(event, "model", "模型用量已记录", "Token、缓存和生成耗时已写入统计");
+    case "model.response": {
+      const kind = text(data, "kind");
+      const label = kind === "clarification" ? "澄清回复已到达" : kind === "planning" ? "计划回复已到达" : kind === "react" ? "执行判断已到达" : kind === "reflection" ? "复盘回复已到达" : "模型回复已到达";
+      return make(event, "model", label, "完整回复已加入对话，可以直接据此继续推动目标");
+    }
     case "plan.version_created":
       return make(event, "plan", "新的计划版本已生成", `当前版本 v${text(data, "version", "1")}`);
     case "plan.approved":

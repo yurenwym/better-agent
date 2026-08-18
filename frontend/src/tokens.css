@@ -1,33 +1,36 @@
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  --color-paper: oklch(13% 0.03 260);
-  --color-paper-soft: oklch(15% 0.035 260);
-  --color-panel: oklch(18% 0.035 260);
-  --color-panel-raised: oklch(22% 0.045 260);
-  --color-panel-soft: oklch(25% 0.04 260);
-  --color-line: oklch(30% 0.045 260);
-  --color-line-strong: oklch(39% 0.065 260);
+  --color-paper: #f6f8fb;
+  --color-paper-soft: #eef1f5;
+  --color-sidebar: #f0f2f6;
+  --color-panel: #ffffff;
+  --color-panel-raised: #fbfcfe;
+  --color-panel-soft: #f4f6fa;
+  --color-line: #e1e6ee;
+  --color-line-strong: #c6cfdd;
 
-  --color-ink: oklch(96% 0.018 260);
-  --color-muted: oklch(78% 0.035 260);
-  --color-faint: oklch(63% 0.04 260);
+  --color-ink: #172033;
+  --color-muted: #596579;
+  --color-faint: #8a95a6;
 
-  --color-accent: oklch(78% 0.15 290);
-  --color-accent-strong: oklch(84% 0.12 290);
-  --color-accent-ink: oklch(16% 0.04 260);
-  --color-success: oklch(78% 0.15 150);
-  --color-warning: oklch(82% 0.14 85);
-  --color-danger: oklch(75% 0.16 25);
-  --color-danger-soft: oklch(28% 0.06 25);
-  --color-info: oklch(79% 0.12 225);
-  --color-model: var(--color-info);
-  --color-tool: var(--color-warning);
-  --color-user: oklch(79% 0.12 330);
+  --color-accent: #3b67d9;
+  --color-accent-strong: #244fc4;
+  --color-accent-soft: #edf2ff;
+  --color-accent-ink: #ffffff;
+  --color-success: #16835a;
+  --color-success-soft: #eaf7f1;
+  --color-warning: #9a6508;
+  --color-warning-soft: #fff7e7;
+  --color-danger: #c53d4a;
+  --color-danger-soft: #fff0f1;
+  --color-info: #4169a7;
+  --color-info-soft: #eff4ff;
+  --color-user: #3b67d9;
 
-  --font-display: "Fira Sans", "Aptos Display", "Segoe UI", sans-serif;
-  --font-body: "Fira Sans", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "Fira Code", "Cascadia Mono", Consolas, monospace;
+  --font-display: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-body: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Mono", Consolas, monospace;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -46,16 +49,17 @@
 
   --radius-sm: 8px;
   --radius-md: 12px;
-  --radius-lg: 18px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
   --radius-pill: 999px;
 
   --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-in: cubic-bezier(0.8, 0, 1, 0.2);
   --ease-in-out: cubic-bezier(0.7, 0, 0.3, 1);
   --dur-fast: 140ms;
   --dur-base: 220ms;
   --dur-slow: 360ms;
 
-  --shadow-panel: 0 24px 72px oklch(5% 0.04 260 / 0.28);
-  --shadow-focus: 0 0 0 3px oklch(78% 0.15 290 / 0.24);
+  --shadow-panel: 0 10px 30px rgba(24, 42, 76, 0.06);
+  --shadow-raised: 0 16px 38px rgba(24, 42, 76, 0.1);
+  --shadow-focus: 0 0 0 3px rgba(59, 103, 217, 0.2);
 }

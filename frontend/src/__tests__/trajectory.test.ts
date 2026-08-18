@@ -42,4 +42,11 @@ describe("trajectory view model", () => {
     expect(item.title).toContain("模型请求失败");
     expect(item.detail).not.toContain("api_key");
   });
+
+  it("makes a model response visible as a next-step activity", () => {
+    const item = describeEvent(event("model.response", { kind: "planning", content: "{...}" }));
+
+    expect(item.title).toContain("计划回复已到达");
+    expect(item.detail).toContain("加入对话");
+  });
 });

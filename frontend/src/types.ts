@@ -31,6 +31,15 @@ export interface Run {
   pending_approvals: string[];
 }
 
+export interface MessageRecord {
+  id: string;
+  run_id: string;
+  interaction_id: string | null;
+  role: "user" | "assistant";
+  content: string;
+  created_at: string;
+}
+
 export interface GoalResponse {
   id: string;
   run_id: string;

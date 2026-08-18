@@ -756,6 +756,7 @@ class AgentRuntime:
         else:
             response = getattr(self.model, "last_response", None)
             self._record_model_response(run, invocation_id, attempt_id, response)
+            self._append_model_message(run, kind, invocation_id, response)
             self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
 
@@ -844,6 +845,32 @@ class AgentRuntime:
             {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "decode_seconds": timing.decode_seconds, "status": "success"},
         )
 
+    def _append_model_message(self, run: RunSnapshot, kind: str, invocation_id: str, response: Any) -> None:
+        if response is None:
+            return
+        message_id = f"message_{uuid.uuid4().hex}"
+        interaction_id = self._latest_interaction_id(run.id)
+        content = str(getattr(response, "message", ""))
+        now = _now()
+        with self.db.transaction() as connection:
+            connection.execute(
+                "INSERT INTO messages(id, run_id, interaction_id, role, content, created_at) VALUES (?, ?, ?, 'assistant', ?, ?)",
+                (message_id, run.id, interaction_id, content, now),
+            )
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.response",
+            "model",
+            {
+                "message_id": message_id,
+                "interaction_id": interaction_id,
+                "model_invocation_id": invocation_id,
+                "kind": kind,
+                "content": content,
+            },
+        )
+
     def _interaction_text(self, run_id: str) -> list[str]:
         with self.db.connection() as connection:
             return [
@@ -852,6 +879,14 @@ class AgentRuntime:
                     "SELECT content FROM interactions WHERE run_id = ? ORDER BY created_at, id", (run_id,)
                 )
             ]
+
+    def _latest_interaction_id(self, run_id: str) -> str | None:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT id FROM interactions WHERE run_id = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+                (run_id,),
+            ).fetchone()
+        return row["id"] if row else None
 
     def _goal(self, goal_id: str) -> dict[str, Any]:
         with self.db.connection() as connection:

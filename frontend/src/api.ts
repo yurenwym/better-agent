@@ -2,6 +2,7 @@ import type {
   Bootstrap,
   EventRecord,
   GoalResponse,
+  MessageRecord,
   MemoryRecord,
   PlanResponse,
   PlanVersion,
@@ -118,6 +119,10 @@ export async function rejectApproval(approvalId: string, csrfToken: string): Pro
 
 export async function getEvents(runId: string, afterSeq = 0): Promise<{ events: EventRecord[] }> {
   return json<{ events: EventRecord[] }>(await fetch(`/api/runs/${runId}/events?after_seq=${afterSeq}`));
+}
+
+export async function getMessages(runId: string): Promise<{ messages: MessageRecord[] }> {
+  return json<{ messages: MessageRecord[] }>(await fetch(`/api/runs/${runId}/messages`));
 }
 
 export async function getStats(runId: string): Promise<Stats> {

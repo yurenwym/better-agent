@@ -13,19 +13,19 @@ describe("personal agent workspace", () => {
 
     expect(screen.getByRole("heading", { name: "目标对话" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
-    expect(screen.getByRole("heading", { name: "运行轨迹" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "运行轨迹" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "计划" }));
-    expect(screen.getByRole("heading", { name: "计划版本" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "计划版本" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "记忆" }));
-    expect(screen.getByRole("heading", { name: "长期记忆" })).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
   });
 
   it("exposes a labelled goal message form", () => {
     render(<App />);
 
-    expect(screen.getByLabelText("目标描述")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "发送目标" })).toBeTruthy();
-    expect(screen.getByText("等待本地 Run")).toBeTruthy();
+    expect(screen.getByLabelText("继续推动目标")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
+    expect(screen.getAllByText("等待输入").length).toBeGreaterThan(0);
   });
 
   it("shows unavailable telemetry instead of inventing zeroes", () => {

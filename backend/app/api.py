@@ -152,6 +152,30 @@ def register_routes(app) -> None:
 
         return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/api/runs/{run_id}/messages")
+    async def get_messages(run_id: str, request: Request) -> dict[str, Any]:
+        service = runtime(request)
+        service.get_run(run_id)
+        with service.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT id, run_id, interaction_id, role, content, created_at FROM messages "
+                "WHERE run_id = ? ORDER BY created_at, id",
+                (run_id,),
+            ).fetchall()
+        return {
+            "messages": [
+                {
+                    "id": row["id"],
+                    "run_id": row["run_id"],
+                    "interaction_id": row["interaction_id"],
+                    "role": row["role"],
+                    "content": row["content"],
+                    "created_at": row["created_at"],
+                }
+                for row in rows
+            ]
+        }
+
     @app.get("/api/runs/{run_id}/stats")
     async def get_stats(run_id: str, request: Request) -> dict[str, Any]:
         service = runtime(request)

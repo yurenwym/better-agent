@@ -28,6 +28,9 @@ data/memory/
 data/artifacts/
 evals/results/
 
+# Local graph analysis output
+**/graphify-out/
+
 # Editors and operating systems
 .idea/
 .vscode/

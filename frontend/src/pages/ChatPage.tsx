@@ -1,6 +1,7 @@
 import { useState } from "react";
 import ApprovalCard from "../components/ApprovalCard";
 import ActivityRail from "../components/ActivityRail";
+import ConversationThread from "../components/ConversationThread";
 import { addBudget, cancelRun, continueOutcome, createGoal, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import type { Run } from "../types";
@@ -12,31 +13,40 @@ interface ChatPageProps {
   onOpenTrajectory: () => void;
 }
 
+const stateLabels: Record<string, string> = {
+  RECEIVED: "等待输入",
+  CLARIFYING: "需要澄清",
+  PLANNING: "生成计划中",
+  AWAITING_APPROVAL: "等待审批",
+  EXECUTING: "执行中",
+  AWAITING_OUTCOME: "等待结果",
+  REFLECTING: "复盘中",
+  COMPLETED: "已完成",
+  BLOCKED: "已阻塞",
+  FAILED: "运行失败",
+  CANCELLED: "已取消",
+};
+
 export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: ChatPageProps) {
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [feedback, setFeedback] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const telemetry = useRunTelemetry(run?.id ?? null);
+  const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitContent(content: string): Promise<boolean> {
     setError("");
     setBusy(true);
     try {
       if (!run) {
-        const created = await createGoal({ title: title.trim() || "未命名目标", description: description.trim() }, csrfToken);
-        const next = await sendMessage(created.id, description.trim() || title.trim(), csrfToken);
-        onRun(next);
-        setTitle("");
-        setDescription("");
-      } else if (feedback.trim()) {
-        onRun(await sendMessage(run.goal_id, feedback.trim(), csrfToken));
-        setFeedback("");
+        const firstLine = content.split(/\r?\n/)[0].trim();
+        const created = await createGoal({ title: firstLine.slice(0, 80) || "新的工作目标", description: content }, csrfToken);
+        onRun(await sendMessage(created.id, content, csrfToken));
+      } else {
+        onRun(await sendMessage(run.goal_id, content, csrfToken));
       }
+      return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "请求失败");
+      setError(caught instanceof Error ? caught.message : "发送失败，请检查模型连接后重试");
+      return false;
     } finally {
       setBusy(false);
     }
@@ -47,58 +57,48 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: Ch
     try {
       onRun(await action());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "请求失败");
+      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
     }
   }
 
   return (
-    <div className="page-stack">
-      <section className="hero-panel">
-        <div>
-          <span className="eyebrow">GOAL / INTERACTION</span>
-          <h2>{run ? "继续推动当前目标" : "目标对话"}</h2>
-          <p>{run ? "用反馈、调整指令或新的上下文推进同一个 Run。" : "把目标交给本地 Runtime，先澄清，再生成可批准的计划。"}</p>
-        </div>
-        <span className={`state-pill state-${(run?.state ?? "RECEIVED").toLowerCase()}`}>{run?.state ?? "RECEIVED"}</span>
-      </section>
-
-      {!run ? (
-        <form className="form-panel" onSubmit={(event) => void submit(event)}>
-          <label htmlFor="goal-title">目标标题</label>
-          <input id="goal-title" value={title} onChange={(event) => setTitle(event.target.value)} placeholder="例如：整理本周发布计划" />
-          <label htmlFor="goal-description">目标描述</label>
-          <textarea id="goal-description" value={description} onChange={(event) => setDescription(event.target.value)} placeholder="描述结果、约束和你希望 Agent 先处理的部分" rows={5} />
-          <div className="form-footer">
-            <span className="muted">本地单用户 · 顺序执行 · 可审计</span>
-            <button className="button button-primary" disabled={busy} type="submit">发送目标</button>
+    <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty"}>
+      <div className="chat-main-column">
+        <section className="chat-context-bar">
+          <div>
+            <span className="eyebrow">GOAL / INTERACTION</span>
+            <h2>{run ? "继续推进当前目标" : "开始一段新的工作"}</h2>
+            <p>{run ? "直接回答模型的问题，或告诉它你希望调整哪一步。" : "把想完成的事情告诉 Agent，后续每一步都会在这条对话里留下来。"}</p>
           </div>
-        </form>
-      ) : (
-        <div className="chat-layout">
-          <div className="chat-column">
-          <form className="form-panel" onSubmit={(event) => void submit(event)}>
-            <label htmlFor="feedback">反馈或调整指令</label>
-            <textarea id="feedback" value={feedback} onChange={(event) => setFeedback(event.target.value)} placeholder="例如：保留第二步，先完成本地草稿" rows={4} />
-            <div className="form-footer">
-              <span className="muted">预算剩余：{String(run.budget.react_iterations_remaining ?? "不可用")} 轮</span>
-              <button className="button button-primary" disabled={busy || !feedback.trim()} type="submit">发送反馈</button>
-            </div>
-          </form>
+          <div className="chat-context-meta">
+            <span className={`state-pill state-${(run?.state ?? "RECEIVED").toLowerCase()}`}>{run ? stateLabels[run.state] ?? run.state : "等待输入"}</span>
+            {run && <code title={run.id}>RUN · {run.id.slice(-8)}</code>}
+          </div>
+        </section>
 
-          {run.pending_approvals.length > 0 && (
-            <section className="approval-stack" aria-label="待审批操作">
-              <div className="section-heading"><span className="eyebrow">CONTROL GATE</span><h3>需要你的决定</h3></div>
-              {run.pending_approvals.map((approvalId) => (
-                <ApprovalCard
-                  key={approvalId}
-                  approvalId={approvalId}
-                  onGrant={async () => onRun(await grantApproval(approvalId, csrfToken))}
-                  onReject={async () => onRun(await rejectApproval(approvalId, csrfToken))}
-                />
-              ))}
-            </section>
-          )}
+        <ConversationThread
+          messages={telemetry.messages}
+          busy={busy || telemetry.loading}
+          title={run ? "推动当前目标" : "从一个目标开始"}
+          description={run ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "先写下你要达成的结果，模型会在这条对话中澄清、规划并等待你的确认。"}
+          onSubmit={submitContent}
+        />
 
+        {run && run.pending_approvals.length > 0 && (
+          <section className="approval-stack" aria-label="待审批操作">
+            <div className="section-heading"><span className="eyebrow">CONTROL GATE</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，批准后才会产生副作用。</p></div>
+            {run.pending_approvals.map((approvalId) => (
+              <ApprovalCard
+                key={approvalId}
+                approvalId={approvalId}
+                onGrant={async () => onRun(await grantApproval(approvalId, csrfToken))}
+                onReject={async () => onRun(await rejectApproval(approvalId, csrfToken))}
+              />
+            ))}
+          </section>
+        )}
+
+        {run && (
           <div className="action-bar">
             {run.state === "BLOCKED" && <button className="button button-primary" type="button" onClick={() => void runAction(() => resumeRun(run.id, csrfToken))}>继续执行</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-primary" type="button" onClick={() => void runAction(() => continueOutcome(run.id, true, csrfToken))}>目标已完成</button>}
@@ -106,19 +106,11 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: Ch
             {(run.state === "BLOCKED" || run.state === "EXECUTING" || run.state === "AWAITING_OUTCOME") && <button className="button button-quiet" type="button" onClick={() => void runAction(() => addBudget(run.id, 1, csrfToken))}>追加 1 轮预算</button>}
             {!['COMPLETED', 'CANCELLED', 'FAILED'].includes(run.state) && <button className="button button-danger" type="button" onClick={() => void runAction(() => cancelRun(run.id, csrfToken))}>取消 Run</button>}
           </div>
-          </div>
-          <ActivityRail
-            run={run}
-            events={telemetry.events}
-            stats={telemetry.stats}
-            loading={telemetry.loading}
-            onOpenTrajectory={onOpenTrajectory}
-          />
-        </div>
-      )}
-      {error && <p className="error-message" role="alert">{error}</p>}
-      {run && <p className="empty-state">Run {run.id} · 事件和统计在轨迹页持续更新。</p>}
-      {!run && <p className="empty-state">等待本地 Run</p>}
+        )}
+        {error && <p className="error-message" role="alert">{error}</p>}
+      </div>
+
+      {run && <ActivityRail run={run} events={telemetry.events} stats={telemetry.stats} loading={telemetry.loading} onOpenTrajectory={onOpenTrajectory} />}
     </div>
   );
 }
