@@ -88,11 +88,12 @@ class ToolRegistry:
     def describe(self) -> list[dict[str, Any]]:
         return [
             {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.schema,
-                "risk": spec.risk.value,
-                "timeout_seconds": spec.timeout_seconds,
+                "type": "function",
+                "function": {
+                    "name": spec.name,
+                    "description": spec.description,
+                    "parameters": spec.schema,
+                },
             }
             for spec in self._tools.values()
         ]

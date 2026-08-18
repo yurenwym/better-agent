@@ -1,6 +1,20 @@
 import pytest
 
 
+def test_tool_descriptions_use_openai_function_wire_format(tmp_path) -> None:
+    from app.tools import create_default_registry
+
+    registry = create_default_registry(tmp_path / "workspace")
+
+    descriptions = registry.describe()
+
+    assert descriptions
+    assert {tool["type"] for tool in descriptions} == {"function"}
+    first = descriptions[0]
+    assert set(first["function"]) == {"name", "description", "parameters"}
+    assert first["function"]["parameters"]["type"] == "object"
+
+
 def test_builtin_tools_are_safe_and_return_standard_results(tmp_path) -> None:
     from app.tools import ToolCall, ToolRejected, create_default_registry
 
