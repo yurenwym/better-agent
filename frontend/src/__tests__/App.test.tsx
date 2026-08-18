@@ -30,6 +30,12 @@ describe("personal agent workspace", () => {
     expect(main.querySelector(".workspace-page")?.className).toContain("workspace-page-trajectory");
   });
 
+  it("gives the empty conversation more room on desktop", () => {
+    render(<App />);
+
+    expect(document.querySelector(".chat-workspace-empty")?.className).toContain("chat-workspace-empty-wide");
+  });
+
   it("exposes a labelled goal message form", () => {
     render(<App />);
 

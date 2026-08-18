@@ -95,7 +95,7 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   } : undefined;
 
   return (
-    <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty"}>
+    <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
         <section className="chat-context-bar">
           <div>
