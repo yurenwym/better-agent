@@ -15,12 +15,14 @@ async def test_live_runtime_model_parses_structured_plan_and_decision(monkeypatc
     from app.model_gateway import ModelGateway, ModelProfile
 
     monkeypatch.setenv("LIVE_MODEL_KEY", "configured")
+    seen: list[dict] = []
     responses = iter([
         _response('{"summary":"Ship","steps":[{"id":"step-1","title":"Draft","description":"Write it"}]}'),
         _response('{"action":"complete_step","summary":"done"}'),
     ])
 
     async def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
         return httpx.Response(200, content=next(responses))
 
     model = LiveRuntimeModel(ModelGateway(ModelProfile("https://provider.test", "demo", "LIVE_MODEL_KEY"), transport=httpx.MockTransport(handler)))
@@ -30,6 +32,8 @@ async def test_live_runtime_model_parses_structured_plan_and_decision(monkeypatc
 
     assert plan.steps[0]["title"] == "Draft"
     assert decision.action == "complete_step"
+    assert "tailored" in seen[0]["messages"][0]["content"].lower()
+    assert "deliverable" in seen[0]["messages"][0]["content"].lower()
 
 
 @pytest.mark.asyncio

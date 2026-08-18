@@ -25,7 +25,13 @@ function parseJson(content: string): Record<string, unknown> | null {
 
 function rawPresentation(parsed: Record<string, unknown>): MessagePresentation {
   const steps = Array.isArray(parsed.steps)
-    ? parsed.steps.map((step) => step && typeof step === "object" ? stringValue((step as Record<string, unknown>).title) : "").filter(Boolean)
+    ? parsed.steps.map((step) => {
+      if (!step || typeof step !== "object") return "";
+      const value = step as Record<string, unknown>;
+      const title = stringValue(value.title);
+      const description = stringValue(value.description);
+      return title && description ? `${title}：${description}` : title;
+    }).filter(Boolean)
     : [];
   if (typeof parsed.needs_clarification === "boolean") {
     return {

@@ -30,11 +30,14 @@ describe("conversation message presentation", () => {
   it("turns a plan response into a summary with steps", () => {
     const view = presentMessage(message("assistant", JSON.stringify({
       summary: "整理本周发布计划",
-      steps: [{ title: "收集输入" }, { title: "生成草案" }],
+      steps: [
+        { title: "收集输入", description: "梳理已有素材和限制" },
+        { title: "生成草案", description: "产出一版可以直接使用的计划" },
+      ],
     })));
 
     expect(view.summary).toBe("整理本周发布计划");
-    expect(view.bullets).toEqual(["收集输入", "生成草案"]);
+    expect(view.bullets).toEqual(["收集输入：梳理已有素材和限制", "生成草案：产出一版可以直接使用的计划"]);
   });
 
   it("summarizes ReAct decisions and preserves non-JSON responses", () => {

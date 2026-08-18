@@ -30,7 +30,10 @@ class LiveRuntimeModel:
 
     async def plan(self, goal: dict[str, Any], interactions: list[str]) -> PlanDraft:
         payload = await self._json(
-            "Return JSON only with keys summary and steps. steps must be a non-empty array of objects with id, title, description. Keep steps atomic and short.",
+            "Return JSON only with keys summary and steps. steps must be a non-empty array of objects with id, title, description. "
+            "Make the plan tailored to the exact user goal and its deliverable, using the user's language. "
+            "For content or planning requests, put concrete deliverable details in summary, step titles, or descriptions; "
+            "do not return generic checklist steps such as clarify the goal, execute each item, or summarize progress unless the user explicitly asks for a workflow.",
             {"goal": goal, "interactions": interactions},
         )
         steps = payload.get("steps")
