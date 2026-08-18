@@ -756,7 +756,7 @@ class AgentRuntime:
         else:
             response = getattr(self.model, "last_response", None)
             self._record_model_response(run, invocation_id, attempt_id, response)
-            self._append_model_message(run, kind, invocation_id, response)
+            self._append_model_message(run, kind, invocation_id, response, result)
             self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
 
@@ -845,12 +845,12 @@ class AgentRuntime:
             {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "decode_seconds": timing.decode_seconds, "status": "success"},
         )
 
-    def _append_model_message(self, run: RunSnapshot, kind: str, invocation_id: str, response: Any) -> None:
-        if response is None:
-            return
+    def _append_model_message(self, run: RunSnapshot, kind: str, invocation_id: str, response: Any, result: Any) -> None:
+        content = str(getattr(response, "message", "")) if response is not None else json.dumps(
+            _model_result_payload(kind, result), ensure_ascii=False, default=str
+        )
         message_id = f"message_{uuid.uuid4().hex}"
         interaction_id = self._latest_interaction_id(run.id)
-        content = str(getattr(response, "message", ""))
         now = _now()
         with self.db.transaction() as connection:
             connection.execute(
@@ -914,6 +914,29 @@ class AgentRuntime:
         if skill_name == "react":
             return {"local_time", "calculator", "read_note", "write_note"}
         return set()
+
+
+def _model_result_payload(kind: str, result: Any) -> dict[str, Any]:
+    if kind == "clarification":
+        return {"needs_clarification": bool(result)}
+    if kind == "planning" and isinstance(result, PlanDraft):
+        return {"summary": result.summary, "steps": result.steps}
+    if kind == "react" and isinstance(result, ModelDecision):
+        payload: dict[str, Any] = {"action": result.action}
+        if result.summary:
+            payload["summary"] = result.summary
+        if result.observation:
+            payload["observation"] = result.observation
+        if result.tool_call:
+            payload["tool_call"] = {
+                "id": result.tool_call.id,
+                "name": result.tool_call.name,
+                "params": result.tool_call.params,
+            }
+        return payload
+    if kind == "reflection" and isinstance(result, list):
+        return {"candidates": result}
+    return {"result": result}
 
 
 def _now() -> str:

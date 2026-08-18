@@ -1,4 +1,5 @@
 import asyncio
+import json
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
@@ -64,3 +65,30 @@ def test_model_response_is_persisted_and_exposed_by_messages_api(tmp_path) -> No
     assert [item["role"] for item in messages.json()["messages"]] == ["user", "assistant"]
     assert messages.json()["messages"][-1]["content"] == '{"needs_clarification": true}'
     assert any(event.type == "model.response" for event in runtime.events.list(run.id))
+
+
+def test_default_mock_model_also_creates_visible_assistant_messages(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(plan_steps=[{"id": "step-1", "title": "准备饮食计划"}]),
+    )
+    run = asyncio.run(runtime.create_goal("Diet", "Make a seven-day diet plan"))
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        f"/api/goals/{run.goal_id}/messages",
+        json={"content": "制定一个7天的减脂饮食计划"},
+        headers=_headers(app),
+    )
+
+    assert response.status_code == 200
+    messages = client.get(f"/api/runs/{run.id}/messages", headers={"host": "127.0.0.1:8000"})
+    payloads = [json.loads(item["content"]) for item in messages.json()["messages"] if item["role"] == "assistant"]
+    assert [item["role"] for item in messages.json()["messages"]] == ["user", "assistant", "assistant"]
+    assert any(item.get("needs_clarification") is False for item in payloads)
+    assert any(item.get("steps") == [{"id": "step-1", "title": "准备饮食计划"}] for item in payloads)
+    assert len([event for event in runtime.events.list(run.id) if event.type == "model.response"]) == 2
