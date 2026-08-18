@@ -12,8 +12,12 @@ DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
 
 
+def npm_command() -> str:
+    return "npm.cmd" if sys.platform == "win32" else "npm"
+
+
 def main() -> None:
-    subprocess.run(["npm", "run", "build"], cwd=FRONTEND, check=True)
+    subprocess.run([npm_command(), "run", "build"], cwd=FRONTEND, check=True)
     sys.path.insert(0, str(BACKEND))
     import uvicorn
 

@@ -1,6 +1,21 @@
 from fastapi.testclient import TestClient
 
 
+def test_start_script_uses_windows_npm_command(monkeypatch) -> None:
+    import importlib.util
+    from pathlib import Path
+
+    script_path = Path(__file__).parents[2] / "scripts" / "start.py"
+    spec = importlib.util.spec_from_file_location("start_script", script_path)
+    assert spec is not None and spec.loader is not None
+    start_script = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(start_script)
+
+    monkeypatch.setattr(start_script.sys, "platform", "win32")
+
+    assert start_script.npm_command() == "npm.cmd"
+
+
 def test_fastapi_serves_built_frontend_from_same_origin(tmp_path) -> None:
     from app.main import create_app
 
