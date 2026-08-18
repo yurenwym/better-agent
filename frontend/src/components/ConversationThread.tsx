@@ -9,7 +9,6 @@ interface ConversationThreadProps {
   title?: string;
   description?: string;
   composerDisabled?: boolean;
-  composerHint?: string;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
@@ -29,7 +28,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, composerHint = "输入信息，Enter发送，Shift+Enter换行", skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -173,7 +172,6 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 </div>
               )}
             </div>
-            <span className="composer-hint">{composerHint}</span>
           </div>
           <button className="button button-primary" disabled={busy || composerDisabled || !draft.trim()} type="submit">发送</button>
         </div>

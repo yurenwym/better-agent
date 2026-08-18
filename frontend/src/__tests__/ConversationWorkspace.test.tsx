@@ -147,7 +147,6 @@ describe("conversation workspace", () => {
           onSecondary: () => { edited += 1; },
         }}
         composerDisabled
-        composerHint="输入信息，Enter发送，Shift+Enter换行"
       />,
     );
 
@@ -156,7 +155,7 @@ describe("conversation workspace", () => {
     expect(approved).toBe(1);
     expect(edited).toBe(1);
     expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText("输入信息，Enter发送，Shift+Enter换行")).toBeTruthy();
+    expect(document.querySelector(".composer-hint")).toBeNull();
   });
 
   it("keeps navigation and settings discoverable in the sidebar", () => {
