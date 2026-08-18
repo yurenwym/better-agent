@@ -126,6 +126,24 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .message-summary, .message-detail { color: var(--color-ink); font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-detail { color: var(--color-muted); font-size: 13px; }
 .message-bullets { display: grid; gap: 6px; margin: 0; padding: 0 0 0 20px; color: var(--color-ink); font-size: 13px; line-height: 1.55; }
+.message-markdown { display: grid; gap: 10px; min-width: 0; color: var(--color-ink); font-size: 14px; line-height: 1.68; overflow-wrap: anywhere; }
+.message-markdown > :first-child { margin-top: 0; }
+.message-markdown > :last-child { margin-bottom: 0; }
+.message-markdown h2, .message-markdown h3 { color: var(--color-ink); letter-spacing: -0.02em; }
+.message-markdown h2 { margin: 4px 0 0; font-size: 20px; }
+.message-markdown h3 { margin: 12px 0 0; font-size: 16px; }
+.message-markdown p { margin: 0; }
+.message-markdown ul, .message-markdown ol { margin: 0; padding-left: 22px; }
+.message-markdown li + li { margin-top: 5px; }
+.message-markdown blockquote { margin: 2px 0 0; padding: 9px 12px; border-left: 3px solid var(--color-warning); background: var(--color-warning-soft); color: var(--color-muted); }
+.message-markdown code { border-radius: 4px; background: var(--color-line); padding: 1px 4px; font-family: var(--font-mono); font-size: 0.9em; }
+.message-code-block { max-width: 100%; margin: 0; overflow-x: auto; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-paper); padding: 12px; color: var(--color-muted); }
+.message-code-block code { display: block; padding: 0; background: transparent; white-space: pre; }
+.message-table-scroll { max-width: 100%; overflow-x: auto; }
+.message-markdown table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 12px; }
+.message-markdown th, .message-markdown td { padding: 8px 10px; border-bottom: 1px solid var(--color-line); text-align: left; vertical-align: top; }
+.message-markdown th { background: var(--color-panel-soft); color: var(--color-ink); font-weight: 700; }
+.message-markdown td { color: var(--color-muted); }
 .message-pending-user { opacity: 0.72; }
 .typing-indicator { display: inline-flex; gap: 4px; }
 .typing-indicator i { width: 5px; height: 5px; border-radius: 50%; background: var(--color-accent); animation: typing-pulse 1s var(--ease-in-out) infinite; }
@@ -316,6 +334,9 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .conversation-decision .button-row { width: 100%; }
   .conversation-decision .button { flex: 1; }
   .conversation-composer { padding: 14px; }
+  .message-markdown { font-size: 16px; }
+  .message-markdown table { min-width: 420px; }
+  .message-code-block { font-size: 12px; }
   .composer-footer { align-items: flex-end; }
   .composer-footer span { max-width: 60%; line-height: 1.4; }
   .timeline-toolbar, .timeline-controls, .panel-toolbar, .form-footer { align-items: stretch; flex-direction: column; }

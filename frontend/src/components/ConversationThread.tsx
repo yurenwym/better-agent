@@ -1,5 +1,6 @@
 import { FormEvent, useState } from "react";
 import { presentMessage } from "../conversation";
+import MarkdownMessage from "./MarkdownMessage";
 import type { MessageRecord } from "../types";
 
 interface ConversationThreadProps {
@@ -70,8 +71,8 @@ export default function ConversationThread({ messages, busy = false, title = "�
                   <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
                 </div>
                 <div className="message-card">
-                  <p className="message-summary">{view.summary}</p>
-                  {view.detail && <p className="message-detail">{view.detail}</p>}
+                  <MarkdownMessage content={view.summary} className="message-summary" />
+                  {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
                   {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
                 </div>
               </div>
@@ -81,7 +82,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
         {pendingUser && (
           <article className="message-row message-user message-pending-user">
             <div className="message-avatar" aria-hidden="true">YOU</div>
-            <div className="message-body"><div className="message-meta"><strong>你</strong><span>发送中</span></div><div className="message-card"><p className="message-summary">{pendingUser}</p></div></div>
+            <div className="message-body"><div className="message-meta"><strong>你</strong><span>发送中</span></div><div className="message-card"><MarkdownMessage content={pendingUser} className="message-summary" /></div></div>
           </article>
         )}
         {busy && (
@@ -89,7 +90,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
             <div className="message-avatar" aria-hidden="true">BA</div>
             <div className="message-body">
               <div className="message-meta"><strong>Better Agent</strong><span>正在响应</span></div>
-              <div className="message-card"><p className="message-summary">正在等待模型返回下一步结果…</p><span className="typing-indicator" aria-hidden="true"><i /><i /><i /></span></div>
+              <div className="message-card"><MarkdownMessage content="正在等待模型返回下一步结果…" className="message-summary" /><span className="typing-indicator" aria-hidden="true"><i /><i /><i /></span></div>
             </div>
           </article>
         )}

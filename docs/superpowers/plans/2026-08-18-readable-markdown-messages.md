@@ -25,7 +25,7 @@
 
 - Create: frontend/src/__tests__/MarkdownMessage.test.tsx
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create a test that asks for the semantic output required by the approved preview:
 
@@ -93,7 +93,7 @@ describe("MarkdownMessage", () => {
 });
 ~~~
 
-- [ ] **Step 2: Run the focused test and verify it fails for the missing component**
+- [x] **Step 2: Run the focused test and verify it fails for the missing component**
 
 Run from D:\RAG\better\frontend:
 
@@ -110,7 +110,7 @@ Expected result: FAIL because ../components/MarkdownMessage does not exist. Do n
 - Create: frontend/src/components/MarkdownMessage.tsx
 - Test: frontend/src/__tests__/MarkdownMessage.test.tsx
 
-- [ ] **Step 1: Define the component contract and block parser**
+- [x] **Step 1: Define the component contract and block parser**
 
 Use this public shape and keep parser helpers private to the file:
 
@@ -138,7 +138,7 @@ The block scanner should walk content.split(/\r?\n/) in order and emit nodes for
 
 Unrecognized lines remain visible as text. Empty input returns an empty message container. Use stable keys based on block start index and block type.
 
-- [ ] **Step 2: Implement safe inline rendering**
+- [x] **Step 2: Implement safe inline rendering**
 
 The inline renderer should split text into plain React text nodes plus these elements, in this precedence order: backtick code, strong (** or __), and emphasis (* or _). One level of nesting is enough for this V1. Do not parse or inject HTML, URLs, images, or scripts.
 
@@ -159,7 +159,7 @@ return token;
 
 Plain strings are passed as React children, which is the escaping boundary. No dangerouslySetInnerHTML may appear in the new file.
 
-- [ ] **Step 3: Run the focused tests and verify they pass**
+- [x] **Step 3: Run the focused tests and verify they pass**
 
 Run:
 
@@ -176,7 +176,7 @@ Expected result: all MarkdownMessage tests PASS, with no raw Markdown markers re
 - Modify: frontend/src/components/ConversationThread.tsx
 - Modify: frontend/src/__tests__/ConversationWorkspace.test.tsx
 
-- [ ] **Step 1: Add the integration regression test before wiring the component**
+- [x] **Step 1: Add the integration regression test before wiring the component**
 
 Add a focused test with this assistant content:
 
@@ -204,7 +204,7 @@ it("renders ordinary assistant Markdown as readable content", () => {
 });
 ~~~
 
-- [ ] **Step 2: Run the integration test and verify it fails**
+- [x] **Step 2: Run the integration test and verify it fails**
 
 Run:
 
@@ -214,7 +214,7 @@ npm test -- --run src/__tests__/ConversationWorkspace.test.tsx
 
 Expected result: FAIL because the current p element renders the heading source as text and creates no table or heading elements.
 
-- [ ] **Step 3: Replace only visible message text nodes with MarkdownMessage**
+- [x] **Step 3: Replace only visible message text nodes with MarkdownMessage**
 
 Import MarkdownMessage and use it for view.summary, view.detail, authored user content, pending user content, and the generic pending status. Keep view.bullets.map(...) because it is already structured data. The relevant shape is:
 
@@ -230,7 +230,7 @@ Import MarkdownMessage and use it for view.summary, view.detail, authored user c
 
 Do not pass message.content directly for assistant messages; presentMessage remains the policy boundary that converts JSON and hides internal fields. Incomplete JSON streaming must continue to produce the existing generic status from presentMessage.
 
-- [ ] **Step 4: Run the integration tests and verify they pass**
+- [x] **Step 4: Run the integration tests and verify they pass**
 
 Run:
 
@@ -246,7 +246,7 @@ Expected result: the new Markdown integration test and all existing raw-JSON, st
 
 - Modify: frontend/src/styles.css
 
-- [ ] **Step 1: Add styles scoped to the new message classes**
+- [x] **Step 1: Add styles scoped to the new message classes**
 
 Add rules beside the existing message styles. Use existing tokens and cover hierarchy, lists, quote, inline code, fenced code, tables, and local overflow:
 
@@ -273,7 +273,7 @@ Add rules beside the existing message styles. Use existing tokens and cover hier
 
 Do not change global pre, table, or button rules unless the scoped rules cannot override the current message layout.
 
-- [ ] **Step 2: Add narrow-screen safeguards**
+- [x] **Step 2: Add narrow-screen safeguards**
 
 Inside the existing mobile media query, keep table overflow local and body text readable:
 
@@ -297,7 +297,7 @@ Only message-table-scroll and message-code-block may scroll horizontally; the co
 - Test: frontend/src/__tests__/MarkdownMessage.test.tsx
 - Test: frontend/src/__tests__/ConversationWorkspace.test.tsx
 
-- [ ] **Step 1: Run the complete frontend test suite**
+- [x] **Step 1: Run the complete frontend test suite**
 
 From D:\RAG\better\frontend:
 
@@ -307,7 +307,7 @@ npm test -- --run
 
 Expected result: all existing and new tests PASS. If a test fails, identify whether it is a parser assertion, presentation-policy regression, or build issue before editing.
 
-- [ ] **Step 2: Run the TypeScript/Vite production build**
+- [x] **Step 2: Run the TypeScript/Vite production build**
 
 ~~~powershell
 npm run build
@@ -315,7 +315,7 @@ npm run build
 
 Expected result: TypeScript and Vite complete successfully and produce frontend/dist. Do not commit generated frontend/dist files if they are ignored or local build output.
 
-- [ ] **Step 3: Inspect the final diff and repository hygiene**
+- [x] **Step 3: Inspect the final diff and repository hygiene**
 
 ~~~powershell
 git diff --check
@@ -325,7 +325,7 @@ git diff --stat
 
 Expected result: only the renderer, conversation wiring, scoped styles, and tests are present; no data, secrets, memory, eval output, or temporary visualization content is staged.
 
-- [ ] **Step 4: Commit the implementation**
+- [x] **Step 4: Commit the implementation**
 
 ~~~powershell
 git add frontend/src/components/MarkdownMessage.tsx frontend/src/components/ConversationThread.tsx frontend/src/styles.css frontend/src/__tests__/MarkdownMessage.test.tsx frontend/src/__tests__/ConversationWorkspace.test.tsx

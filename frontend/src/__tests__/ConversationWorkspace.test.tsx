@@ -57,6 +57,28 @@ describe("conversation workspace", () => {
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
   });
 
+  it("renders ordinary assistant Markdown as readable content", () => {
+    render(
+      <ConversationThread
+        messages={[{
+          id: "message-markdown",
+          run_id: run.id,
+          interaction_id: "interaction-1",
+          role: "assistant",
+          content: "## 行程建议\n\n**第一天**：游览象鼻山。\n\n| 项目 | 建议 |\n| --- | --- |\n| 门票 | 提前预订 |",
+          created_at: "2026-08-18T00:00:02Z",
+        }]}
+        busy={false}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "行程建议" })).toBeTruthy();
+    expect(screen.getByText("第一天").tagName).toBe("STRONG");
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.queryByText("## 行程建议")).toBeNull();
+  });
+
   it("offers explicit approval choices instead of requiring a text reply", () => {
     let approved = 0;
     let edited = 0;
