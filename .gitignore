@@ -24,6 +24,7 @@ coverage/
 # Local runtime data
 data/*.db
 data/*.db-*
+data/*.log
 data/memory/
 data/artifacts/
 evals/results/
