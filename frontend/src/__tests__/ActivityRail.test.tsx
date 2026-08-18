@@ -14,7 +14,7 @@ const run: Run = {
   current_plan_version_id: "plan-1",
   current_step_id: null,
   version: 1,
-  budget: { react_iterations_remaining: 4 },
+  budget: { react_iterations_remaining: 4, react_iteration: 3 },
   pending_approvals: [],
 };
 
@@ -60,6 +60,9 @@ describe("activity rail", () => {
     expect(screen.getByText("正在理解目标")).toBeTruthy();
     expect(screen.getAllByText("正在生成计划").length).toBeGreaterThan(0);
     expect(screen.getByText("已进入规划阶段")).toBeTruthy();
+    expect(screen.getByText("已执行循环")).toBeTruthy();
+    expect(screen.getByText("3 次")).toBeTruthy();
+    expect(screen.queryByText("剩余预算")).toBeNull();
     expect(screen.queryByText("interaction_a4c59119227447cf96d2d558bbbfb1a9")).toBeNull();
   });
 });

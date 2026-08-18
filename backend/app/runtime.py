@@ -342,6 +342,8 @@ class AgentRuntime:
         lock = self._lock(run_id)
         async with lock:
             run = self.get_run(run_id)
+            if run.state != AgentState.BLOCKED or run.budget.get("blocked_reason") != "react iteration budget exhausted":
+                raise ValueError("budget recovery is only available after react iteration budget exhaustion")
             budget = dict(run.budget)
             budget["react_iterations_remaining"] = int(budget.get("react_iterations_remaining", 0)) + amount
             self._set_run_fields(run_id, budget=budget)

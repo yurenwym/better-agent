@@ -31,3 +31,41 @@ async def test_react_budget_exhaustion_saves_checkpoint_and_recovers_after_budge
     assert resumed.state == "COMPLETED"
     assert any(event.type == "run.resumed" for event in runtime.events.list(run.id))
 
+
+@pytest.mark.asyncio
+async def test_budget_addition_requires_react_budget_block(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "Wait for approval"}],
+            decisions=[ModelDecision.complete("done")],
+        ),
+    )
+    run = await runtime.create_goal("Guard", "Do not extend normal runs")
+    await runtime.handle_message(run.id, "Start")
+
+    with pytest.raises(ValueError, match="budget recovery"):
+        await runtime.add_budget(run.id, 1)
+
+
+@pytest.mark.asyncio
+async def test_budget_addition_rejects_non_react_block_reason(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "Block"}],
+            decisions=[ModelDecision.blocked("model needs user input")],
+        ),
+    )
+    run = await runtime.create_goal("Guard", "Do not extend model blocks")
+    await runtime.handle_message(run.id, "Start")
+    blocked = await runtime.approve_plan(run.id, 1)
+
+    assert blocked.state.value == "BLOCKED"
+    with pytest.raises(ValueError, match="budget recovery"):
+        await runtime.add_budget(run.id, 1)
+

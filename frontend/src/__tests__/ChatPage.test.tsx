@@ -66,4 +66,50 @@ describe("ChatPage streaming bootstrap", () => {
     expect(api.getRun).toHaveBeenCalledWith("run-1");
     expect(api.getRun.mock.invocationCallOrder[0]).toBeLessThan(api.sendMessage.mock.invocationCallOrder[0]);
   });
+
+  it("does not expose budget recovery during ordinary execution", () => {
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={{ ...initialRun, state: "EXECUTING", budget: { react_iterations_remaining: 4, react_iteration: 1 } }}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "继续执行一次" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "追加 1 轮预算" })).toBeNull();
+  });
+
+  it("offers one-step recovery only after a react budget block", async () => {
+    const blockedRun: Run = {
+      ...initialRun,
+      state: "BLOCKED",
+      budget: {
+        react_iterations_remaining: 0,
+        react_iteration: 5,
+        blocked_reason: "react iteration budget exhausted",
+      },
+    };
+    api.addBudget.mockResolvedValue({ ...blockedRun, budget: { ...blockedRun.budget, react_iterations_remaining: 1 } });
+    api.resumeRun.mockResolvedValue({ ...blockedRun, state: "EXECUTING" });
+
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={blockedRun}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Agent 已达到当前步骤的安全保护阈值")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "继续执行一次" }));
+
+    await waitFor(() => expect(api.resumeRun).toHaveBeenCalledWith(blockedRun.id, "csrf"));
+    expect(api.addBudget).toHaveBeenCalledWith(blockedRun.id, 1, "csrf");
+    expect(api.addBudget.mock.invocationCallOrder[0]).toBeLessThan(api.resumeRun.mock.invocationCallOrder[0]);
+  });
 });

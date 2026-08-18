@@ -23,9 +23,9 @@ const stateCopy: Record<string, string> = {
   CANCELLED: "运行已取消",
 };
 
-function budgetValue(run: Run): string {
-  const value = run.budget.react_iterations_remaining;
-  return typeof value === "number" ? `${value} 轮` : "不可用";
+function iterationValue(run: Run): string {
+  const value = run.budget.react_iteration;
+  return typeof value === "number" ? `${value} 次` : "未开始";
 }
 
 export default function ActivityRail({ run, events, stats, loading = false, onOpenTrajectory }: ActivityRailProps) {
@@ -48,7 +48,7 @@ export default function ActivityRail({ run, events, stats, loading = false, onOp
       </p>
       <div className="activity-facts">
         <div><span>计划进度</span><strong>{planProgress}</strong></div>
-        <div><span>剩余预算</span><strong>{budgetValue(run)}</strong></div>
+        <div><span>已执行循环</span><strong>{iterationValue(run)}</strong></div>
         <div><span>已记录事件</span><strong>{events.length}</strong></div>
       </div>
       <div className="activity-list" aria-label="最近活动">

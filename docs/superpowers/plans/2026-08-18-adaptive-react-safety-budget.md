@@ -13,9 +13,12 @@
 ## Files
 
 - Modify backend/app/runtime.py: reject budget additions outside ReAct-budget recovery.
+- Modify backend/app/api.py: map invalid budget recovery requests to HTTP 409.
 - Modify backend/tests/test_react_budget.py: cover the new backend contract.
+- Modify backend/tests/test_api.py: cover the public HTTP recovery contract.
 - Modify frontend/src/components/ActivityRail.tsx: replace remaining-budget display with executed-loop count.
 - Modify frontend/src/pages/ChatPage.tsx: gate the recovery action and chain add-one-budget with resume.
+- Modify frontend/src/styles.css: style the safety-threshold message beside the recovery action.
 - Modify frontend/src/__tests__/ActivityRail.test.tsx: assert the new progress semantics.
 - Modify frontend/src/__tests__/ChatPage.test.tsx: assert button visibility and recovery call order.
 - Create docs/superpowers/specs/2026-08-18-adaptive-react-safety-budget-amendment.md: approved product/architecture amendment.
@@ -24,9 +27,9 @@
 
 **Files:** backend/tests/test_react_budget.py
 
-- [ ] Add a test that creates a normal executing run and asserts runtime.add_budget(run.id, 1) raises ValueError mentioning budget recovery.
-- [ ] Add a test that creates a blocked run for a non-ReAct reason and asserts the same rejection.
-- [ ] Run:
+- [x] Add a test that creates a normal executing run and asserts runtime.add_budget(run.id, 1) raises ValueError mentioning budget recovery.
+- [x] Add a test that creates a blocked run for a non-ReAct reason and asserts the same rejection.
+- [x] Run:
 
 ~~~powershell
 pytest backend/tests/test_react_budget.py -q
@@ -38,10 +41,10 @@ Expected: the new tests fail because add_budget currently accepts every state af
 
 **Files:** frontend/src/__tests__/ActivityRail.test.tsx, frontend/src/__tests__/ChatPage.test.tsx
 
-- [ ] Change the ActivityRail fixture to include react_iteration: 3 and assert the UI shows an executed-loop label/value and does not show “剩余预算”.
-- [ ] Add a ChatPage test with an EXECUTING run and assert no budget-extension button is rendered.
-- [ ] Add a ChatPage test with a BLOCKED run whose budget contains blocked_reason: "react iteration budget exhausted"; assert the recovery button is rendered, and clicking it calls addBudget(run.id, 1, csrf) before resumeRun(run.id, csrf).
-- [ ] Run:
+- [x] Change the ActivityRail fixture to include react_iteration: 3 and assert the UI shows an executed-loop label/value and does not show “剩余预算”.
+- [x] Add a ChatPage test with an EXECUTING run and assert no budget-extension button is rendered.
+- [x] Add a ChatPage test with a BLOCKED run whose budget contains blocked_reason: "react iteration budget exhausted"; assert the recovery button is rendered, and clicking it calls addBudget(run.id, 1, csrf) before resumeRun(run.id, csrf).
+- [x] Run:
 
 ~~~powershell
 Set-Location D:\RAG\better\frontend
@@ -54,15 +57,16 @@ Expected: the new assertions fail against the current always-visible “追加 1
 
 **Files:** backend/app/runtime.py
 
-- [ ] In AgentRuntime.add_budget, after loading the Run and before mutating the budget, require:
+- [x] In AgentRuntime.add_budget, after loading the Run and before mutating the budget, require:
 
 ~~~python
 if run.state != AgentState.BLOCKED or run.budget.get("blocked_reason") != "react iteration budget exhausted":
     raise ValueError("budget recovery is only available after react iteration budget exhaustion")
 ~~~
 
-- [ ] Keep the existing positive amount validation, increment only react_iterations_remaining, preserve the existing budget.warning event, and return the updated snapshot.
-- [ ] Run the focused backend test and then the complete backend suite:
+- [x] Keep the existing positive amount validation, increment only react_iterations_remaining, preserve the existing budget.warning event, and return the updated snapshot.
+- [x] Wrap the budget route in the existing HTTPException pattern and return status 409 for the service ValueError.
+- [x] Run the focused backend test and then the complete backend suite:
 
 ~~~powershell
 pytest backend/tests/test_react_budget.py -q
@@ -75,8 +79,8 @@ Expected: focused and complete backend tests pass.
 
 **Files:** frontend/src/components/ActivityRail.tsx, frontend/src/pages/ChatPage.tsx
 
-- [ ] Replace the budgetValue helper with a helper reading run.budget.react_iteration; render a label equivalent to “已执行循环” and a value such as “3 次”. Do not render the remaining counter in the primary progress facts.
-- [ ] Add a narrow helper in ChatPage.tsx:
+- [x] Replace the budgetValue helper with a helper reading run.budget.react_iteration; render a label equivalent to “已执行循环” and a value such as “3 次”. Do not render the remaining counter in the primary progress facts.
+- [x] Add a narrow helper in ChatPage.tsx:
 
 ~~~tsx
 function isReactBudgetBlocked(run: Run): boolean {
@@ -85,10 +89,11 @@ function isReactBudgetBlocked(run: Run): boolean {
 }
 ~~~
 
-- [ ] For that state, render one button labeled “继续执行一次” whose handler awaits addBudget(run.id, 1, csrfToken) and then returns resumeRun(run.id, csrfToken) through the existing runAction path.
-- [ ] Keep the generic blocked “继续执行” action for other blocked reasons, but remove the unconditional budget button from EXECUTING, AWAITING_OUTCOME, and other non-budget states.
-- [ ] Keep the existing outcome buttons, cancellation button, trajectory and decision controls unchanged.
-- [ ] Run the focused frontend tests and build:
+- [x] For that state, render one button labeled “继续执行一次” whose handler awaits addBudget(run.id, 1, csrfToken) and then returns resumeRun(run.id, csrfToken) through the existing runAction path.
+- [x] Keep the generic blocked “继续执行” action for other blocked reasons, but remove the unconditional budget button from EXECUTING, AWAITING_OUTCOME, and other non-budget states.
+- [x] Render “Agent 已达到当前步骤的安全保护阈值” beside the recovery action with an accessible status role.
+- [x] Keep the existing outcome buttons, cancellation button, trajectory and decision controls unchanged.
+- [x] Run the focused frontend tests and build:
 
 ~~~powershell
 Set-Location D:\RAG\better\frontend
@@ -102,10 +107,10 @@ Expected: focused tests and production build pass.
 
 **Files:** all files above.
 
-- [ ] Run pytest backend/tests -q and npm test -- --run from the frontend directory.
-- [ ] Run npm run build from D:\RAG\better\frontend.
-- [ ] Run git diff --check and confirm no data, secrets, memory, eval output, or graphify output is staged.
-- [ ] Commit with:
+- [x] Run pytest backend/tests -q and npm test -- --run from the frontend directory.
+- [x] Run npm run build from D:\RAG\better\frontend.
+- [x] Run git diff --check and confirm no data, secrets, memory, eval output, or graphify output is staged.
+- [x] Commit with:
 
 ~~~powershell
 git add backend/app/runtime.py backend/tests/test_react_budget.py frontend/src/components/ActivityRail.tsx frontend/src/pages/ChatPage.tsx frontend/src/__tests__/ActivityRail.test.tsx frontend/src/__tests__/ChatPage.test.tsx docs/superpowers/specs/2026-08-18-adaptive-react-safety-budget-amendment.md docs/superpowers/plans/2026-08-18-adaptive-react-safety-budget.md
@@ -119,4 +124,3 @@ Expected: one focused commit on codex/personal-agent-v1; main history remains un
 - The amendment preserves the approved hard safety limits and changes only the user-facing budget semantics and recovery gate.
 - The plan covers backend authorization, frontend display, recovery sequencing, and full regression verification.
 - No task gives the model authority to increase its own budget or creates an unbounded execution loop.
-

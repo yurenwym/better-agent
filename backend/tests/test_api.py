@@ -82,6 +82,26 @@ def test_mutating_routes_require_json_and_csrf_and_plan_revision_is_optimistic(t
     assert conflict.status_code == 409
 
 
+def test_budget_route_rejects_recovery_outside_react_budget_block(tmp_path) -> None:
+    import asyncio
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = asyncio.run(runtime.create_goal("Budget", "Do not extend a normal run"))
+    app = create_app(runtime=runtime)
+    client = TestClient(app, raise_server_exceptions=False)
+
+    response = client.post(
+        f"/api/runs/{run.id}/budget",
+        json={"amount": 1},
+        headers=_headers(app),
+    )
+
+    assert response.status_code == 409
+    assert "budget recovery" in response.json()["detail"]
+
+
 def test_stats_route_returns_projected_event_metrics(tmp_path) -> None:
     import asyncio
     from app.main import create_app

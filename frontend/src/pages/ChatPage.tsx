@@ -28,6 +28,11 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
+function isReactBudgetBlocked(run: Run): boolean {
+  return run.state === "BLOCKED"
+    && run.budget.blocked_reason === "react iteration budget exhausted";
+}
+
 export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -71,6 +76,11 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
     const plans = await getPlans(currentRun.id);
     if (!plans.current) throw new Error("当前没有可批准的计划");
     return approvePlan(currentRun.id, plans.current.version, csrfToken);
+  }
+
+  async function recoverFromReactBudget(currentRun: Run): Promise<Run> {
+    await addBudget(currentRun.id, 1, csrfToken);
+    return resumeRun(currentRun.id, csrfToken);
   }
 
   const approvalRun = run?.state === "AWAITING_APPROVAL" ? run : null;
@@ -126,10 +136,11 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
 
         {run && (
           <div className="action-bar">
-            {run.state === "BLOCKED" && <button className="button button-primary" type="button" onClick={() => void runAction(() => resumeRun(run.id, csrfToken))}>继续执行</button>}
+            {isReactBudgetBlocked(run) && <p className="budget-guard-message" role="status">Agent 已达到当前步骤的安全保护阈值</p>}
+            {run.state === "BLOCKED" && !isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => resumeRun(run.id, csrfToken))}>继续执行</button>}
+            {run && isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => recoverFromReactBudget(run))}>继续执行一次</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-primary" type="button" onClick={() => void runAction(() => continueOutcome(run.id, true, csrfToken))}>目标已完成</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-quiet" type="button" onClick={() => void runAction(() => continueOutcome(run.id, false, csrfToken))}>继续观察</button>}
-            {(run.state === "BLOCKED" || run.state === "EXECUTING" || run.state === "AWAITING_OUTCOME") && <button className="button button-quiet" type="button" onClick={() => void runAction(() => addBudget(run.id, 1, csrfToken))}>追加 1 轮预算</button>}
             {!['COMPLETED', 'CANCELLED', 'FAILED'].includes(run.state) && <button className="button button-danger" type="button" onClick={() => void runAction(() => cancelRun(run.id, csrfToken))}>取消 Run</button>}
           </div>
         )}

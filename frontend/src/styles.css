@@ -171,6 +171,7 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .button-danger { border-color: var(--color-danger); background: var(--color-danger-soft); color: var(--color-danger); }
 .button-quiet { background: transparent; color: var(--color-muted); }
 .button-quiet:hover:not(:disabled) { background: var(--color-panel-soft); color: var(--color-ink); }
+.budget-guard-message { flex: 1 1 280px; margin: 0 auto 0 0; padding: 10px 12px; border-left: 3px solid var(--color-warning); border-radius: var(--radius-sm); background: var(--color-warning-soft); color: var(--color-ink); font-size: 12px; line-height: 1.5; }
 input, textarea, select { width: 100%; min-height: 44px; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: #fff; color: var(--color-ink); padding: 10px 12px; }
 input:hover, textarea:hover, select:hover { border-color: var(--color-line-strong); }
 textarea { min-height: 112px; resize: vertical; line-height: 1.55; }

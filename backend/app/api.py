@@ -108,7 +108,10 @@ def register_routes(app) -> None:
 
     @app.post("/api/runs/{run_id}/budget", dependencies=[Depends(mutate)])
     async def add_budget(run_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
-        return _run_json(await service.add_budget(run_id, int(payload.get("amount", 0))), service)
+        try:
+            return _run_json(await service.add_budget(run_id, int(payload.get("amount", 0))), service)
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/runs/{run_id}/plans")
     async def list_plans(run_id: str, request: Request) -> dict[str, Any]:
