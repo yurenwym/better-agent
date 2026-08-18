@@ -60,12 +60,12 @@ export default function ConversationThread({ messages, busy = false, title = "�
         <span className="conversation-count">{messages.length} 条消息</span>
       </div>
 
-      <div className="conversation-thread" aria-live="polite" aria-label="消息列表">
+      <div className={`conversation-thread${messages.length === 0 ? " conversation-thread-empty" : ""}`} aria-live="polite" aria-label="消息列表">
         {messages.length === 0 && (
           <div className="conversation-empty">
             <span className="conversation-empty-mark" aria-hidden="true">BA</span>
-            <h3>把下一步交给对话</h3>
-            <p>描述你想达成的结果、边界和优先级。模型回复后，你可以在同一处继续推动。</p>
+            <h3>你想实现什么？</h3>
+            <p>描述你想达成的结果、边界和优先级，模型会据此开始澄清和规划。</p>
           </div>
         )}
         {messages.map((message) => {

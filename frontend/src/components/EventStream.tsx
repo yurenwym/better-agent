@@ -58,7 +58,11 @@ export default function EventStream({ events }: EventStreamProps) {
         </div>
       </div>
       {visible.length === 0 ? (
-        <p className="empty-state">暂时没有符合条件的轨迹。</p>
+        <div className="timeline-empty" role="status">
+          <span className="timeline-empty-mark" aria-hidden="true">01</span>
+          <strong>{events.length === 0 ? "等待第一条轨迹事件" : "没有匹配的轨迹事件"}</strong>
+          <p>{events.length === 0 ? "发送消息后，交互、模型和计划进展会按顺序出现在这里。" : "尝试切换阶段或清空搜索词，继续查看完整运行轨迹。"}</p>
+        </div>
       ) : (
         <div className="timeline-groups">
           {groups.map((group) => (

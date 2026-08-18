@@ -46,6 +46,15 @@ const messages: MessageRecord[] = [
 ];
 
 describe("conversation workspace", () => {
+  it("centers the empty conversation prompt and names the desired outcome", () => {
+    render(<ConversationThread messages={[]} busy={false} onSubmit={() => undefined} />);
+
+    expect(screen.getByRole("heading", { name: "你想实现什么？" })).toBeTruthy();
+    expect(screen.queryByText("把下一步交给对话")).toBeNull();
+    expect(screen.getByRole("heading", { name: "你想实现什么？" }).closest(".conversation-empty")).toBeTruthy();
+    expect(document.querySelector(".conversation-thread-empty")).toBeTruthy();
+  });
+
   it("shows the assistant result without exposing raw model JSON", () => {
     render(<ConversationThread messages={messages} busy={false} onSubmit={() => undefined} />);
 

@@ -107,6 +107,15 @@ describe("personal agent workspace", () => {
     expect(screen.getByText("工具执行完成")).toBeTruthy();
   });
 
+  it("gives an empty trajectory a useful, structured next step", () => {
+    render(<EventStream events={[]} />);
+
+    const timeline = screen.getByRole("region", { name: "运行时间线" });
+    expect(timeline.querySelector(".timeline-empty")).toBeTruthy();
+    expect(screen.getByText("等待第一条轨迹事件")).toBeTruthy();
+    expect(screen.getByText("发送消息后，交互、模型和计划进展会按顺序出现在这里。")).toBeTruthy();
+  });
+
   it("exposes explicit grant and reject controls for a pending approval", () => {
     const grant = () => undefined;
     const reject = () => undefined;
