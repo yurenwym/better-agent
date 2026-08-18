@@ -52,22 +52,26 @@ export default function App() {
         onNewConversation={() => { setRun(null); setPage("chat"); }}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
-        <header className="workspace-topbar">
-          <div className="workspace-title-lockup">
-            <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
-            <h1>Better Agent</h1>
-            <p>一条可追溯、可暂停、可恢复的个人工作流。</p>
-          </div>
-          <div className="topbar-meta">
-            <span className={`state-pill state-${state.toLowerCase()}`}>{stateLabels[state] ?? state}</span>
-            <span className="local-mark"><span aria-hidden="true" />127.0.0.1 · 本地运行</span>
-          </div>
-        </header>
+        {!fluidPage && (
+          <header className="workspace-topbar">
+            <div className="workspace-title-lockup">
+              <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
+              <h1>Better Agent</h1>
+              <p>一条可追溯、可暂停、可恢复的个人工作流。</p>
+            </div>
+            <div className="topbar-meta">
+              <span className={`state-pill state-${state.toLowerCase()}`}>{stateLabels[state] ?? state}</span>
+              <span className="local-mark"><span aria-hidden="true" />127.0.0.1 · 本地运行</span>
+            </div>
+          </header>
+        )}
 
-        <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}${fluidPage ? " workspace-page-header-fluid" : ""}`}>
-          <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
-          {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
-        </div>
+        {!fluidPage && (
+          <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}`}>
+            <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
+            {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
+          </div>
+        )}
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}

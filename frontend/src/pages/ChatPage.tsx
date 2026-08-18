@@ -14,20 +14,6 @@ interface ChatPageProps {
   onOpenPlan: () => void;
 }
 
-const stateLabels: Record<string, string> = {
-  RECEIVED: "等待输入",
-  CLARIFYING: "需要澄清",
-  PLANNING: "生成计划中",
-  AWAITING_APPROVAL: "等待审批",
-  EXECUTING: "执行中",
-  AWAITING_OUTCOME: "等待结果",
-  REFLECTING: "复盘中",
-  COMPLETED: "已完成",
-  BLOCKED: "已阻塞",
-  FAILED: "运行失败",
-  CANCELLED: "已取消",
-};
-
 function isReactBudgetBlocked(run: Run): boolean {
   return run.state === "BLOCKED"
     && run.budget.blocked_reason === "react iteration budget exhausted";
@@ -97,18 +83,6 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   return (
     <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
-        <section className="chat-context-bar">
-          <div>
-            <span className="eyebrow">GOAL / INTERACTION</span>
-            <h2>{run ? "继续推进当前目标" : "开始一段新的工作"}</h2>
-            <p>{run ? "直接回答模型的问题，或告诉它你希望调整哪一步。" : "把想完成的事情告诉 Agent，后续每一步都会在这条对话里留下来。"}</p>
-          </div>
-          <div className="chat-context-meta">
-            <span className={`state-pill state-${(run?.state ?? "RECEIVED").toLowerCase()}`}>{run ? stateLabels[run.state] ?? run.state : "等待输入"}</span>
-            {run && <code title={run.id}>RUN · {run.id.slice(-8)}</code>}
-          </div>
-        </section>
-
         <ConversationThread
           messages={telemetry.messages}
           busy={busy || actionBusy || telemetry.loading}

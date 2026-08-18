@@ -11,13 +11,21 @@ describe("personal agent workspace", () => {
   it("switches between the four core pages", () => {
     render(<App />);
 
-    expect(screen.getByRole("heading", { name: "目标对话" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
     expect(screen.getAllByRole("heading", { name: "运行轨迹" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "计划" }));
     expect(screen.getAllByRole("heading", { name: "计划版本" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "记忆" }));
     expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
+  });
+
+  it("keeps the chat page focused on the conversation surface", () => {
+    render(<App />);
+
+    expect(screen.queryByRole("heading", { name: "Better Agent" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "目标对话" })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "开始一段新的工作" })).toBeNull();
+    expect(screen.getByRole("region", { name: "当前目标对话" })).toBeTruthy();
   });
 
   it("uses a wider shell for the trajectory workspace", () => {
@@ -42,9 +50,7 @@ describe("personal agent workspace", () => {
     const main = screen.getByRole("main");
     expect(main.className).toContain("workspace-main-viewport");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-wide");
-    expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-wide");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-fluid");
-    expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-fluid");
   });
 
   it("exposes a labelled goal message form", () => {
@@ -52,7 +58,6 @@ describe("personal agent workspace", () => {
 
     expect(screen.getByLabelText("继续推动目标")).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
-    expect(screen.getAllByText("等待输入").length).toBeGreaterThan(0);
   });
 
   it("shows unavailable telemetry instead of inventing zeroes", () => {
