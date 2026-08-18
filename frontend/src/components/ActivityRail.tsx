@@ -43,14 +43,17 @@ export default function ActivityRail({ run, events, stats, loading = false, onOp
         </div>
         <span className={`state-pill state-${run.state.toLowerCase()}`}>{stateCopy[run.state] ?? run.state}</span>
       </div>
-      <p className="activity-status" role="status" aria-live="polite">
-        {stateCopy[run.state] ?? "运行状态已更新"}
-      </p>
+      <div className="activity-current" role="status" aria-live="polite">
+        <div className="activity-current-meta"><span>当前阶段</span><span className={`activity-current-dot state-${run.state.toLowerCase()}`} aria-hidden="true" /></div>
+        <strong>{stateCopy[run.state] ?? "运行状态已更新"}</strong>
+        <p>轨迹会随着 Run 实时更新</p>
+      </div>
       <div className="activity-facts">
         <div><span>计划进度</span><strong>{planProgress}</strong></div>
         <div><span>已执行循环</span><strong>{iterationValue(run)}</strong></div>
         <div><span>已记录事件</span><strong>{events.length}</strong></div>
       </div>
+      <div className="activity-list-heading"><strong>最近活动</strong><span>{events.length} 条</span></div>
       <div className="activity-list" aria-label="最近活动">
         {loading && <div className="activity-loading"><span className="loading-bar" />正在同步本地轨迹</div>}
         {!loading && activity.length === 0 && <p className="activity-empty">发送目标后，这里会出现实时进展。</p>}

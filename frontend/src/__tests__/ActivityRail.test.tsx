@@ -65,4 +65,21 @@ describe("activity rail", () => {
     expect(screen.queryByText("剩余预算")).toBeNull();
     expect(screen.queryByText("interaction_a4c59119227447cf96d2d558bbbfb1a9")).toBeNull();
   });
+
+  it("keeps the current phase and recent activity visually separated", () => {
+    render(
+      <ActivityRail
+        run={run}
+        stats={stats}
+        events={[event("state.transitioned", { from: "RECEIVED", to: "PLANNING" }, 1)]}
+        onOpenTrajectory={() => undefined}
+      />,
+    );
+
+    expect(screen.getByText("当前阶段")).toBeTruthy();
+    expect(screen.getByText("最近活动")).toBeTruthy();
+    expect(screen.getByText("1 条")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "当前运行进度" }).querySelector(".activity-current")).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "当前运行进度" }).querySelector(".activity-list-heading")).toBeTruthy();
+  });
 });
