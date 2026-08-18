@@ -18,15 +18,13 @@ describe("conversation message presentation", () => {
     const view = presentMessage(message("user", "请先确认目标范围"));
 
     expect(view.summary).toBe("请先确认目标范围");
-    expect(view.raw).toBeNull();
   });
 
-  it("turns clarification JSON into a readable answer and keeps raw output", () => {
-    const raw = '{"needs_clarification":true}';
-    const view = presentMessage(message("assistant", raw));
+  it("turns clarification JSON into a readable answer without exposing raw output", () => {
+    const view = presentMessage(message("assistant", '{"needs_clarification":true}'));
 
     expect(view.summary).toContain("还需要更多信息");
-    expect(view.raw).toBe(raw);
+    expect(view).not.toHaveProperty("raw");
   });
 
   it("turns a plan response into a summary with steps", () => {
@@ -50,6 +48,5 @@ describe("conversation message presentation", () => {
     expect(decision.summary).toContain("读取本地说明");
     expect(decision.detail).toContain("read_note");
     expect(plain.summary).toBe("我已经完成第一步。");
-    expect(plain.raw).toBeNull();
   });
 });

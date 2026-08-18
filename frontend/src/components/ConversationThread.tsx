@@ -7,6 +7,17 @@ interface ConversationThreadProps {
   busy?: boolean;
   title?: string;
   description?: string;
+  composerDisabled?: boolean;
+  composerHint?: string;
+  decision?: {
+    title: string;
+    description: string;
+    primaryLabel: string;
+    secondaryLabel: string;
+    busy?: boolean;
+    onPrimary: () => void;
+    onSecondary: () => void;
+  };
   onSubmit: (content: string) => Promise<boolean | void> | boolean | void;
 }
 
@@ -14,14 +25,14 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, composerHint = "Enter 发送 · 你的回复会进入同一条 Run", decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const content = draft.trim();
-    if (!content || busy) return;
+    if (!content || busy || composerDisabled) return;
     setPendingUser(content);
     const accepted = await onSubmit(content);
     if (accepted !== false) setDraft("");
@@ -62,12 +73,6 @@ export default function ConversationThread({ messages, busy = false, title = "�
                   <p className="message-summary">{view.summary}</p>
                   {view.detail && <p className="message-detail">{view.detail}</p>}
                   {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-                  {view.raw && (
-                    <details className="model-raw">
-                      <summary>查看模型原始结果</summary>
-                      <pre>{view.raw}</pre>
-                    </details>
-                  )}
                 </div>
               </div>
             </article>
@@ -90,18 +95,33 @@ export default function ConversationThread({ messages, busy = false, title = "�
         )}
       </div>
 
+      {decision && (
+        <div className="conversation-decision" role="region" aria-label={decision.title}>
+          <div>
+            <span className="eyebrow">NEXT DECISION</span>
+            <strong>{decision.title}</strong>
+            <p>{decision.description}</p>
+          </div>
+          <div className="button-row">
+            <button className="button button-secondary" disabled={busy || decision.busy} type="button" onClick={decision.onSecondary}>{decision.secondaryLabel}</button>
+            <button className="button button-primary" disabled={busy || decision.busy} type="button" onClick={decision.onPrimary}>{decision.busy ? "正在应用…" : decision.primaryLabel}</button>
+          </div>
+        </div>
+      )}
+
       <form className="conversation-composer" onSubmit={(event) => void submit(event)}>
         <label htmlFor="conversation-input">继续推动目标</label>
         <textarea
           id="conversation-input"
+          disabled={composerDisabled}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           placeholder="补充信息、回答模型的问题，或调整下一步……"
           rows={3}
         />
         <div className="composer-footer">
-          <span>Enter 发送 · 你的回复会进入同一条 Run</span>
-          <button className="button button-primary" disabled={busy || !draft.trim()} type="submit">发送</button>
+          <span>{composerHint}</span>
+          <button className="button button-primary" disabled={busy || composerDisabled || !draft.trim()} type="submit">发送</button>
         </div>
       </form>
     </section>

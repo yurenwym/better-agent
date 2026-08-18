@@ -2,7 +2,7 @@ import { useState } from "react";
 import ApprovalCard from "../components/ApprovalCard";
 import ActivityRail from "../components/ActivityRail";
 import ConversationThread from "../components/ConversationThread";
-import { addBudget, cancelRun, continueOutcome, createGoal, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
+import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import type { Run } from "../types";
 
@@ -11,6 +11,7 @@ interface ChatPageProps {
   run: Run | null;
   onRun: (run: Run) => void;
   onOpenTrajectory: () => void;
+  onOpenPlan: () => void;
 }
 
 const stateLabels: Record<string, string> = {
@@ -27,9 +28,10 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: ChatPageProps) {
+export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [actionBusy, setActionBusy] = useState(false);
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
 
   async function submitContent(content: string): Promise<boolean> {
@@ -54,12 +56,32 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: Ch
 
   async function runAction(action: () => Promise<Run>) {
     setError("");
+    setActionBusy(true);
     try {
       onRun(await action());
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setActionBusy(false);
     }
   }
+
+  async function approveCurrentPlan(currentRun: Run): Promise<Run> {
+    const plans = await getPlans(currentRun.id);
+    if (!plans.current) throw new Error("当前没有可批准的计划");
+    return approvePlan(currentRun.id, plans.current.version, csrfToken);
+  }
+
+  const approvalRun = run?.state === "AWAITING_APPROVAL" ? run : null;
+  const decision = approvalRun ? {
+    title: "计划已经准备好",
+    description: "批准后开始执行；需要调整步骤可以先修改计划。",
+    primaryLabel: "批准计划并继续",
+    secondaryLabel: "修改计划",
+    busy: actionBusy,
+    onPrimary: () => void runAction(() => approveCurrentPlan(approvalRun)),
+    onSecondary: onOpenPlan,
+  } : undefined;
 
   return (
     <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty"}>
@@ -78,9 +100,12 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory }: Ch
 
         <ConversationThread
           messages={telemetry.messages}
-          busy={busy || telemetry.loading}
+          busy={busy || actionBusy || telemetry.loading}
           title={run ? "推动当前目标" : "从一个目标开始"}
           description={run ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "先写下你要达成的结果，模型会在这条对话中澄清、规划并等待你的确认。"}
+          composerDisabled={Boolean(approvalRun)}
+          composerHint={approvalRun ? "请使用上方按钮选择是否继续" : undefined}
+          decision={decision}
           onSubmit={submitContent}
         />
 

@@ -68,7 +68,7 @@ export default function App() {
         </div>
 
         <div className="workspace-page">
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
           {page === "trajectory" && <TrajectoryPage run={run} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import ConversationThread from "../components/ConversationThread";
 import WorkspaceSidebar from "../components/WorkspaceSidebar";
@@ -46,14 +46,45 @@ const messages: MessageRecord[] = [
 ];
 
 describe("conversation workspace", () => {
-  it("shows the assistant result, raw disclosure, and a follow-up composer", () => {
+  it("shows the assistant result without exposing raw model JSON", () => {
     render(<ConversationThread messages={messages} busy={false} onSubmit={() => undefined} />);
 
     expect(screen.getByText("请先确认目标范围")).toBeTruthy();
     expect(screen.getByText("我还需要更多信息，才能继续推进这个目标。")).toBeTruthy();
-    expect(screen.getByText("查看模型原始结果").closest("details")?.open).toBe(false);
+    expect(screen.queryByText("查看模型原始结果")).toBeNull();
+    expect(screen.queryByText('{"needs_clarification":true}')).toBeNull();
     expect(screen.getByRole("textbox", { name: "继续推动目标" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
+  });
+
+  it("offers explicit approval choices instead of requiring a text reply", () => {
+    let approved = 0;
+    let edited = 0;
+    render(
+      <ConversationThread
+        messages={messages}
+        busy={false}
+        onSubmit={() => undefined}
+        decision={{
+          title: "计划已经准备好",
+          description: "批准后开始执行；需要调整步骤可以先修改计划。",
+          primaryLabel: "批准计划并继续",
+          secondaryLabel: "修改计划",
+          busy: false,
+          onPrimary: () => { approved += 1; },
+          onSecondary: () => { edited += 1; },
+        }}
+        composerDisabled
+        composerHint="请使用上方按钮选择是否继续"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "批准计划并继续" }));
+    fireEvent.click(screen.getByRole("button", { name: "修改计划" }));
+    expect(approved).toBe(1);
+    expect(edited).toBe(1);
+    expect(screen.getByRole("textbox", { name: "继续推动目标" }).hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText("请使用上方按钮选择是否继续")).toBeTruthy();
   });
 
   it("keeps navigation and settings discoverable in the sidebar", () => {
