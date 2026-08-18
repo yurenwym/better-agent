@@ -51,3 +51,17 @@ def test_full_export_is_explicit_and_keeps_event_shape(tmp_path) -> None:
 
     assert json.loads(line)["data"]["content"] == "hello"
 
+
+def test_redacted_jsonl_hides_streamed_delta_text(tmp_path) -> None:
+    from app.db import Database
+    from app.events import EventStore, export_jsonl
+
+    secret_fragment = '{"summary":"private streamed result"}'
+    store = EventStore(Database(tmp_path / "agent.db"))
+    store.append("run-1", "goal-1", "model.response.delta", "model", {"delta": secret_fragment})
+
+    line = export_jsonl(store.list("run-1"), mode="redacted", workspace=tmp_path)
+
+    assert secret_fragment not in line
+    assert json.loads(line)["data"]["delta"] == {"length": len(secret_fragment), "redacted": True}
+

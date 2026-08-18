@@ -49,4 +49,14 @@ describe("trajectory view model", () => {
     expect(item.title).toContain("计划回复已到达");
     expect(item.detail).toContain("加入对话");
   });
+
+  it("summarizes model deltas without putting partial JSON in the trajectory copy", () => {
+    const item = describeEvent(event("model.response.delta", {
+      kind: "planning",
+      delta: '{"summary":"内部片段"}',
+    }));
+
+    expect(item.title).toContain("正在接收模型回答");
+    expect(item.detail).not.toContain("内部片段");
+  });
 });

@@ -57,6 +57,37 @@ async def test_gateway_normalizes_stream_and_cache_buckets(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_delivers_text_deltas_before_complete_returns(monkeypatch) -> None:
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    monkeypatch.setenv("TEST_MODEL_KEY", "secret-key")
+    deltas: list[str] = []
+    complete_returned = False
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            content=_sse(
+                {"choices": [{"delta": {"content": "hello"}, "finish_reason": None}]},
+                {"choices": [{"delta": {"content": " world"}, "finish_reason": "stop"}]},
+            ),
+        )
+
+    def on_text_delta(value: str) -> None:
+        assert not complete_returned
+        deltas.append(value)
+
+    response = await ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "TEST_MODEL_KEY"),
+        transport=httpx.MockTransport(handler),
+    ).complete(ModelRequest(messages=[]), on_text_delta=on_text_delta)
+    complete_returned = True
+
+    assert deltas == ["hello", " world"]
+    assert response.message == "hello world"
+
+
+@pytest.mark.asyncio
 async def test_gateway_retries_429_without_exceeding_attempt_budget(monkeypatch) -> None:
     from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
 
@@ -177,3 +208,31 @@ async def test_gateway_retries_one_invalid_structured_stream(monkeypatch) -> Non
     assert response.message == "ok"
     assert response.attempts == 2
     assert attempts == 2
+
+
+@pytest.mark.asyncio
+async def test_gateway_resets_stream_between_network_retry_attempts(monkeypatch) -> None:
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    monkeypatch.setenv("TEST_MODEL_KEY", "secret-key")
+    attempts = 0
+    resets: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            return httpx.Response(500, json={"error": {"message": "temporary"}})
+        return httpx.Response(200, content=_sse({"choices": [{"delta": {"content": "ok"}, "finish_reason": "stop"}]}))
+
+    response = await ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "TEST_MODEL_KEY", retry_base_seconds=0),
+        transport=httpx.MockTransport(handler),
+    ).complete(
+        ModelRequest(messages=[]),
+        on_text_reset=lambda: resets.append("reset"),
+    )
+
+    assert response.message == "ok"
+    assert attempts == 2
+    assert resets == ["reset"]

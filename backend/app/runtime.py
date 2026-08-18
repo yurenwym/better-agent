@@ -742,6 +742,7 @@ class AgentRuntime:
         invocation_id = f"invocation_{uuid.uuid4().hex}"
         attempt_id = f"{invocation_id}_attempt_1"
         self._prepare_model_context(run, kind, args)
+        message_id = self._create_model_message(run)
         self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
         self.events.append(
             run.id,
@@ -750,9 +751,39 @@ class AgentRuntime:
             "runtime",
             {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
         )
+        setter = getattr(self.model, "set_text_delta_callback", None)
+        resetter = getattr(self.model, "set_text_reset_callback", None)
+        reset_delta = getattr(self.model, "reset_text_delta_callback", None)
+        reset_stream = getattr(self.model, "reset_text_reset_callback", None)
+        streamed = False
+
+        def on_delta(delta: str) -> None:
+            nonlocal streamed
+            streamed = True
+            self._append_model_delta(run, kind, invocation_id, message_id, delta)
+
+        def on_reset() -> None:
+            nonlocal streamed
+            if streamed:
+                self._reset_model_message(run, kind, invocation_id, message_id)
+                streamed = False
+
+        delta_token = setter(on_delta) if setter is not None else None
+        reset_token = resetter(on_reset) if resetter is not None else None
+
+        def clear_callbacks() -> None:
+            if reset_stream is not None and reset_token is not None:
+                reset_stream(reset_token)
+            elif resetter is not None:
+                resetter(None)
+            if reset_delta is not None and delta_token is not None:
+                reset_delta(delta_token)
+            elif setter is not None:
+                setter(None)
         try:
             result = await method(*args)
         except Exception as exc:
+            clear_callbacks()
             from .model_gateway import GatewayError
 
             if not isinstance(exc, GatewayError):
@@ -781,9 +812,10 @@ class AgentRuntime:
                 self._block(run.id, reason, current.budget, "run.blocked")
             return None
         else:
+            clear_callbacks()
             response = getattr(self.model, "last_response", None)
             self._record_model_response(run, invocation_id, attempt_id, response)
-            self._append_model_message(run, kind, invocation_id, response, result)
+            self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
             self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
 
@@ -872,18 +904,106 @@ class AgentRuntime:
             {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "decode_seconds": timing.decode_seconds, "status": "success"},
         )
 
-    def _append_model_message(self, run: RunSnapshot, kind: str, invocation_id: str, response: Any, result: Any) -> None:
-        content = str(getattr(response, "message", "") or "") if response is not None else ""
-        if not content:
-            content = json.dumps(_model_result_payload(kind, result), ensure_ascii=False, default=str)
+    def _create_model_message(self, run: RunSnapshot) -> str:
         message_id = f"message_{uuid.uuid4().hex}"
         interaction_id = self._latest_interaction_id(run.id)
         now = _now()
         with self.db.transaction() as connection:
             connection.execute(
-                "INSERT INTO messages(id, run_id, interaction_id, role, content, created_at) VALUES (?, ?, ?, 'assistant', ?, ?)",
-                (message_id, run.id, interaction_id, content, now),
+                "INSERT INTO messages(id, run_id, interaction_id, role, content, created_at) VALUES (?, ?, ?, 'assistant', '', ?)",
+                (message_id, run.id, interaction_id, now),
             )
+        return message_id
+
+    def _append_model_delta(
+        self,
+        run: RunSnapshot,
+        kind: str,
+        invocation_id: str,
+        message_id: str,
+        delta: str,
+    ) -> None:
+        if not delta:
+            return
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE messages SET content = content || ? WHERE id = ? AND run_id = ?",
+                (delta, message_id, run.id),
+            )
+            content_length = connection.execute(
+                "SELECT length(content) FROM messages WHERE id = ? AND run_id = ?",
+                (message_id, run.id),
+            ).fetchone()[0]
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.response.delta",
+            "model",
+            {
+                "message_id": message_id,
+                "interaction_id": self._latest_interaction_id(run.id),
+                "model_invocation_id": invocation_id,
+                "kind": kind,
+                "delta": delta,
+                "content_length": content_length,
+            },
+        )
+
+    def _reset_model_message(
+        self,
+        run: RunSnapshot,
+        kind: str,
+        invocation_id: str,
+        message_id: str,
+    ) -> None:
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE messages SET content = '' WHERE id = ? AND run_id = ?",
+                (message_id, run.id),
+            )
+        self.events.append(
+            run.id,
+            run.goal_id,
+            "model.response.reset",
+            "model",
+            {
+                "message_id": message_id,
+                "interaction_id": self._latest_interaction_id(run.id),
+                "model_invocation_id": invocation_id,
+                "kind": kind,
+            },
+        )
+
+    def _append_model_message(
+        self,
+        run: RunSnapshot,
+        kind: str,
+        invocation_id: str,
+        response: Any,
+        result: Any,
+        message_id: str | None = None,
+    ) -> None:
+        content = str(getattr(response, "message", "") or "") if response is not None else ""
+        if not content:
+            content = json.dumps(_model_result_payload(kind, result), ensure_ascii=False, default=str)
+        message_id = message_id or f"message_{uuid.uuid4().hex}"
+        interaction_id = self._latest_interaction_id(run.id)
+        now = _now()
+        with self.db.transaction() as connection:
+            existing = connection.execute(
+                "SELECT id FROM messages WHERE id = ? AND run_id = ?",
+                (message_id, run.id),
+            ).fetchone()
+            if existing:
+                connection.execute(
+                    "UPDATE messages SET interaction_id = ?, content = ? WHERE id = ? AND run_id = ?",
+                    (interaction_id, content, message_id, run.id),
+                )
+            else:
+                connection.execute(
+                    "INSERT INTO messages(id, run_id, interaction_id, role, content, created_at) VALUES (?, ?, ?, 'assistant', ?, ?)",
+                    (message_id, run.id, interaction_id, content, now),
+                )
         self.events.append(
             run.id,
             run.goal_id,

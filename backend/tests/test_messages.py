@@ -45,6 +45,20 @@ class ResponseModel:
         raise AssertionError("reflection should not run while clarifying")
 
 
+class StreamingResponseModel(ResponseModel):
+    def __init__(self):
+        super().__init__()
+        self._on_text_delta = None
+
+    def set_text_delta_callback(self, callback):
+        self._on_text_delta = callback
+
+    async def needs_clarification(self, goal, interactions):
+        assert self._on_text_delta is not None
+        self._on_text_delta('{"needs_clarification":')
+        return await super().needs_clarification(goal, interactions)
+
+
 def test_model_response_is_persisted_and_exposed_by_messages_api(tmp_path) -> None:
     from app.main import create_app
 
@@ -65,6 +79,31 @@ def test_model_response_is_persisted_and_exposed_by_messages_api(tmp_path) -> No
     assert [item["role"] for item in messages.json()["messages"]] == ["user", "assistant"]
     assert messages.json()["messages"][-1]["content"] == '{"needs_clarification": true}'
     assert any(event.type == "model.response" for event in runtime.events.list(run.id))
+
+
+def test_streamed_model_deltas_use_one_precreated_message_and_final_replacement(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, StreamingResponseModel())
+    run = asyncio.run(runtime.create_goal("Clarify", "Need a response"))
+
+    asyncio.run(runtime.handle_message(run.id, "Please help me continue"))
+
+    events = runtime.events.list(run.id)
+    deltas = [event for event in events if event.type == "model.response.delta"]
+    responses = [event for event in events if event.type == "model.response"]
+    assert len(deltas) == 1
+    assert len(responses) == 1
+    assert deltas[0].seq < responses[0].seq
+    assert deltas[0].data["message_id"] == responses[0].data["message_id"]
+    assert deltas[0].data["delta"] == '{"needs_clarification":'
+    assert deltas[0].data["content_length"] == len('{"needs_clarification":')
+
+    with runtime.db.connection() as connection:
+        rows = connection.execute(
+            "SELECT role, content FROM messages WHERE run_id = ? ORDER BY created_at, id",
+            (run.id,),
+        ).fetchall()
+    assert [row["role"] for row in rows] == ["user", "assistant"]
+    assert rows[-1]["content"] == '{"needs_clarification": true}'
 
 
 def test_default_mock_model_also_creates_visible_assistant_messages(tmp_path) -> None:
@@ -118,3 +157,24 @@ def test_empty_provider_message_uses_safe_decision_payload(tmp_path) -> None:
     payload = json.loads(row["content"])
     assert payload["summary"] == "计算结果"
     assert payload["tool_call"]["name"] == "calculator"
+
+
+def test_messages_api_marks_precreated_empty_assistant_as_streaming(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = asyncio.run(runtime.create_goal("Stream", "Show progress"))
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO messages(id, run_id, role, content, created_at) VALUES (?, ?, 'assistant', '', ?)",
+            ("message-streaming", run.id, "2026-08-18T00:00:00Z"),
+        )
+
+    response = TestClient(create_app(runtime=runtime)).get(
+        f"/api/runs/{run.id}/messages",
+        headers={"host": "127.0.0.1:8000"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["messages"][-1]["streaming"] is True

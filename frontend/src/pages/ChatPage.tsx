@@ -2,7 +2,7 @@ import { useState } from "react";
 import ApprovalCard from "../components/ApprovalCard";
 import ActivityRail from "../components/ActivityRail";
 import ConversationThread from "../components/ConversationThread";
-import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
+import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, getRun, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import type { Run } from "../types";
 
@@ -41,6 +41,7 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
       if (!run) {
         const firstLine = content.split(/\r?\n/)[0].trim();
         const created = await createGoal({ title: firstLine.slice(0, 80) || "新的工作目标", description: content }, csrfToken);
+        onRun(await getRun(created.run_id));
         onRun(await sendMessage(created.id, content, csrfToken));
       } else {
         onRun(await sendMessage(run.goal_id, content, csrfToken));

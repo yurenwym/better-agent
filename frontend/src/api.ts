@@ -169,7 +169,7 @@ export function subscribeToEvents(
   onEvent: (event: EventRecord) => void,
 ): () => void {
   let cursor = lastEventId;
-  const source = new EventSource(`/api/runs/${runId}/events/stream?after_seq=${encodeURIComponent(lastEventId)}`, { withCredentials: false });
+  const source = new EventSource(`/api/runs/${runId}/events/stream?after_seq=${encodeURIComponent(lastEventId)}&follow=1`, { withCredentials: false });
   const handler = (raw: Event) => {
     const message = raw as MessageEvent<string>;
     try {
@@ -178,6 +178,9 @@ export function subscribeToEvents(
       if (eventSeq <= cursor) return;
       cursor = eventSeq;
       onEvent(event);
+      if (["run.completed", "run.failed", "run.cancelled"].includes(event.type)) {
+        source.close();
+      }
     } catch { /* malformed SSE is ignored until reconnect */ }
   };
   source.addEventListener("trajectory", handler);

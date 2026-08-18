@@ -72,11 +72,13 @@ export default function EventStream({ events }: EventStreamProps) {
                       <div className="timeline-meta"><span className="timeline-stage">{item.stageLabel}</span><span>#{item.seq}</span><time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time></div>
                       <h4>{item.title}</h4>
                       <p>{item.detail}</p>
-                      <details className="raw-event">
-                        <summary>查看原始事件</summary>
-                        <div className="raw-event-label">{item.event.type} · {item.event.actor}</div>
-                        <pre>{JSON.stringify(item.event.data, null, 2)}</pre>
-                      </details>
+                      {!item.event.type.startsWith("model.response") && (
+                        <details className="raw-event">
+                          <summary>查看原始事件</summary>
+                          <div className="raw-event-label">{item.event.type} · {item.event.actor}</div>
+                          <pre>{JSON.stringify(item.event.data, null, 2)}</pre>
+                        </details>
+                      )}
                     </div>
                   </article>
                 ))}

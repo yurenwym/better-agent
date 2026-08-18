@@ -27,6 +27,18 @@ describe("conversation message presentation", () => {
     expect(view).not.toHaveProperty("raw");
   });
 
+  it("hides incomplete structured JSON while the assistant is streaming", () => {
+    const streaming = Object.assign(
+      message("assistant", '{"summary":"正在生成'),
+      { streaming: true },
+    );
+
+    const view = presentMessage(streaming);
+
+    expect(view.summary).toBe("模型正在生成回答…");
+    expect(view.summary).not.toContain("{\"summary\"");
+  });
+
   it("turns a plan response into a summary with steps", () => {
     const view = presentMessage(message("assistant", JSON.stringify({
       summary: "整理本周发布计划",

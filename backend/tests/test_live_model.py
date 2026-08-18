@@ -1,7 +1,31 @@
 import json
+import asyncio
+from types import SimpleNamespace
 
 import httpx
 import pytest
+
+
+class ConcurrentGateway:
+    async def complete(self, request, **kwargs):
+        payload = json.loads(request.messages[1]["content"])
+        label = payload["label"]
+        await asyncio.sleep(0)
+        kwargs["on_text_delta"](label)
+        return SimpleNamespace(message=json.dumps({"label": label}), tool_calls=[])
+
+
+class RepairGateway:
+    def __init__(self):
+        self.calls = 0
+
+    async def complete(self, request, **kwargs):
+        self.calls += 1
+        if self.calls == 1:
+            kwargs["on_text_delta"]("{\"summary\":\"old")
+            return SimpleNamespace(message="not valid JSON", tool_calls=[])
+        kwargs["on_text_delta"]("{\"summary\":\"new\"}")
+        return SimpleNamespace(message='{"summary":"new"}', tool_calls=[])
 
 
 def _response(content: str) -> bytes:
@@ -209,3 +233,43 @@ async def test_live_runtime_model_discards_invalid_reflection_scopes(monkeypatch
         "confidence": 0.8,
         "evidence_event_ids": [],
     }]
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_keeps_stream_callbacks_isolated_per_task() -> None:
+    from app.live_model import LiveRuntimeModel
+
+    model = LiveRuntimeModel(ConcurrentGateway())
+    seen = {"A": [], "B": []}
+
+    async def call(label: str) -> None:
+        token = model.set_text_delta_callback(lambda delta: seen[label].append(delta))
+        try:
+            payload = await model._json("Return JSON", {"label": label})
+            assert payload["label"] == label
+        finally:
+            model.reset_text_delta_callback(token)
+
+    await asyncio.gather(call("A"), call("B"))
+
+    assert seen == {"A": ["A"], "B": ["B"]}
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_resets_partial_output_before_json_repair() -> None:
+    from app.live_model import LiveRuntimeModel
+
+    model = LiveRuntimeModel(RepairGateway())
+    deltas: list[str] = []
+    resets: list[str] = []
+    delta_token = model.set_text_delta_callback(deltas.append)
+    reset_token = model.set_text_reset_callback(lambda: resets.append("reset"))
+    try:
+        payload = await model._json("Return JSON", {"label": "repair"})
+    finally:
+        model.reset_text_reset_callback(reset_token)
+        model.reset_text_delta_callback(delta_token)
+
+    assert payload == {"summary": "new"}
+    assert deltas == ['{"summary":"old', '{"summary":"new"}']
+    assert resets == ["reset"]

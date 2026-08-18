@@ -75,10 +75,33 @@ function rawPresentation(parsed: Record<string, unknown>): MessagePresentation {
   return { summary: "模型返回了一条结构化结果。", detail: null, bullets: [] };
 }
 
+function streamedValue(content: string, key: string): string {
+  const match = content.match(new RegExp(`"${key}"\\s*:\\s*"((?:\\\\.|[^"\\\\])*)"`));
+  if (!match) return "";
+  try {
+    return JSON.parse(`"${match[1]}"`);
+  } catch {
+    return "";
+  }
+}
+
+function streamingPresentation(content: string): MessagePresentation {
+  const summary = streamedValue(content, "summary") || streamedValue(content, "output");
+  if (summary) {
+    return { summary, detail: "模型正在继续生成回答…", bullets: [] };
+  }
+  const trimmed = content.trim();
+  if (trimmed && !trimmed.startsWith("{") && !trimmed.startsWith("[") && !trimmed.startsWith("```")) {
+    return { summary: trimmed, detail: "模型正在继续生成回答…", bullets: [] };
+  }
+  return { summary: "模型正在生成回答…", detail: "正在接收模型输出", bullets: [] };
+}
+
 export function presentMessage(message: MessageRecord): MessagePresentation {
   if (message.role === "user") {
     return { summary: message.content, detail: null, bullets: [] };
   }
+  if (message.streaming) return streamingPresentation(message.content);
   const parsed = parseJson(message.content);
   return parsed ? rawPresentation(parsed) : { summary: message.content, detail: null, bullets: [] };
 }

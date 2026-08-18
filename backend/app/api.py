@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 from urllib.parse import urlparse
@@ -8,6 +9,25 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from .events import export_jsonl
+
+
+async def _event_stream(service, run_id: str, request: Request, after_seq: int, follow: bool):
+    cursor = after_seq
+    terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
+    while True:
+        events = service.events.list(run_id, cursor)
+        for event in events:
+            cursor = event.seq
+            yield f"id: {event.seq}\nevent: trajectory\ndata: {json.dumps(_event_json(event), ensure_ascii=False)}\n\n"
+        if not follow:
+            return
+        if await request.is_disconnected():
+            return
+        if not events and service.get_run(run_id).state.value in terminal_states:
+            return
+        if not events:
+            yield ": keep-alive\n\n"
+        await asyncio.sleep(0.05)
 
 
 def register_routes(app) -> None:
@@ -138,7 +158,7 @@ def register_routes(app) -> None:
         return {"events": [_event_json(event) for event in service.events.list(run_id, after_seq)]}
 
     @app.get("/api/runs/{run_id}/events/stream")
-    async def event_stream(run_id: str, request: Request) -> StreamingResponse:
+    async def event_stream(run_id: str, request: Request, follow: bool = True) -> StreamingResponse:
         service = runtime(request)
         last_event_id = request.headers.get("last-event-id") or request.query_params.get("after_seq", "0")
         try:
@@ -146,11 +166,15 @@ def register_routes(app) -> None:
         except ValueError:
             after_seq = 0
 
-        async def stream():
-            for event in service.events.list(run_id, after_seq):
-                yield f"id: {event.seq}\nevent: trajectory\ndata: {json.dumps(_event_json(event), ensure_ascii=False)}\n\n"
-
-        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control": "no-cache"})
+        return StreamingResponse(
+            _event_stream(service, run_id, request, after_seq, follow),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/runs/{run_id}/messages")
     async def get_messages(run_id: str, request: Request) -> dict[str, Any]:
@@ -171,6 +195,7 @@ def register_routes(app) -> None:
                     "role": row["role"],
                     "content": row["content"],
                     "created_at": row["created_at"],
+                    "streaming": row["role"] == "assistant" and not row["content"],
                 }
                 for row in rows
             ]

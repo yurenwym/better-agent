@@ -96,6 +96,8 @@ class ModelResponse:
 
 
 Sleep = Callable[[float], Awaitable[None]]
+TextDeltaCallback = Callable[[str], None]
+TextResetCallback = Callable[[], None]
 
 
 class ModelGateway:
@@ -115,6 +117,8 @@ class ModelGateway:
         self,
         request: ModelRequest,
         cancel_event: asyncio.Event | None = None,
+        on_text_delta: TextDeltaCallback | None = None,
+        on_text_reset: TextResetCallback | None = None,
     ) -> ModelResponse:
         if cancel_event and cancel_event.is_set():
             raise GatewayError("model request cancelled", "cancelled")
@@ -127,8 +131,10 @@ class ModelGateway:
         context_retry_used = False
         while attempt_count < max(self.profile.max_attempts, 1):
             attempt_count += 1
+            if attempt_count > 1 and on_text_reset is not None:
+                on_text_reset()
             try:
-                response = await self._attempt(request, api_key, cancel_event)
+                response = await self._attempt(request, api_key, cancel_event, on_text_delta)
                 return ModelResponse(**{**response.__dict__, "attempts": attempt_count})
             except GatewayError as error:
                 if error.kind == "cancelled":
@@ -158,6 +164,7 @@ class ModelGateway:
         request: ModelRequest,
         api_key: str,
         cancel_event: asyncio.Event | None,
+        on_text_delta: TextDeltaCallback | None,
     ) -> ModelResponse:
         started = time.perf_counter()
         content: list[str] = []
@@ -219,6 +226,8 @@ class ModelGateway:
                                 if first_token_at is None:
                                     first_token_at = time.perf_counter()
                                 content.append(token)
+                                if on_text_delta is not None:
+                                    on_text_delta(token)
                             if delta.get("tool_calls"):
                                 for fragment in delta["tool_calls"]:
                                     index = int(fragment.get("index", len(tool_call_fragments)))

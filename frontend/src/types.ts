@@ -38,6 +38,7 @@ export interface MessageRecord {
   role: "user" | "assistant";
   content: string;
   created_at: string;
+  streaming?: boolean;
 }
 
 export interface GoalResponse {

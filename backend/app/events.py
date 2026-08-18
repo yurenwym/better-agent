@@ -23,7 +23,7 @@ SECRET_KEYS = {
     "env_value",
     "environment_value",
 }
-TEXT_KEYS = {"content", "message", "body", "note", "prompt", "text", "raw"}
+TEXT_KEYS = {"content", "message", "body", "note", "prompt", "text", "raw", "delta"}
 SECRET_PATTERNS = (
     (re.compile(r"Bearer\s+\S+", re.IGNORECASE), "Bearer <redacted>"),
     (re.compile(r"sk-[A-Za-z0-9_-]+"), "<redacted-key>"),
@@ -103,7 +103,7 @@ class EventStore:
                 ),
             )
         stored = Event(**{**asdict(event), "seq": next_seq})
-        if self.projector is not None:
+        if self.projector is not None and event_type not in {"model.response.delta", "model.response.reset"}:
             self.projector.project(run_id)
         return stored
 

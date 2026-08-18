@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from contextvars import ContextVar
+from typing import Any, Callable
 
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
@@ -13,13 +14,41 @@ class LiveRuntimeModel:
     def __init__(self, gateway: ModelGateway, tool_schemas: list[dict[str, Any]] | None = None) -> None:
         self.gateway = gateway
         self.tool_schemas = tool_schemas or []
-        self.last_response = None
-        self.context_hash = None
-        self.context_text = ""
+        self._last_response: ContextVar[Any] = ContextVar("live_model_last_response", default=None)
+        self._context_hash: ContextVar[str | None] = ContextVar("live_model_context_hash", default=None)
+        self._context_text: ContextVar[str] = ContextVar("live_model_context_text", default="")
+        self._text_delta_callback: ContextVar[Callable[[str], None] | None] = ContextVar(
+            "live_model_text_delta_callback",
+            default=None,
+        )
+        self._text_reset_callback: ContextVar[Callable[[], None] | None] = ContextVar(
+            "live_model_text_reset_callback",
+            default=None,
+        )
 
     def set_context_snapshot(self, snapshot_hash: str, text: str) -> None:
-        self.context_hash = snapshot_hash
-        self.context_text = text
+        self._context_hash.set(snapshot_hash)
+        self._context_text.set(text)
+
+    @property
+    def last_response(self) -> Any:
+        return self._last_response.get()
+
+    @last_response.setter
+    def last_response(self, response: Any) -> None:
+        self._last_response.set(response)
+
+    def set_text_delta_callback(self, callback: Callable[[str], None] | None):
+        return self._text_delta_callback.set(callback)
+
+    def reset_text_delta_callback(self, token) -> None:
+        self._text_delta_callback.reset(token)
+
+    def set_text_reset_callback(self, callback: Callable[[], None] | None):
+        return self._text_reset_callback.set(callback)
+
+    def reset_text_reset_callback(self, token) -> None:
+        self._text_reset_callback.reset(token)
 
     async def needs_clarification(self, goal: dict[str, Any], interactions: list[str]) -> bool:
         payload = await self._json(
@@ -129,19 +158,31 @@ class LiveRuntimeModel:
             {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
         ]
         request_data = dict(input_data)
-        if self.context_hash:
-            request_data["context_snapshot"] = {"hash": self.context_hash, "text": self.context_text}
+        context_hash = self._context_hash.get()
+        if context_hash:
+            request_data["context_snapshot"] = {"hash": context_hash, "text": self._context_text.get()}
             messages[1] = {"role": "user", "content": json.dumps(request_data, ensure_ascii=False)}
-        response = await self.gateway.complete(ModelRequest(messages=messages, tools=self.tool_schemas))
+        response = await self.gateway.complete(
+            ModelRequest(messages=messages, tools=self.tool_schemas),
+            on_text_delta=self._text_delta_callback.get(),
+            on_text_reset=self._text_reset_callback.get(),
+        )
         self.last_response = response
         if allow_tool_calls and response.tool_calls:
             return _tool_call_payload(response.tool_calls)
         try:
             return _parse_json(response.message)
         except (ValueError, json.JSONDecodeError) as exc:
-            repair = await self.gateway.complete(ModelRequest(messages=messages + [
-                {"role": "user", "content": "The previous response was not valid JSON. Return only the requested JSON object."},
-            ], tools=self.tool_schemas))
+            reset_callback = self._text_reset_callback.get()
+            if reset_callback is not None:
+                reset_callback()
+            repair = await self.gateway.complete(
+                ModelRequest(messages=messages + [
+                    {"role": "user", "content": "The previous response was not valid JSON. Return only the requested JSON object."},
+                ], tools=self.tool_schemas),
+                on_text_delta=self._text_delta_callback.get(),
+                on_text_reset=self._text_reset_callback.get(),
+            )
             self.last_response = repair
             if allow_tool_calls and repair.tool_calls:
                 return _tool_call_payload(repair.tool_calls)

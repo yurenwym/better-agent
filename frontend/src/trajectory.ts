@@ -122,6 +122,10 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
       return make(event, "model", "模型开始输出", `首 token 延迟 ${text(data, "ttft_seconds", "不可用")} 秒`);
     case "model.usage_updated":
       return make(event, "model", "模型用量已记录", "Token、缓存和生成耗时已写入统计");
+    case "model.response.delta":
+      return make(event, "model", "正在接收模型回答", "模型回答正在实时加入对话");
+    case "model.response.reset":
+      return make(event, "model", "正在重新生成模型回答", "上一轮输出未通过结构校验，正在替换为新的回答");
     case "model.response": {
       const kind = text(data, "kind");
       const label = kind === "clarification" ? "澄清回复已到达" : kind === "planning" ? "计划回复已到达" : kind === "react" ? "执行判断已到达" : kind === "reflection" ? "复盘回复已到达" : "模型回复已到达";
