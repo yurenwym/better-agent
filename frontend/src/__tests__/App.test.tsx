@@ -36,6 +36,14 @@ describe("personal agent workspace", () => {
     expect(document.querySelector(".chat-workspace-empty")?.className).toContain("chat-workspace-empty-wide");
   });
 
+  it("gives the chat page the same wide shell as the trajectory page", () => {
+    render(<App />);
+
+    const main = screen.getByRole("main");
+    expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-wide");
+    expect(main.querySelector(".workspace-page-header-chat")?.className).toContain("workspace-page-header-wide");
+  });
+
   it("exposes a labelled goal message form", () => {
     render(<App />);
 
