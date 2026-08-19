@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, subscribeToEvents } from "../api";
+import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -109,6 +109,75 @@ describe("REST client", () => {
       data: {},
     };
     handler?.({ data: JSON.stringify(event), lastEventId: "5" } as MessageEvent<string>);
+
+    expect(close).toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("keeps the thread stream open after a completed parent turn", () => {
+    let handler: ((event: Event) => void) | undefined;
+    const close = vi.fn();
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      constructor(public url: string) {
+        FakeEventSource.instance = this;
+      }
+      addEventListener(_type: string, callback: (event: Event) => void) {
+        handler = callback;
+      }
+      close = close;
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+
+    subscribeToThreadEvents("thread-1", 4, () => undefined);
+    const completed: EventRecord = {
+      schema_version: 1,
+      event_id: "evt-5",
+      seq: 5,
+      run_id: "thread-1",
+      goal_id: "",
+      type: "turn.completed",
+      occurred_at: "2026-08-18T00:00:00Z",
+      actor: "user",
+      correlation: {},
+      data: { continuation_turn_id: "turn-2" },
+    };
+    handler?.({ data: JSON.stringify(completed), lastEventId: "5" } as MessageEvent<string>);
+
+    expect(FakeEventSource.instance.url).toContain("follow=1");
+    expect(close).not.toHaveBeenCalled();
+    vi.unstubAllGlobals();
+  });
+
+  it("closes the thread stream after a final completed turn", () => {
+    let handler: ((event: Event) => void) | undefined;
+    const close = vi.fn();
+    class FakeEventSource {
+      static instance: FakeEventSource;
+      constructor(public url: string) {
+        FakeEventSource.instance = this;
+      }
+      addEventListener(_type: string, callback: (event: Event) => void) {
+        handler = callback;
+      }
+      close = close;
+    }
+    vi.stubGlobal("EventSource", FakeEventSource);
+
+    subscribeToThreadEvents("thread-1", 4, () => undefined);
+    const completed: EventRecord = {
+      schema_version: 1,
+      event_id: "evt-5-final",
+      seq: 5,
+      run_id: "thread-1",
+      goal_id: "",
+      type: "turn.completed",
+      occurred_at: "2026-08-18T00:00:00Z",
+      actor: "worker",
+      correlation: {},
+      data: {},
+    };
+    handler?.({ data: JSON.stringify(completed), lastEventId: "5" } as MessageEvent<string>);
 
     expect(close).toHaveBeenCalled();
     vi.unstubAllGlobals();

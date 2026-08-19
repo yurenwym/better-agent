@@ -178,10 +178,9 @@ def register_routes(app) -> None:
     ) -> dict[str, Any]:
         action = payload.get("action")
         idempotency_key = payload.get("idempotency_key")
-        try:
-            expected_version = int(payload["expected_version"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="expected_version is required") from exc
+        expected_version = payload.get("expected_version")
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise HTTPException(status_code=422, detail="expected_version must be an integer")
         if not isinstance(action, str) or not isinstance(idempotency_key, str):
             raise HTTPException(status_code=422, detail="action and idempotency_key are required")
         try:
@@ -213,10 +212,9 @@ def register_routes(app) -> None:
         payload: dict[str, Any],
         service=Depends(conversation),
     ) -> dict[str, Any]:
-        try:
-            expected_version = int(payload["expected_version"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail="expected_version is required") from exc
+        expected_version = payload.get("expected_version")
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise HTTPException(status_code=422, detail="expected_version must be an integer")
         idempotency_key = payload.get("idempotency_key")
         answers = payload.get("answers")
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():

@@ -23,6 +23,26 @@ function parseJson(content: string): Record<string, unknown> | null {
   }
 }
 
+function parseEmbeddedJson(content: string): Record<string, unknown> | null {
+  const start = content.indexOf("{");
+  if (start < 0) return null;
+  const candidate = content.slice(start).replace(/\s*```$/, "").trim();
+  try {
+    const value: unknown = JSON.parse(candidate);
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function looksLikeStructuredPayload(content: string): boolean {
+  return /"(?:needs_clarification|steps|summary|action|tool_call|candidates)"\s*:/.test(content);
+}
+
+function safeStructuredFallback(): MessagePresentation {
+  return { summary: "妯″瀷杩斿洖浜嗕竴鏉＄粨鏋勫寲缁撴灉銆?", detail: null, bullets: [] };
+}
+
 function rawPresentation(parsed: Record<string, unknown>): MessagePresentation {
   const steps = Array.isArray(parsed.steps)
     ? parsed.steps.map((step) => {
@@ -102,6 +122,9 @@ export function presentMessage(message: MessageRecord): MessagePresentation {
     return { summary: message.content, detail: null, bullets: [] };
   }
   if (message.streaming) return streamingPresentation(message.content);
-  const parsed = parseJson(message.content);
-  return parsed ? rawPresentation(parsed) : { summary: message.content, detail: null, bullets: [] };
+  const parsed = parseJson(message.content) ?? parseEmbeddedJson(message.content);
+  if (parsed) return rawPresentation(parsed);
+  return looksLikeStructuredPayload(message.content)
+    ? safeStructuredFallback()
+    : { summary: message.content, detail: null, bullets: [] };
 }

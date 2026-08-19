@@ -172,6 +172,10 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
   return messages;
 }
 
+export function shouldRefreshThreadMessages(event: ThreadEvent): boolean {
+  return event.type === "ask.answered" || event.type === "turn.accepted";
+}
+
 export interface ThreadTelemetry {
   thread: Thread | null;
   activeTurn: Turn | null;
@@ -249,6 +253,7 @@ export function useThreadTelemetry(
             }
             return applyThreadEvent(current, event);
           });
+          if (shouldRefreshThreadMessages(event)) void refreshMessages().catch(() => undefined);
           if (event.type === "execution.materialized" && typeof event.data.run_id === "string") {
             onMaterialized?.(event.data.run_id);
           }

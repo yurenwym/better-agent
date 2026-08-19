@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyAskEvent, applyThreadEvent, hydrateThreadMessages, needsEventRecovery, needsMessageSnapshot, pendingAskFromEvents } from "../hooks/useThreadTelemetry";
+import { applyAskEvent, applyThreadEvent, hydrateThreadMessages, needsEventRecovery, needsMessageSnapshot, pendingAskFromEvents, shouldRefreshThreadMessages } from "../hooks/useThreadTelemetry";
 import type { MessageRecord, PendingAsk, ThreadEvent, ThreadMessage } from "../types";
 
 function message(content: string, generation = 1): MessageRecord {
@@ -125,5 +125,11 @@ describe("thread telemetry reconciliation", () => {
     expect(applyAskEvent(ask, requested)).toEqual(ask);
     expect(pendingAskFromEvents([requested, requested])).toEqual(ask);
     expect(JSON.stringify(pendingAskFromEvents([requested]))).not.toContain("raw_arguments");
+  });
+
+  it("refreshes messages when an ask answer activates a continuation turn", () => {
+    expect(shouldRefreshThreadMessages(askEvent("ask.answered", { ask_id: ask.id }))).toBe(true);
+    expect(shouldRefreshThreadMessages(askEvent("turn.accepted", { message_id: "answer-message" }))).toBe(true);
+    expect(shouldRefreshThreadMessages(askEvent("message.delta", { message_id: "answer-message" }))).toBe(false);
   });
 });

@@ -410,7 +410,8 @@ class ConversationService:
                     connection=connection, occurred_at=now,
                 )
                 self.events.append(
-                    turn_row["thread_id"], turn_id, "turn.completed", "user", {},
+                    turn_row["thread_id"], turn_id, "turn.completed", "user",
+                    {"continuation_turn_id": continuation_id},
                     connection=connection, occurred_at=now,
                 )
                 self.events.append(

@@ -1,6 +1,8 @@
 import asyncio
 import json
 
+import pytest
+
 from fastapi.testclient import TestClient
 
 from test_runtime import make_runtime
@@ -246,6 +248,11 @@ def test_answering_pending_ask_creates_one_child_turn_and_is_idempotent(tmp_path
     assert ask["status"] == "ANSWERED"
     assert json.loads(ask["answer_json"])[0]["selected_options"] == ["新手"]
     assert ask["continuation_turn_id"] == first.json()["turn"]["id"]
+    completed_event = next(
+        event for event in runtime.conversation.events.list(pending.thread_id)
+        if event.type == "turn.completed" and event.turn_id == pending.id
+    )
+    assert completed_event.data["continuation_turn_id"] == first.json()["turn"]["id"]
 
 
 def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(tmp_path) -> None:
@@ -272,6 +279,29 @@ def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(tmp_p
 
     assert conflict.status_code == 409
     assert invalid.status_code == 422
+    assert _count(runtime, "turns") == 1
+
+
+@pytest.mark.parametrize("version_kind", ["bool", "float", "string"])
+def test_answering_pending_ask_rejects_non_integer_versions(tmp_path, version_kind) -> None:
+    runtime, app, client, pending = _pending_ask(tmp_path)
+    expected_version = {
+        "bool": True,
+        "float": float(pending.version),
+        "string": str(pending.version),
+    }[version_kind]
+
+    response = client.post(
+        f"/api/turns/{pending.id}/ask/answer",
+        headers=_headers(app),
+        json={
+            "expected_version": expected_version,
+            "idempotency_key": f"invalid-version-{version_kind}",
+            "answers": [{"question_id": "training_level", "selected_options": [], "free_text": "test"}],
+        },
+    )
+
+    assert response.status_code == 422
     assert _count(runtime, "turns") == 1
 
 

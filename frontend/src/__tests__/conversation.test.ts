@@ -27,6 +27,14 @@ describe("conversation message presentation", () => {
     expect(view).not.toHaveProperty("raw");
   });
 
+  it("does not expose mixed or malformed clarification JSON", () => {
+    const mixed = presentMessage(message("assistant", 'The model preface. {"needs_clarification":false}'));
+    const malformed = presentMessage(message("assistant", 'The model returned {"needs_clarification":false'));
+
+    expect(JSON.stringify(mixed)).not.toContain("needs_clarification");
+    expect(JSON.stringify(malformed)).not.toContain("needs_clarification");
+  });
+
   it("hides incomplete structured JSON while the assistant is streaming", () => {
     const streaming = Object.assign(
       message("assistant", '{"summary":"正在生成'),

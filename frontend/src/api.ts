@@ -305,7 +305,10 @@ export function subscribeToThreadEvents(
       if (event.seq <= cursor) return;
       cursor = event.seq;
       onEvent(event);
-      if (["turn.completed", "turn.failed", "turn.cancelled"].includes(event.type)) {
+      const continuationId = event.data.continuation_turn_id;
+      const hasContinuation = typeof continuationId === "string" && continuationId.length > 0;
+      if ((event.type === "turn.completed" && !hasContinuation)
+        || ["turn.failed", "turn.cancelled"].includes(event.type)) {
         source.close();
       }
     } catch {
