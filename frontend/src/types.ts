@@ -47,6 +47,73 @@ export interface MessageRecord {
   content: string;
   created_at: string;
   streaming?: boolean;
+  generation?: number;
+  status?: string;
+}
+
+export type TurnStatus =
+  | "ACCEPTED"
+  | "ROUTING"
+  | "STREAMING"
+  | "COMPLETED"
+  | "AWAITING_DIRECTION"
+  | "MATERIALIZING"
+  | "FAILED"
+  | "CANCELLED";
+
+export interface Turn {
+  id: string;
+  thread_id: string;
+  client_turn_id: string;
+  parent_turn_id: string | null;
+  status: TurnStatus;
+  policy: "answer" | "propose_execution" | "clarify" | null;
+  content_shape: string | null;
+  reason_code: string | null;
+  version: number;
+  skill_names: string[];
+  materialized_goal_id: string | null;
+  materialized_run_id: string | null;
+  direction_action: string | null;
+  direction_idempotency_key: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Thread {
+  id: string;
+  title: string;
+  version: number;
+  active_turn_id: string | null;
+  next_event_seq: number;
+  created_at: string;
+  updated_at: string;
+  turns?: Turn[];
+}
+
+export interface ThreadMessage {
+  id: string;
+  thread_id: string;
+  turn_id: string;
+  role: "user" | "assistant";
+  content: string;
+  status: "ready" | "streaming" | "interrupted" | "cancelled";
+  generation: number;
+  content_length: number;
+  created_at: string;
+  completed_at: string | null;
+}
+
+export interface ThreadEvent {
+  schema_version: number;
+  event_id: string;
+  seq: number;
+  thread_id: string;
+  turn_id: string;
+  type: string;
+  occurred_at: string;
+  actor: string;
+  data: Record<string, unknown>;
 }
 
 export interface GoalResponse {

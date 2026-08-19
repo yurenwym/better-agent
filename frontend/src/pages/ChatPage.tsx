@@ -1,14 +1,34 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import ApprovalCard from "../components/ApprovalCard";
 import ActivityRail from "../components/ActivityRail";
 import ConversationThread from "../components/ConversationThread";
-import { addBudget, approvePlan, cancelRun, continueOutcome, createGoal, getPlans, getRun, getSkills, grantApproval, rejectApproval, resumeRun, sendMessage } from "../api";
+import {
+  addBudget,
+  approvePlan,
+  cancelRun,
+  cancelTurn as cancelConversationTurn,
+  continueOutcome,
+  createGoal,
+  createThread,
+  getPlans,
+  getRun,
+  getSkills,
+  grantApproval,
+  rejectApproval,
+  resumeRun,
+  selectDirection,
+  sendMessage,
+  submitTurn,
+} from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
+import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
 import type { Run, SkillDefinition } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
   run: Run | null;
+  threadId?: string | null;
+  onThread?: (threadId: string) => void;
   onRun: (run: Run) => void;
   onOpenTrajectory: () => void;
   onOpenPlan: () => void;
@@ -19,14 +39,32 @@ function isReactBudgetBlocked(run: Run): boolean {
     && run.budget.blocked_reason === "react iteration budget exhausted";
 }
 
-export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
+function clientTurnId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+const turnBusyStates = new Set(["ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING"]);
+
+export default function ChatPage({ csrfToken, run, threadId = null, onThread, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const conversationId = threadId ?? localThreadId;
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
+  const onMaterialized = useCallback((runId: string) => {
+    void getRun(runId).then(onRun).catch(() => undefined);
+  }, [onRun]);
+  const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized);
+
+  useEffect(() => {
+    setLocalThreadId(threadId ?? null);
+  }, [threadId]);
 
   useEffect(() => {
     let active = true;
@@ -37,11 +75,8 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   }, []);
 
   useEffect(() => {
-    if (!run) {
-      setSelectedSkills([]);
-    } else if (run.skill_names && run.skill_names.length > 0) {
-      setSelectedSkills(run.skill_names);
-    }
+    if (!run) setSelectedSkills([]);
+    else if (run.skill_names && run.skill_names.length > 0) setSelectedSkills(run.skill_names);
   }, [run?.id]);
 
   function toggleSkill(name: string) {
@@ -54,6 +89,22 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
     setError("");
     setBusy(true);
     try {
+      if (!run && onThread && typeof createThread === "function" && typeof submitTurn === "function") {
+        const firstLine = content.split(/\r?\n/)[0].trim();
+        let id = conversationId;
+        if (!id) {
+          const created = await createThread({ title: firstLine.slice(0, 80) || "新的对话" }, csrfToken);
+          id = created.id;
+          setLocalThreadId(id);
+          onThread?.(id);
+        }
+        await submitTurn(id, {
+          client_turn_id: clientTurnId(),
+          content,
+          skill_names: selectedSkills,
+        }, csrfToken);
+        return true;
+      }
       if (!run) {
         const firstLine = content.split(/\r?\n/)[0].trim();
         const created = await createGoal({ title: firstLine.slice(0, 80) || "新的工作目标", description: content }, csrfToken);
@@ -83,6 +134,37 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
     }
   }
 
+  async function chooseDirection(action: "continue_execution" | "modify_plan") {
+    const turn = threadTelemetry.activeTurn;
+    if (!turn) return;
+    setError("");
+    setActionBusy(true);
+    try {
+      const result = await selectDirection(turn.id, {
+        action,
+        expected_version: turn.version,
+        idempotency_key: clientTurnId(),
+      }, csrfToken);
+      if (result.run) onRun(result.run);
+      if (action === "modify_plan") setComposerOpen(true);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+    } finally {
+      setActionBusy(false);
+    }
+  }
+
+  async function cancelCurrentTurn(turnId: string) {
+    setCancelBusy(true);
+    try {
+      await cancelConversationTurn(turnId, csrfToken);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "停止生成失败，请稍后重试");
+    } finally {
+      setCancelBusy(false);
+    }
+  }
+
   async function cancelCurrentRun(runId: string): Promise<Run> {
     setCancelBusy(true);
     try {
@@ -104,6 +186,10 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
   }
 
   const approvalRun = run?.state === "AWAITING_APPROVAL" ? run : null;
+  const directionTurn = threadTelemetry.activeTurn?.status === "AWAITING_DIRECTION"
+    && threadTelemetry.activeTurn.policy === "propose_execution"
+    ? threadTelemetry.activeTurn
+    : null;
   const decision = approvalRun ? {
     title: "计划已经准备好",
     description: "批准后开始执行；需要调整步骤可以先修改计划。",
@@ -112,19 +198,38 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
     busy: actionBusy,
     onPrimary: () => void runAction(() => approveCurrentPlan(approvalRun)),
     onSecondary: onOpenPlan,
+  } : directionTurn ? {
+    title: "这项请求需要确认",
+    description: "确认后才会创建执行任务并进入计划、审批和轨迹流程。",
+    primaryLabel: "继续执行",
+    secondaryLabel: "修改方案",
+    busy: actionBusy,
+    onPrimary: () => void chooseDirection("continue_execution"),
+    onSecondary: () => void chooseDirection("modify_plan"),
   } : undefined;
+  const activeTurn = threadTelemetry.activeTurn;
+  const threadBusy = Boolean(activeTurn && turnBusyStates.has(activeTurn.status));
+  const threadCanCancel = Boolean(conversationId && activeTurn && threadBusy);
+  const runCanCancel = Boolean(run && !["COMPLETED", "CANCELLED", "FAILED"].includes(run.state) && !threadCanCancel);
+  const messages = conversationId
+    ? [
+      ...threadTelemetry.messages,
+      ...telemetry.messages.filter((message) => !(message.role === "user" && threadTelemetry.messages.some((item) => item.role === "user" && item.content === message.content))),
+    ]
+    : telemetry.messages;
 
   return (
-    <div className={run ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
+    <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
         <ConversationThread
-          messages={telemetry.messages}
-          busy={busy || actionBusy || telemetry.loading}
-          title={run ? "推动当前目标" : "从一个目标开始"}
-          description={run ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "先写下你要达成的结果，模型会在这条对话中澄清、规划并等待你的确认。"}
-          composerDisabled={Boolean(approvalRun)}
+          messages={messages}
+          busy={busy || actionBusy || telemetry.loading || threadTelemetry.loading || threadBusy}
+          title={run || conversationId ? "当前目标对话" : "从一个目标开始"}
+          description={run || conversationId ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "描述你想达成的结果，先从一段可用回答开始。"}
+          composerDisabled={Boolean(approvalRun) || Boolean(directionTurn && !composerOpen)}
           cancelBusy={cancelBusy}
-          onCancel={run && !['COMPLETED', 'CANCELLED', 'FAILED'].includes(run.state) ? () => void runAction(() => cancelCurrentRun(run.id)) : undefined}
+          cancelLabel={threadCanCancel ? "停止生成" : "取消任务"}
+          onCancel={threadCanCancel ? () => void cancelCurrentTurn(activeTurn!.id) : runCanCancel && run ? () => void runAction(() => cancelCurrentRun(run.id)) : undefined}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
@@ -150,12 +255,13 @@ export default function ChatPage({ csrfToken, run, onRun, onOpenTrajectory, onOp
           <div className="action-bar">
             {isReactBudgetBlocked(run) && <p className="budget-guard-message" role="status">Agent 已达到当前步骤的安全保护阈值</p>}
             {run.state === "BLOCKED" && !isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => resumeRun(run.id, csrfToken))}>继续执行</button>}
-            {run && isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => recoverFromReactBudget(run))}>继续执行一次</button>}
+            {isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => recoverFromReactBudget(run))}>继续执行一次</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-primary" type="button" onClick={() => void runAction(() => continueOutcome(run.id, true, csrfToken))}>目标已完成</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-quiet" type="button" onClick={() => void runAction(() => continueOutcome(run.id, false, csrfToken))}>继续观察</button>}
           </div>
         )}
         {error && <p className="error-message" role="alert">{error}</p>}
+        {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
       </div>
 
       {run && <ActivityRail run={run} events={telemetry.events} stats={telemetry.stats} loading={telemetry.loading} onOpenTrajectory={onOpenTrajectory} />}

@@ -9,6 +9,10 @@ import type {
   Run,
   SkillDefinition,
   Stats,
+  Thread,
+  ThreadEvent,
+  ThreadMessage,
+  Turn,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -31,6 +35,72 @@ export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap>
 
 export async function getSkills(fetcher: Fetcher = fetch): Promise<{ skills: SkillDefinition[] }> {
   return json<{ skills: SkillDefinition[] }>(await fetcher("/api/skills"));
+}
+
+export async function createThread(
+  payload: { title?: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<Thread> {
+  return json<Thread>(await fetcher("/api/threads", {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
+}
+
+export interface TurnSubmission {
+  thread_id: string;
+  turn_id: string;
+  status: string;
+  version: number;
+  event_cursor: number;
+}
+
+export async function submitTurn(
+  threadId: string,
+  payload: { client_turn_id: string; content: string; skill_names: string[] },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<TurnSubmission> {
+  return json<TurnSubmission>(await fetcher(`/api/threads/${threadId}/turns`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
+}
+
+export async function getThread(threadId: string, fetcher: Fetcher = fetch): Promise<Thread> {
+  return json<Thread>(await fetcher(`/api/threads/${threadId}`));
+}
+
+export async function getThreadMessages(threadId: string, fetcher: Fetcher = fetch): Promise<{ messages: ThreadMessage[] }> {
+  return json<{ messages: ThreadMessage[] }>(await fetcher(`/api/threads/${threadId}/messages`));
+}
+
+export async function getThreadEvents(threadId: string, afterSeq = 0, fetcher: Fetcher = fetch): Promise<{ events: ThreadEvent[] }> {
+  return json<{ events: ThreadEvent[] }>(await fetcher(`/api/threads/${threadId}/events?after_seq=${afterSeq}`));
+}
+
+export async function cancelTurn(turnId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<Turn> {
+  return json<Turn>(await fetcher(`/api/turns/${turnId}/cancel`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: "{}",
+  }));
+}
+
+export async function selectDirection(
+  turnId: string,
+  payload: { action: "continue_execution" | "modify_plan"; expected_version: number; idempotency_key: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ turn: Turn; run?: Run }> {
+  return json<{ turn: Turn; run?: Run }>(await fetcher(`/api/turns/${turnId}/direction`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
 }
 
 export async function createGoal(
@@ -196,5 +266,34 @@ export function subscribeToEvents(
   };
   source.addEventListener("trajectory", handler);
   source.onerror = () => { /* native EventSource reconnects and carries Last-Event-ID */ };
+  return () => source.close();
+}
+
+export function subscribeToThreadEvents(
+  threadId: string,
+  lastEventId: number,
+  onEvent: (event: ThreadEvent) => void,
+): () => void {
+  let cursor = lastEventId;
+  const source = new EventSource(
+    `/api/threads/${threadId}/events/stream?after_seq=${encodeURIComponent(lastEventId)}&follow=1`,
+    { withCredentials: false },
+  );
+  const handler = (raw: Event) => {
+    const message = raw as MessageEvent<string>;
+    try {
+      const event = JSON.parse(message.data) as ThreadEvent;
+      if (event.seq <= cursor) return;
+      cursor = event.seq;
+      onEvent(event);
+      if (["turn.completed", "turn.failed", "turn.cancelled"].includes(event.type)) {
+        source.close();
+      }
+    } catch {
+      // Native EventSource reconnects with Last-Event-ID after malformed input.
+    }
+  };
+  source.addEventListener("conversation", handler);
+  source.onerror = () => undefined;
   return () => source.close();
 }

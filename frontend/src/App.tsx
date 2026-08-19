@@ -32,6 +32,7 @@ export default function App() {
   const [page, setPage] = useState<WorkspacePage>("chat");
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [run, setRun] = useState<Run | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(null);
 
   useEffect(() => {
     getBootstrap().then(setBootstrap).catch(() => undefined);
@@ -49,7 +50,7 @@ export default function App() {
         bootstrap={bootstrap}
         run={run}
         onNavigate={setPage}
-        onNewConversation={() => { setRun(null); setPage("chat"); }}
+        onNewConversation={() => { setRun(null); setThreadId(null); setPage("chat"); }}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
         {!fluidPage && (
@@ -74,7 +75,7 @@ export default function App() {
         )}
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
           {page === "trajectory" && <TrajectoryPage run={run} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}

@@ -5,6 +5,14 @@ import type { Run } from "../types";
 
 const api = vi.hoisted(() => ({
   createGoal: vi.fn(),
+  createThread: vi.fn(),
+  submitTurn: vi.fn(),
+  getThread: vi.fn(),
+  getThreadEvents: vi.fn(),
+  getThreadMessages: vi.fn(),
+  subscribeToThreadEvents: vi.fn(),
+  cancelTurn: vi.fn(),
+  selectDirection: vi.fn(),
   getSkills: vi.fn(),
   getRun: vi.fn(),
   sendMessage: vi.fn(),
@@ -43,6 +51,12 @@ describe("ChatPage streaming bootstrap", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.createGoal.mockResolvedValue({ id: "goal-1", run_id: "run-1", state: "RECEIVED" });
+    api.createThread.mockResolvedValue({ id: "thread-1", title: "Chat", version: 0, active_turn_id: null, next_event_seq: 1, turns: [] });
+    api.submitTurn.mockResolvedValue({ thread_id: "thread-1", turn_id: "turn-1", status: "ACCEPTED", version: 0, event_cursor: 1 });
+    api.getThread.mockResolvedValue({ id: "thread-1", title: "Chat", version: 1, active_turn_id: "turn-1", next_event_seq: 2, turns: [{ id: "turn-1", thread_id: "thread-1", client_turn_id: "client-1", parent_turn_id: null, status: "ACCEPTED", policy: null, content_shape: null, reason_code: null, version: 0, materialized_goal_id: null, materialized_run_id: null, direction_action: null, direction_idempotency_key: null, created_at: "2026-08-19T00:00:00Z", updated_at: "2026-08-19T00:00:00Z" }] });
+    api.getThreadEvents.mockResolvedValue({ events: [] });
+    api.getThreadMessages.mockResolvedValue({ messages: [] });
+    api.subscribeToThreadEvents.mockReturnValue(() => undefined);
     api.getSkills.mockResolvedValue({ skills: [{ name: "reflection", title: "执行复盘", description: "从结果中提炼记忆。", enabled: true }] });
     api.getRun.mockResolvedValue(initialRun);
     api.sendMessage.mockResolvedValue({ ...initialRun, state: "AWAITING_APPROVAL", version: 1 });
@@ -69,6 +83,29 @@ describe("ChatPage streaming bootstrap", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalled());
     expect(api.getRun).toHaveBeenCalledWith("run-1");
     expect(api.getRun.mock.invocationCallOrder[0]).toBeLessThan(api.sendMessage.mock.invocationCallOrder[0]);
+  });
+
+  it("submits a new conversation turn without creating a goal", async () => {
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={null}
+        onThread={vi.fn()}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "普通问题" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => expect(api.submitTurn).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ content: "普通问题", skill_names: [] }),
+      "csrf",
+    ));
+    expect(api.createGoal).not.toHaveBeenCalled();
   });
 
   it("does not expose budget recovery during ordinary execution", () => {

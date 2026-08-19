@@ -10,6 +10,7 @@ interface ConversationThreadProps {
   description?: string;
   composerDisabled?: boolean;
   cancelBusy?: boolean;
+  cancelLabel?: string;
   onCancel?: () => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
@@ -30,7 +31,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, onCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -60,7 +61,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
         </div>
         <div className="conversation-header-meta">
           <span className="conversation-count">{messages.length} 条消息</span>
-          {onCancel && <button className="button button-danger conversation-cancel" disabled={cancelBusy} type="button" onClick={onCancel}>{cancelBusy ? "正在取消…" : "取消任务"}</button>}
+          {onCancel && <button className="button button-danger conversation-cancel" disabled={cancelBusy} type="button" onClick={onCancel}>{cancelBusy ? "正在停止…" : cancelLabel}</button>}
         </div>
       </div>
 
@@ -98,7 +99,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
             <div className="message-body"><div className="message-meta"><strong>你</strong><span>发送中</span></div><div className="message-card"><MarkdownMessage content={pendingUser} className="message-summary" /></div></div>
           </article>
         )}
-        {busy && (
+        {busy && !messages.some((message) => message.role === "assistant" && message.streaming) && (
           <article className="message-row message-assistant message-pending" role="status">
             <div className="message-avatar" aria-hidden="true">BA</div>
             <div className="message-body">
