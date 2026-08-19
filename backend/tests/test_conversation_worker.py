@@ -277,6 +277,28 @@ async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_continuation_history_contains_ask_tool_result(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, AskConversationModel())
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-ask-history", "制定训练计划", [])
+    await runtime.turn_worker.run_once()
+    pending = runtime.conversation.turn(accepted.turn_id)
+    continued = runtime.conversation.answer_ask(
+        pending.id,
+        pending.version,
+        "answer-history",
+        [{"question_id": "training_level", "selected_options": ["新手"], "free_text": ""}],
+    )
+
+    history = runtime.turn_worker._history(thread.id, continued.turn.id)
+
+    assistant_tool = next(item for item in history if item.get("tool_calls"))
+    tool_result = next(item for item in history if item.get("role") == "tool")
+    assert assistant_tool["tool_calls"][0]["function"]["name"] == "ask_user"
+    assert "新手" in tool_result["content"]
+
+
+@pytest.mark.asyncio
 async def test_selected_skills_survive_turn_worker(tmp_path) -> None:
     model = ScriptedConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general",'

@@ -127,6 +127,22 @@ def parse_ask_tool_call(call: dict[str, Any]) -> AskRequest:
     return AskRequest(call_id.strip(), tuple(normalized))
 
 
+def questions_from_json(value: str | list[dict[str, Any]]) -> tuple[AskQuestion, ...]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise AskValidationError("stored ask questions are invalid JSON") from exc
+    request = parse_ask_tool_call({
+        "id": "stored-ask",
+        "function": {
+            "name": "ask_user",
+            "arguments": json.dumps({"questions": value}, ensure_ascii=False),
+        },
+    })
+    return request.questions
+
+
 def normalize_answers(
     questions: tuple[AskQuestion, ...] | list[AskQuestion],
     answers: Any,

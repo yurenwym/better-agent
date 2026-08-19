@@ -1,4 +1,5 @@
 import asyncio
+import json
 
 from fastapi.testclient import TestClient
 
@@ -28,6 +29,44 @@ class BlockingConversationModel:
 def _count(runtime, table: str) -> int:
     with runtime.db.connection() as connection:
         return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
+
+
+class PendingAskModel:
+    async def route_and_respond(self, **kwargs):
+        from app.ask import AskQuestion, AskRequest
+
+        return AskRequest(
+            "call-ask-api",
+            (
+                AskQuestion(
+                    "training_level",
+                    "训练水平",
+                    "你目前的训练水平是什么？",
+                    (
+                        {"label": "新手", "description": "刚开始训练"},
+                        {"label": "有基础", "description": "已有训练习惯"},
+                    ),
+                    False,
+                    True,
+                ),
+            ),
+        )
+
+
+def _pending_ask(tmp_path):
+    from app.main import create_app
+
+    runtime = make_runtime(tmp_path, PendingAskModel())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    thread = client.post("/api/threads", headers=_headers(app), json={}).json()
+    accepted = client.post(
+        f"/api/threads/{thread['id']}/turns",
+        headers=_headers(app),
+        json={"client_turn_id": "client-ask", "content": "制定训练计划", "skill_names": []},
+    ).json()
+    asyncio.run(runtime.turn_worker.run_once())
+    return runtime, app, client, runtime.conversation.turn(accepted["turn_id"])
 
 
 def test_turn_submission_is_durable_and_idempotent_before_model_finishes(tmp_path) -> None:
@@ -184,3 +223,68 @@ def test_thread_sse_uses_seq_and_last_event_id_for_reconnect(tmp_path) -> None:
     assert "id: 1\nevent: conversation" not in resumed.text
     assert "id: 2\nevent: conversation" in resumed.text
     assert "id: 3\nevent: conversation" in resumed.text
+
+
+def test_answering_pending_ask_creates_one_child_turn_and_is_idempotent(tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(tmp_path)
+    payload = {
+        "expected_version": pending.version,
+        "idempotency_key": "answer-1",
+        "answers": [{"question_id": "training_level", "selected_options": ["新手"], "free_text": ""}],
+    }
+
+    first = client.post(f"/api/turns/{pending.id}/ask/answer", headers=_headers(app), json=payload)
+    second = client.post(f"/api/turns/{pending.id}/ask/answer", headers=_headers(app), json=payload)
+
+    assert first.status_code == second.status_code == 200
+    assert first.json()["turn"]["id"] == second.json()["turn"]["id"]
+    assert first.json()["turn"]["parent_turn_id"] == pending.id
+    assert first.json()["turn"]["status"] == "ACCEPTED"
+    assert _count(runtime, "turns") == 2
+    with runtime.db.connection() as connection:
+        ask = connection.execute("SELECT status, answer_json, continuation_turn_id FROM turn_asks").fetchone()
+    assert ask["status"] == "ANSWERED"
+    assert json.loads(ask["answer_json"])[0]["selected_options"] == ["新手"]
+    assert ask["continuation_turn_id"] == first.json()["turn"]["id"]
+
+
+def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(tmp_path)
+
+    conflict = client.post(
+        f"/api/turns/{pending.id}/ask/answer",
+        headers=_headers(app),
+        json={
+            "expected_version": pending.version + 1,
+            "idempotency_key": "answer-conflict",
+            "answers": [{"question_id": "training_level", "selected_options": ["未知"], "free_text": ""}],
+        },
+    )
+    invalid = client.post(
+        f"/api/turns/{pending.id}/ask/answer",
+        headers=_headers(app),
+        json={
+            "expected_version": pending.version,
+            "idempotency_key": "answer-invalid",
+            "answers": [{"question_id": "training_level", "selected_options": ["未知"], "free_text": ""}],
+        },
+    )
+
+    assert conflict.status_code == 409
+    assert invalid.status_code == 422
+    assert _count(runtime, "turns") == 1
+
+
+def test_pending_ask_can_be_loaded_and_cancelled_without_child_turn(tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(tmp_path)
+
+    loaded = client.get(f"/api/turns/{pending.id}/ask", headers={"host": "127.0.0.1:8000"})
+    cancelled = client.post(f"/api/turns/{pending.id}/cancel", headers=_headers(app), json={})
+
+    assert loaded.status_code == 200
+    assert loaded.json()["questions"][0]["id"] == "training_level"
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "CANCELLED"
+    assert _count(runtime, "turns") == 1
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT status FROM turn_asks").fetchone()["status"] == "CANCELLED"

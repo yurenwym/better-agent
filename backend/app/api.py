@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from fastapi import Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from .ask import AskValidationError
 from .events import export_jsonl
 
 
@@ -195,6 +196,42 @@ def register_routes(app) -> None:
                 service.agent_runtime.get_run(turn.materialized_run_id), service.agent_runtime
             )
         return result
+
+    @app.get("/api/turns/{turn_id}/ask")
+    async def get_turn_ask(turn_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            ask = service.pending_ask(turn_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        if ask is None:
+            raise HTTPException(status_code=404, detail="no pending ask")
+        return _ask_json(ask)
+
+    @app.post("/api/turns/{turn_id}/ask/answer", dependencies=[Depends(mutate)])
+    async def answer_turn_ask(
+        turn_id: str,
+        payload: dict[str, Any],
+        service=Depends(conversation),
+    ) -> dict[str, Any]:
+        try:
+            expected_version = int(payload["expected_version"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="expected_version is required") from exc
+        idempotency_key = payload.get("idempotency_key")
+        answers = payload.get("answers")
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise HTTPException(status_code=422, detail="idempotency_key is required")
+        if not isinstance(answers, list):
+            raise HTTPException(status_code=422, detail="answers must be an array")
+        try:
+            result = service.answer_ask(turn_id, expected_version, idempotency_key, answers)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        except AskValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"ask_id": result.ask_id, "turn": _turn_json(result.turn)}
 
     @app.post("/api/turns/{turn_id}/cancel", dependencies=[Depends(mutate)])
     async def cancel_turn(turn_id: str, service=Depends(conversation)) -> dict[str, Any]:
@@ -471,6 +508,18 @@ def _turn_json(turn) -> dict[str, Any]:
         "direction_idempotency_key": turn.direction_idempotency_key,
         "created_at": turn.created_at,
         "updated_at": turn.updated_at,
+    }
+
+
+def _ask_json(ask) -> dict[str, Any]:
+    return {
+        "id": ask.id,
+        "turn_id": ask.turn_id,
+        "questions": [question.as_dict() for question in ask.questions],
+        "status": ask.status,
+        "continuation_turn_id": ask.continuation_turn_id,
+        "created_at": ask.created_at,
+        "answered_at": ask.answered_at,
     }
 
 

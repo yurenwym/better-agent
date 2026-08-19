@@ -8,7 +8,14 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
-from .ask import AskRequest
+from .ask import (
+    AskQuestion,
+    AskRequest,
+    format_answer_message,
+    normalize_answers,
+    questions_from_json,
+    tool_result_payload,
+)
 from .db import Database
 from .events import ThreadEvent, ThreadEventStore
 
@@ -77,7 +84,7 @@ class RouteAndRespondModel(Protocol):
         self,
         *,
         content: str,
-        history: list[dict[str, str]],
+        history: list[dict[str, Any]],
         skill_names: list[str],
         on_text_delta,
         on_text_reset,
@@ -128,6 +135,24 @@ class ThreadMessageSnapshot:
     content_length: int
     created_at: str
     completed_at: str | None
+
+
+@dataclass(frozen=True)
+class AskSnapshot:
+    id: str
+    turn_id: str
+    call_id: str
+    questions: tuple[AskQuestion, ...]
+    status: str
+    continuation_turn_id: str | None
+    created_at: str
+    answered_at: str | None
+
+
+@dataclass(frozen=True)
+class AskAnswerResult:
+    ask_id: str
+    turn: TurnSnapshot
 
 
 @dataclass(frozen=True)
@@ -256,11 +281,25 @@ class ConversationService:
                 row["thread_id"], turn_id, "turn.cancel_requested", "user", {},
                 connection=connection, occurred_at=now,
             )
-            if row["job_status"] == "QUEUED" or row["status"] == "AWAITING_DIRECTION":
+            if row["job_status"] == "QUEUED" or row["status"] in {"AWAITING_DIRECTION", "AWAITING_INPUT"}:
                 connection.execute(
                     "UPDATE turn_jobs SET status = 'CANCELLED', finished_at = ? WHERE turn_id = ?",
                     (now, turn_id),
                 )
+                if row["status"] == "AWAITING_INPUT":
+                    ask = connection.execute(
+                        "SELECT id FROM turn_asks WHERE turn_id = ? AND status = 'PENDING' ORDER BY created_at DESC LIMIT 1",
+                        (turn_id,),
+                    ).fetchone()
+                    if ask is not None:
+                        connection.execute(
+                            "UPDATE turn_asks SET status = 'CANCELLED', cancelled_at = ? WHERE id = ?",
+                            (now, ask["id"]),
+                        )
+                        self.events.append(
+                            row["thread_id"], turn_id, "ask.cancelled", "user",
+                            {"ask_id": ask["id"]}, connection=connection, occurred_at=now,
+                        )
                 connection.execute(
                     "UPDATE turns SET status = 'CANCELLED', version = version + 1, updated_at = ? WHERE id = ?",
                     (now, turn_id),
@@ -276,6 +315,112 @@ class ConversationService:
             if event is not None:
                 event.set()
         return self.turn(turn_id)
+
+    def pending_ask(self, turn_id: str) -> AskSnapshot | None:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM turn_asks WHERE turn_id = ? AND status = 'PENDING' "
+                "ORDER BY created_at DESC LIMIT 1",
+                (turn_id,),
+            ).fetchone()
+        return _ask_from_row(row) if row is not None else None
+
+    def answer_ask(
+        self,
+        turn_id: str,
+        expected_version: int,
+        idempotency_key: str,
+        answers: Any,
+    ) -> AskAnswerResult:
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("idempotency_key is required")
+        now = _now()
+        continuation_id: str | None = None
+        ask_id: str | None = None
+        with self.db.transaction() as connection:
+            existing = connection.execute(
+                "SELECT id, turn_id, continuation_turn_id FROM turn_asks WHERE answer_idempotency_key = ?",
+                (idempotency_key,),
+            ).fetchone()
+            if existing is not None:
+                if existing["turn_id"] != turn_id or not existing["continuation_turn_id"]:
+                    raise ValueError("answer idempotency key already used")
+                continuation_id = existing["continuation_turn_id"]
+                ask_id = existing["id"]
+            else:
+                turn_row = connection.execute(
+                    "SELECT * FROM turns WHERE id = ?", (turn_id,)
+                ).fetchone()
+                ask_row = connection.execute(
+                    "SELECT * FROM turn_asks WHERE turn_id = ? AND status = 'PENDING' "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (turn_id,),
+                ).fetchone()
+                if turn_row is None or ask_row is None:
+                    raise ValueError("no pending ask for this turn")
+                if turn_row["status"] != "AWAITING_INPUT":
+                    raise ValueError("turn is not waiting for an answer")
+                if int(turn_row["version"]) != int(expected_version):
+                    raise ValueError("turn version conflict")
+                questions = questions_from_json(ask_row["questions_json"])
+                normalized = normalize_answers(questions, answers)
+                ask_id = ask_row["id"]
+                continuation_id = f"turn_{uuid.uuid4().hex}"
+                client_turn_id = f"ask:{ask_id}:{uuid.uuid4().hex}"
+                answer_message_id = f"message_{uuid.uuid4().hex}"
+                answer_content = format_answer_message(questions, normalized)
+                connection.execute(
+                    "INSERT INTO turns(id, thread_id, client_turn_id, parent_turn_id, status, version, skill_names_json, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?)",
+                    (
+                        continuation_id,
+                        turn_row["thread_id"],
+                        client_turn_id,
+                        turn_id,
+                        turn_row["skill_names_json"],
+                        now,
+                        now,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
+                    "VALUES (?, ?, ?, 'user', ?, 'ready', 1, ?, ?)",
+                    (answer_message_id, turn_row["thread_id"], continuation_id, answer_content, len(answer_content), now),
+                )
+                connection.execute(
+                    "INSERT INTO turn_jobs(turn_id, status, attempts) VALUES (?, 'QUEUED', 0)",
+                    (continuation_id,),
+                )
+                connection.execute(
+                    "UPDATE turn_asks SET status = 'ANSWERED', answer_json = ?, answer_idempotency_key = ?, "
+                    "continuation_turn_id = ?, answered_at = ? WHERE id = ?",
+                    (json.dumps(normalized, ensure_ascii=False), idempotency_key, continuation_id, now, ask_id),
+                )
+                connection.execute(
+                    "UPDATE turns SET status = 'COMPLETED', version = version + 1, updated_at = ? WHERE id = ?",
+                    (now, turn_id),
+                )
+                connection.execute(
+                    "UPDATE threads SET version = version + 1, active_turn_id = ?, updated_at = ? WHERE id = ?",
+                    (continuation_id, now, turn_row["thread_id"]),
+                )
+                self.events.append(
+                    turn_row["thread_id"], turn_id, "ask.answered", "user",
+                    {"ask_id": ask_id, "continuation_turn_id": continuation_id, "answer_count": len(normalized)},
+                    connection=connection, occurred_at=now,
+                )
+                self.events.append(
+                    turn_row["thread_id"], turn_id, "turn.completed", "user", {},
+                    connection=connection, occurred_at=now,
+                )
+                self.events.append(
+                    turn_row["thread_id"], continuation_id, "turn.accepted", "user",
+                    {"parent_turn_id": turn_id, "ask_id": ask_id, "message_id": answer_message_id},
+                    connection=connection, occurred_at=now,
+                )
+        if continuation_id is None or ask_id is None:
+            raise RuntimeError("ask continuation was not created")
+        return AskAnswerResult(ask_id, self.turn(continuation_id))
 
     async def select_direction(
         self,
@@ -362,6 +507,12 @@ class ConversationService:
             ).fetchone()
             if thread is None:
                 raise KeyError(thread_id)
+            if thread["active_turn_id"]:
+                active_turn = connection.execute(
+                    "SELECT status FROM turns WHERE id = ?", (thread["active_turn_id"],)
+                ).fetchone()
+                if active_turn is not None and active_turn["status"] == "AWAITING_INPUT":
+                    raise ValueError("answer the pending ask before sending another message")
             existing = connection.execute(
                 "SELECT * FROM turns WHERE thread_id = ? AND client_turn_id = ?",
                 (thread_id, client_turn_id),
@@ -1029,13 +1180,45 @@ class ManagedTurnWorker:
             raise KeyError(turn_id)
         return _message_from_row(row)
 
-    def _history(self, thread_id: str, turn_id: str) -> list[dict[str, str]]:
+    def _history(self, thread_id: str, turn_id: str) -> list[dict[str, Any]]:
         with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT role, content FROM thread_messages WHERE thread_id = ? AND turn_id != ? ORDER BY created_at, id",
+                "SELECT id, turn_id, role, content FROM thread_messages WHERE thread_id = ? AND turn_id != ? ORDER BY created_at, id",
                 (thread_id, turn_id),
             ).fetchall()
-        return [{"role": row["role"], "content": row["content"]} for row in rows]
+            ask_rows = connection.execute(
+                "SELECT * FROM turn_asks WHERE status = 'ANSWERED' AND turn_id != ? ORDER BY created_at, id",
+                (turn_id,),
+            ).fetchall()
+        asks_by_turn: dict[str, list[Any]] = {}
+        for ask in ask_rows:
+            asks_by_turn.setdefault(ask["turn_id"], []).append(ask)
+        history: list[dict[str, Any]] = []
+        for row in rows:
+            asks = asks_by_turn.get(row["turn_id"], []) if row["role"] == "assistant" else []
+            if not asks:
+                history.append({"role": row["role"], "content": row["content"]})
+                continue
+            questions = questions_from_json(asks[0]["questions_json"])
+            answers = json.loads(asks[0]["answer_json"] or "[]")
+            history.append({
+                "role": "assistant",
+                "content": row["content"],
+                "tool_calls": [{
+                    "id": asks[0]["call_id"],
+                    "type": "function",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({"questions": [question.as_dict() for question in questions]}, ensure_ascii=False),
+                    },
+                }],
+            })
+            history.append({
+                "role": "tool",
+                "tool_call_id": asks[0]["call_id"],
+                "content": json.dumps(tool_result_payload(questions, answers), ensure_ascii=False),
+            })
+        return history
 
     def _cancel_requested(self, turn_id: str) -> bool:
         with self.db.connection() as connection:
@@ -1063,6 +1246,19 @@ def _turn_from_row(row: Any) -> TurnSnapshot:
         direction_idempotency_key=row["direction_idempotency_key"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
+    )
+
+
+def _ask_from_row(row: Any) -> AskSnapshot:
+    return AskSnapshot(
+        id=row["id"],
+        turn_id=row["turn_id"],
+        call_id=row["call_id"],
+        questions=questions_from_json(row["questions_json"]),
+        status=row["status"],
+        continuation_turn_id=row["continuation_turn_id"],
+        created_at=row["created_at"],
+        answered_at=row["answered_at"],
     )
 
 
