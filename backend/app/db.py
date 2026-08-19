@@ -58,6 +58,7 @@ CREATE TABLE IF NOT EXISTS turns (
     content_shape TEXT,
     reason_code TEXT,
     version INTEGER NOT NULL DEFAULT 0,
+    skill_names_json TEXT NOT NULL DEFAULT '[]',
     materialized_goal_id TEXT,
     materialized_run_id TEXT,
     direction_action TEXT,
@@ -294,6 +295,11 @@ class Database:
                 connection.execute("ALTER TABLE runs ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
             if "source_turn_id" not in run_columns:
                 connection.execute("ALTER TABLE runs ADD COLUMN source_turn_id TEXT")
+            turn_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(turns)").fetchall()
+            }
+            if "skill_names_json" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
             step_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(plan_steps)").fetchall()

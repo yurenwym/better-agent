@@ -106,6 +106,7 @@ class TurnSnapshot:
     content_shape: str | None
     reason_code: str | None
     version: int
+    skill_names: tuple[str, ...]
     materialized_goal_id: str | None
     materialized_run_id: str | None
     direction_action: str | None
@@ -209,6 +210,14 @@ class ConversationService:
         if row is None:
             raise KeyError(turn_id)
         return _turn_from_row(row)
+
+    def turns(self, thread_id: str) -> list[TurnSnapshot]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM turns WHERE thread_id = ? ORDER BY created_at, id",
+                (thread_id,),
+            ).fetchall()
+        return [_turn_from_row(row) for row in rows]
 
     def messages(self, thread_id: str) -> list[ThreadMessageSnapshot]:
         with self.db.connection() as connection:
@@ -370,11 +379,11 @@ class ConversationService:
             connection.execute(
                 """
                 INSERT INTO turns(
-                    id, thread_id, client_turn_id, parent_turn_id, status, version,
+                    id, thread_id, client_turn_id, parent_turn_id, status, version, skill_names_json,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?)
+                ) VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?)
                 """,
-                (turn_id, thread_id, client_turn_id, parent_turn_id, now, now),
+                (turn_id, thread_id, client_turn_id, parent_turn_id, json.dumps(selected_skills, ensure_ascii=False), now, now),
             )
             connection.execute(
                 """
@@ -467,9 +476,9 @@ class ExecutionMaterializer:
                 (session_id, goal_id, now, now),
             )
             connection.execute(
-                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, source_turn_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?)",
-                (run_id, goal_id, session_id, json.dumps(budget, ensure_ascii=False), turn_id, now, now),
+                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, skill_names_json, source_turn_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?, ?)",
+                (run_id, goal_id, session_id, json.dumps(budget, ensure_ascii=False), row["skill_names_json"], turn_id, now, now),
             )
             connection.execute(
                 "UPDATE turns SET status = 'COMPLETED', direction_action = ?, "
@@ -628,7 +637,7 @@ class ManagedTurnWorker:
             self.conversation.route_model.route_and_respond(
                 content=user_message.content,
                 history=self._history(turn.thread_id, turn_id),
-                skill_names=[],
+                skill_names=list(turn.skill_names),
                 on_text_delta=on_delta,
                 on_text_reset=on_reset,
                 cancel_event=cancel_event,
@@ -924,6 +933,7 @@ def _turn_from_row(row: Any) -> TurnSnapshot:
         content_shape=row["content_shape"],
         reason_code=row["reason_code"],
         version=row["version"],
+        skill_names=tuple(json.loads(row["skill_names_json"] or "[]")),
         materialized_goal_id=row["materialized_goal_id"],
         materialized_run_id=row["materialized_run_id"],
         direction_action=row["direction_action"],

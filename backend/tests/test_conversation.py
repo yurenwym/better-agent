@@ -17,6 +17,10 @@ def test_conversation_schema_is_durable_and_migrates_source_turn_id(tmp_path) ->
             row["name"] for row in connection.execute("PRAGMA table_info(runs)").fetchall()
         }
         assert "source_turn_id" in run_columns
+        turn_columns = {
+            row["name"] for row in connection.execute("PRAGMA table_info(turns)").fetchall()
+        }
+        assert "skill_names_json" in turn_columns
 
 
 def test_conversation_transaction_rolls_back_all_rows(tmp_path) -> None:

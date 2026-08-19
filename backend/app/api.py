@@ -97,7 +97,9 @@ def register_routes(app) -> None:
     @app.get("/api/threads/{thread_id}")
     async def get_thread(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
         try:
-            return _thread_json(service.thread(thread_id))
+            payload = _thread_json(service.thread(thread_id))
+            payload["turns"] = [_turn_json(turn) for turn in service.turns(thread_id)]
+            return payload
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
@@ -462,6 +464,7 @@ def _turn_json(turn) -> dict[str, Any]:
         "content_shape": turn.content_shape,
         "reason_code": turn.reason_code,
         "version": turn.version,
+        "skill_names": list(turn.skill_names),
         "materialized_goal_id": turn.materialized_goal_id,
         "materialized_run_id": turn.materialized_run_id,
         "direction_action": turn.direction_action,

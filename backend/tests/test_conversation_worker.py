@@ -8,8 +8,10 @@ from test_runtime import make_runtime
 class ScriptedConversationModel:
     def __init__(self, response: str) -> None:
         self.response = response
+        self.skill_names: list[str] = []
 
-    async def route_and_respond(self, *, on_text_delta, **kwargs):
+    async def route_and_respond(self, *, on_text_delta, skill_names, **kwargs):
+        self.skill_names = list(skill_names)
         midpoint = max(len(self.response) // 2, 1)
         on_text_delta(self.response[:midpoint])
         on_text_delta(self.response[midpoint:])
@@ -193,3 +195,19 @@ async def test_clarify_completes_turn_without_agent_rows(tmp_path) -> None:
     assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
     assert _count(runtime, "goals") == 0
     assert _count(runtime, "runs") == 0
+
+
+@pytest.mark.asyncio
+async def test_selected_skills_survive_turn_worker(tmp_path) -> None:
+    model = ScriptedConversationModel(
+        '{"v":1,"policy":"answer","content_shape":"general",'
+        '"reason_code":"content_only"}\nanswer'
+    )
+    runtime = make_runtime(tmp_path, model)
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-1", "回答", ["reflection"])
+
+    await runtime.turn_worker.run_once()
+
+    assert model.skill_names == ["reflection"]
+    assert runtime.conversation.turn(accepted.turn_id).skill_names == ("reflection",)
