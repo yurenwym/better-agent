@@ -16,7 +16,7 @@
 - Create: `backend/app/context_policy.py`
 - Test: `backend/tests/test_context_policy.py`
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Cover the user-visible boundary:
 
@@ -40,7 +40,7 @@ def test_answered_ask_continuation_is_not_asked_again():
     assert requires_context_collection("我已经补充了信息，请继续", history) is False
 ```
 
-- [ ] **Step 2: Run the focused policy tests and confirm RED**
+- [x] **Step 2: Run the focused policy tests and confirm RED**
 
 Run from `D:\RAG\better\backend`:
 
@@ -50,11 +50,11 @@ python -m pytest tests/test_context_policy.py -q
 
 Expected: collection failure because `app.context_policy` does not exist.
 
-- [ ] **Step 3: Implement the minimal deterministic policy**
+- [x] **Step 3: Implement the minimal deterministic policy**
 
 Create a narrow rule set for personalized training/learning requests, exclude ordinary knowledge, travel guides, and templates, and return `False` when the latest history item is a tool result from an Ask continuation. Keep the policy pure and independent of FastAPI, SQLite, and the model gateway.
 
-- [ ] **Step 4: Run the focused policy tests and commit the policy slice**
+- [x] **Step 4: Run the focused policy tests and commit the policy slice**
 
 Run `python -m pytest tests/test_context_policy.py -q`; expected result is all policy tests passing. Commit with:
 
@@ -70,11 +70,11 @@ git commit -m "feat: detect personalized context needs"
 - Test: `backend/tests/test_live_model.py`
 - Test: `backend/tests/test_conversation_worker.py`
 
-- [ ] **Step 1: Write failing model and worker tests**
+- [x] **Step 1: Write failing model and worker tests**
 
 Add a gateway that raises if called, then assert the route returns an `AskRequest` for the user's natural request without requiring an explicit `ask_user` phrase. Add a worker assertion that the resulting Turn is `AWAITING_INPUT`, the Ask contains questions about level, goal, schedule, and constraints, and no Goal/Run is created.
 
-- [ ] **Step 2: Run the focused tests and confirm RED**
+- [x] **Step 2: Run the focused tests and confirm RED**
 
 Run:
 
@@ -84,11 +84,11 @@ python -m pytest tests/test_live_model.py tests/test_conversation_worker.py -k "
 
 Expected: failure because `LiveConversationModel` currently always delegates the first route to the model gateway.
 
-- [ ] **Step 3: Implement the automatic AskRequest path**
+- [x] **Step 3: Implement the automatic AskRequest path**
 
 At the start of `LiveConversationModel.route_and_respond`, call the pure policy. If it returns `True`, return a unique internal `AskRequest` with four bounded, user-facing questions and do not make a model request. Otherwise preserve the current model/tool route unchanged.
 
-- [ ] **Step 4: Run focused model/worker tests and the existing ask suite**
+- [x] **Step 4: Run focused model/worker tests and the existing ask suite**
 
 Run:
 
@@ -104,14 +104,18 @@ Expected: all pass, including existing Ask tool, continuation, cancellation, and
 - Modify: `docs/superpowers/plans/2026-08-20-automatic-context-collection.md`
 - No frontend production changes expected; the existing AskCard renders the generated questions.
 
-- [ ] **Step 1: Run backend and frontend verification**
+- [x] **Step 1: Run backend and frontend verification**
 
 Run `python -m pytest -q` from `backend`, then `npm test -- --run` and `npm run build` from `frontend`.
 
-- [ ] **Step 2: Run the deterministic evaluation and inspect the diff**
+Verification: backend `155 passed`; frontend `76 passed`; frontend TypeScript/Vite production build completed successfully.
+
+- [x] **Step 2: Run the deterministic evaluation and inspect the diff**
 
 Run `python -m app.eval run --suite v1 --mode deterministic`, `git diff --check`, and confirm no `data/`, `memory/`, `evals/results/`, `.env`, or LLM key file is staged.
 
-- [ ] **Step 3: Mark this plan complete and commit**
+Verification: deterministic evaluation `12 passed, 0 failed`; live LLM smoke with the specified `LLM_AP.txt` `1 passed, 0 failed`; `git diff --check` completed without whitespace errors. Runtime data and evaluation reports remained ignored and unstaged.
+
+- [x] **Step 3: Mark this plan complete and commit**
 
 Record the test counts, commit the plan, and preserve the current `codex/personal-agent-v1` branch without modifying `main`.
