@@ -30,6 +30,27 @@ async def _event_stream(service, run_id: str, request: Request, after_seq: int, 
         await asyncio.sleep(0.05)
 
 
+async def _thread_event_stream(service, thread_id: str, request: Request, after_seq: int, follow: bool):
+    cursor = after_seq
+    terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
+    while True:
+        events = service.events.list(thread_id, cursor)
+        for event in events:
+            cursor = event.seq
+            yield f"id: {event.seq}\nevent: conversation\ndata: {json.dumps(_thread_event_json(event), ensure_ascii=False)}\n\n"
+        if not follow:
+            return
+        if await request.is_disconnected():
+            return
+        thread = service.thread(thread_id)
+        if not events and thread.active_turn_id:
+            if service.turn(thread.active_turn_id).status in terminal_states:
+                return
+        if not events:
+            yield ": keep-alive\n\n"
+        await asyncio.sleep(0.05)
+
+
 def register_routes(app) -> None:
     async def mutate(request: Request) -> None:
         content_type = request.headers.get("content-type", "")
@@ -79,6 +100,43 @@ def register_routes(app) -> None:
             return _thread_json(service.thread(thread_id))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.get("/api/threads/{thread_id}/messages")
+    async def get_thread_messages(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            service.thread(thread_id)
+            return {"messages": [_thread_message_json(message) for message in service.messages(thread_id)]}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.get("/api/threads/{thread_id}/events")
+    async def get_thread_events(thread_id: str, request: Request, after_seq: int = 0, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            service.thread(thread_id)
+            return {"events": [_thread_event_json(event) for event in service.events.list(thread_id, after_seq)]}
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.get("/api/threads/{thread_id}/events/stream")
+    async def thread_event_stream(thread_id: str, request: Request, follow: bool = True, service=Depends(conversation)) -> StreamingResponse:
+        try:
+            service.thread(thread_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        last_event_id = request.headers.get("last-event-id") or request.query_params.get("after_seq", "0")
+        try:
+            after_seq = int(last_event_id or 0)
+        except ValueError:
+            after_seq = 0
+        return StreamingResponse(
+            _thread_event_stream(service, thread_id, request, after_seq, follow),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post("/api/threads/{thread_id}/turns", status_code=202, dependencies=[Depends(mutate)])
     async def post_turn(
@@ -135,6 +193,13 @@ def register_routes(app) -> None:
                 service.agent_runtime.get_run(turn.materialized_run_id), service.agent_runtime
             )
         return result
+
+    @app.post("/api/turns/{turn_id}/cancel", dependencies=[Depends(mutate)])
+    async def cancel_turn(turn_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            return _turn_json(service.cancel_turn(turn_id))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
 
     @app.get("/api/skills")
     async def list_skills(request: Request) -> dict[str, Any]:
@@ -403,6 +468,35 @@ def _turn_json(turn) -> dict[str, Any]:
         "direction_idempotency_key": turn.direction_idempotency_key,
         "created_at": turn.created_at,
         "updated_at": turn.updated_at,
+    }
+
+
+def _thread_message_json(message) -> dict[str, Any]:
+    return {
+        "id": message.id,
+        "thread_id": message.thread_id,
+        "turn_id": message.turn_id,
+        "role": message.role,
+        "content": message.content,
+        "status": message.status,
+        "generation": message.generation,
+        "content_length": message.content_length,
+        "created_at": message.created_at,
+        "completed_at": message.completed_at,
+    }
+
+
+def _thread_event_json(event) -> dict[str, Any]:
+    return {
+        "schema_version": event.schema_version,
+        "event_id": event.event_id,
+        "seq": event.seq,
+        "thread_id": event.thread_id,
+        "turn_id": event.turn_id,
+        "type": event.type,
+        "occurred_at": event.occurred_at,
+        "actor": event.actor,
+        "data": event.data,
     }
 
 
