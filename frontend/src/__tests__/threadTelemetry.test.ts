@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyThreadEvent, needsMessageSnapshot } from "../hooks/useThreadTelemetry";
+import { applyThreadEvent, needsEventRecovery, needsMessageSnapshot } from "../hooks/useThreadTelemetry";
 import type { MessageRecord, ThreadEvent } from "../types";
 
 function message(content: string, generation = 1): MessageRecord {
@@ -46,5 +46,10 @@ describe("thread telemetry reconciliation", () => {
     expect(duplicate).toEqual(current);
     expect(stale).toEqual(current);
     expect(needsMessageSnapshot(current, event({ message_id: "m1", generation: 2, offset: 3, delta: "x" }))).toBe(true);
+  });
+
+  it("detects a missing event sequence for REST recovery", () => {
+    const current = [event({ message_id: "m1", generation: 1, offset: 0, delta: "a" })];
+    expect(needsEventRecovery(current, { ...event({}), seq: 3, event_id: "e3" })).toBe(true);
   });
 });

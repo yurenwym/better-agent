@@ -25,6 +25,11 @@ export function appendThreadEvent(events: ThreadEvent[], event: ThreadEvent): Th
   return [...events, event].sort((left, right) => left.seq - right.seq);
 }
 
+export function needsEventRecovery(events: ThreadEvent[], event: ThreadEvent): boolean {
+  const cursor = events.at(-1)?.seq ?? 0;
+  return event.seq > cursor + 1;
+}
+
 function messageId(event: ThreadEvent): string | null {
   return typeof event.data.message_id === "string" && event.data.message_id
     ? event.data.message_id
@@ -156,9 +161,19 @@ export function useThreadTelemetry(
         setEvents(eventResult.events);
         setMessages(hydrateThreadMessages(messageResult.messages));
         const cursor = eventResult.events.at(-1)?.seq ?? 0;
+        let eventCursor = cursor;
         close = subscribeToThreadEvents(id, cursor, (event) => {
           if (!active) return;
-          setEvents((current) => appendThreadEvent(current, event));
+          if (event.seq > eventCursor + 1) {
+            void getThreadEvents(id, eventCursor).then((result) => {
+              if (!active) return;
+              setEvents((current) => result.events.reduce(appendThreadEvent, current));
+              void refreshMessages().catch(() => undefined);
+            }).catch(() => undefined);
+          } else {
+            setEvents((current) => appendThreadEvent(current, event));
+          }
+          eventCursor = Math.max(eventCursor, event.seq);
           setMessages((current) => {
             if (needsMessageSnapshot(current, event)) {
               void refreshMessages().catch(() => undefined);
@@ -169,7 +184,7 @@ export function useThreadTelemetry(
           if (event.type === "execution.materialized" && typeof event.data.run_id === "string") {
             onMaterialized?.(event.data.run_id);
           }
-          if (["turn.policy_decided", "turn.awaiting_direction", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "execution.materialized"].includes(event.type)) {
+          if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_direction", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "execution.materialized"].includes(event.type)) {
             void getThread(id).then((next) => { if (active) setThread(next); }).catch(() => undefined);
           }
         });

@@ -255,7 +255,7 @@ class ConversationService:
                 row["thread_id"], turn_id, "turn.cancel_requested", "user", {},
                 connection=connection, occurred_at=now,
             )
-            if row["job_status"] == "QUEUED":
+            if row["job_status"] == "QUEUED" or row["status"] == "AWAITING_DIRECTION":
                 connection.execute(
                     "UPDATE turn_jobs SET status = 'CANCELLED', finished_at = ? WHERE turn_id = ?",
                     (now, turn_id),
