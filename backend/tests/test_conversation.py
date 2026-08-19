@@ -1,4 +1,5 @@
 from app.db import Database
+import pytest
 
 
 def test_conversation_schema_is_durable_and_migrates_source_turn_id(tmp_path) -> None:
@@ -59,3 +60,63 @@ def test_thread_event_store_uses_persisted_thread_cursor(tmp_path) -> None:
 
     assert [event.seq for event in events.list("thread-1")] == [1, 2]
     assert first.event_id != second.event_id
+
+
+def test_control_head_releases_only_markdown_after_valid_json_line() -> None:
+    from app.conversation import ControlHeadDecoder, RouteDecision
+
+    decoder = ControlHeadDecoder(max_header_bytes=1024)
+    assert decoder.feed('{"v":1,"policy":"answer","content_shape":"guide",') == ""
+    assert decoder.feed('"reason_code":"content_only"}\n## 桂林') == "## 桂林"
+    assert decoder.header == RouteDecision("answer", "guide", "content_only")
+    assert decoder.feed(" 7 天攻略") == " 7 天攻略"
+
+
+def test_control_head_rejects_unknown_policy_without_repair() -> None:
+    from app.conversation import ControlHeadDecoder, RouteProtocolError
+
+    decoder = ControlHeadDecoder()
+    with pytest.raises(RouteProtocolError):
+        decoder.feed('{"v":1,"policy":"goal"}\n')
+
+
+def test_control_head_rejects_unknown_fields_and_missing_header() -> None:
+    from app.conversation import ControlHeadDecoder, RouteProtocolError
+
+    with pytest.raises(RouteProtocolError):
+        ControlHeadDecoder().feed(
+            '{"v":1,"policy":"answer","content_shape":"guide",'
+            '"reason_code":"content_only","needs_user_choice":true}\n'
+        )
+    with pytest.raises(RouteProtocolError):
+        ControlHeadDecoder().finish()
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_model_uses_one_tool_free_request() -> None:
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.request = None
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            self.request = request
+            return "response"
+
+    gateway = Gateway()
+    model = LiveConversationModel(gateway)
+    result = await model.route_and_respond(
+        content="给我一份攻略",
+        history=[],
+        skill_names=[],
+        on_text_delta=None,
+        on_text_reset=None,
+        cancel_event=None,
+    )
+
+    assert result == "response"
+    assert gateway.calls == 1
+    assert gateway.request.tools == []

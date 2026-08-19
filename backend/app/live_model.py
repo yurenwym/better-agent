@@ -202,6 +202,44 @@ class LiveRuntimeModel:
                 raise GatewayError("structured model output is invalid", "structure", response.attempts + repair.attempts) from repair_exc
 
 
+class LiveConversationModel:
+    """Single-call conversation adapter with no tool schema or JSON repair."""
+
+    def __init__(self, gateway: ModelGateway) -> None:
+        self.gateway = gateway
+
+    async def route_and_respond(
+        self,
+        *,
+        content: str,
+        history: list[dict[str, str]],
+        skill_names: list[str],
+        on_text_delta,
+        on_text_reset,
+        cancel_event,
+    ) -> Any:
+        messages: list[dict[str, str]] = [{
+            "role": "system",
+            "content": (
+                "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
+                "The header must have v=1, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
+                "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
+                "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
+                "Use clarify only when one missing fact prevents a useful answer; make a reasonable assumption and ask one question. "
+                "Never expose the header, hidden reasoning, tool schema, or raw JSON in the Markdown body. "
+                "Use the user's language and start the useful answer immediately after the header."
+            ),
+        }]
+        messages.extend(history)
+        messages.append({"role": "user", "content": content})
+        return await self.gateway.complete(
+            ModelRequest(messages=messages, tools=[]),
+            cancel_event=cancel_event,
+            on_text_delta=on_text_delta,
+            on_text_reset=on_text_reset,
+        )
+
+
 def _parse_json(content: str) -> dict[str, Any]:
     text = content.strip()
     if text.startswith("```"):
