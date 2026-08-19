@@ -67,6 +67,20 @@ CREATE TABLE IF NOT EXISTS turns (
     updated_at TEXT NOT NULL,
     UNIQUE(thread_id, client_turn_id)
 );
+CREATE TABLE IF NOT EXISTS turn_asks (
+    id TEXT PRIMARY KEY,
+    turn_id TEXT NOT NULL,
+    call_id TEXT NOT NULL UNIQUE,
+    questions_json TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING',
+    answer_json TEXT,
+    answer_idempotency_key TEXT UNIQUE,
+    continuation_turn_id TEXT,
+    created_at TEXT NOT NULL,
+    answered_at TEXT,
+    cancelled_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_turn_asks_turn_status ON turn_asks(turn_id, status);
 CREATE TABLE IF NOT EXISTS turn_jobs (
     turn_id TEXT PRIMARY KEY,
     status TEXT NOT NULL DEFAULT 'QUEUED',
