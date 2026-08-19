@@ -34,10 +34,84 @@ CREATE TABLE IF NOT EXISTS runs (
     version INTEGER NOT NULL DEFAULT 0,
     budget_json TEXT NOT NULL DEFAULT '{}',
     skill_names_json TEXT NOT NULL DEFAULT '[]',
+    source_turn_id TEXT,
     error_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS threads (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0,
+    active_turn_id TEXT,
+    next_event_seq INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS turns (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    client_turn_id TEXT NOT NULL,
+    parent_turn_id TEXT,
+    status TEXT NOT NULL,
+    policy TEXT,
+    content_shape TEXT,
+    reason_code TEXT,
+    version INTEGER NOT NULL DEFAULT 0,
+    materialized_goal_id TEXT,
+    materialized_run_id TEXT,
+    direction_action TEXT,
+    direction_idempotency_key TEXT UNIQUE,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(thread_id, client_turn_id)
+);
+CREATE TABLE IF NOT EXISTS turn_jobs (
+    turn_id TEXT PRIMARY KEY,
+    status TEXT NOT NULL DEFAULT 'QUEUED',
+    lease_owner TEXT,
+    lease_until TEXT,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    cancel_requested_at TEXT,
+    started_at TEXT,
+    finished_at TEXT,
+    last_error_json TEXT
+);
+CREATE TABLE IF NOT EXISTS thread_messages (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    content TEXT NOT NULL,
+    status TEXT NOT NULL,
+    generation INTEGER NOT NULL DEFAULT 1,
+    content_length INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS thread_events (
+    row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schema_version INTEGER NOT NULL,
+    event_id TEXT NOT NULL UNIQUE,
+    seq INTEGER NOT NULL,
+    thread_id TEXT NOT NULL,
+    turn_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    actor TEXT NOT NULL,
+    data_json TEXT NOT NULL,
+    UNIQUE(thread_id, seq)
+);
+CREATE TRIGGER IF NOT EXISTS thread_events_append_only_update
+BEFORE UPDATE ON thread_events
+BEGIN
+    SELECT RAISE(ABORT, 'thread events are append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS thread_events_append_only_delete
+BEFORE DELETE ON thread_events
+BEGIN
+    SELECT RAISE(ABORT, 'thread events are append-only');
+END;
 CREATE TABLE IF NOT EXISTS interactions (
     id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
@@ -218,6 +292,8 @@ class Database:
             }
             if "skill_names_json" not in run_columns:
                 connection.execute("ALTER TABLE runs ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
+            if "source_turn_id" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN source_turn_id TEXT")
             step_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(plan_steps)").fetchall()

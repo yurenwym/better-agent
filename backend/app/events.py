@@ -49,6 +49,96 @@ class Event:
     data: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class ThreadEvent:
+    schema_version: int
+    event_id: str
+    seq: int
+    thread_id: str
+    turn_id: str
+    type: str
+    occurred_at: str
+    actor: str
+    data: dict[str, Any]
+
+
+class ThreadEventStore:
+    """Append-only semantic events with a durable per-thread cursor."""
+
+    def __init__(self, db: Database) -> None:
+        self.db = db
+
+    def append(
+        self,
+        thread_id: str,
+        turn_id: str,
+        event_type: str,
+        actor: str,
+        data: dict[str, Any],
+        *,
+        connection: Any | None = None,
+        occurred_at: str | None = None,
+    ) -> ThreadEvent:
+        timestamp = occurred_at or utc_now()
+        event = ThreadEvent(
+            schema_version=1,
+            event_id=f"tevt_{uuid.uuid4().hex}",
+            seq=0,
+            thread_id=thread_id,
+            turn_id=turn_id,
+            type=event_type,
+            occurred_at=timestamp,
+            actor=actor,
+            data=data,
+        )
+        if connection is None:
+            with self.db.transaction() as transaction:
+                return self._append(transaction, event)
+        return self._append(connection, event)
+
+    @staticmethod
+    def _append(connection: Any, event: ThreadEvent) -> ThreadEvent:
+        row = connection.execute(
+            "SELECT next_event_seq FROM threads WHERE id = ?",
+            (event.thread_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(event.thread_id)
+        seq = int(row["next_event_seq"])
+        connection.execute(
+            "UPDATE threads SET next_event_seq = ?, updated_at = ? WHERE id = ?",
+            (seq + 1, event.occurred_at, event.thread_id),
+        )
+        connection.execute(
+            """
+            INSERT INTO thread_events(
+                schema_version, event_id, seq, thread_id, turn_id, type,
+                occurred_at, actor, data_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.schema_version,
+                event.event_id,
+                seq,
+                event.thread_id,
+                event.turn_id,
+                event.type,
+                event.occurred_at,
+                event.actor,
+                _json(event.data),
+            ),
+        )
+        return ThreadEvent(**{**asdict(event), "seq": seq})
+
+    def list(self, thread_id: str, after_seq: int = 0) -> list[ThreadEvent]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM thread_events WHERE thread_id = ? AND seq > ? ORDER BY seq",
+                (thread_id, after_seq),
+            ).fetchall()
+        return [_row_to_thread_event(row) for row in rows]
+
+
 class EventStore:
     def __init__(self, db: Database, workspace: str | Path | None = None) -> None:
         self.db = db
@@ -131,6 +221,20 @@ def _row_to_event(row: Any) -> Event:
         occurred_at=row["occurred_at"],
         actor=row["actor"],
         correlation=json.loads(row["correlation_json"]),
+        data=json.loads(row["data_json"]),
+    )
+
+
+def _row_to_thread_event(row: Any) -> ThreadEvent:
+    return ThreadEvent(
+        schema_version=row["schema_version"],
+        event_id=row["event_id"],
+        seq=row["seq"],
+        thread_id=row["thread_id"],
+        turn_id=row["turn_id"],
+        type=row["type"],
+        occurred_at=row["occurred_at"],
+        actor=row["actor"],
         data=json.loads(row["data_json"]),
     )
 
