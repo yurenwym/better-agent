@@ -154,6 +154,7 @@ class EventStore:
         data: dict[str, Any],
         correlation: dict[str, Any] | None = None,
         occurred_at: str | None = None,
+        connection: Any | None = None,
     ) -> Event:
         event = Event(
             schema_version=1,
@@ -167,35 +168,42 @@ class EventStore:
             correlation=correlation or {},
             data=data,
         )
-        with self.db.transaction() as connection:
-            next_seq = connection.execute(
-                "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
-                (run_id,),
-            ).fetchone()[0]
-            connection.execute(
-                """
-                INSERT INTO events(
-                    schema_version, event_id, seq, run_id, goal_id, type,
-                    occurred_at, actor, correlation_json, data_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    event.schema_version,
-                    event.event_id,
-                    next_seq,
-                    event.run_id,
-                    event.goal_id,
-                    event.type,
-                    event.occurred_at,
-                    event.actor,
-                    _json(event.correlation),
-                    _json(event.data),
-                ),
-            )
-        stored = Event(**{**asdict(event), "seq": next_seq})
-        if self.projector is not None and event_type not in {"model.response.delta", "model.response.reset"}:
+        if connection is None:
+            with self.db.transaction() as transaction:
+                stored = self._append(transaction, event)
+        else:
+            stored = self._append(connection, event)
+        if connection is None and self.projector is not None and event_type not in {"model.response.delta", "model.response.reset"}:
             self.projector.project(run_id)
         return stored
+
+    @staticmethod
+    def _append(connection: Any, event: Event) -> Event:
+        next_seq = connection.execute(
+            "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
+            (event.run_id,),
+        ).fetchone()[0]
+        connection.execute(
+            """
+            INSERT INTO events(
+                schema_version, event_id, seq, run_id, goal_id, type,
+                occurred_at, actor, correlation_json, data_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                event.schema_version,
+                event.event_id,
+                next_seq,
+                event.run_id,
+                event.goal_id,
+                event.type,
+                event.occurred_at,
+                event.actor,
+                _json(event.correlation),
+                _json(event.data),
+            ),
+        )
+        return Event(**{**asdict(event), "seq": next_seq})
 
     def list(self, run_id: str, after_seq: int = 0) -> list[Event]:
         with self.db.connection() as connection:

@@ -109,6 +109,33 @@ def register_routes(app) -> None:
             "event_cursor": accepted.event_cursor,
         }
 
+    @app.post("/api/turns/{turn_id}/direction", dependencies=[Depends(mutate)])
+    async def select_turn_direction(
+        turn_id: str,
+        payload: dict[str, Any],
+        service=Depends(conversation),
+    ) -> dict[str, Any]:
+        action = payload.get("action")
+        idempotency_key = payload.get("idempotency_key")
+        try:
+            expected_version = int(payload["expected_version"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="expected_version is required") from exc
+        if not isinstance(action, str) or not isinstance(idempotency_key, str):
+            raise HTTPException(status_code=422, detail="action and idempotency_key are required")
+        try:
+            turn = await service.select_direction(turn_id, action, expected_version, idempotency_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        result: dict[str, Any] = {"turn": _turn_json(turn)}
+        if turn.materialized_run_id and service.agent_runtime is not None:
+            result["run"] = _run_json(
+                service.agent_runtime.get_run(turn.materialized_run_id), service.agent_runtime
+            )
+        return result
+
     @app.get("/api/skills")
     async def list_skills(request: Request) -> dict[str, Any]:
         service = runtime(request)
@@ -356,6 +383,26 @@ def _thread_json(thread) -> dict[str, Any]:
         "next_event_seq": thread.next_event_seq,
         "created_at": thread.created_at,
         "updated_at": thread.updated_at,
+    }
+
+
+def _turn_json(turn) -> dict[str, Any]:
+    return {
+        "id": turn.id,
+        "thread_id": turn.thread_id,
+        "client_turn_id": turn.client_turn_id,
+        "parent_turn_id": turn.parent_turn_id,
+        "status": turn.status,
+        "policy": turn.policy,
+        "content_shape": turn.content_shape,
+        "reason_code": turn.reason_code,
+        "version": turn.version,
+        "materialized_goal_id": turn.materialized_goal_id,
+        "materialized_run_id": turn.materialized_run_id,
+        "direction_action": turn.direction_action,
+        "direction_idempotency_key": turn.direction_idempotency_key,
+        "created_at": turn.created_at,
+        "updated_at": turn.updated_at,
     }
 
 

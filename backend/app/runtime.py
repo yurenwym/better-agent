@@ -171,13 +171,7 @@ class AgentRuntime:
         session_id = f"session_{uuid.uuid4().hex}"
         run_id = f"run_{uuid.uuid4().hex}"
         now = _now()
-        budget = {
-            "react_iterations_remaining": self.config.max_react_iterations_per_step,
-            "react_iteration": 0,
-            "consecutive_tool_errors": 0,
-            "identical_actions": {},
-            "applied_memory_versions": [],
-        }
+        budget = self.initial_budget()
         with self.db.transaction() as connection:
             connection.execute(
                 "INSERT INTO goals(id, title, description, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -194,6 +188,15 @@ class AgentRuntime:
             )
         self.events.append(run_id, goal_id, "run.created", "runtime", {})
         return self.get_run(run_id)
+
+    def initial_budget(self) -> dict[str, Any]:
+        return {
+            "react_iterations_remaining": self.config.max_react_iterations_per_step,
+            "react_iteration": 0,
+            "consecutive_tool_errors": 0,
+            "identical_actions": {},
+            "applied_memory_versions": [],
+        }
 
     def get_run(self, run_id: str) -> RunSnapshot:
         with self.db.connection() as connection:

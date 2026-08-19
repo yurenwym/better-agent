@@ -81,3 +81,34 @@ def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
 
     assert empty.status_code == 422
     assert bad_skills.status_code == 422
+
+
+def test_direction_route_materializes_after_confirmation(tmp_path) -> None:
+    from app.main import create_app
+    from test_materializer import MaterializerModel
+
+    runtime = make_runtime(tmp_path, MaterializerModel())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    thread = client.post("/api/threads", headers=_headers(app), json={}).json()
+    accepted = client.post(
+        f"/api/threads/{thread['id']}/turns",
+        headers=_headers(app),
+        json={"client_turn_id": "client-1", "content": "执行清单", "skill_names": []},
+    ).json()
+    asyncio.run(runtime.turn_worker.run_once())
+    turn = runtime.conversation.turn(accepted["turn_id"])
+
+    response = client.post(
+        f"/api/turns/{turn.id}/direction",
+        headers=_headers(app),
+        json={
+            "action": "continue_execution",
+            "expected_version": turn.version,
+            "idempotency_key": "action-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["turn"]["materialized_run_id"]
+    assert _count(runtime, "goals") == 1

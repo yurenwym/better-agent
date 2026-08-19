@@ -157,6 +157,14 @@ class _FallbackConversationModel:
         return None
 
 
+@dataclass(frozen=True)
+class MaterializationResult:
+    goal_id: str
+    session_id: str
+    run_id: str
+    created: bool
+
+
 class ConversationService:
     def __init__(self, db: Database, *, agent_runtime=None, route_model=None) -> None:
         self.db = db
@@ -167,6 +175,7 @@ class ConversationService:
         self.events = ThreadEventStore(db)
         self._worker = None
         self._cancel_events: dict[str, asyncio.Event] = {}
+        self.materializer = ExecutionMaterializer(db, agent_runtime, self.events)
 
     def create_thread(self, title: str = "新的对话") -> ThreadSnapshot:
         thread_id = f"thread_{uuid.uuid4().hex}"
@@ -258,6 +267,68 @@ class ConversationService:
                 event.set()
         return self.turn(turn_id)
 
+    async def select_direction(
+        self,
+        turn_id: str,
+        action: str,
+        expected_version: int,
+        idempotency_key: str,
+    ) -> TurnSnapshot:
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("idempotency_key is required")
+        if action == "modify_plan":
+            return self._modify_direction(turn_id, expected_version, idempotency_key)
+        if action != "continue_execution":
+            raise ValueError("unsupported direction action")
+        result = self.materializer.materialize(
+            turn_id, expected_version, idempotency_key, action
+        )
+        if result.created and self.agent_runtime is not None:
+            content = self._user_content(turn_id)
+            await self.agent_runtime.handle_message(result.run_id, content, [])
+        return self.turn(turn_id)
+
+    def _modify_direction(
+        self,
+        turn_id: str,
+        expected_version: int,
+        idempotency_key: str,
+    ) -> TurnSnapshot:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+            if row is None:
+                raise KeyError(turn_id)
+            if row["direction_idempotency_key"] == idempotency_key:
+                return _turn_from_row(row)
+            _validate_direction(row, expected_version)
+            connection.execute(
+                "UPDATE turns SET status = 'COMPLETED', direction_action = 'modify_plan', "
+                "direction_idempotency_key = ?, version = version + 1, updated_at = ? WHERE id = ?",
+                (idempotency_key, now, turn_id),
+            )
+            self.events.append(
+                row["thread_id"], turn_id, "turn.direction_selected", "user",
+                {"action": "modify_plan", "idempotency_key": idempotency_key},
+                connection=connection, occurred_at=now,
+            )
+            self.events.append(
+                row["thread_id"], turn_id, "turn.completed", "worker", {},
+                connection=connection, occurred_at=now,
+            )
+        return self.turn(turn_id)
+
+    def _user_content(self, turn_id: str) -> str:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT content FROM thread_messages WHERE turn_id = ? AND role = 'user' "
+                "ORDER BY created_at, id LIMIT 1",
+                (turn_id,),
+            ).fetchone()
+        if row is None:
+            raise KeyError(turn_id)
+        return str(row["content"])
+
     def accept_turn(
         self,
         thread_id: str,
@@ -332,6 +403,119 @@ class ConversationService:
                 occurred_at=now,
             )
         return TurnSubmission(thread_id, turn_id, "ACCEPTED", 0, event.seq)
+
+
+class ExecutionMaterializer:
+    def __init__(self, db: Database, agent_runtime, thread_events: ThreadEventStore) -> None:
+        self.db = db
+        self.agent_runtime = agent_runtime
+        self.thread_events = thread_events
+
+    def materialize(
+        self,
+        turn_id: str,
+        expected_version: int,
+        idempotency_key: str,
+        action: str,
+    ) -> MaterializationResult:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+            if row is None:
+                raise KeyError(turn_id)
+            if row["direction_idempotency_key"] == idempotency_key and row["materialized_run_id"]:
+                return MaterializationResult(
+                    row["materialized_goal_id"],
+                    self._session_for_run(connection, row["materialized_run_id"]),
+                    row["materialized_run_id"],
+                    False,
+                )
+            _validate_direction(row, expected_version)
+            if row["policy"] != "propose_execution":
+                raise ValueError("execution direction is not available")
+            duplicate = connection.execute(
+                "SELECT id FROM turns WHERE direction_idempotency_key = ? AND id != ?",
+                (idempotency_key, turn_id),
+            ).fetchone()
+            if duplicate is not None:
+                raise ValueError("direction idempotency key already used")
+            user = connection.execute(
+                "SELECT content FROM thread_messages WHERE turn_id = ? AND role = 'user' "
+                "ORDER BY created_at, id LIMIT 1",
+                (turn_id,),
+            ).fetchone()
+            if user is None:
+                raise ValueError("turn user message is missing")
+            content = str(user["content"])
+            goal_id = f"goal_{uuid.uuid4().hex}"
+            session_id = f"session_{uuid.uuid4().hex}"
+            run_id = f"run_{uuid.uuid4().hex}"
+            title = content.splitlines()[0].strip()[:80] or "已确认的执行任务"
+            budget = self.agent_runtime.initial_budget() if self.agent_runtime else {
+                "react_iterations_remaining": 5,
+                "react_iteration": 0,
+                "consecutive_tool_errors": 0,
+                "identical_actions": {},
+                "applied_memory_versions": [],
+            }
+            connection.execute(
+                "INSERT INTO goals(id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                (goal_id, title, content, now, now),
+            )
+            connection.execute(
+                "INSERT INTO sessions(id, goal_id, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                (session_id, goal_id, now, now),
+            )
+            connection.execute(
+                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, source_turn_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?)",
+                (run_id, goal_id, session_id, json.dumps(budget, ensure_ascii=False), turn_id, now, now),
+            )
+            connection.execute(
+                "UPDATE turns SET status = 'COMPLETED', direction_action = ?, "
+                "direction_idempotency_key = ?, materialized_goal_id = ?, materialized_run_id = ?, "
+                "version = version + 1, updated_at = ? WHERE id = ?",
+                (action, idempotency_key, goal_id, run_id, now, turn_id),
+            )
+            self.thread_events.append(
+                row["thread_id"], turn_id, "turn.direction_selected", "user",
+                {"action": action, "idempotency_key": idempotency_key},
+                connection=connection, occurred_at=now,
+            )
+            self.thread_events.append(
+                row["thread_id"], turn_id, "execution.materialized", "runtime",
+                {"goal_id": goal_id, "run_id": run_id, "source_turn_id": turn_id},
+                connection=connection, occurred_at=now,
+            )
+            self.thread_events.append(
+                row["thread_id"], turn_id, "turn.completed", "runtime", {},
+                connection=connection, occurred_at=now,
+            )
+            if self.agent_runtime is not None:
+                self.agent_runtime.events.append(
+                    run_id,
+                    goal_id,
+                    "run.created",
+                    "runtime",
+                    {"source_turn_id": turn_id},
+                    connection=connection,
+                    occurred_at=now,
+                )
+        return MaterializationResult(goal_id, session_id, run_id, True)
+
+    @staticmethod
+    def _session_for_run(connection: Any, run_id: str) -> str:
+        row = connection.execute("SELECT session_id FROM runs WHERE id = ?", (run_id,)).fetchone()
+        if row is None:
+            raise KeyError(run_id)
+        return str(row["session_id"])
+
+
+def _validate_direction(row: Any, expected_version: int) -> None:
+    if row["status"] != "AWAITING_DIRECTION":
+        raise ValueError("execution direction is not available")
+    if int(row["version"]) != int(expected_version):
+        raise ValueError("turn version conflict")
 
 
 SAFE_FAILURE_MESSAGE = "当前暂时无法生成可用回答，请重试。"
