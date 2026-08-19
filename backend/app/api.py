@@ -49,6 +49,13 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=503, detail="runtime is not configured")
         return value
 
+    def conversation(request: Request):
+        service = runtime(request)
+        value = getattr(service, "conversation", None)
+        if value is None:
+            raise HTTPException(status_code=503, detail="conversation runtime is not configured")
+        return value
+
     @app.get("/api/bootstrap")
     async def bootstrap(request: Request) -> dict[str, Any]:
         config = request.app.state.config
@@ -57,6 +64,49 @@ def register_routes(app) -> None:
             "version": config.version,
             "api_key_env": getattr(config, "api_key_env", "AGENT_MODEL_API_KEY"),
             "api_key_configured": getattr(config, "api_key_configured", False),
+        }
+
+    @app.post("/api/threads", status_code=201, dependencies=[Depends(mutate)])
+    async def create_thread(payload: dict[str, Any], service=Depends(conversation)) -> dict[str, Any]:
+        title = payload.get("title", "新的对话")
+        if title is not None and not isinstance(title, str):
+            raise HTTPException(status_code=422, detail="title must be a string")
+        return _thread_json(service.create_thread(title or "新的对话"))
+
+    @app.get("/api/threads/{thread_id}")
+    async def get_thread(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            return _thread_json(service.thread(thread_id))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.post("/api/threads/{thread_id}/turns", status_code=202, dependencies=[Depends(mutate)])
+    async def post_turn(
+        thread_id: str,
+        payload: dict[str, Any],
+        service=Depends(conversation),
+    ) -> dict[str, Any]:
+        content = payload.get("content")
+        client_turn_id = payload.get("client_turn_id")
+        skill_names = payload.get("skill_names", [])
+        if not isinstance(content, str) or not content.strip():
+            raise HTTPException(status_code=422, detail="content is required")
+        if not isinstance(client_turn_id, str) or not client_turn_id.strip():
+            raise HTTPException(status_code=422, detail="client_turn_id is required")
+        if not isinstance(skill_names, list) or not all(isinstance(name, str) for name in skill_names):
+            raise HTTPException(status_code=422, detail="skill_names must be an array of strings")
+        try:
+            accepted = service.accept_turn(thread_id, client_turn_id, content, skill_names)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "thread_id": accepted.thread_id,
+            "turn_id": accepted.turn_id,
+            "status": accepted.status,
+            "version": accepted.version,
+            "event_cursor": accepted.event_cursor,
         }
 
     @app.get("/api/skills")
@@ -294,6 +344,18 @@ def _run_json(run, service) -> dict[str, Any]:
         "budget": _public_budget(run.budget),
         "pending_approvals": [approval.id for approval in service.pending_approvals(run.id)],
         "skill_names": list(run.skill_names),
+    }
+
+
+def _thread_json(thread) -> dict[str, Any]:
+    return {
+        "id": thread.id,
+        "title": thread.title,
+        "version": thread.version,
+        "active_turn_id": thread.active_turn_id,
+        "next_event_seq": thread.next_event_seq,
+        "created_at": thread.created_at,
+        "updated_at": thread.updated_at,
     }
 
 

@@ -135,6 +135,7 @@ class AgentRuntime:
         memory: MemoryService,
         tools: ToolRegistry,
         model: RuntimeModel,
+        conversation_model: Any | None = None,
         config: RuntimeConfig | None = None,
         skill_catalog: SkillCatalog | None = None,
     ) -> None:
@@ -148,6 +149,13 @@ class AgentRuntime:
         self.model = model
         self.config = config or RuntimeConfig()
         self.skills = skill_catalog or SkillCatalog()
+        from .conversation import ConversationService
+
+        self.conversation = ConversationService(
+            db,
+            agent_runtime=self,
+            route_model=conversation_model or model,
+        )
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
         self.context_assembler = ContextAssembler()
