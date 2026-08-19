@@ -8,6 +8,8 @@
 
 **Tech Stack:** FastAPI, SQLite WAL, Python asyncio with a persisted job ledger, existing ModelGateway, React + TypeScript, Vitest, pytest, native SSE.
 
+**Execution status:** Implemented through Task 8 on `codex/personal-agent-v1`; final verification passed with 132 backend tests, 57 frontend tests, and a successful frontend production build.
+
 ---
 
 ## Scope guard and invariants
@@ -476,4 +478,3 @@ git commit -m "test: verify fast first interaction v2"
 - Frontend source-of-truth and decision UI section 16 are covered by Task 7.
 - Acceptance, metrics, examples, and explicit non-goals in sections 17–24 are covered by Task 8 and the scope guard.
 - No TBD/TODO placeholder or unowned architecture gap is left in this plan.
-
