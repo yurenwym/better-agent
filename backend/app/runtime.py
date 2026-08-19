@@ -149,13 +149,14 @@ class AgentRuntime:
         self.model = model
         self.config = config or RuntimeConfig()
         self.skills = skill_catalog or SkillCatalog()
-        from .conversation import ConversationService
+        from .conversation import ConversationService, ManagedTurnWorker
 
         self.conversation = ConversationService(
             db,
             agent_runtime=self,
             route_model=conversation_model or model,
         )
+        self.turn_worker = ManagedTurnWorker(self.conversation)
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
         self.context_assembler = ContextAssembler()

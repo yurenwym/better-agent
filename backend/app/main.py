@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Request
@@ -13,7 +14,19 @@ from .config import AppConfig
 
 def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | Path | None = None) -> FastAPI:
     settings = config or AppConfig()
-    app = FastAPI(title="better-agent", version=settings.version)
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        worker = getattr(getattr(app.state, "runtime", None), "turn_worker", None)
+        if worker is not None:
+            await worker.start()
+        try:
+            yield
+        finally:
+            if worker is not None:
+                await worker.stop()
+
+    app = FastAPI(title="better-agent", version=settings.version, lifespan=lifespan)
     app.state.config = settings
     app.state.csrf_token = secrets.token_urlsafe(32)
     app.state.runtime = runtime
