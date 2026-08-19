@@ -295,3 +295,52 @@ async def test_live_runtime_model_resets_partial_output_before_json_repair() -> 
     assert payload == {"summary": "new"}
     assert deltas == ['{"summary":"old', '{"summary":"new"}']
     assert resets == ["reset"]
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_model_returns_valid_ask_request_from_tool_call() -> None:
+    from app.ask import ASK_TOOL_SCHEMA
+    from app.live_model import LiveConversationModel
+
+    class AskGateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            return SimpleNamespace(
+                message="",
+                tool_calls=[{
+                    "id": "call-ask-1",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({
+                            "questions": [{
+                                "id": "training_level",
+                                "header": "训练水平",
+                                "question": "你目前的训练水平是什么？",
+                                "options": [
+                                    {"label": "新手", "description": "刚开始训练"},
+                                    {"label": "有基础", "description": "已有训练习惯"},
+                                ],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]
+                        }, ensure_ascii=False),
+                    },
+                }],
+            )
+
+    gateway = AskGateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="制定训练计划",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert result.call_id == "call-ask-1"
+    assert result.questions[0].id == "training_level"
+    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]

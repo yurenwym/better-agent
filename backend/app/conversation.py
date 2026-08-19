@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Protocol
 
+from .ask import AskRequest
 from .db import Database
 from .events import ThreadEvent, ThreadEventStore
 
@@ -529,6 +530,7 @@ def _validate_direction(row: Any, expected_version: int) -> None:
 
 SAFE_FAILURE_MESSAGE = "当前暂时无法生成可用回答，请重试。"
 SAFE_CANCEL_MESSAGE = "已停止生成。"
+ASK_PROMPT_MESSAGE = "为了更准确地完成这个目标，请先补充以下信息。"
 
 
 class ManagedTurnWorker:
@@ -687,7 +689,10 @@ class ManagedTurnWorker:
                     await model_task
                 self._finish_cancelled(turn, message_id, generation, pending)
                 return
-            await model_task
+            result = await model_task
+            if isinstance(result, AskRequest):
+                self._finish_ask(turn, result, generation)
+                return
             decoder.finish()
             if message_id is None:
                 message_id = self._start_message(turn, decoder.header, generation)
@@ -776,6 +781,71 @@ class ManagedTurnWorker:
                 turn.thread_id, turn.id, "message.delta", "model",
                 {"message_id": message_id, "generation": generation, "offset": offset, "delta": delta},
                 connection=connection, occurred_at=now,
+            )
+
+    def _finish_ask(self, turn: TurnSnapshot, request: AskRequest, generation: int) -> None:
+        now = _now()
+        ask_id = f"ask_{uuid.uuid4().hex}"
+        message_id = f"message_{uuid.uuid4().hex}"
+        questions = [question.as_dict() for question in request.questions]
+        with self.db.transaction() as connection:
+            existing = connection.execute(
+                "SELECT id FROM turn_asks WHERE call_id = ?", (request.call_id,)
+            ).fetchone()
+            if existing is not None:
+                connection.execute(
+                    "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? "
+                    "WHERE turn_id = ?",
+                    (now, turn.id),
+                )
+                return
+            connection.execute(
+                "INSERT INTO turn_asks(id, turn_id, call_id, questions_json, status, created_at) "
+                "VALUES (?, ?, ?, ?, 'PENDING', ?)",
+                (ask_id, turn.id, request.call_id, json.dumps(questions, ensure_ascii=False), now),
+            )
+            connection.execute(
+                "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at, completed_at) "
+                "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, ?, ?)",
+                (message_id, turn.thread_id, turn.id, ASK_PROMPT_MESSAGE, generation, len(ASK_PROMPT_MESSAGE), now, now),
+            )
+            connection.execute(
+                "UPDATE turns SET status = 'AWAITING_INPUT', policy = 'ask', content_shape = 'ask', "
+                "reason_code = 'model_requested_input', version = version + 1, updated_at = ? WHERE id = ?",
+                (now, turn.id),
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "turn.policy_decided", "model",
+                {"policy": "ask", "content_shape": "ask", "reason_code": "model_requested_input"},
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "message.started", "model",
+                {"message_id": message_id, "generation": generation},
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "message.completed", "model",
+                {
+                    "message_id": message_id,
+                    "generation": generation,
+                    "finish_reason": "ask",
+                    "content_length": len(ASK_PROMPT_MESSAGE),
+                },
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "ask.requested", "model",
+                {"ask_id": ask_id, "questions": questions},
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "turn.awaiting_input", "worker",
+                {"ask_id": ask_id}, connection=connection, occurred_at=now,
+            )
+            connection.execute(
+                "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
+                (now, turn.id),
             )
 
     def _finish_success(self, turn: TurnSnapshot, message_id: str, generation: int, policy: str) -> None:

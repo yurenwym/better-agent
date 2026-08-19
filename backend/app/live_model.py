@@ -5,6 +5,7 @@ import json
 from contextvars import ContextVar
 from typing import Any, Callable
 
+from .ask import ASK_TOOL_SCHEMA, AskRequest, AskValidationError, parse_ask_tool_call
 from .conversation import ControlHeadDecoder, RouteProtocolError
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
@@ -204,7 +205,7 @@ class LiveRuntimeModel:
 
 
 class LiveConversationModel:
-    """Single-call conversation adapter with no tool schema or JSON repair."""
+    """Conversation adapter with a bounded ask tool and control-header repair."""
 
     def __init__(self, gateway: ModelGateway) -> None:
         self.gateway = gateway
@@ -226,7 +227,9 @@ class LiveConversationModel:
                 "The header must have v=1, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
-                "Use clarify only when one missing fact prevents a useful answer; make a reasonable assumption and ask one question. "
+                "When one or more missing facts genuinely block a useful answer, call the ask_user tool instead of returning a control header. "
+                "The ask_user call must contain one to four concrete questions; do not emit prose or a control header in the same response. "
+                "Use clarify only for legacy one-question text responses when a structured ask is not appropriate. "
                 "Never expose the header, hidden reasoning, tool schema, or raw JSON in the Markdown body. "
                 "Use the user's language and start the useful answer immediately after the header."
             ),
@@ -264,11 +267,19 @@ class LiveConversationModel:
                     on_text_reset()
 
             response = await self.gateway.complete(
-                ModelRequest(messages=request_messages, tools=[]),
+                ModelRequest(messages=request_messages, tools=[ASK_TOOL_SCHEMA]),
                 cancel_event=cancel_event,
                 on_text_delta=emit,
                 on_text_reset=reset,
             )
+            tool_calls = getattr(response, "tool_calls", []) or []
+            if tool_calls:
+                if len(tool_calls) != 1:
+                    raise GatewayError("conversation supports one ask tool call at a time", "structure")
+                try:
+                    return parse_ask_tool_call(tool_calls[0]), True
+                except AskValidationError as exc:
+                    raise GatewayError(str(exc), "structure") from exc
             message = getattr(response, "message", None)
             if not isinstance(message, str):
                 return response, True
@@ -281,6 +292,8 @@ class LiveConversationModel:
                 return response, False
 
         response, valid = await complete_once(messages)
+        if isinstance(response, AskRequest):
+            return response
         if valid:
             return response
 

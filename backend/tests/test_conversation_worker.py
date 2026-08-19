@@ -42,6 +42,28 @@ class FailingAfterReadableGenerationModel:
         raise RuntimeError("retry failed after readable output")
 
 
+class AskConversationModel:
+    async def route_and_respond(self, **kwargs):
+        from app.ask import AskQuestion, AskRequest
+
+        return AskRequest(
+            "call-ask-1",
+            (
+                AskQuestion(
+                    "training_level",
+                    "训练水平",
+                    "你目前的训练水平是什么？",
+                    (
+                        {"label": "新手", "description": "刚开始训练"},
+                        {"label": "有基础", "description": "已有训练习惯"},
+                    ),
+                    False,
+                    True,
+                ),
+            ),
+        )
+
+
 def _count(runtime, table: str) -> int:
     with runtime.db.connection() as connection:
         return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -230,6 +252,28 @@ async def test_clarify_completes_turn_without_agent_rows(tmp_path) -> None:
     assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
     assert _count(runtime, "goals") == 0
     assert _count(runtime, "runs") == 0
+
+
+@pytest.mark.asyncio
+async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, AskConversationModel())
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-ask", "制定训练计划", [])
+
+    await runtime.turn_worker.run_once()
+
+    turn = runtime.conversation.turn(accepted.turn_id)
+    assert turn.status == "AWAITING_INPUT"
+    assert _count(runtime, "goals") == 0
+    assert _count(runtime, "runs") == 0
+    with runtime.db.connection() as connection:
+        ask = connection.execute("SELECT * FROM turn_asks WHERE turn_id = ?", (accepted.turn_id,)).fetchone()
+    assert ask is not None
+    assert ask["status"] == "PENDING"
+    assert runtime.conversation.messages(thread.id)[1].content == "为了更准确地完成这个目标，请先补充以下信息。"
+    assert [event.type for event in runtime.conversation.events.list(thread.id)][-3:] == [
+        "message.completed", "ask.requested", "turn.awaiting_input"
+    ]
 
 
 @pytest.mark.asyncio

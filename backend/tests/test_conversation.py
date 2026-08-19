@@ -98,7 +98,8 @@ def test_control_head_rejects_unknown_fields_and_missing_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_conversation_model_uses_one_tool_free_request() -> None:
+async def test_live_conversation_model_exposes_only_the_ask_tool() -> None:
+    from app.ask import ASK_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
     class Gateway:
@@ -124,7 +125,7 @@ async def test_live_conversation_model_uses_one_tool_free_request() -> None:
 
     assert result == "response"
     assert gateway.calls == 1
-    assert gateway.request.tools == []
+    assert gateway.request.tools == [ASK_TOOL_SCHEMA]
 
 
 @pytest.mark.asyncio
@@ -143,7 +144,7 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
             self.requests.append(request)
             response = "provider prose\nnot a control head" if self.calls == 1 else valid
             kwargs["on_text_delta"](response)
-            return SimpleNamespace(message=response)
+            return SimpleNamespace(message=response, tool_calls=[])
 
     gateway = Gateway()
     deltas: list[str] = []
