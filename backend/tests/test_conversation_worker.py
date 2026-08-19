@@ -164,6 +164,8 @@ async def test_expired_running_job_recovers_partial_generation(tmp_path) -> None
 
 @pytest.mark.asyncio
 async def test_invalid_control_head_fails_safely_without_persisting_raw_model_output(tmp_path) -> None:
+    from app.conversation import SAFE_FAILURE_MESSAGE
+
     secret = '{"policy":"goal","token":"secret"}\nraw provider output'
     runtime = make_runtime(tmp_path, ScriptedConversationModel(secret))
     thread = runtime.conversation.create_thread("Chat")
@@ -176,6 +178,12 @@ async def test_invalid_control_head_fails_safely_without_persisting_raw_model_ou
     assert assistant.content == "当前暂时无法生成可用回答，请重试。"
     assert "secret" not in assistant.content
     assert any(event.type == "turn.failed" for event in runtime.conversation.events.list(thread.id))
+    snapshot = [
+        event for event in runtime.conversation.events.list(thread.id)
+        if event.type == "message.snapshot"
+    ]
+    assert len(snapshot) == 1
+    assert snapshot[0].data["content"] == SAFE_FAILURE_MESSAGE
 
 
 @pytest.mark.asyncio

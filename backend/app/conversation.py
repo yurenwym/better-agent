@@ -866,6 +866,16 @@ class ManagedTurnWorker:
                 (SAFE_FAILURE_MESSAGE, len(SAFE_FAILURE_MESSAGE), now, message_id),
             )
             self.conversation.events.append(
+                turn.thread_id, turn.id, "message.snapshot", "worker",
+                {
+                    "message_id": message_id,
+                    "generation": generation,
+                    "content": SAFE_FAILURE_MESSAGE,
+                    "status": "ready",
+                },
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
                 turn.thread_id, turn.id, "message.completed", "worker",
                 {"message_id": message_id, "generation": generation, "finish_reason": "error"},
                 connection=connection, occurred_at=now,

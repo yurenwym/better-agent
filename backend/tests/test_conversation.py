@@ -1,4 +1,5 @@
 from app.db import Database
+from types import SimpleNamespace
 import pytest
 
 
@@ -124,3 +125,42 @@ async def test_live_conversation_model_uses_one_tool_free_request() -> None:
     assert result == "response"
     assert gateway.calls == 1
     assert gateway.request.tools == []
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_model_repairs_an_invalid_control_head_once() -> None:
+    from app.live_model import LiveConversationModel
+
+    valid = '{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\n# Answer'
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            self.requests.append(request)
+            response = "provider prose\nnot a control head" if self.calls == 1 else valid
+            kwargs["on_text_delta"](response)
+            return SimpleNamespace(message=response)
+
+    gateway = Gateway()
+    deltas: list[str] = []
+    resets: list[bool] = []
+    model = LiveConversationModel(gateway)
+
+    response = await model.route_and_respond(
+        content="make a two-day training plan",
+        history=[],
+        skill_names=[],
+        on_text_delta=deltas.append,
+        on_text_reset=lambda: resets.append(True),
+        cancel_event=None,
+    )
+
+    assert response.message == valid
+    assert gateway.calls == 2
+    assert "control-header" in gateway.requests[1].messages[-1]["content"]
+    assert deltas == [valid]
+    assert resets == [True]

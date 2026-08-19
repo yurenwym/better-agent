@@ -5,6 +5,7 @@ import json
 from contextvars import ContextVar
 from typing import Any, Callable
 
+from .conversation import ControlHeadDecoder, RouteProtocolError
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
 
@@ -232,12 +233,69 @@ class LiveConversationModel:
         }]
         messages.extend(history)
         messages.append({"role": "user", "content": content})
-        return await self.gateway.complete(
-            ModelRequest(messages=messages, tools=[]),
-            cancel_event=cancel_event,
-            on_text_delta=on_text_delta,
-            on_text_reset=on_text_reset,
-        )
+        async def complete_once(request_messages: list[dict[str, str]]):
+            decoder = ControlHeadDecoder()
+            buffered: list[str] = []
+            forwarded = False
+
+            def emit(chunk: str) -> None:
+                nonlocal forwarded
+                if forwarded:
+                    if on_text_delta is not None:
+                        on_text_delta(chunk)
+                    return
+                buffered.append(chunk)
+                try:
+                    decoder.feed(chunk)
+                except RouteProtocolError:
+                    return
+                if decoder.header is not None:
+                    forwarded = True
+                    if on_text_delta is not None:
+                        on_text_delta("".join(buffered))
+                    buffered.clear()
+
+            def reset() -> None:
+                nonlocal decoder, buffered, forwarded
+                decoder = ControlHeadDecoder()
+                buffered = []
+                forwarded = False
+                if on_text_reset is not None:
+                    on_text_reset()
+
+            response = await self.gateway.complete(
+                ModelRequest(messages=request_messages, tools=[]),
+                cancel_event=cancel_event,
+                on_text_delta=emit,
+                on_text_reset=reset,
+            )
+            message = getattr(response, "message", None)
+            if not isinstance(message, str):
+                return response, True
+            try:
+                final_decoder = ControlHeadDecoder()
+                final_decoder.feed(message)
+                final_decoder.finish()
+                return response, True
+            except RouteProtocolError:
+                return response, False
+
+        response, valid = await complete_once(messages)
+        if valid:
+            return response
+
+        if on_text_reset is not None:
+            on_text_reset()
+        repair_messages = messages + [{
+            "role": "user",
+            "content": (
+                "The previous response violated the conversation control-header protocol. "
+                "Retry the original user request now. The first line must be exactly one JSON object "
+                "with v=1, policy, content_shape, and reason_code; do not put prose, Markdown, or a code fence before it."
+            ),
+        }]
+        response, _ = await complete_once(repair_messages)
+        return response
 
 
 def _parse_json(content: str) -> dict[str, Any]:
