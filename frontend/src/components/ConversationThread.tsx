@@ -1,7 +1,8 @@
 import { FormEvent, KeyboardEvent, useState } from "react";
 import { presentMessage } from "../conversation";
 import MarkdownMessage from "./MarkdownMessage";
-import type { MessageRecord, SkillDefinition } from "../types";
+import AskCard from "./AskCard";
+import type { AskAnswer, MessageRecord, PendingAsk, SkillDefinition } from "../types";
 
 interface ConversationThreadProps {
   messages: MessageRecord[];
@@ -12,6 +13,10 @@ interface ConversationThreadProps {
   cancelBusy?: boolean;
   cancelLabel?: string;
   onCancel?: () => void;
+  pendingAsk?: PendingAsk | null;
+  askBusy?: boolean;
+  onAskAnswer?: (answers: AskAnswer[]) => void | Promise<void>;
+  onAskCancel?: () => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
@@ -31,14 +36,15 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
+  const composerLocked = composerDisabled || Boolean(pendingAsk);
 
   async function submit() {
     const content = draft.trim();
-    if (!content || busy || composerDisabled) return;
+    if (!content || busy || composerLocked) return;
     setPendingUser(content);
     const accepted = await onSubmit(content);
     if (accepted !== false) setDraft("");
@@ -113,6 +119,10 @@ export default function ConversationThread({ messages, busy = false, title = "�
         )}
       </div>
 
+      {pendingAsk && onAskAnswer && onAskCancel && (
+        <AskCard ask={pendingAsk} busy={askBusy} onSubmit={onAskAnswer} onCancel={onAskCancel} />
+      )}
+
       {decision && (
         <div className="conversation-decision" role="region" aria-label={decision.title}>
           <div>
@@ -131,7 +141,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
         <label className="sr-only" htmlFor="conversation-input">输入消息</label>
         <textarea
           id="conversation-input"
-          disabled={composerDisabled}
+          disabled={composerLocked}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
@@ -145,7 +155,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 aria-controls="conversation-skills"
                 aria-expanded={skillsOpen}
                 className="button button-secondary composer-skill-trigger"
-                disabled={composerDisabled}
+                disabled={composerLocked}
                 type="button"
                 onClick={() => setSkillsOpen((open) => !open)}
               >
@@ -170,7 +180,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
                             aria-label={skill.title}
                             type="checkbox"
                             checked={selectedSkills.includes(skill.name)}
-                            disabled={!skill.enabled || composerDisabled}
+                            disabled={!skill.enabled || composerLocked}
                             onChange={() => onToggleSkill(skill.name)}
                           />
                           <span><strong>{skill.title}</strong><small id={`skill-description-${skill.name}`}>{skill.description}</small></span>
@@ -182,7 +192,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
               )}
             </div>
           </div>
-          <button className="button button-primary" disabled={busy || composerDisabled || !draft.trim()} type="submit">发送</button>
+          <button className="button button-primary" disabled={busy || composerLocked || !draft.trim()} type="submit">发送</button>
         </div>
       </form>
     </section>

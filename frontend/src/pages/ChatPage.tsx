@@ -5,6 +5,7 @@ import ConversationThread from "../components/ConversationThread";
 import {
   addBudget,
   approvePlan,
+  answerAsk,
   cancelRun,
   cancelTurn as cancelConversationTurn,
   continueOutcome,
@@ -22,7 +23,7 @@ import {
 } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { Run, SkillDefinition } from "../types";
+import type { AskAnswer, Run, SkillDefinition } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -51,6 +52,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
+  const [askBusy, setAskBusy] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -165,6 +167,24 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     }
   }
 
+  async function submitAskAnswers(answers: AskAnswer[]) {
+    const turn = threadTelemetry.activeTurn;
+    if (!turn || !threadTelemetry.pendingAsk) return;
+    setError("");
+    setAskBusy(true);
+    try {
+      await answerAsk(turn.id, {
+        expected_version: turn.version,
+        idempotency_key: clientTurnId(),
+        answers,
+      }, csrfToken);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "回答提交失败，请稍后重试");
+    } finally {
+      setAskBusy(false);
+    }
+  }
+
   async function cancelCurrentRun(runId: string): Promise<Run> {
     setCancelBusy(true);
     try {
@@ -209,7 +229,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   } : undefined;
   const activeTurn = threadTelemetry.activeTurn;
   const threadBusy = Boolean(activeTurn && turnBusyStates.has(activeTurn.status));
-  const threadCanCancel = Boolean(conversationId && activeTurn && threadBusy);
+  const threadCanCancel = Boolean(conversationId && activeTurn && (threadBusy || threadTelemetry.pendingAsk));
   const runCanCancel = Boolean(run && !["COMPLETED", "CANCELLED", "FAILED"].includes(run.state) && !threadCanCancel);
   const messages = conversationId
     ? [
@@ -228,8 +248,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           description={run || conversationId ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "描述你想达成的结果，先从一段可用回答开始。"}
           composerDisabled={Boolean(approvalRun) || Boolean(directionTurn && !composerOpen)}
           cancelBusy={cancelBusy}
-          cancelLabel={threadCanCancel ? "停止生成" : "取消任务"}
+          cancelLabel={threadTelemetry.pendingAsk ? "停止询问" : threadCanCancel ? "停止生成" : "取消任务"}
           onCancel={threadCanCancel ? () => void cancelCurrentTurn(activeTurn!.id) : runCanCancel && run ? () => void runAction(() => cancelCurrentRun(run.id)) : undefined}
+          pendingAsk={threadTelemetry.pendingAsk}
+          askBusy={askBusy}
+          onAskAnswer={submitAskAnswers}
+          onAskCancel={() => { if (activeTurn) void cancelCurrentTurn(activeTurn.id); }}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
