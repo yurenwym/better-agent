@@ -333,7 +333,7 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
 
     gateway = AskGateway()
     result = await LiveConversationModel(gateway).route_and_respond(
-        content="制定训练计划",
+        content="travel plan",
         history=[],
         skill_names=[],
         on_text_delta=lambda _: None,
@@ -344,3 +344,29 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
     assert result.call_id == "call-ask-1"
     assert result.questions[0].id == "training_level"
     assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_model_auto_asks_for_personalized_training_plan() -> None:
+    from app.live_model import LiveConversationModel
+
+    class NeverGateway:
+        async def complete(self, request, **kwargs):
+            raise AssertionError("the automatic context policy should run before the gateway")
+
+    result = await LiveConversationModel(NeverGateway()).route_and_respond(
+        content="\u6211\u60f3\u5236\u4f5c\u4e00\u4e2a\u957f\u671f\u7684\u8bad\u7ec3\u8ba1\u5212\uff0c\u5b66\u4e60\u9a91\u884c",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert result.call_id.startswith("auto-context-")
+    assert [question.id for question in result.questions] == [
+        "current_level",
+        "goal",
+        "schedule",
+        "constraints",
+    ]

@@ -4,10 +4,13 @@ from app.context_policy import requires_context_collection
 def test_personalized_training_plan_requires_context_collection() -> None:
     assert requires_context_collection("\u6211\u60f3\u5236\u4f5c\u4e00\u4e2a\u957f\u671f\u7684\u8bad\u7ec3\u8ba1\u5212\uff0c\u5b66\u4e60\u9a91\u884c", []) is True
     assert requires_context_collection("help me create a six-week English learning plan", []) is True
+    assert requires_context_collection("I want a long-term cycling training plan", []) is True
 
 
 def test_ordinary_content_requests_do_not_require_context_collection() -> None:
     assert requires_context_collection("what is bicycle FTP?", []) is False
+    assert requires_context_collection("what is a training program?", []) is False
+    assert requires_context_collection("\u6211\u60f3\u4e86\u89e3\u9a91\u884c\u8bad\u7ec3\u65b9\u6cd5", []) is False
     assert requires_context_collection("give me a seven-day Guilin travel guide", []) is False
     assert requires_context_collection("write a training plan template", []) is False
 

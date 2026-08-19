@@ -277,6 +277,38 @@ async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_pat
 
 
 @pytest.mark.asyncio
+async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None:
+    from app.live_model import LiveConversationModel
+
+    class NeverGateway:
+        async def complete(self, request, **kwargs):
+            raise AssertionError("the automatic context policy should run before the gateway")
+
+    runtime = make_runtime(tmp_path, LiveConversationModel(NeverGateway()))
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(
+        thread.id,
+        "client-auto-context",
+        "\u6211\u60f3\u5236\u4f5c\u4e00\u4e2a\u957f\u671f\u7684\u8bad\u7ec3\u8ba1\u5212\uff0c\u5b66\u4e60\u9a91\u884c",
+        [],
+    )
+
+    await runtime.turn_worker.run_once()
+
+    assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
+    assert _count(runtime, "goals") == 0
+    assert _count(runtime, "runs") == 0
+    ask = runtime.conversation.pending_ask(accepted.turn_id)
+    assert ask is not None
+    assert [question.id for question in ask.questions] == [
+        "current_level",
+        "goal",
+        "schedule",
+        "constraints",
+    ]
+
+
+@pytest.mark.asyncio
 async def test_continuation_history_contains_ask_tool_result(tmp_path) -> None:
     runtime = make_runtime(tmp_path, AskConversationModel())
     thread = runtime.conversation.create_thread("Chat")
