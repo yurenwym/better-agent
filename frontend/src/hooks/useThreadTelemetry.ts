@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { getThread, getThreadEvents, getThreadMessages, subscribeToThreadEvents } from "../api";
-import type { MessageRecord, Thread, ThreadEvent, ThreadMessage, Turn } from "../types";
+import type { AskQuestion, MessageRecord, PendingAsk, Thread, ThreadEvent, ThreadMessage, Turn } from "../types";
 
 function codePointLength(value: string): number {
   return Array.from(value).length;
@@ -49,6 +49,65 @@ export function needsMessageSnapshot(messages: MessageRecord[], event: ThreadEve
   return generationOf(event, current.generation ?? 1) !== (current.generation ?? 1)
     || typeof offset !== "number"
     || offset !== codePointLength(current.content);
+}
+
+function pendingAskFromRequest(event: ThreadEvent): PendingAsk | null {
+  const askId = event.data.ask_id;
+  const rawQuestions = event.data.questions;
+  if (typeof askId !== "string" || !askId || !Array.isArray(rawQuestions)) return null;
+  const questions: AskQuestion[] = [];
+  for (const raw of rawQuestions) {
+    if (!raw || typeof raw !== "object") return null;
+    const candidate = raw as Record<string, unknown>;
+    if (
+      typeof candidate.id !== "string"
+      || typeof candidate.header !== "string"
+      || typeof candidate.question !== "string"
+      || !Array.isArray(candidate.options)
+      || typeof candidate.multi_select !== "boolean"
+      || typeof candidate.allow_free_text !== "boolean"
+    ) return null;
+    const options = candidate.options.filter((option): option is Record<string, unknown> => Boolean(option) && typeof option === "object")
+      .filter((option) => typeof option.label === "string" && typeof option.description === "string")
+      .map((option) => ({ label: option.label as string, description: option.description as string }));
+    if (options.length !== candidate.options.length) return null;
+    questions.push({
+      id: candidate.id,
+      header: candidate.header,
+      question: candidate.question,
+      options,
+      multi_select: candidate.multi_select,
+      allow_free_text: candidate.allow_free_text,
+    });
+  }
+  if (questions.length === 0) return null;
+  return {
+    id: askId,
+    turn_id: event.turn_id,
+    questions,
+    status: "PENDING",
+    continuation_turn_id: null,
+    created_at: event.occurred_at,
+    answered_at: null,
+  };
+}
+
+export function applyAskEvent(current: PendingAsk | null, event: ThreadEvent): PendingAsk | null {
+  if (event.type === "ask.requested") {
+    const next = pendingAskFromRequest(event);
+    if (!next) return current;
+    return current?.id === next.id ? current : next;
+  }
+  if (event.type === "ask.answered" || event.type === "ask.cancelled") {
+    return current && event.data.ask_id === current.id ? null : current;
+  }
+  return current;
+}
+
+export function pendingAskFromEvents(events: ThreadEvent[]): PendingAsk | null {
+  return [...events]
+    .sort((left, right) => left.seq - right.seq)
+    .reduce<PendingAsk | null>(applyAskEvent, null);
 }
 
 export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent): MessageRecord[] {
@@ -118,6 +177,7 @@ export interface ThreadTelemetry {
   activeTurn: Turn | null;
   events: ThreadEvent[];
   messages: MessageRecord[];
+  pendingAsk: PendingAsk | null;
   loading: boolean;
   error: string;
 }
@@ -129,6 +189,7 @@ export function useThreadTelemetry(
   const [thread, setThread] = useState<Thread | null>(null);
   const [events, setEvents] = useState<ThreadEvent[]>([]);
   const [messages, setMessages] = useState<MessageRecord[]>([]);
+  const [pendingAsk, setPendingAsk] = useState<PendingAsk | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -139,6 +200,7 @@ export function useThreadTelemetry(
       setThread(null);
       setEvents([]);
       setMessages([]);
+      setPendingAsk(null);
       setLoading(false);
       setError("");
       return () => { active = false; };
@@ -163,6 +225,7 @@ export function useThreadTelemetry(
         setThread(threadResult);
         setEvents(eventResult.events);
         setMessages(hydrateThreadMessages(messageResult.messages));
+        setPendingAsk(pendingAskFromEvents(eventResult.events));
         const cursor = eventResult.events.at(-1)?.seq ?? 0;
         let eventCursor = cursor;
         close = subscribeToThreadEvents(id, cursor, (event) => {
@@ -171,10 +234,12 @@ export function useThreadTelemetry(
             void getThreadEvents(id, eventCursor).then((result) => {
               if (!active) return;
               setEvents((current) => result.events.reduce(appendThreadEvent, current));
+              setPendingAsk((current) => result.events.reduce(applyAskEvent, current));
               void refreshMessages().catch(() => undefined);
             }).catch(() => undefined);
           } else {
             setEvents((current) => appendThreadEvent(current, event));
+            setPendingAsk((current) => applyAskEvent(current, event));
           }
           eventCursor = Math.max(eventCursor, event.seq);
           setMessages((current) => {
@@ -187,7 +252,7 @@ export function useThreadTelemetry(
           if (event.type === "execution.materialized" && typeof event.data.run_id === "string") {
             onMaterialized?.(event.data.run_id);
           }
-          if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_direction", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "execution.materialized"].includes(event.type)) {
+          if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_input", "turn.awaiting_direction", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "ask.requested", "ask.answered", "ask.cancelled", "execution.materialized"].includes(event.type)) {
             void getThread(id).then((next) => { if (active) setThread(next); }).catch(() => undefined);
           }
         });
@@ -205,5 +270,5 @@ export function useThreadTelemetry(
   }, [threadId, onMaterialized]);
 
   const activeTurn = thread?.turns?.find((turn) => turn.id === thread.active_turn_id) ?? null;
-  return { thread, activeTurn, events, messages, loading, error };
+  return { thread, activeTurn, events, messages, pendingAsk, loading, error };
 }

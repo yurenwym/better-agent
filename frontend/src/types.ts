@@ -56,6 +56,7 @@ export type TurnStatus =
   | "ROUTING"
   | "STREAMING"
   | "COMPLETED"
+  | "AWAITING_INPUT"
   | "AWAITING_DIRECTION"
   | "MATERIALIZING"
   | "FAILED"
@@ -78,6 +79,36 @@ export interface Turn {
   direction_idempotency_key: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface AskOption {
+  label: string;
+  description: string;
+}
+
+export interface AskQuestion {
+  id: string;
+  header: string;
+  question: string;
+  options: AskOption[];
+  multi_select: boolean;
+  allow_free_text: boolean;
+}
+
+export interface PendingAsk {
+  id: string;
+  turn_id: string;
+  questions: AskQuestion[];
+  status: "PENDING";
+  continuation_turn_id: string | null;
+  created_at: string;
+  answered_at: string | null;
+}
+
+export interface AskAnswer {
+  question_id: string;
+  selected_options: string[];
+  free_text: string;
 }
 
 export interface Thread {

@@ -1,4 +1,6 @@
 import type {
+  AskAnswer,
+  PendingAsk,
   Bootstrap,
   EventRecord,
   GoalResponse,
@@ -87,6 +89,23 @@ export async function cancelTurn(turnId: string, csrfToken: string, fetcher: Fet
     method: "POST",
     headers: mutationHeaders(csrfToken),
     body: "{}",
+  }));
+}
+
+export async function getPendingAsk(turnId: string, fetcher: Fetcher = fetch): Promise<PendingAsk> {
+  return json<PendingAsk>(await fetcher(`/api/turns/${turnId}/ask`));
+}
+
+export async function answerAsk(
+  turnId: string,
+  payload: { expected_version: number; idempotency_key: string; answers: AskAnswer[] },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<{ ask_id: string; turn: Turn }> {
+  return json<{ ask_id: string; turn: Turn }>(await fetcher(`/api/turns/${turnId}/ask/answer`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
   }));
 }
 

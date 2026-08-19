@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createGoal, getBootstrap, getSkills, sendMessage, subscribeToEvents } from "../api";
+import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, subscribeToEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -43,6 +43,37 @@ describe("REST client", () => {
     await getSkills(fetcher);
 
     expect(fetcher).toHaveBeenCalledWith("/api/skills");
+  });
+
+  it("submits a structured ask answer with version and CSRF protection", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ask_id: "ask-1", turn: { id: "turn-2" } }) });
+
+    await answerAsk("turn-1", {
+      expected_version: 2,
+      idempotency_key: "answer-1",
+      answers: [{ question_id: "level", selected_options: ["新手"], free_text: "" }],
+    }, "csrf", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/turns/turn-1/ask/answer",
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+        body: JSON.stringify({
+          expected_version: 2,
+          idempotency_key: "answer-1",
+          answers: [{ question_id: "level", selected_options: ["新手"], free_text: "" }],
+        }),
+      }),
+    );
+  });
+
+  it("loads a pending ask without sending mutation headers", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "ask-1" }) });
+
+    await getPendingAsk("turn-1", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith("/api/turns/turn-1/ask");
   });
 
   it("keeps the event stream in follow mode and stops reconnecting after a terminal event", () => {

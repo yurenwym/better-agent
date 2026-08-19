@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyThreadEvent, hydrateThreadMessages, needsEventRecovery, needsMessageSnapshot } from "../hooks/useThreadTelemetry";
-import type { MessageRecord, ThreadEvent, ThreadMessage } from "../types";
+import { applyAskEvent, applyThreadEvent, hydrateThreadMessages, needsEventRecovery, needsMessageSnapshot, pendingAskFromEvents } from "../hooks/useThreadTelemetry";
+import type { MessageRecord, PendingAsk, ThreadEvent, ThreadMessage } from "../types";
 
 function message(content: string, generation = 1): MessageRecord {
   return {
@@ -28,6 +28,32 @@ function event(data: Record<string, unknown>): ThreadEvent {
     data,
   };
 }
+
+function askEvent(type: string, data: Record<string, unknown>, seq = 1): ThreadEvent {
+  return {
+    ...event(data),
+    event_id: `ask-${seq}`,
+    seq,
+    type,
+  };
+}
+
+const ask: PendingAsk = {
+  id: "ask-1",
+  turn_id: "turn-1",
+  questions: [{
+    id: "training_level",
+    header: "训练水平",
+    question: "你目前的训练水平是什么？",
+    options: [{ label: "新手", description: "刚开始训练" }],
+    multi_select: false,
+    allow_free_text: true,
+  }],
+  status: "PENDING",
+  continuation_turn_id: null,
+  created_at: "2026-08-19T00:00:01Z",
+  answered_at: null,
+};
 
 describe("thread telemetry reconciliation", () => {
   it("appends a delta only when generation and offset are exact", () => {
@@ -78,5 +104,26 @@ describe("thread telemetry reconciliation", () => {
   it("detects a missing event sequence for REST recovery", () => {
     const current = [event({ message_id: "m1", generation: 1, offset: 0, delta: "a" })];
     expect(needsEventRecovery(current, { ...event({}), seq: 3, event_id: "e3" })).toBe(true);
+  });
+
+  it("hydrates a pending ask from the event history and clears it after answering", () => {
+    const requested = askEvent("ask.requested", { ask_id: ask.id, questions: ask.questions }, 4);
+    const answered = askEvent("ask.answered", { ask_id: ask.id, continuation_turn_id: "turn-2" }, 5);
+
+    expect(pendingAskFromEvents([requested])).toEqual(ask);
+    expect(applyAskEvent(null, requested)).toEqual(ask);
+    expect(applyAskEvent(ask, answered)).toBeNull();
+  });
+
+  it("ignores duplicate ask events and does not expose unknown fields", () => {
+    const requested = askEvent("ask.requested", {
+      ask_id: ask.id,
+      questions: ask.questions,
+      raw_arguments: "{\"secret\":true}",
+    }, 4);
+
+    expect(applyAskEvent(ask, requested)).toEqual(ask);
+    expect(pendingAskFromEvents([requested, requested])).toEqual(ask);
+    expect(JSON.stringify(pendingAskFromEvents([requested]))).not.toContain("raw_arguments");
   });
 });

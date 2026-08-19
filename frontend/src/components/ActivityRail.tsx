@@ -29,6 +29,7 @@ const threadStateCopy: Record<string, string> = {
   ACCEPTED: "已收到消息",
   ROUTING: "正在判断下一步",
   STREAMING: "正在生成回答",
+  AWAITING_INPUT: "等待你的回答",
   COMPLETED: "本轮对话完成",
   AWAITING_DIRECTION: "等待你的选择",
   MATERIALIZING: "正在创建执行任务",

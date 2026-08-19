@@ -212,6 +212,14 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
         return make(event, "model", "回答生成遇到问题", "已保留当前可用内容，可以重新发送消息");
       }
       return make(event, "model", "回答生成完成", "回答已加入对话，可以继续输入下一步");
+    case "ask.requested":
+      return make(event, "interaction", "问题已准备好", "模型需要你补充少量信息后继续");
+    case "turn.awaiting_input":
+      return make(event, "interaction", "等待你的回答", "请在对话框中选择选项或补充信息，提交后会继续当前目标");
+    case "ask.answered":
+      return make(event, "interaction", "已收到你的回答", "正在用补充信息继续当前目标");
+    case "ask.cancelled":
+      return make(event, "interaction", "已停止询问", "当前对话没有继续执行新的步骤");
     case "turn.awaiting_direction":
       return make(event, "interaction", "等待你的选择", "你可以选择继续执行或修改方案");
     case "turn.direction_selected":
