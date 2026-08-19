@@ -850,36 +850,79 @@ class ManagedTurnWorker:
     def _finish_failure(self, turn: TurnSnapshot, message_id: str | None, generation: int, error: str) -> None:
         now = _now()
         with self.db.transaction() as connection:
-            if message_id is None:
-                message_id = f"message_{uuid.uuid4().hex}"
+            readable = None
+            if message_id is not None:
+                readable = connection.execute(
+                    "SELECT id, content, content_length, generation FROM thread_messages "
+                    "WHERE id = ? AND thread_id = ? AND role = 'assistant' AND content_length > 0",
+                    (message_id, turn.thread_id),
+                ).fetchone()
+            if readable is None:
+                readable = connection.execute(
+                    "SELECT id, content, content_length, generation FROM thread_messages "
+                    "WHERE turn_id = ? AND role = 'assistant' AND status = 'interrupted' AND content_length > 0 "
+                    "ORDER BY generation DESC, created_at DESC LIMIT 1",
+                    (turn.id,),
+                ).fetchone()
+
+            if readable is not None:
+                message_id = readable["id"]
+                readable_generation = int(readable["generation"])
                 connection.execute(
-                    "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
-                    "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, ?)",
-                    (message_id, turn.thread_id, turn.id, SAFE_FAILURE_MESSAGE, generation, len(SAFE_FAILURE_MESSAGE), now),
+                    "UPDATE thread_messages SET status = 'ready', completed_at = ? WHERE id = ?",
+                    (now, message_id),
                 )
                 self.conversation.events.append(
-                    turn.thread_id, turn.id, "message.started", "worker",
-                    {"message_id": message_id, "generation": generation}, connection=connection, occurred_at=now,
+                    turn.thread_id, turn.id, "message.snapshot", "worker",
+                    {
+                        "message_id": message_id,
+                        "generation": readable_generation,
+                        "content": readable["content"],
+                        "status": "ready",
+                    },
+                    connection=connection, occurred_at=now,
                 )
-            connection.execute(
-                "UPDATE thread_messages SET content = ?, content_length = ?, status = 'ready', completed_at = ? WHERE id = ?",
-                (SAFE_FAILURE_MESSAGE, len(SAFE_FAILURE_MESSAGE), now, message_id),
-            )
-            self.conversation.events.append(
-                turn.thread_id, turn.id, "message.snapshot", "worker",
-                {
-                    "message_id": message_id,
-                    "generation": generation,
-                    "content": SAFE_FAILURE_MESSAGE,
-                    "status": "ready",
-                },
-                connection=connection, occurred_at=now,
-            )
-            self.conversation.events.append(
-                turn.thread_id, turn.id, "message.completed", "worker",
-                {"message_id": message_id, "generation": generation, "finish_reason": "error"},
-                connection=connection, occurred_at=now,
-            )
+                self.conversation.events.append(
+                    turn.thread_id, turn.id, "message.completed", "worker",
+                    {
+                        "message_id": message_id,
+                        "generation": readable_generation,
+                        "finish_reason": "error",
+                        "content_length": readable["content_length"],
+                    },
+                    connection=connection, occurred_at=now,
+                )
+            else:
+                if message_id is None:
+                    message_id = f"message_{uuid.uuid4().hex}"
+                    connection.execute(
+                        "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
+                        "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, ?)",
+                        (message_id, turn.thread_id, turn.id, SAFE_FAILURE_MESSAGE, generation, len(SAFE_FAILURE_MESSAGE), now),
+                    )
+                    self.conversation.events.append(
+                        turn.thread_id, turn.id, "message.started", "worker",
+                        {"message_id": message_id, "generation": generation}, connection=connection, occurred_at=now,
+                    )
+                connection.execute(
+                    "UPDATE thread_messages SET content = ?, content_length = ?, status = 'ready', completed_at = ? WHERE id = ?",
+                    (SAFE_FAILURE_MESSAGE, len(SAFE_FAILURE_MESSAGE), now, message_id),
+                )
+                self.conversation.events.append(
+                    turn.thread_id, turn.id, "message.snapshot", "worker",
+                    {
+                        "message_id": message_id,
+                        "generation": generation,
+                        "content": SAFE_FAILURE_MESSAGE,
+                        "status": "ready",
+                    },
+                    connection=connection, occurred_at=now,
+                )
+                self.conversation.events.append(
+                    turn.thread_id, turn.id, "message.completed", "worker",
+                    {"message_id": message_id, "generation": generation, "finish_reason": "error"},
+                    connection=connection, occurred_at=now,
+                )
             connection.execute(
                 "UPDATE turns SET status = 'FAILED', version = version + 1, updated_at = ? WHERE id = ?",
                 (now, turn.id),

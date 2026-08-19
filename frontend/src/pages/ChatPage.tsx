@@ -264,7 +264,17 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
       </div>
 
-      {run && <ActivityRail run={run} events={telemetry.events} stats={telemetry.stats} loading={telemetry.loading} onOpenTrajectory={onOpenTrajectory} />}
+      {(run || conversationId) && (
+        <ActivityRail
+          run={run}
+          thread={threadTelemetry.thread}
+          events={telemetry.events}
+          threadEvents={threadTelemetry.events}
+          stats={telemetry.stats}
+          loading={run ? telemetry.loading : threadTelemetry.loading}
+          onOpenTrajectory={onOpenTrajectory}
+        />
+      )}
     </div>
   );
 }

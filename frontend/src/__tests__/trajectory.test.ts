@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { EventRecord } from "../types";
-import { describeEvent, groupEvents } from "../trajectory";
+import type { EventRecord, ThreadEvent } from "../types";
+import { describeEvent, describeThreadEvent, groupEvents } from "../trajectory";
 
 function event(type: string, data: Record<string, unknown> = {}, seq = 1): EventRecord {
   return {
@@ -13,6 +13,20 @@ function event(type: string, data: Record<string, unknown> = {}, seq = 1): Event
     occurred_at: "2026-08-18T00:00:00Z",
     actor: "runtime",
     correlation: {},
+    data,
+  };
+}
+
+function threadEvent(type: string, data: Record<string, unknown> = {}, seq = 1): ThreadEvent {
+  return {
+    schema_version: 1,
+    event_id: `thread-evt-${seq}`,
+    seq,
+    thread_id: "thread-1",
+    turn_id: "turn-1",
+    type,
+    occurred_at: "2026-08-18T00:00:00Z",
+    actor: "worker",
     data,
   };
 }
@@ -58,5 +72,12 @@ describe("trajectory view model", () => {
 
     expect(item.title).toContain("正在接收模型回答");
     expect(item.detail).not.toContain("内部片段");
+  });
+
+  it("translates thread completion events into readable activity", () => {
+    const item = describeThreadEvent(threadEvent("turn.completed"));
+
+    expect(item.title).toBe("本轮对话完成");
+    expect(item.detail).toContain("加入对话");
   });
 });

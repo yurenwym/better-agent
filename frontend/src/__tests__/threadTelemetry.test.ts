@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyThreadEvent, needsEventRecovery, needsMessageSnapshot } from "../hooks/useThreadTelemetry";
-import type { MessageRecord, ThreadEvent } from "../types";
+import { applyThreadEvent, hydrateThreadMessages, needsEventRecovery, needsMessageSnapshot } from "../hooks/useThreadTelemetry";
+import type { MessageRecord, ThreadEvent, ThreadMessage } from "../types";
 
 function message(content: string, generation = 1): MessageRecord {
   return {
@@ -46,6 +46,33 @@ describe("thread telemetry reconciliation", () => {
     expect(duplicate).toEqual(current);
     expect(stale).toEqual(current);
     expect(needsMessageSnapshot(current, event({ message_id: "m1", generation: 2, offset: 3, delta: "x" }))).toBe(true);
+  });
+
+  it("removes an interrupted generation when the gateway starts a retry", () => {
+    const current = [message("old answer")];
+    const retry = {
+      ...event({ message_id: "m1", generation: 1, finish_reason: "retry" }),
+      type: "message.completed",
+    };
+
+    expect(applyThreadEvent(current, retry)).toEqual([]);
+  });
+
+  it("does not hydrate interrupted generations into the visible chat", () => {
+    const interrupted: ThreadMessage = {
+      id: "m1",
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+      role: "assistant",
+      content: "old answer",
+      status: "interrupted",
+      generation: 1,
+      content_length: 10,
+      created_at: "2026-08-19T00:00:00Z",
+      completed_at: "2026-08-19T00:00:01Z",
+    };
+
+    expect(hydrateThreadMessages([interrupted])).toEqual([]);
   });
 
   it("detects a missing event sequence for REST recovery", () => {

@@ -7,7 +7,7 @@ function codePointLength(value: string): number {
 }
 
 export function hydrateThreadMessages(messages: ThreadMessage[]): MessageRecord[] {
-  return messages.map((message) => ({
+  return messages.filter((message) => message.status !== "interrupted").map((message) => ({
     id: message.id,
     run_id: message.thread_id,
     interaction_id: null,
@@ -99,6 +99,9 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
       : message) : messages;
   }
   if (event.type === "message.completed" && id) {
+    if (event.data.finish_reason === "retry" || event.data.finish_reason === "interrupted") {
+      return messages.filter((message) => message.id !== id);
+    }
     return messages.map((message) => message.id === id
       ? {
         ...message,

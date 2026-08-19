@@ -108,6 +108,60 @@ describe("ChatPage streaming bootstrap", () => {
     expect(api.createGoal).not.toHaveBeenCalled();
   });
 
+  it("shows the thread activity rail before a Run is materialized", async () => {
+    api.getThread.mockResolvedValue({
+      id: "thread-1",
+      title: "Chat",
+      version: 1,
+      active_turn_id: "turn-1",
+      next_event_seq: 3,
+      turns: [{
+        id: "turn-1",
+        thread_id: "thread-1",
+        client_turn_id: "client-1",
+        parent_turn_id: null,
+        status: "COMPLETED",
+        policy: "answer",
+        content_shape: "markdown",
+        reason_code: "content_only",
+        version: 2,
+        skill_names: [],
+        materialized_goal_id: null,
+        materialized_run_id: null,
+        direction_action: null,
+        direction_idempotency_key: null,
+        created_at: "2026-08-19T00:00:00Z",
+        updated_at: "2026-08-19T00:00:01Z",
+      }],
+    });
+    api.getThreadEvents.mockResolvedValue({ events: [{
+      schema_version: 1,
+      event_id: "event-2",
+      seq: 2,
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+      type: "turn.completed",
+      occurred_at: "2026-08-19T00:00:01Z",
+      actor: "worker",
+      data: {},
+    }] });
+
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={null}
+        threadId="thread-1"
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("complementary", { name: "当前对话轨迹" })).toBeTruthy());
+    const rail = screen.getByRole("complementary", { name: "当前对话轨迹" });
+    expect(rail.querySelector(".activity-list")?.textContent).toContain("本轮对话完成");
+  });
+
   it("does not expose budget recovery during ordinary execution", () => {
     render(
       <ChatPage

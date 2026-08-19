@@ -1,4 +1,4 @@
-import type { EventRecord } from "./types";
+import type { EventRecord, ThreadEvent } from "./types";
 
 export type TrajectoryStage =
   | "interaction"
@@ -15,7 +15,7 @@ export type TrajectoryStage =
 export type TrajectoryTone = "accent" | "info" | "success" | "warning" | "danger" | "neutral";
 
 export interface TrajectoryItem {
-  event: EventRecord;
+  event: EventRecord | ThreadEvent;
   seq: number;
   occurredAt: string;
   stage: TrajectoryStage;
@@ -67,7 +67,7 @@ function stateLabel(value: string): string {
   return stateLabels[value] ?? value.toLowerCase().replaceAll("_", " ");
 }
 
-function make(event: EventRecord, stage: TrajectoryStage, title: string, detail: string): TrajectoryItem {
+function make(event: EventRecord | ThreadEvent, stage: TrajectoryStage, title: string, detail: string): TrajectoryItem {
   const meta = stageMeta[stage];
   return {
     event,
@@ -182,6 +182,52 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
     }
     default:
       return make(event, "state", "运行记录已更新", "新的轨迹事件已写入本地日志");
+  }
+}
+
+export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
+  const data = event.data;
+
+  switch (event.type) {
+    case "turn.accepted":
+      return make(event, "interaction", "已收到你的消息", "正在准备本轮回答");
+    case "turn.started":
+      return make(event, "interaction", "本轮对话已开始", "正在安排模型回答");
+    case "turn.policy_decided":
+      return make(event, "model", "已确定回答方式", "模型已完成本轮路由判断");
+    case "message.started":
+      return make(event, "model", "正在生成回答", "模型回答会实时显示在左侧对话框");
+    case "message.delta":
+      return make(event, "model", "回答正在实时生成", "新的内容已加入对话");
+    case "message.snapshot":
+      return make(event, "model", "回答内容已更新", "已同步当前可用回答");
+    case "message.completed":
+      if (text(data, "finish_reason") === "retry") {
+        return make(event, "model", "正在重试模型回答", "上一代输出未完成，正在准备新的回答");
+      }
+      if (text(data, "finish_reason") === "cancelled") {
+        return make(event, "model", "回答已停止", "本轮生成已按你的要求停止");
+      }
+      if (text(data, "finish_reason") === "error") {
+        return make(event, "model", "回答生成遇到问题", "已保留当前可用内容，可以重新发送消息");
+      }
+      return make(event, "model", "回答生成完成", "回答已加入对话，可以继续输入下一步");
+    case "turn.awaiting_direction":
+      return make(event, "interaction", "等待你的选择", "你可以选择继续执行或修改方案");
+    case "turn.direction_selected":
+      return make(event, "interaction", "已记录你的选择", text(data, "action", "正在应用下一步操作"));
+    case "turn.completed":
+      return make(event, "interaction", "本轮对话完成", "回答已加入对话，可以继续输入下一步");
+    case "turn.failed":
+      return make(event, "state", "本轮对话未完成", "可以重新发送消息，再次尝试生成回答");
+    case "turn.cancel_requested":
+      return make(event, "state", "正在停止本轮对话", "已收到停止请求");
+    case "turn.cancelled":
+      return make(event, "state", "本轮对话已停止", "后续生成已取消，之前内容仍会保留");
+    case "execution.materialized":
+      return make(event, "run", "已创建执行任务", "已切换到 Run 轨迹，可以继续查看执行进度");
+    default:
+      return make(event, "state", "对话进展已更新", "新的线程事件已记录");
   }
 }
 

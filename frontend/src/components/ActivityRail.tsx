@@ -1,9 +1,11 @@
-import { describeEvent } from "../trajectory";
-import type { EventRecord, Run, Stats } from "../types";
+import { describeEvent, describeThreadEvent } from "../trajectory";
+import type { EventRecord, Run, Stats, Thread, ThreadEvent, Turn } from "../types";
 
 interface ActivityRailProps {
-  run: Run;
+  run: Run | null;
   events: EventRecord[];
+  thread?: Thread | null;
+  threadEvents?: ThreadEvent[];
   stats: Stats | null;
   loading?: boolean;
   onOpenTrajectory: () => void;
@@ -23,40 +25,64 @@ const stateCopy: Record<string, string> = {
   CANCELLED: "运行已取消",
 };
 
+const threadStateCopy: Record<string, string> = {
+  ACCEPTED: "已收到消息",
+  ROUTING: "正在判断下一步",
+  STREAMING: "正在生成回答",
+  COMPLETED: "本轮对话完成",
+  AWAITING_DIRECTION: "等待你的选择",
+  MATERIALIZING: "正在创建执行任务",
+  FAILED: "本轮对话未完成",
+  CANCELLED: "本轮对话已停止",
+};
+
 function iterationValue(run: Run): string {
   const value = run.budget.react_iteration;
   return typeof value === "number" ? `${value} 次` : "未开始";
 }
 
-export default function ActivityRail({ run, events, stats, loading = false, onOpenTrajectory }: ActivityRailProps) {
-  const activity = events.slice(-5).map(describeEvent);
+export default function ActivityRail({ run, events, thread = null, threadEvents = [], stats, loading = false, onOpenTrajectory }: ActivityRailProps) {
+  const currentTurn: Turn | undefined = thread?.turns?.find((turn) => turn.id === thread.active_turn_id)
+    ?? thread?.turns?.at(-1);
+  const threadStatus = currentTurn?.status ?? "ACCEPTED";
+  const activity = run
+    ? events.slice(-5).map(describeEvent)
+    : threadEvents.slice(-5).map(describeThreadEvent);
+  const eventCount = run ? events.length : threadEvents.length;
+  const state = run?.state ?? threadStatus;
+  const stateLabel = run ? (stateCopy[run.state] ?? run.state) : (threadStateCopy[threadStatus] ?? threadStatus);
   const planProgress = stats?.plan_total && stats.plan_completed !== null && stats.plan_completed !== undefined
     ? `${stats.plan_completed}/${stats.plan_total}`
     : "等待计划";
 
   return (
-    <aside className="activity-rail" aria-label="当前运行进度">
+    <aside className="activity-rail" aria-label={run ? "当前运行进度" : "当前对话轨迹"}>
       <div className="activity-rail-header">
         <div>
-          <span className="eyebrow">LIVE RUN</span>
-          <h3>现在发生什么</h3>
+          <span className="eyebrow">{run ? "LIVE RUN" : "LIVE THREAD"}</span>
+          <h3>{run ? "现在发生什么" : "这轮对话发生了什么"}</h3>
         </div>
-        <span className={`state-pill state-${run.state.toLowerCase()}`}>{stateCopy[run.state] ?? run.state}</span>
+        <span className={`state-pill state-${state.toLowerCase()}`}>{stateLabel}</span>
       </div>
       <div className="activity-current" role="status" aria-live="polite">
-        <div className="activity-current-meta"><span>当前阶段</span><span className={`activity-current-dot state-${run.state.toLowerCase()}`} aria-hidden="true" /></div>
-        <strong>{stateCopy[run.state] ?? "运行状态已更新"}</strong>
-        <p>轨迹会随着 Run 实时更新</p>
+        <div className="activity-current-meta"><span>当前阶段</span><span className={`activity-current-dot state-${state.toLowerCase()}`} aria-hidden="true" /></div>
+        <strong>{stateLabel}</strong>
+        <p>{run ? "轨迹会随着 Run 实时更新" : "线程事件会随着对话实时更新"}</p>
       </div>
       <div className="activity-facts">
-        <div><span>计划进度</span><strong>{planProgress}</strong></div>
-        <div><span>已执行循环</span><strong>{iterationValue(run)}</strong></div>
-        <div><span>已记录事件</span><strong>{events.length}</strong></div>
+        {run ? <>
+          <div><span>计划进度</span><strong>{planProgress}</strong></div>
+          <div><span>已执行循环</span><strong>{iterationValue(run)}</strong></div>
+        </> : <>
+          <div><span>当前轮次</span><strong>{thread?.turns?.length ?? 0}</strong></div>
+          <div><span>回答方式</span><strong>{currentTurn?.policy ?? "判断中"}</strong></div>
+        </>}
+        <div><span>已记录事件</span><strong>{eventCount}</strong></div>
       </div>
-      <div className="activity-list-heading"><strong>最近活动</strong><span>{events.length} 条</span></div>
+      <div className="activity-list-heading"><strong>最近活动</strong><span>{eventCount} 条</span></div>
       <div className="activity-list" aria-label="最近活动">
         {loading && <div className="activity-loading"><span className="loading-bar" />正在同步本地轨迹</div>}
-        {!loading && activity.length === 0 && <p className="activity-empty">发送目标后，这里会出现实时进展。</p>}
+        {!loading && activity.length === 0 && <p className="activity-empty">发送消息后，这里会出现实时进展。</p>}
         {activity.map((item) => (
           <article className={`activity-item activity-${item.tone}`} key={item.event.event_id}>
             <span className="activity-dot" aria-hidden="true" />

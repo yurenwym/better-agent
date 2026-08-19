@@ -34,7 +34,10 @@ export default function EventStream({ events }: EventStreamProps) {
       const searchable = `${item.stageLabel} ${item.title} ${item.detail} ${item.event.type}`.toLowerCase();
       return (filter === "all" || item.stage === filter) && (!query.trim() || searchable.includes(query.trim().toLowerCase()));
     }), [events, filter, query]);
-  const groups = useMemo(() => groupEvents(visible.map((item) => item.event)), [visible]);
+  const groups = useMemo(() => {
+    const visibleIds = new Set(visible.map((item) => item.event.event_id));
+    return groupEvents(events.filter((event) => visibleIds.has(event.event_id)));
+  }, [events, visible]);
 
   return (
     <section className="event-panel" aria-label="运行时间线">

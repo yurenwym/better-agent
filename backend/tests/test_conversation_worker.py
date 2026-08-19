@@ -31,6 +31,17 @@ class BlockingConversationModel:
         raise RuntimeError("cancelled")
 
 
+class FailingAfterReadableGenerationModel:
+    async def route_and_respond(self, *, on_text_delta, on_text_reset, **kwargs):
+        on_text_delta(
+            '{"v":1,"policy":"answer","content_shape":"guide",'
+            '"reason_code":"content_only"}\n'
+            + ("usable answer " * 20)
+        )
+        on_text_reset()
+        raise RuntimeError("retry failed after readable output")
+
+
 def _count(runtime, table: str) -> int:
     with runtime.db.connection() as connection:
         return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
@@ -184,6 +195,22 @@ async def test_invalid_control_head_fails_safely_without_persisting_raw_model_ou
     ]
     assert len(snapshot) == 1
     assert snapshot[0].data["content"] == SAFE_FAILURE_MESSAGE
+
+
+@pytest.mark.asyncio
+async def test_failed_retry_preserves_a_readable_prior_generation(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, FailingAfterReadableGenerationModel())
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-1", "制作计划", [])
+
+    await runtime.turn_worker.run_once()
+
+    assistants = [message for message in runtime.conversation.messages(thread.id) if message.role == "assistant"]
+    assert len(assistants) == 1
+    assert assistants[0].status == "ready"
+    assert assistants[0].content.startswith("usable answer")
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    assert "当前暂时无法生成可用回答，请重试。" not in assistants[0].content
 
 
 @pytest.mark.asyncio
