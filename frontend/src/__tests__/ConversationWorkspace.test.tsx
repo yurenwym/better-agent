@@ -46,6 +46,18 @@ const messages: MessageRecord[] = [
 ];
 
 describe("conversation workspace", () => {
+  it("keeps assistant messages on the left and user messages on the right", () => {
+    render(<ConversationThread messages={messages} busy={false} onSubmit={() => undefined} />);
+
+    const userRow = document.querySelector(".message-user");
+    const assistantRow = document.querySelector(".message-assistant");
+
+    expect(userRow?.children[0].classList.contains("message-body")).toBe(true);
+    expect(userRow?.children[1].classList.contains("message-avatar")).toBe(true);
+    expect(assistantRow?.children[0].classList.contains("message-avatar")).toBe(true);
+    expect(assistantRow?.children[1].classList.contains("message-body")).toBe(true);
+  });
+
   it("centers the empty conversation prompt and names the desired outcome", () => {
     render(<ConversationThread messages={[]} busy={false} onSubmit={() => undefined} />);
 

@@ -120,14 +120,18 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .conversation-empty h3 { font-size: 21px; }
 .conversation-empty p { max-width: min(430px, 100%); font-size: 13px; }
 .message-row { display: grid; grid-template-columns: 34px minmax(0, 760px); gap: 12px; align-items: start; }
+.message-row.message-user { grid-template-columns: minmax(0, 760px) 34px; justify-content: end; }
 .message-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 10px; background: var(--color-panel-soft); color: var(--color-muted); font-family: var(--font-mono); font-size: 8px; font-weight: 700; letter-spacing: -0.04em; }
 .message-assistant .message-avatar { background: var(--color-ink); color: #fff; }
 .message-user .message-avatar { background: var(--color-accent-soft); color: var(--color-accent-strong); }
 .message-body { display: grid; gap: 6px; min-width: 0; }
+.message-user .message-body { justify-items: end; }
 .message-meta { display: flex; align-items: center; gap: 10px; color: var(--color-faint); font-size: 11px; }
+.message-user .message-meta { justify-content: flex-end; }
 .message-meta strong { color: var(--color-muted); font-size: 12px; }
 .message-meta time, .message-meta span { font-family: var(--font-mono); font-size: 9px; }
 .message-card { display: grid; gap: 8px; max-width: 100%; padding: 14px 16px; border: 1px solid var(--color-line); border-radius: 4px 14px 14px 14px; background: var(--color-panel-soft); }
+.message-user .message-card { width: fit-content; justify-self: end; }
 .message-user .message-card { border-color: #d4e0ff; border-radius: 14px 4px 14px 14px; background: var(--color-accent-soft); }
 .message-summary, .message-detail { color: var(--color-ink); font-size: 14px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: anywhere; }
 .message-detail { color: var(--color-muted); font-size: 13px; }
@@ -368,6 +372,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .conversation-header { padding: 18px; }
   .conversation-thread { padding: 20px 16px; max-height: none; }
   .message-row { grid-template-columns: 30px minmax(0, 1fr); gap: 9px; }
+  .message-row.message-user { grid-template-columns: minmax(0, 1fr) 30px; }
   .message-avatar { width: 28px; height: 28px; }
   .conversation-decision { margin: 0 14px; }
   .conversation-decision .button-row { width: 100%; }

@@ -76,27 +76,30 @@ export default function ConversationThread({ messages, busy = false, title = "�
         {messages.map((message) => {
           const view = presentMessage(message);
           const assistant = message.role === "assistant";
+          const avatar = <div className="message-avatar" aria-hidden="true">{assistant ? "BA" : "YOU"}</div>;
+          const body = (
+            <div className="message-body">
+              <div className="message-meta">
+                <strong>{assistant ? "Better Agent" : "你"}</strong>
+                <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
+              </div>
+              <div className="message-card">
+                <MarkdownMessage content={view.summary} className="message-summary" />
+                {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
+                {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
+              </div>
+            </div>
+          );
           return (
             <article className={`message-row message-${message.role}`} key={message.id}>
-              <div className="message-avatar" aria-hidden="true">{assistant ? "BA" : "YOU"}</div>
-              <div className="message-body">
-                <div className="message-meta">
-                  <strong>{assistant ? "Better Agent" : "你"}</strong>
-                  <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
-                </div>
-                <div className="message-card">
-                  <MarkdownMessage content={view.summary} className="message-summary" />
-                  {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
-                  {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
-                </div>
-              </div>
+              {assistant ? <>{avatar}{body}</> : <>{body}{avatar}</>}
             </article>
           );
         })}
         {pendingUser && (
           <article className="message-row message-user message-pending-user">
-            <div className="message-avatar" aria-hidden="true">YOU</div>
             <div className="message-body"><div className="message-meta"><strong>你</strong><span>发送中</span></div><div className="message-card"><MarkdownMessage content={pendingUser} className="message-summary" /></div></div>
+            <div className="message-avatar" aria-hidden="true">YOU</div>
           </article>
         )}
         {busy && !messages.some((message) => message.role === "assistant" && message.streaming) && (
