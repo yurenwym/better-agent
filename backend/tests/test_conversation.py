@@ -152,7 +152,7 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
     model = LiveConversationModel(gateway)
 
     response = await model.route_and_respond(
-        content="make a two-day training plan",
+        content="make a two-day travel plan",
         history=[],
         skill_names=[],
         on_text_delta=deltas.append,
