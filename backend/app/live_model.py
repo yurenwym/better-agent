@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from contextvars import ContextVar
 from typing import Any, Callable
 
-from .ask import ASK_TOOL_SCHEMA, AskQuestion, AskRequest, AskValidationError, parse_ask_tool_call
+from .ask import ASK_TOOL_SCHEMA, AskRequest, AskValidationError, parse_ask_tool_call
 from .conversation import ControlHeadDecoder, RouteProtocolError
-from .context_policy import requires_context_collection
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
 
@@ -222,8 +220,6 @@ class LiveConversationModel:
         on_text_reset,
         cancel_event,
     ) -> Any:
-        if requires_context_collection(content, history):
-            return _automatic_context_request()
         messages: list[dict[str, str]] = [{
             "role": "system",
             "content": (
@@ -231,7 +227,10 @@ class LiveConversationModel:
                 "The header must have v=1, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
-                "When one or more missing facts genuinely block a useful answer, call the ask_user tool instead of returning a control header. "
+                "You decide whether the current request needs clarification. "
+                "For a personalized, long-term, or goal-driven plan, call ask_user when missing information would materially change the plan. "
+                "Choose only the minimum questions needed for this specific request; do not use a fixed questionnaire and do not ask for information that is not relevant. "
+                "For general knowledge, a broad guide, a template, or a useful first answer that can be written with explicit assumptions, answer directly instead of asking for preferences. "
                 "The ask_user call must contain one to four concrete questions; do not emit prose or a control header in the same response. "
                 "Use clarify only for legacy one-question text responses when a structured ask is not appropriate. "
                 "Never expose the header, hidden reasoning, tool schema, or raw JSON in the Markdown body. "
@@ -313,66 +312,6 @@ class LiveConversationModel:
         }]
         response, _ = await complete_once(repair_messages)
         return response
-
-
-def _automatic_context_request() -> AskRequest:
-    return AskRequest(
-        call_id=f"auto-context-{uuid.uuid4().hex}",
-        questions=(
-            AskQuestion(
-                "current_level",
-                "当前骑行基础",
-                "你目前的骑行基础更接近哪一种？",
-                (
-                    {"label": "完全新手", "description": "还没有稳定骑行经验"},
-                    {"label": "偶尔骑行", "description": "能完成短途骑行"},
-                    {"label": "有规律训练", "description": "已有固定训练习惯"},
-                    {"label": "有活动或比赛经验", "description": "参加过长距离活动或比赛"},
-                ),
-                False,
-                True,
-            ),
-            AskQuestion(
-                "goal",
-                "训练目标",
-                "你最希望通过骑行实现什么？",
-                (
-                    {"label": "建立骑行习惯", "description": "形成稳定、可持续的日常训练"},
-                    {"label": "提升耐力和距离", "description": "逐步完成更长距离骑行"},
-                    {"label": "准备活动或比赛", "description": "为具体骑行活动做好准备"},
-                    {"label": "健康减脂", "description": "以健康和体能改善为主"},
-                ),
-                False,
-                True,
-            ),
-            AskQuestion(
-                "schedule",
-                "可用时间",
-                "你每周大约可以安排多少训练时间？",
-                (
-                    {"label": "每周 1–2 天", "description": "时间较少，优先保持习惯"},
-                    {"label": "每周 3–4 天", "description": "可以进行规律训练"},
-                    {"label": "每周 5 天以上", "description": "希望投入更多时间"},
-                    {"label": "时间不固定", "description": "需要根据每周情况灵活安排"},
-                ),
-                False,
-                True,
-            ),
-            AskQuestion(
-                "constraints",
-                "限制条件",
-                "是否有需要纳入计划的身体、器材或场地限制？",
-                (
-                    {"label": "没有特殊限制", "description": "可以按常规方式训练"},
-                    {"label": "有旧伤或健康限制", "description": "需要降低风险并设置注意事项"},
-                    {"label": "只有室内骑行设备", "description": "主要使用骑行台或室内单车"},
-                    {"label": "其他限制", "description": "可以在补充信息中具体说明"},
-                ),
-                False,
-                True,
-            ),
-        ),
-    )
 
 
 def _parse_json(content: str) -> dict[str, Any]:

@@ -347,15 +347,52 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
 
 
 @pytest.mark.asyncio
-async def test_live_conversation_model_auto_asks_for_personalized_training_plan() -> None:
+async def test_live_conversation_model_lets_llm_choose_ask_questions_for_personalized_plan() -> None:
+    from app.ask import ASK_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
-    class NeverGateway:
-        async def complete(self, request, **kwargs):
-            raise AssertionError("the automatic context policy should run before the gateway")
+    class AskGateway:
+        def __init__(self) -> None:
+            self.requests = []
 
-    result = await LiveConversationModel(NeverGateway()).route_and_respond(
-        content="\u6211\u60f3\u5236\u4f5c\u4e00\u4e2a\u957f\u671f\u7684\u8bad\u7ec3\u8ba1\u5212\uff0c\u5b66\u4e60\u9a91\u884c",
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            return SimpleNamespace(
+                message="",
+                tool_calls=[{
+                    "id": "model-ask-1",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({
+                            "questions": [{
+                                "id": "riding_experience",
+                                "header": "骑行经历",
+                                "question": "你过去通常能连续骑行多长时间？",
+                                "options": [
+                                    {"label": "没有稳定经验", "description": "还没有形成固定骑行习惯"},
+                                    {"label": "可以完成短途", "description": "能够完成一小时左右的骑行"},
+                                ],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }, {
+                                "id": "weekly_availability",
+                                "header": "每周时间",
+                                "question": "你每周大约可以安排几天训练？",
+                                "options": [
+                                    {"label": "1–2 天", "description": "优先建立稳定习惯"},
+                                    {"label": "3–4 天", "description": "可以进行规律训练"},
+                                ],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]
+                        }, ensure_ascii=False),
+                    },
+                }],
+            )
+
+    gateway = AskGateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="我想制作一个长期的训练计划，学习骑行",
         history=[],
         skill_names=[],
         on_text_delta=lambda _: None,
@@ -363,10 +400,11 @@ async def test_live_conversation_model_auto_asks_for_personalized_training_plan(
         cancel_event=asyncio.Event(),
     )
 
-    assert result.call_id.startswith("auto-context-")
+    assert result.call_id == "model-ask-1"
     assert [question.id for question in result.questions] == [
-        "current_level",
-        "goal",
-        "schedule",
-        "constraints",
+        "riding_experience",
+        "weekly_availability",
     ]
+    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]
+    assert gateway.requests[0].messages[-1]["content"] == "我想制作一个长期的训练计划，学习骑行"
+    assert "ask_user" in gateway.requests[0].messages[0]["content"]

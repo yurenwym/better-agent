@@ -278,13 +278,42 @@ async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_pat
 
 @pytest.mark.asyncio
 async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
     from app.live_model import LiveConversationModel
 
-    class NeverGateway:
-        async def complete(self, request, **kwargs):
-            raise AssertionError("the automatic context policy should run before the gateway")
+    class ModelDrivenAskGateway:
+        def __init__(self) -> None:
+            self.requests = []
 
-    runtime = make_runtime(tmp_path, LiveConversationModel(NeverGateway()))
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            return SimpleNamespace(
+                message="",
+                tool_calls=[{
+                    "id": "model-ask-worker-1",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({
+                            "questions": [{
+                                "id": "riding_context",
+                                "header": "骑行情况",
+                                "question": "你目前每次通常能骑行多长时间？",
+                                "options": [
+                                    {"label": "还没有稳定骑行", "description": "刚开始接触骑行"},
+                                    {"label": "可以完成短途", "description": "能够完成短距离骑行"},
+                                ],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]
+                        }, ensure_ascii=False),
+                    },
+                }],
+            )
+
+    gateway = ModelDrivenAskGateway()
+    runtime = make_runtime(tmp_path, LiveConversationModel(gateway))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(
         thread.id,
@@ -296,16 +325,12 @@ async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None
     await runtime.turn_worker.run_once()
 
     assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
+    assert len(gateway.requests) == 1
     assert _count(runtime, "goals") == 0
     assert _count(runtime, "runs") == 0
     ask = runtime.conversation.pending_ask(accepted.turn_id)
     assert ask is not None
-    assert [question.id for question in ask.questions] == [
-        "current_level",
-        "goal",
-        "schedule",
-        "constraints",
-    ]
+    assert [question.id for question in ask.questions] == ["riding_context"]
 
 
 @pytest.mark.asyncio
