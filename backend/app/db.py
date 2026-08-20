@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS runs (
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_source_turn
+ON runs(source_turn_id)
+WHERE source_turn_id IS NOT NULL;
 CREATE TABLE IF NOT EXISTS threads (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,
@@ -59,6 +62,9 @@ CREATE TABLE IF NOT EXISTS turns (
     reason_code TEXT,
     version INTEGER NOT NULL DEFAULT 0,
     skill_names_json TEXT NOT NULL DEFAULT '[]',
+    artifact_kind TEXT,
+    artifact_operation TEXT,
+    artifact_title TEXT,
     materialized_goal_id TEXT,
     materialized_run_id TEXT,
     direction_action TEXT,
@@ -101,6 +107,7 @@ CREATE TABLE IF NOT EXISTS thread_messages (
     status TEXT NOT NULL,
     generation INTEGER NOT NULL DEFAULT 1,
     content_length INTEGER NOT NULL DEFAULT 0,
+    plan_document_version_id TEXT,
     created_at TEXT NOT NULL,
     completed_at TEXT
 );
@@ -142,6 +149,7 @@ CREATE TABLE IF NOT EXISTS plan_versions (
     status TEXT NOT NULL DEFAULT 'draft',
     summary TEXT NOT NULL DEFAULT '',
     base_version INTEGER,
+    source_document_version_id TEXT,
     created_at TEXT NOT NULL,
     approved_at TEXT,
     UNIQUE(run_id, version)
@@ -159,6 +167,48 @@ CREATE TABLE IF NOT EXISTS plan_steps (
     canceled_at TEXT,
     UNIQUE(plan_version_id, position),
     UNIQUE(plan_version_id, id)
+);
+CREATE TABLE IF NOT EXISTS plan_documents (
+    id TEXT PRIMARY KEY,
+    thread_id TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    current_version_id TEXT,
+    projected_version_id TEXT,
+    file_status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS plan_document_versions (
+    id TEXT PRIMARY KEY,
+    plan_document_id TEXT NOT NULL,
+    version INTEGER NOT NULL,
+    base_version_id TEXT,
+    title TEXT NOT NULL,
+    markdown_content TEXT NOT NULL,
+    content_hash TEXT NOT NULL,
+    source_turn_id TEXT,
+    source_message_id TEXT,
+    actor TEXT NOT NULL,
+    change_summary TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    committed_at TEXT,
+    UNIQUE(plan_document_id, version),
+    UNIQUE(source_turn_id),
+    UNIQUE(source_message_id)
+);
+CREATE TABLE IF NOT EXISTS plan_write_intents (
+    id TEXT PRIMARY KEY,
+    plan_document_id TEXT NOT NULL,
+    version_id TEXT NOT NULL UNIQUE,
+    expected_head_version_id TEXT,
+    expected_file_hash TEXT,
+    target_file_hash TEXT NOT NULL,
+    status TEXT NOT NULL,
+    attempts INTEGER NOT NULL DEFAULT 0,
+    last_error_json TEXT,
+    created_at TEXT NOT NULL,
+    finished_at TEXT
 );
 CREATE TABLE IF NOT EXISTS checkpoints (
     id TEXT PRIMARY KEY,
@@ -309,11 +359,28 @@ class Database:
                 connection.execute("ALTER TABLE runs ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
             if "source_turn_id" not in run_columns:
                 connection.execute("ALTER TABLE runs ADD COLUMN source_turn_id TEXT")
+            connection.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_source_turn "
+                "ON runs(source_turn_id) WHERE source_turn_id IS NOT NULL"
+            )
             turn_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(turns)").fetchall()
             }
             if "skill_names_json" not in turn_columns:
                 connection.execute("ALTER TABLE turns ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
+            if "artifact_kind" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN artifact_kind TEXT")
+            if "artifact_operation" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN artifact_operation TEXT")
+            if "artifact_title" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN artifact_title TEXT")
+            message_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(thread_messages)").fetchall()
+            }
+            if "plan_document_version_id" not in message_columns:
+                connection.execute("ALTER TABLE thread_messages ADD COLUMN plan_document_version_id TEXT")
+            if "source_document_version_id" not in plan_columns:
+                connection.execute("ALTER TABLE plan_versions ADD COLUMN source_document_version_id TEXT")
             step_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(plan_steps)").fetchall()

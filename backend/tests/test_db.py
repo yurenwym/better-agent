@@ -32,6 +32,9 @@ def test_database_initializes_required_tables_and_wal(tmp_path) -> None:
         "memory_candidates",
         "memory_file_versions",
         "run_stats",
+        "plan_documents",
+        "plan_document_versions",
+        "plan_write_intents",
     } <= tables
 
 
