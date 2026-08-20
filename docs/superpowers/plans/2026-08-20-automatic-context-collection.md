@@ -40,7 +40,7 @@ The application must not contain a request-keyword policy, a fixed question set,
 ## Task 3: Verification and delivery
 
 - [x] Run focused Ask/model/worker tests: 41 passed.
-- [x] Run the full backend suite: 152 passed.
+- [x] Run the full backend suite: 154 passed after the mixed-response defense.
 - [x] Run frontend tests and production build: 16 files / 78 tests passed; Vite production build passed.
 - [x] Run the deterministic suite and the LLM smoke test using `D:\Users\王一鸣\Desktop\直到尽头\LLM_AP.txt` without printing or committing the key: deterministic 12/12; live smoke 1/1.
 - [x] Run `git diff --check`, inspect staged paths, and ensure `data/`, `memory/`, evaluation results, `.env`, and the LLM key file remain untracked/unstaged.
