@@ -33,6 +33,7 @@ describe("conversation ask workspace", () => {
     );
 
     expect(screen.getByRole("region", { name: "等待你的回答" })).toBeTruthy();
+    expect(screen.getByText("输入框暂时锁定；如果想开始新的目标，请先停止询问。", { exact: false })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(true);
     fireEvent.click(screen.getByRole("button", { name: "目标：计划" }));
     expect(screen.getByRole("button", { name: "提交回答" }).hasAttribute("disabled")).toBe(false);

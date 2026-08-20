@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -74,6 +74,19 @@ describe("REST client", () => {
     await getPendingAsk("turn-1", fetcher);
 
     expect(fetcher).toHaveBeenCalledWith("/api/turns/turn-1/ask");
+  });
+
+  it("unwraps FastAPI detail errors instead of exposing the raw JSON body", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false,
+      text: async () => JSON.stringify({ detail: "answer the pending ask before sending another message" }),
+    });
+
+    await expect(submitTurn("thread-1", {
+      client_turn_id: "client-1",
+      content: "新的目标",
+      skill_names: [],
+    }, "csrf", fetcher)).rejects.toThrow("answer the pending ask before sending another message");
   });
 
   it("keeps the event stream in follow mode and stops reconnecting after a terminal event", () => {

@@ -248,6 +248,61 @@ describe("ChatPage streaming bootstrap", () => {
     await waitFor(() => expect(api.sendMessage).toHaveBeenCalledWith("goal-1", "继续", "csrf", ["reflection"]));
   });
 
+  it("explains a pending ask conflict and offers to stop it while keeping the draft", async () => {
+    api.submitTurn.mockRejectedValue(new Error("answer the pending ask before sending another message"));
+    api.getThread.mockResolvedValue({
+      id: "thread-1",
+      title: "Chat",
+      version: 2,
+      active_turn_id: "turn-1",
+      next_event_seq: 2,
+      turns: [{
+        id: "turn-1",
+        thread_id: "thread-1",
+        client_turn_id: "client-1",
+        parent_turn_id: null,
+        status: "AWAITING_INPUT",
+        policy: "ask",
+        content_shape: "ask",
+        reason_code: "model_requested_input",
+        version: 1,
+        skill_names: [],
+        materialized_goal_id: null,
+        materialized_run_id: null,
+        direction_action: null,
+        direction_idempotency_key: null,
+        created_at: "2026-08-19T00:00:00Z",
+        updated_at: "2026-08-19T00:00:01Z",
+      }],
+    });
+    api.getThreadEvents.mockResolvedValue({ events: [] });
+    api.getThreadMessages.mockResolvedValue({ messages: [] });
+    api.cancelTurn.mockResolvedValue({ id: "turn-1", status: "CANCELLED" });
+
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={null}
+        threadId="thread-1"
+        onThread={vi.fn()}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "力量训练计划" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("当前对话正在等待你的回答"));
+    expect(screen.getByRole("alert").textContent).not.toContain("{\"detail\"");
+    fireEvent.click(screen.getByRole("button", { name: "停止询问，保留当前输入" }));
+
+    await waitFor(() => expect(api.cancelTurn).toHaveBeenCalledWith("turn-1", "csrf"));
+    expect((screen.getByRole("textbox", { name: "输入消息" }) as HTMLTextAreaElement).value).toBe("力量训练计划");
+  });
+
   it("clears selected skills when the user starts a new conversation", async () => {
     const props = {
       csrfToken: "csrf",

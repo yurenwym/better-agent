@@ -46,6 +46,7 @@ function clientTurnId(): string {
 }
 
 const turnBusyStates = new Set(["ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING"]);
+const pendingAskConflictText = "当前对话正在等待你的回答，请先回答上方问题；如果想开始新的目标，请先停止询问。";
 
 export default function ChatPage({ csrfToken, run, threadId = null, onThread, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
   const [error, setError] = useState("");
@@ -53,6 +54,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [actionBusy, setActionBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [askBusy, setAskBusy] = useState(false);
+  const [pendingAskConflict, setPendingAskConflict] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -87,8 +89,20 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       : [...current, name]);
   }
 
-  async function submitContent(content: string): Promise<boolean> {
+  function clearError() {
     setError("");
+    setPendingAskConflict(false);
+  }
+
+  function showOperationError(caught: unknown, fallback: string) {
+    const message = caught instanceof Error ? caught.message : "";
+    const isPendingAskConflict = message.includes("answer the pending ask before sending another message");
+    setPendingAskConflict(isPendingAskConflict);
+    setError(isPendingAskConflict ? pendingAskConflictText : message || fallback);
+  }
+
+  async function submitContent(content: string): Promise<boolean> {
+    clearError();
     setBusy(true);
     try {
       if (!run && onThread && typeof createThread === "function" && typeof submitTurn === "function") {
@@ -117,7 +131,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       }
       return true;
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "发送失败，请检查模型连接后重试");
+      showOperationError(caught, "发送失败，请检查模型连接后重试");
       return false;
     } finally {
       setBusy(false);
@@ -125,12 +139,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   }
 
   async function runAction(action: () => Promise<Run>) {
-    setError("");
+    clearError();
     setActionBusy(true);
     try {
       onRun(await action());
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showOperationError(caught, "操作失败，请稍后重试");
     } finally {
       setActionBusy(false);
     }
@@ -139,7 +153,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   async function chooseDirection(action: "continue_execution" | "modify_plan") {
     const turn = threadTelemetry.activeTurn;
     if (!turn) return;
-    setError("");
+    clearError();
     setActionBusy(true);
     try {
       const result = await selectDirection(turn.id, {
@@ -150,7 +164,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       if (result.run) onRun(result.run);
       if (action === "modify_plan") setComposerOpen(true);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "操作失败，请稍后重试");
+      showOperationError(caught, "操作失败，请稍后重试");
     } finally {
       setActionBusy(false);
     }
@@ -161,7 +175,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     try {
       await cancelConversationTurn(turnId, csrfToken);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "停止生成失败，请稍后重试");
+      showOperationError(caught, "停止生成失败，请稍后重试");
     } finally {
       setCancelBusy(false);
     }
@@ -170,7 +184,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   async function submitAskAnswers(answers: AskAnswer[]) {
     const turn = threadTelemetry.activeTurn;
     if (!turn || !threadTelemetry.pendingAsk) return;
-    setError("");
+    clearError();
     setAskBusy(true);
     try {
       await answerAsk(turn.id, {
@@ -179,10 +193,17 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
         answers,
       }, csrfToken);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "回答提交失败，请稍后重试");
+      showOperationError(caught, "回答提交失败，请稍后重试");
     } finally {
       setAskBusy(false);
     }
+  }
+
+  async function stopPendingAskAndKeepDraft() {
+    const turn = threadTelemetry.activeTurn;
+    if (!turn) return;
+    clearError();
+    await cancelCurrentTurn(turn.id);
   }
 
   async function cancelCurrentRun(runId: string): Promise<Run> {
@@ -284,7 +305,16 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
             {run.state === "AWAITING_OUTCOME" && <button className="button button-quiet" type="button" onClick={() => void runAction(() => continueOutcome(run.id, false, csrfToken))}>继续观察</button>}
           </div>
         )}
-        {error && <p className="error-message" role="alert">{error}</p>}
+        {error && (
+          <div className="error-message" role="alert">
+            <span>{error}</span>
+            {pendingAskConflict && activeTurn && (
+              <button className="button button-danger error-action" type="button" onClick={() => void stopPendingAskAndKeepDraft()}>
+                停止询问，保留当前输入
+              </button>
+            )}
+          </div>
+        )}
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
       </div>
 

@@ -190,6 +190,7 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .ask-card-heading > div { display: grid; gap: 5px; }
 .ask-card-heading h3 { color: var(--color-ink); font-size: 16px; }
 .ask-card-heading p { color: var(--color-muted); font-size: 12px; }
+.ask-card-hint { margin: -8px 0 0; color: var(--color-info); font-size: 12px; line-height: 1.5; }
 .ask-card-progress { color: var(--color-info); font-family: var(--font-mono); font-size: 10px; white-space: nowrap; }
 .ask-question-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .ask-question { display: grid; gap: 9px; min-width: 0; border: 1px solid var(--color-line); border-radius: 12px; background: rgba(255, 255, 255, 0.86); padding: 13px; }
@@ -226,7 +227,8 @@ input, textarea, select { width: 100%; min-height: 44px; border: 1px solid var(-
 input:hover, textarea:hover, select:hover { border-color: var(--color-line-strong); }
 textarea { min-height: 112px; resize: vertical; line-height: 1.55; }
 input::placeholder, textarea::placeholder { color: var(--color-faint); }
-.error-message { border-left: 3px solid var(--color-danger); border-radius: var(--radius-sm); background: var(--color-danger-soft); color: var(--color-danger); padding: 11px 14px; }
+.error-message { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-left: 3px solid var(--color-danger); border-radius: var(--radius-sm); background: var(--color-danger-soft); color: var(--color-danger); padding: 11px 14px; }
+.error-action { min-height: 36px; padding: 0 11px; font-size: 12px; }
 .empty-state { border: 1px dashed var(--color-line-strong); border-radius: var(--radius-sm); padding: 20px; color: var(--color-faint); text-align: center; }
 .muted { color: var(--color-faint); font-size: 12px; }
 

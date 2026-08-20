@@ -19,10 +19,21 @@ import type {
 
 export type Fetcher = typeof fetch;
 
+function readableError(raw: string, fallback: string): string {
+  if (!raw) return fallback;
+  try {
+    const payload = JSON.parse(raw) as { detail?: unknown };
+    if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
+    return fallback;
+  } catch {
+    return raw;
+  }
+}
+
 async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(detail || `Request failed (${response.status})`);
+    throw new Error(readableError(detail, `请求失败（${response.status}）`));
   }
   return response.json() as Promise<T>;
 }

@@ -147,7 +147,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入信息，Enter发送，Shift+Enter换行"
+          placeholder={pendingAsk ? "请先回答上方问题，或停止询问后开始新的目标" : "输入信息，Enter发送，Shift+Enter换行"}
           rows={3}
         />
         <div className="composer-footer">

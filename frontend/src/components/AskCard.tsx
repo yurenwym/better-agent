@@ -54,6 +54,7 @@ export default function AskCard({ ask, busy = false, onSubmit, onCancel }: AskCa
         </div>
         <span className="ask-card-progress">{ask.questions.length} 个问题</span>
       </div>
+      <p className="ask-card-hint">输入框暂时锁定；如果想开始新的目标，请先停止询问。</p>
       <div className="ask-question-list">
         {ask.questions.map((question) => {
           const current = selected[question.id] ?? [];
