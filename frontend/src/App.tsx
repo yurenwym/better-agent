@@ -77,7 +77,7 @@ export default function App() {
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
-          {page === "trajectory" && <TrajectoryPage run={run} />}
+          {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}
         </div>
       </main>

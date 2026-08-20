@@ -264,6 +264,26 @@ export function groupEvents(events: EventRecord[]): TrajectoryGroup[] {
   return groups;
 }
 
+export function groupThreadEvents(events: ThreadEvent[]): TrajectoryGroup[] {
+  const sorted = [...events].sort((left, right) => left.seq - right.seq);
+  const groups: TrajectoryGroup[] = [];
+  let active: TrajectoryGroup | null = null;
+  let activeTurnId: string | null = null;
+  let turnNumber = 0;
+
+  for (const event of sorted) {
+    if (!active || activeTurnId !== event.turn_id) {
+      turnNumber += 1;
+      active = { id: `turn-${event.turn_id}`, label: `第 ${turnNumber} 轮对话`, events: [] };
+      activeTurnId = event.turn_id;
+      groups.push(active);
+    }
+    active.events.push(describeThreadEvent(event));
+  }
+
+  return groups;
+}
+
 export function stageLabel(stage: TrajectoryStage): string {
   return stageMeta[stage].label;
 }
