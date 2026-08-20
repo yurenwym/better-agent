@@ -229,6 +229,8 @@ class LiveConversationModel:
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
                 "You decide whether the current request needs clarification. "
                 "For a personalized, long-term, or goal-driven plan, call ask_user when missing information would materially change the plan. "
+                "Treat a request to create a training tutorial, program, routine, or regimen intended to be followed by the user as a goal-driven deliverable, not merely a general explanation. "
+                "If it is ambiguous whether the user wants a generic explanation or a personal plan, ask one concise intent question before drafting. "
                 "Choose only the minimum questions needed for this specific request; do not use a fixed questionnaire and do not ask for information that is not relevant. "
                 "For general knowledge, a broad guide, a template, or a useful first answer that can be written with explicit assumptions, answer directly instead of asking for preferences. "
                 "The ask_user call must contain one to four concrete questions; do not emit prose or a control header in the same response. "

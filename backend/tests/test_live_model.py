@@ -434,4 +434,8 @@ async def test_live_conversation_model_lets_llm_choose_ask_questions_for_persona
     ]
     assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]
     assert gateway.requests[0].messages[-1]["content"] == "我想制作一个长期的训练计划，学习骑行"
-    assert "ask_user" in gateway.requests[0].messages[0]["content"]
+    prompt = gateway.requests[0].messages[0]["content"].lower()
+    assert "ask_user" in prompt
+    assert "training tutorial, program, routine, or regimen" in prompt
+    assert "intended to be followed by the user" in prompt
+    assert "generic explanation or a personal plan" in prompt
