@@ -35,6 +35,7 @@ The application must not contain a request-keyword policy, a fixed question set,
 - [x] Remove `_automatic_context_request` and its hard-coded cycling questions.
 - [x] Keep the existing single `ask_user` tool call limit, schema validation, control-header repair, cancellation, and SSE callbacks.
 - [x] Strengthen the model instruction so it distinguishes personalized missing context from direct-answer requests while leaving the decision with the model.
+- [x] Reset any already-streamed text if a provider incorrectly mixes prose with an `ask_user` tool call, so the interrupted generation cannot remain visible beside the Ask card.
 
 ## Task 3: Verification and delivery
 
@@ -49,4 +50,5 @@ The application must not contain a request-keyword policy, a fixed question set,
 
 - The real model routed `我想制作一个长期的训练计划，学习骑行` to `AskRequest` with four model-generated question IDs (`experience`, `goal`, `weekly_hours`, `bike_environment`).
 - The same real model routed `想花费一个星期，在广西旅游一下，推荐一下攻略` to a normal `ModelResponse` without Ask.
+- Mixed text/tool regression coverage: focused model/conversation tests 33 passed; normal direct-answer streaming remains covered.
 - No model answer text, key, local database, memory, or evaluation report was printed to the repository or staged.
