@@ -35,6 +35,9 @@ CREATE TABLE IF NOT EXISTS runs (
     budget_json TEXT NOT NULL DEFAULT '{}',
     skill_names_json TEXT NOT NULL DEFAULT '[]',
     source_turn_id TEXT,
+    source_plan_document_id TEXT,
+    source_plan_document_version_id TEXT,
+    source_plan_content_hash TEXT,
     error_json TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
@@ -359,6 +362,12 @@ class Database:
                 connection.execute("ALTER TABLE runs ADD COLUMN skill_names_json TEXT NOT NULL DEFAULT '[]'")
             if "source_turn_id" not in run_columns:
                 connection.execute("ALTER TABLE runs ADD COLUMN source_turn_id TEXT")
+            if "source_plan_document_id" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN source_plan_document_id TEXT")
+            if "source_plan_document_version_id" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN source_plan_document_version_id TEXT")
+            if "source_plan_content_hash" not in run_columns:
+                connection.execute("ALTER TABLE runs ADD COLUMN source_plan_content_hash TEXT")
             connection.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_runs_source_turn "
                 "ON runs(source_turn_id) WHERE source_turn_id IS NOT NULL"

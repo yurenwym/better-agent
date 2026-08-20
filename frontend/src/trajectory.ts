@@ -63,11 +63,21 @@ function text(data: Record<string, unknown>, key: string, fallback = ""): string
   return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
 }
 
+function planVersion(data: Record<string, unknown>): string {
+  return text(data, "version", text(data, "document_version", "?"));
+}
+
 function stateLabel(value: string): string {
   return stateLabels[value] ?? value.toLowerCase().replaceAll("_", " ");
 }
 
-function make(event: EventRecord | ThreadEvent, stage: TrajectoryStage, title: string, detail: string): TrajectoryItem {
+function make(
+  event: EventRecord | ThreadEvent,
+  stage: TrajectoryStage,
+  title: string,
+  detail: string,
+  toneOverride?: TrajectoryTone,
+): TrajectoryItem {
   const meta = stageMeta[stage];
   return {
     event,
@@ -75,7 +85,7 @@ function make(event: EventRecord | ThreadEvent, stage: TrajectoryStage, title: s
     occurredAt: event.occurred_at,
     stage,
     stageLabel: meta.label,
-    tone: meta.tone,
+    tone: toneOverride ?? meta.tone,
     title,
     detail,
   };
@@ -195,6 +205,26 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
       return make(event, "interaction", "本轮对话已开始", "正在安排模型回答");
     case "turn.policy_decided":
       return make(event, "model", "已确定回答方式", "模型已完成本轮路由判断");
+    case "plan.document_prepared":
+      return make(event, "plan", "正在准备保存计划", `已校验计划内容，准备写入本地版本 v${planVersion(data)}`);
+    case "plan.document_version_created":
+      return make(event, "plan", "计划版本已创建", `本地账本已记录计划 v${planVersion(data)}`);
+    case "plan.document_ready":
+      return make(event, "plan", "计划已保存", `已保存到计划 · v${planVersion(data)}，可以打开计划页面查看`);
+    case "plan.document_failed":
+      return make(event, "plan", "计划保存失败", text(data, "reason", "计划文件写入未完成，可以重试"), "danger");
+    case "plan.document_conflict":
+      return make(event, "plan", "计划文件存在冲突", "检测到计划页面或本地文件有并发修改，请比较后再保存", "danger");
+    case "plan.context_loaded":
+      return make(event, "context", `已加载计划 v${planVersion(data)}`, text(data, "cropped") === "true" || data.cropped === true
+        ? "本轮使用了计划的确定性裁剪上下文"
+        : "本轮回答已固定读取当前已提交版本");
+    case "plan.execution_projection_started":
+      return make(event, "plan", "正在生成执行预览", `正在基于计划 v${planVersion(data)} 整理可执行步骤`);
+    case "plan.execution_projection_created":
+      return make(event, "plan", "执行预览已生成", `已基于计划 v${planVersion(data)} 创建预览，等待你的确认`);
+    case "plan.execution_projection_failed":
+      return make(event, "plan", "执行预览生成失败", text(data, "reason", "计划无法编译为可执行步骤"), "danger");
     case "message.started":
       return make(event, "model", "正在生成回答", "模型回答会实时显示在左侧对话框");
     case "message.delta":

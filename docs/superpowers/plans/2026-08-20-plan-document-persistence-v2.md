@@ -1,5 +1,9 @@
 # Plan Document Persistence V2 Implementation Plan
 
+## Execution status — 2026-08-20
+
+Tasks 0–7 implementation and deterministic verification are complete on `codex/personal-agent-v1`. The current evidence is `199` backend tests passed with one Windows-only symlink test skipped, `89` frontend tests passed, TypeScript/Vite production build passed, Python compilation passed, and the specified `LLM_AP.txt` live acceptance completed in an isolated D-drive temporary runtime. The requested read-only code review remains the final gate before handoff; generated data, model output, secrets, and evaluation artifacts remain local and ignored.
+
 > For agentic workers: REQUIRED SUB-SKILL: superpowers:executing-plans. Execute each checkbox task in order.
 >
 > Goal: Implement the V2 Conversation-owned Markdown plan document, SQLite revision ledger, durable file projection, CAS editing, fixed-version context, refresh-safe UI, and execution snapshots.
@@ -187,4 +191,3 @@
 - An execution Run pins one document version/hash and is not silently changed by later document edits.
 - Before structured PlanVersion approval, tool execution count remains zero.
 - Retry, duplicate POST, worker lease retry, SSE reconnect, service restart, and model generation reset do not create duplicate committed versions.
-

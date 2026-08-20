@@ -162,6 +162,58 @@ describe("ChatPage streaming bootstrap", () => {
     expect(rail.querySelector(".activity-list")?.textContent).toContain("本轮对话完成");
   });
 
+  it("shows the document title and fixed version before execution confirmation", async () => {
+    api.getThread.mockResolvedValue({
+      id: "thread-1",
+      title: "Chat",
+      version: 1,
+      active_turn_id: "turn-1",
+      next_event_seq: 3,
+      turns: [{
+        id: "turn-1",
+        thread_id: "thread-1",
+        client_turn_id: "client-1",
+        parent_turn_id: null,
+        status: "AWAITING_DIRECTION",
+        policy: "propose_execution",
+        content_shape: "tracking",
+        reason_code: "explicit_tracking",
+        version: 1,
+        skill_names: [],
+        materialized_goal_id: null,
+        materialized_run_id: null,
+        direction_action: null,
+        direction_idempotency_key: null,
+        created_at: "2026-08-19T00:00:00Z",
+        updated_at: "2026-08-19T00:00:01Z",
+      }],
+    });
+    api.getThreadEvents.mockResolvedValue({ events: [{
+      schema_version: 1,
+      event_id: "event-context",
+      seq: 2,
+      thread_id: "thread-1",
+      turn_id: "turn-1",
+      type: "plan.context_loaded",
+      occurred_at: "2026-08-19T00:00:01Z",
+      actor: "worker",
+      data: { title: "Training plan", version: 3, plan_document_id: "plan-1" },
+    }] });
+
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={null}
+        threadId="thread-1"
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("region", { name: "这项请求需要确认" }).textContent).toContain("Training plan · v3"));
+  });
+
   it("does not expose budget recovery during ordinary execution", () => {
     render(
       <ChatPage

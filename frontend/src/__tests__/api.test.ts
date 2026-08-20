@@ -1,8 +1,38 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, getBootstrap, getPendingAsk, getSkills, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
+  it("loads and saves a conversation-owned Markdown plan with CAS metadata", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "plan-1" }) })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ version: 2 }) });
+
+    await getThreadPlan("thread-1", fetcher);
+    await getPlanDocument("plan-1", fetcher);
+    await putPlanDocument("plan-1", {
+      expected_version: 1,
+      expected_content_hash: "sha256:hash",
+      title: "Plan",
+      markdown: "# Plan\n",
+      change_summary: "edit",
+    }, "csrf", fetcher);
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/threads/thread-1/plan");
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/plans/plan-1");
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/plans/plan-1", expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({
+        expected_version: 1,
+        expected_content_hash: "sha256:hash",
+        title: "Plan",
+        markdown: "# Plan\n",
+        change_summary: "edit",
+      }),
+    }));
+  });
+
   it("sends JSON and CSRF headers for goal creation", async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "g1" }) });
 

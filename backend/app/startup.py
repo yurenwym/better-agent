@@ -33,7 +33,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     gateway = ModelGateway(configured_profile) if configured_profile else None
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
     conversation_model = LiveConversationModel(gateway) if gateway else None
-    return AgentRuntime(
+    runtime = AgentRuntime(
         db=db,
         events=events,
         plans=PlanVersionService(db),
@@ -44,3 +44,5 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         model=model,
         conversation_model=conversation_model,
     )
+    runtime.plan_documents.recover_pending_intents()
+    return runtime

@@ -17,7 +17,11 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        worker = getattr(getattr(app.state, "runtime", None), "turn_worker", None)
+        runtime = getattr(app.state, "runtime", None)
+        plan_documents = getattr(runtime, "plan_documents", None)
+        if plan_documents is not None:
+            plan_documents.recover_pending_intents()
+        worker = getattr(runtime, "turn_worker", None)
         if worker is not None:
             await worker.start()
         try:

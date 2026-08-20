@@ -27,9 +27,13 @@ def test_plan_document_limits_title_and_markdown_size() -> None:
     with pytest.raises(PlanDocumentValidationError):
         validate_title("")
     with pytest.raises(PlanDocumentValidationError):
+        validate_title("   ")
+    with pytest.raises(PlanDocumentValidationError):
         validate_title("x" * 121)
     with pytest.raises(PlanDocumentValidationError):
         validate_document_content("x" * (1024 * 1024 + 1))
+    with pytest.raises(PlanDocumentValidationError):
+        validate_document_content(" \n")
 
 
 def test_database_creates_plan_document_tables_and_links(tmp_path) -> None:

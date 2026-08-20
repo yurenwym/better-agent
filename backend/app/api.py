@@ -6,10 +6,11 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
 
 from .ask import AskValidationError
 from .events import export_jsonl
+from .plan_documents import PlanDocumentConflict, PlanDocumentValidationError
 
 
 async def _event_stream(service, run_id: str, request: Request, after_seq: int, follow: bool):
@@ -140,6 +141,143 @@ def register_routes(app) -> None:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.get("/api/threads/{thread_id}/plan")
+    async def get_thread_plan(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            service.thread(thread_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        try:
+            document = service.plan_documents.get_by_thread(thread_id)
+        except KeyError:
+            return {"plan": None}
+        return {"plan": _plan_document_json(document, service.plan_documents)}
+
+    @app.get("/api/plans/{plan_document_id}")
+    async def get_plan_document(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            document = service.plan_documents.get_document(plan_document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        return _plan_document_json(document, service.plan_documents)
+
+    @app.get("/api/plans/{plan_document_id}/versions")
+    async def get_plan_versions(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            service.plan_documents.get_document(plan_document_id)
+            versions = service.plan_documents.list_versions(plan_document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        return {"versions": [_plan_document_version_json(version) for version in versions]}
+
+    @app.get("/api/plans/{plan_document_id}/versions/{version}")
+    async def get_plan_version(plan_document_id: str, version: int, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            service.plan_documents.get_document(plan_document_id)
+            selected = next(
+                item for item in service.plan_documents.list_versions(plan_document_id)
+                if item.version == version
+            )
+        except (KeyError, StopIteration) as exc:
+            raise HTTPException(status_code=404, detail="plan version not found") from exc
+        return _plan_document_version_json(selected)
+
+    @app.get("/api/plans/{plan_document_id}/file")
+    async def get_plan_file(plan_document_id: str, service=Depends(runtime)) -> PlainTextResponse:
+        try:
+            document = service.plan_documents.get_document(plan_document_id)
+            path = service.plan_documents.path_for(document.id)
+            content = path.read_text(encoding="utf-8")
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
+
+    @app.put("/api/plans/{plan_document_id}", dependencies=[Depends(mutate)], response_model=None)
+    async def update_plan_document(
+        plan_document_id: str,
+        payload: dict[str, Any],
+        service=Depends(runtime),
+    ) -> dict[str, Any] | JSONResponse:
+        try:
+            document = service.plan_documents.get_document(plan_document_id)
+            current = service.plan_documents.current_version(plan_document_id)
+            expected_version = _required_int(payload, "expected_version")
+            expected_hash = payload.get("expected_content_hash", payload.get("expected_file_hash"))
+            if not isinstance(expected_hash, str) or not expected_hash:
+                raise ValueError("expected_content_hash is required")
+            markdown = payload.get("markdown")
+            title = payload.get("title")
+            if not isinstance(markdown, str) or not isinstance(title, str):
+                raise ValueError("title and markdown are required")
+            if expected_version != current.version:
+                raise PlanDocumentConflict("plan document head conflict")
+            revision = service.plan_documents.save_model_revision(
+                thread_id=document.thread_id,
+                title=title,
+                markdown_content=markdown,
+                source_turn_id=None,
+                source_message_id=None,
+                actor="user",
+                expected_version_id=current.id,
+                expected_file_hash=expected_hash,
+                change_summary=str(payload.get("change_summary", "")),
+            )
+        except (PlanDocumentConflict, KeyError) as exc:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": str(exc), "current": _current_plan_conflict(service, plan_document_id)},
+            )
+        except PlanDocumentValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return _plan_document_version_json(revision)
+
+    @app.post("/api/plans/{plan_document_id}/restore", dependencies=[Depends(mutate)])
+    async def restore_plan_document(
+        plan_document_id: str,
+        payload: dict[str, Any],
+        service=Depends(runtime),
+    ) -> dict[str, Any]:
+        expected_hash = payload.get("expected_content_hash", payload.get("expected_file_hash"))
+        if not isinstance(expected_hash, str) or not expected_hash:
+            raise HTTPException(status_code=422, detail="expected_content_hash is required")
+        try:
+            version = _required_int(payload, "version")
+            restored = service.plan_documents.restore_version(
+                plan_document_id,
+                version,
+                expected_version=_required_int(payload, "expected_version"),
+                expected_file_hash=expected_hash,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        except (PlanDocumentConflict, StopIteration, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return _plan_document_version_json(restored)
+
+    @app.post("/api/plans/{plan_document_id}/sync-file", dependencies=[Depends(mutate)])
+    async def sync_plan_file(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            revision = service.plan_documents.sync_file(plan_document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        except PlanDocumentValidationError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except PlanDocumentConflict as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return _plan_document_version_json(revision)
+
+    @app.post("/api/plans/{plan_document_id}/retry-projection", dependencies=[Depends(mutate)])
+    async def retry_plan_projection(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            document = service.plan_documents.retry_projection(plan_document_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        return _plan_document_json(document, service.plan_documents)
 
     @app.post("/api/threads/{thread_id}/turns", status_code=202, dependencies=[Depends(mutate)])
     async def post_turn(
@@ -473,6 +611,9 @@ def _run_json(run, service) -> dict[str, Any]:
         "budget": _public_budget(run.budget),
         "pending_approvals": [approval.id for approval in service.pending_approvals(run.id)],
         "skill_names": list(run.skill_names),
+        "source_plan_document_id": run.source_plan_document_id,
+        "source_plan_document_version_id": run.source_plan_document_version_id,
+        "source_plan_content_hash": run.source_plan_content_hash,
     }
 
 
@@ -498,6 +639,9 @@ def _turn_json(turn) -> dict[str, Any]:
         "policy": turn.policy,
         "content_shape": turn.content_shape,
         "reason_code": turn.reason_code,
+        "artifact_kind": turn.artifact_kind,
+        "artifact_operation": turn.artifact_operation,
+        "artifact_title": turn.artifact_title,
         "version": turn.version,
         "skill_names": list(turn.skill_names),
         "materialized_goal_id": turn.materialized_goal_id,
@@ -531,9 +675,75 @@ def _thread_message_json(message) -> dict[str, Any]:
         "status": message.status,
         "generation": message.generation,
         "content_length": message.content_length,
+        "plan_document_version_id": message.plan_document_version_id,
         "created_at": message.created_at,
         "completed_at": message.completed_at,
     }
+
+
+def _plan_document_json(document, service) -> dict[str, Any]:
+    current = None
+    if document.current_version_id:
+        try:
+            current = _plan_document_version_json(service.get_version(document.current_version_id))
+        except KeyError:
+            current = None
+    return {
+        "id": document.id,
+        "thread_id": document.thread_id,
+        "title": document.title,
+        "current_version_id": document.current_version_id,
+        "projected_version_id": document.projected_version_id,
+        "file_status": document.file_status,
+        "file_path": f"plans/{document.id}/plan.md",
+        "created_at": document.created_at,
+        "updated_at": document.updated_at,
+        "current": current,
+        "versions": [_plan_document_version_json(item) for item in service.list_versions(document.id)],
+    }
+
+
+def _plan_document_version_json(version) -> dict[str, Any]:
+    return {
+        "id": version.id,
+        "plan_document_id": version.plan_document_id,
+        "version": version.version,
+        "base_version_id": version.base_version_id,
+        "title": version.title,
+        "markdown": version.markdown_content,
+        "content_hash": version.content_hash,
+        "source_turn_id": version.source_turn_id,
+        "source_message_id": version.source_message_id,
+        "actor": version.actor,
+        "change_summary": version.change_summary,
+        "status": version.status,
+        "created_at": version.created_at,
+        "committed_at": version.committed_at,
+    }
+
+
+def _current_plan_conflict(service, document_id: str) -> dict[str, Any] | None:
+    try:
+        document = service.plan_documents.get_document(document_id)
+        current = service.plan_documents.current_version(document_id)
+    except KeyError:
+        return None
+    return {
+        "id": document.id,
+        "version": current.version,
+        "version_id": current.id,
+        "title": current.title,
+        "markdown": current.markdown_content,
+        "content_hash": current.content_hash,
+        "file_status": document.file_status,
+    }
+
+
+def _required_int(payload: dict[str, Any], key: str) -> int:
+    value = payload.get(key)
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{key} must be an integer")
+    return value
 
 
 def _thread_event_json(event) -> dict[str, Any]:
@@ -558,6 +768,7 @@ def _plan_json(plan) -> dict[str, Any]:
         "version": plan.version,
         "status": plan.status,
         "summary": plan.summary,
+        "source_document_version_id": plan.source_document_version_id,
         "steps": [
             {
                 "id": step.id,

@@ -4,17 +4,26 @@ import json
 import pytest
 
 
-def _prepared_service(tmp_path, *, content="# v1\n", expected_hash=None):
+def _prepared_service(tmp_path, *, content="# v1\n", expected_hash=None, with_events=False):
     from app.db import Database
     from app.plan_documents import PlanDocumentService, content_hash
 
     db = Database(tmp_path / "agent.db")
-    service = PlanDocumentService(db, tmp_path / "data")
+    events = None
+    if with_events:
+        from app.events import ThreadEventStore
+
+        events = ThreadEventStore(db)
+    service = PlanDocumentService(db, tmp_path / "data", events=events)
     document_id = "plan_" + "c" * 32
     version_id = "planv_" + "d" * 32
     intent_id = "intent_" + "e" * 32
     target_hash = content_hash(content)
     with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO threads(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            ("thread-1", "Thread", "now", "now"),
+        )
         connection.execute(
             "INSERT INTO plan_documents(id, thread_id, title, file_status, created_at, updated_at) "
             "VALUES (?, ?, ?, 'pending', 'now', 'now')",
@@ -64,6 +73,18 @@ def test_recover_third_hash_marks_conflict_without_overwriting_file(tmp_path) ->
     assert service.get_version(version_id).status == "prepared"
     assert service.get_document(document_id).file_status == "conflict"
     assert service.path_for(document_id).read_text(encoding="utf-8") == "external\n"
+
+
+def test_recover_third_hash_emits_conflict_event_without_markdown(tmp_path) -> None:
+    service, document_id, version_id, _ = _prepared_service(tmp_path, with_events=True)
+    service.projector.project(document_id, "external\n")
+
+    service.recover_pending_intents()
+
+    conflicts = [event for event in service.events.list("thread-1") if event.type == "plan.document_conflict"]
+    assert len(conflicts) == 1
+    assert conflicts[0].data["version_id"] == version_id
+    assert "markdown_content" not in conflicts[0].data
 
 
 def test_recover_committed_missing_file_rebuilds_from_sqlite(tmp_path) -> None:

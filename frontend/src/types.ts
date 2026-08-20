@@ -37,6 +37,9 @@ export interface Run {
   budget: Record<string, unknown>;
   pending_approvals: string[];
   skill_names?: string[];
+  source_plan_document_id?: string | null;
+  source_plan_document_version_id?: string | null;
+  source_plan_content_hash?: string | null;
 }
 
 export interface MessageRecord {
@@ -49,6 +52,7 @@ export interface MessageRecord {
   streaming?: boolean;
   generation?: number;
   status?: string;
+  plan_document_version_id?: string | null;
 }
 
 export type TurnStatus =
@@ -71,6 +75,9 @@ export interface Turn {
   policy: "answer" | "propose_execution" | "clarify" | null;
   content_shape: string | null;
   reason_code: string | null;
+  artifact_kind?: string | null;
+  artifact_operation?: string | null;
+  artifact_title?: string | null;
   version: number;
   skill_names: string[];
   materialized_goal_id: string | null;
@@ -131,6 +138,7 @@ export interface ThreadMessage {
   status: "ready" | "streaming" | "interrupted" | "cancelled";
   generation: number;
   content_length: number;
+  plan_document_version_id?: string | null;
   created_at: string;
   completed_at: string | null;
 }
@@ -169,11 +177,47 @@ export interface PlanVersion {
   status: string;
   summary: string;
   steps: PlanStep[];
+  source_document_version_id?: string | null;
 }
 
 export interface PlanResponse {
   current: PlanVersion | null;
   history: PlanVersion[];
+}
+
+export interface PlanDocumentVersion {
+  id: string;
+  plan_document_id: string;
+  version: number;
+  base_version_id: string | null;
+  title: string;
+  markdown: string;
+  content_hash: string;
+  source_turn_id: string | null;
+  source_message_id: string | null;
+  actor: "model" | "user" | "filesystem" | "restore" | string;
+  change_summary: string;
+  status: "prepared" | "committed" | "abandoned" | string;
+  created_at: string;
+  committed_at: string | null;
+}
+
+export interface PlanDocument {
+  id: string;
+  thread_id: string;
+  title: string;
+  current_version_id: string | null;
+  projected_version_id: string | null;
+  file_status: "pending" | "ready" | "conflict" | "failed" | string;
+  file_path: string;
+  created_at: string;
+  updated_at: string;
+  current: PlanDocumentVersion | null;
+  versions: PlanDocumentVersion[];
+}
+
+export interface ThreadPlanResponse {
+  plan: PlanDocument | null;
 }
 
 export interface EventRecord {

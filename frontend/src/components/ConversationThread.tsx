@@ -17,6 +17,8 @@ interface ConversationThreadProps {
   askBusy?: boolean;
   onAskAnswer?: (answers: AskAnswer[]) => void | Promise<void>;
   onAskCancel?: () => void;
+  planReference?: { planDocumentId: string; version: number; messageId: string } | null;
+  onOpenPlan?: (planDocumentId: string) => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
@@ -36,7 +38,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -95,6 +97,12 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
                 {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
               </div>
+              {assistant && planReference?.messageId === message.id && (
+                <div className="plan-reference-card" role="status">
+                  <div><strong>已保存到计划 · v{planReference.version}</strong><span>这份回答已作为可编辑 Markdown 版本保存</span></div>
+                  <button className="button button-secondary" type="button" onClick={() => onOpenPlan?.(planReference.planDocumentId)}>查看 / 编辑计划</button>
+                </div>
+              )}
             </div>
           );
           return (

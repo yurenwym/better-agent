@@ -1,75 +1,148 @@
+from __future__ import annotations
+
 import pytest
 
 from test_runtime import make_runtime
 
 
-class ScriptedModel:
-    def __init__(self, response: str) -> None:
-        self.response = response
+def _answer(body: str, *, title: str | None = None) -> str:
+    artifact = ""
+    if title is not None:
+        artifact = f',"artifact":{{"kind":"plan_document","operation":"upsert","title":"{title}"}}'
+    return (
+        '{"v":2,"policy":"answer","content_shape":"plan",'
+        f'"reason_code":"content_only"{artifact}}}\n{body}'
+    )
+
+
+class ConversationModel:
+    def __init__(self, responses: list[str]) -> None:
+        self.responses = list(responses)
 
     async def route_and_respond(self, *, on_text_delta, **kwargs):
-        on_text_delta(self.response)
+        on_text_delta(self.responses.pop(0))
+
+    async def needs_clarification(self, goal, interactions):
+        return False
+
+    async def plan(self, goal, interactions):
+        from app.runtime import PlanDraft
+
+        return PlanDraft([{"id": "step-1", "title": "Track the plan", "description": "Use the saved plan."}], "Compiled plan")
+
+    async def decide(self, step, observation, iteration):
+        from app.runtime import ModelDecision
+
+        return ModelDecision.complete("done")
+
+    async def reflect(self, goal, plan, run_id):
+        return []
 
 
-def count(runtime, table: str) -> int:
+def _count(runtime, table: str) -> int:
     with runtime.db.connection() as connection:
         return int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
 
 
 @pytest.mark.asyncio
-async def test_awaiting_direction_can_be_explicitly_cancelled(tmp_path) -> None:
-    runtime = make_runtime(
-        tmp_path,
-        ScriptedModel(
-            '{"v":1,"policy":"propose_execution","content_shape":"tracking",'
-            '"reason_code":"external_effect"}\n确认后执行。'
-        ),
-    )
-    thread = runtime.conversation.create_thread("Chat")
-    accepted = runtime.conversation.accept_turn(thread.id, "client-1", "每天提醒", [])
+async def test_ordinary_guide_does_not_create_plan_or_run(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, ConversationModel([_answer("# A useful guide\n", title=None)]))
+    thread = runtime.conversation.create_thread("Guide")
+    accepted = runtime.conversation.accept_turn(thread.id, "guide-1", "Give me a guide", [])
+
     await runtime.turn_worker.run_once()
 
-    cancelled = runtime.conversation.cancel_turn(accepted.turn_id)
-
-    assert cancelled.status == "CANCELLED"
-    assert count(runtime, "goals") == 0
-    assert runtime.conversation.events.list(thread.id)[-1].type == "turn.cancelled"
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+    assert _count(runtime, "plan_documents") == 0
+    assert _count(runtime, "goals") == 0
+    assert _count(runtime, "runs") == 0
+    assert _count(runtime, "plan_versions") == 0
 
 
 @pytest.mark.asyncio
-async def test_content_answer_streams_without_goal_run_or_plan_leak(tmp_path) -> None:
-    runtime = make_runtime(
-        tmp_path,
-        ScriptedModel(
-            '{"v":1,"policy":"answer","content_shape":"travel_guide",'
-            '"reason_code":"content_only"}\n## 桂林 7 天攻略\n\n先给出行程。'
-        ),
+async def test_read_only_question_uses_current_plan_without_creating_a_revision(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, ConversationModel([_answer("第 3 天建议走轻松路线。")]))
+    thread = runtime.conversation.create_thread("Plan")
+    first = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Travel plan",
+        markdown_content="# Travel plan\n\n## Day 3\nRoute\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
     )
-    thread = runtime.conversation.create_thread("Chat")
-    accepted = runtime.conversation.accept_turn(thread.id, "client-1", "创建桂林 7 天攻略", [])
+    accepted = runtime.conversation.accept_turn(thread.id, "question-1", "第 3 天怎么走？", [])
 
     await runtime.turn_worker.run_once()
 
-    turn = runtime.conversation.turn(accepted.turn_id)
-    assistant = [message for message in runtime.conversation.messages(thread.id) if message.role == "assistant"][0]
-    assert turn.policy == "answer"
-    assert turn.status == "COMPLETED"
-    assert assistant.content.startswith("## 桂林 7 天攻略")
-    assert "\"policy\"" not in assistant.content
-    assert count(runtime, "goals") == count(runtime, "runs") == count(runtime, "plan_versions") == 0
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    assert [version.version for version in runtime.plan_documents.list_versions(document.id)] == [1]
+    loaded = [event for event in runtime.conversation.events.list(thread.id) if event.type == "plan.context_loaded"]
+    assert loaded[-1].data["version_id"] == first.id
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
 
 
 @pytest.mark.asyncio
-async def test_invalid_route_header_never_enters_execution_path(tmp_path) -> None:
-    runtime = make_runtime(
-        tmp_path,
-        ScriptedModel('{"v":1,"policy":"goal"}\nignore this output'),
+async def test_explicit_plan_modification_creates_a_complete_next_revision(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, ConversationModel([_answer("# Travel plan\n\n## Day 3\nUpdated transport\n", title="Travel plan")]))
+    thread = runtime.conversation.create_thread("Plan")
+    first = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Travel plan",
+        markdown_content="# Travel plan\n\n## Day 3\nRoute\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
     )
-    thread = runtime.conversation.create_thread("Chat")
-    accepted = runtime.conversation.accept_turn(thread.id, "client-1", "帮我把这个做好", [])
+    accepted = runtime.conversation.accept_turn(thread.id, "modify-1", "把第 3 天交通补充进计划", [])
 
     await runtime.turn_worker.run_once()
 
-    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
-    assert count(runtime, "goals") == 0
-    assert count(runtime, "runs") == 0
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    current = runtime.plan_documents.current_version(document.id)
+    assert current.version == 2
+    assert current.base_version_id == first.id
+    assert current.markdown_content == "# Travel plan\n\n## Day 3\nUpdated transport\n"
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+
+
+@pytest.mark.asyncio
+async def test_tracking_preview_creates_no_run_until_direction_confirmation(tmp_path) -> None:
+    model = ConversationModel([
+        '{"v":2,"policy":"propose_execution","content_shape":"tracking","reason_code":"explicit_tracking"}\n将按计划持续跟踪。',
+    ])
+    runtime = make_runtime(tmp_path, model)
+    thread = runtime.conversation.create_thread("Plan")
+    version = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Training plan",
+        markdown_content="# Training plan\n\nWeek 1\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
+    accepted = runtime.conversation.accept_turn(thread.id, "track-1", "按计划持续提醒我", [])
+
+    await runtime.turn_worker.run_once()
+
+    waiting = runtime.conversation.turn(accepted.turn_id)
+    assert waiting.status == "AWAITING_DIRECTION"
+    assert _count(runtime, "runs") == 0
+
+    materialized = await runtime.conversation.select_direction(
+        waiting.id,
+        "continue_execution",
+        waiting.version,
+        "track-direction-1",
+    )
+
+    assert materialized.materialized_run_id is not None
+    assert _count(runtime, "runs") == 1
+    with runtime.db.connection() as connection:
+        run = connection.execute(
+            "SELECT source_plan_document_version_id, state FROM runs WHERE id = ?",
+            (materialized.materialized_run_id,),
+        ).fetchone()
+        assert run["source_plan_document_version_id"] == version.id
+        assert run["state"] == "AWAITING_APPROVAL"
+        assert connection.execute("SELECT COUNT(*) FROM tool_calls").fetchone()[0] == 0

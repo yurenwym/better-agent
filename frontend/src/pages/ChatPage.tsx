@@ -32,7 +32,7 @@ interface ChatPageProps {
   onThread?: (threadId: string) => void;
   onRun: (run: Run) => void;
   onOpenTrajectory: () => void;
-  onOpenPlan: () => void;
+  onOpenPlan: (planDocumentId?: string) => void;
 }
 
 function isReactBudgetBlocked(run: Run): boolean {
@@ -231,6 +231,14 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     && threadTelemetry.activeTurn.policy === "propose_execution"
     ? threadTelemetry.activeTurn
     : null;
+  const directionContext = directionTurn
+    ? [...threadTelemetry.events].reverse().find((event) => event.turn_id === directionTurn.id && event.type === "plan.context_loaded")
+    : null;
+  const directionSource = directionContext
+    && typeof directionContext.data.title === "string"
+    && typeof directionContext.data.version === "number"
+    ? `${directionContext.data.title} · v${directionContext.data.version}`
+    : null;
   const decision = approvalRun ? {
     title: "计划已经准备好",
     description: "批准后开始执行；需要调整步骤可以先修改计划。",
@@ -241,7 +249,9 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     onSecondary: onOpenPlan,
   } : directionTurn ? {
     title: "这项请求需要确认",
-    description: "确认后才会创建执行任务并进入计划、审批和轨迹流程。",
+    description: directionSource
+      ? `确认后将基于 ${directionSource} 创建执行任务，并进入计划、审批和轨迹流程。`
+      : "确认后才会创建执行任务并进入计划、审批和轨迹流程。",
     primaryLabel: "继续执行",
     secondaryLabel: "修改方案",
     busy: actionBusy,
@@ -258,6 +268,17 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       ...telemetry.messages.filter((message) => !(message.role === "user" && threadTelemetry.messages.some((item) => item.role === "user" && item.content === message.content))),
     ]
     : telemetry.messages;
+  const readyEvent = [...threadTelemetry.events].reverse().find((event) => event.type === "plan.document_ready");
+  const planReference = readyEvent
+    && typeof readyEvent.data.plan_document_id === "string"
+    && typeof readyEvent.data.version === "number"
+    && typeof readyEvent.data.source_message_id === "string"
+    ? {
+      planDocumentId: readyEvent.data.plan_document_id,
+      version: readyEvent.data.version,
+      messageId: readyEvent.data.source_message_id,
+    }
+    : null;
 
   return (
     <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
@@ -275,6 +296,8 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           askBusy={askBusy}
           onAskAnswer={submitAskAnswers}
           onAskCancel={() => { if (activeTurn) void cancelCurrentTurn(activeTurn.id); }}
+          planReference={planReference}
+          onOpenPlan={onOpenPlan}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}

@@ -17,6 +17,7 @@ export function hydrateThreadMessages(messages: ThreadMessage[]): MessageRecord[
     streaming: message.status === "streaming",
     generation: message.generation,
     status: message.status,
+    plan_document_version_id: message.plan_document_version_id,
   }));
 }
 

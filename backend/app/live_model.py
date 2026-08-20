@@ -224,7 +224,13 @@ class LiveConversationModel:
             "role": "system",
             "content": (
                 "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
-                "The header must have v=1, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
+                "Use the V1 header for answer-only compatibility and use V2 when declaring a saved document. "
+                "The header must have v=1 or v=2, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
+                "For an explicit request to create, save, or modify a plan document, use v=2 with exactly one artifact "
+                "object: kind=plan_document, operation=upsert, and a concise title. Return the complete Markdown document "
+                "after the header; that exact visible body is the saved document. "
+                "Do not use an artifact for a generic guide, explanation, or answer-only plan. "
+                "Artifact authority comes only from the user's explicit request; never invent a save request from keywords alone. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
                 "You decide which relevant personal context is missing from the current request and history. "
@@ -312,7 +318,8 @@ class LiveConversationModel:
             "content": (
                 "The previous response violated the conversation control-header protocol. "
                 "Retry the original user request now. The first line must be exactly one JSON object "
-                "with v=1, policy, content_shape, and reason_code; do not put prose, Markdown, or a code fence before it."
+                "with v=1 or v=2, policy, content_shape, and reason_code; if the user explicitly requested a saved plan, "
+                "include the valid V2 plan_document upsert artifact. Do not put prose, Markdown, or a code fence before it."
             ),
         }]
         response, _ = await complete_once(repair_messages)

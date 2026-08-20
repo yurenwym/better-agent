@@ -27,6 +27,7 @@ data/*.db-*
 data/*.log
 data/memory/
 data/artifacts/
+data/plans/
 evals/results/
 
 # Local graph analysis output

@@ -80,4 +80,35 @@ describe("trajectory view model", () => {
     expect(item.title).toBe("本轮对话完成");
     expect(item.detail).toContain("加入对话");
   });
+
+  it("describes plan document lifecycle events in user-facing language", () => {
+    expect(describeThreadEvent(threadEvent("plan.document_prepared", {
+      plan_document_id: "plan_123",
+      version: 1,
+    })).title).toBe("正在准备保存计划");
+    expect(describeThreadEvent(threadEvent("plan.document_version_created", {
+      plan_document_id: "plan_123",
+      version: 1,
+    })).detail).toContain("v1");
+    expect(describeThreadEvent(threadEvent("plan.document_ready", {
+      plan_document_id: "plan_123",
+      version: 1,
+    })).title).toBe("计划已保存");
+    expect(describeThreadEvent(threadEvent("plan.document_failed", {
+      reason: "projection unavailable",
+    })).detail).toContain("projection unavailable");
+  });
+
+  it("describes plan context and execution projection events", () => {
+    expect(describeThreadEvent(threadEvent("plan.context_loaded", {
+      version: 2,
+      cropped: false,
+    })).title).toBe("已加载计划 v2");
+    expect(describeThreadEvent(threadEvent("plan.execution_projection_created", {
+      version: 2,
+    })).stage).toBe("plan");
+    expect(describeThreadEvent(threadEvent("plan.execution_projection_failed", {
+      reason: "编译失败",
+    })).tone).toBe("danger");
+  });
 });

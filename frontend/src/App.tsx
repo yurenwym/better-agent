@@ -29,10 +29,14 @@ const stateLabels: Record<string, string> = {
 };
 
 export default function App() {
-  const [page, setPage] = useState<WorkspacePage>("chat");
+  const [page, setPage] = useState<WorkspacePage>(() => typeof window !== "undefined" && /^\/plans\//.test(window.location.pathname) ? "plan" : "chat");
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
+  const [planId, setPlanId] = useState<string | null>(() => {
+    const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/plans\/([^/]+)$/) : null;
+    return match?.[1] ?? null;
+  });
 
   useEffect(() => {
     getBootstrap().then(setBootstrap).catch(() => undefined);
@@ -50,7 +54,7 @@ export default function App() {
         bootstrap={bootstrap}
         run={run}
         onNavigate={setPage}
-        onNewConversation={() => { setRun(null); setThreadId(null); setPage("chat"); }}
+        onNewConversation={() => { setRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
         {!fluidPage && (
@@ -75,8 +79,8 @@ export default function App() {
         )}
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={() => setPage("plan")} />}
-          {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} onRun={setRun} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
+          {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}
         </div>

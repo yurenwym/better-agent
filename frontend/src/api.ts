@@ -6,6 +6,8 @@ import type {
   GoalResponse,
   MessageRecord,
   MemoryRecord,
+  PlanDocument,
+  PlanDocumentVersion,
   PlanResponse,
   PlanVersion,
   Run,
@@ -14,10 +16,23 @@ import type {
   Thread,
   ThreadEvent,
   ThreadMessage,
+  ThreadPlanResponse,
   Turn,
 } from "./types";
 
 export type Fetcher = typeof fetch;
+
+export class ApiError extends Error {
+  readonly status: number;
+  readonly payload: unknown;
+
+  constructor(message: string, status: number, payload: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.payload = payload;
+  }
+}
 
 function readableError(raw: string, fallback: string): string {
   if (!raw) return fallback;
@@ -34,6 +49,19 @@ async function json<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const detail = await response.text();
     throw new Error(readableError(detail, `请求失败（${response.status}）`));
+  }
+  return response.json() as Promise<T>;
+}
+
+async function planJson<T>(response: Response): Promise<T> {
+  if (!response.ok) {
+    const detail = await response.text();
+    let payload: unknown = detail;
+    try { payload = JSON.parse(detail) as unknown; } catch { /* keep text */ }
+    const message = payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).detail === "string"
+      ? String((payload as Record<string, unknown>).detail)
+      : `Plan request failed (${response.status})`;
+    throw new ApiError(message, response.status, payload);
   }
   return response.json() as Promise<T>;
 }
@@ -85,6 +113,74 @@ export async function submitTurn(
 
 export async function getThread(threadId: string, fetcher: Fetcher = fetch): Promise<Thread> {
   return json<Thread>(await fetcher(`/api/threads/${threadId}`));
+}
+
+export async function getThreadPlan(threadId: string, fetcher: Fetcher = fetch): Promise<ThreadPlanResponse> {
+  return planJson<ThreadPlanResponse>(await fetcher(`/api/threads/${threadId}/plan`));
+}
+
+export async function getPlanDocument(planDocumentId: string, fetcher: Fetcher = fetch): Promise<PlanDocument> {
+  return planJson<PlanDocument>(await fetcher(`/api/plans/${planDocumentId}`));
+}
+
+export async function getPlanVersions(planDocumentId: string, fetcher: Fetcher = fetch): Promise<{ versions: PlanDocumentVersion[] }> {
+  return planJson<{ versions: PlanDocumentVersion[] }>(await fetcher(`/api/plans/${planDocumentId}/versions`));
+}
+
+export async function getPlanVersion(planDocumentId: string, version: number, fetcher: Fetcher = fetch): Promise<PlanDocumentVersion> {
+  return planJson<PlanDocumentVersion>(await fetcher(`/api/plans/${planDocumentId}/versions/${version}`));
+}
+
+export async function getPlanFile(planDocumentId: string, fetcher: Fetcher = fetch): Promise<string> {
+  const response = await fetcher(`/api/plans/${planDocumentId}/file`);
+  if (!response.ok) throw new Error(`plan file request failed (${response.status})`);
+  return response.text();
+}
+
+export interface PlanDocumentWritePayload {
+  expected_version: number;
+  expected_content_hash: string;
+  title: string;
+  markdown: string;
+  change_summary?: string;
+}
+
+export async function putPlanDocument(
+  planDocumentId: string,
+  payload: PlanDocumentWritePayload,
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PlanDocumentVersion> {
+  return planJson<PlanDocumentVersion>(await fetcher(`/api/plans/${planDocumentId}`, {
+    method: "PUT",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
+}
+
+export async function restorePlanDocument(
+  planDocumentId: string,
+  payload: { version: number; expected_version: number; expected_content_hash: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<PlanDocumentVersion> {
+  return planJson<PlanDocumentVersion>(await fetcher(`/api/plans/${planDocumentId}/restore`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  }));
+}
+
+export async function syncPlanFile(planDocumentId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<PlanDocumentVersion> {
+  return planJson<PlanDocumentVersion>(await fetcher(`/api/plans/${planDocumentId}/sync-file`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
+}
+
+export async function retryPlanProjection(planDocumentId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<PlanDocument> {
+  return planJson<PlanDocument>(await fetcher(`/api/plans/${planDocumentId}/retry-projection`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
+  }));
 }
 
 export async function getThreadMessages(threadId: string, fetcher: Fetcher = fetch): Promise<{ messages: ThreadMessage[] }> {

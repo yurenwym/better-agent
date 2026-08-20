@@ -125,3 +125,38 @@ def test_write_failure_leaves_retryable_intent_and_no_committed_head(tmp_path) -
     document = service.get_by_thread("thread-1")
     assert document.current_version_id is None
     assert service.pending_intents(document.id)[0].status == "FAILED"
+
+
+def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_it(tmp_path) -> None:
+    from app.plan_files import PlanFileProjector
+
+    class FailingOnceProjector(PlanFileProjector):
+        def __init__(self, root):
+            super().__init__(root)
+            self.failed = False
+
+        def project(self, *args, **kwargs):
+            if not self.failed:
+                self.failed = True
+                raise OSError("temporary disk failure")
+            return super().project(*args, **kwargs)
+
+    projector = FailingOnceProjector(tmp_path / "data")
+    service = _service(tmp_path, projector=projector)
+    kwargs = {
+        "thread_id": "thread-1",
+        "title": "计划",
+        "markdown_content": "# 计划\n",
+        "source_turn_id": "turn-retry",
+        "source_message_id": "message-retry",
+        "actor": "model",
+    }
+
+    with pytest.raises(OSError, match="temporary disk failure"):
+        service.save_model_revision(**kwargs)
+
+    recovered = service.save_model_revision(**kwargs)
+
+    assert recovered.status == "committed"
+    assert service.list_versions(recovered.plan_document_id)[0].status == "committed"
+    assert service.path_for(recovered.plan_document_id).read_text(encoding="utf-8") == "# 计划\n"

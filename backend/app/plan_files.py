@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import os
 import re
+import stat
 import tempfile
 from pathlib import Path
 
-from .plan_documents import content_hash, normalize_markdown
+from .plan_documents import MAX_PLAN_MARKDOWN_BYTES, content_hash, normalize_markdown
 
 
 _DOCUMENT_ID = re.compile(r"^plan_[0-9a-f]{32}$")
@@ -28,10 +29,14 @@ class PlanFileProjector:
     def path_for(self, document_id: str) -> Path:
         if not _DOCUMENT_ID.fullmatch(document_id):
             raise PlanFileSecurityError("invalid plan document id")
+        if _is_link_or_reparse(self.plans_root):
+            raise PlanFileSecurityError("plans root cannot be a link")
         document_dir = self.plans_root / document_id
-        if document_dir.exists() and document_dir.is_symlink():
+        if _is_link_or_reparse(document_dir):
             raise PlanFileSecurityError("plan document directory cannot be a symlink")
         path = document_dir / "plan.md"
+        if _is_link_or_reparse(path):
+            raise PlanFileSecurityError("plan file cannot be a symlink")
         resolved = path.resolve(strict=False)
         try:
             resolved.relative_to(self.plans_root)
@@ -43,7 +48,27 @@ class PlanFileProjector:
         path = self.path_for(document_id)
         if not path.exists():
             return None
-        return content_hash(path.read_text(encoding="utf-8"))
+        return content_hash(self.read_text_stable(document_id))
+
+    def read_text_stable(self, document_id: str) -> str:
+        """Read a plan file only when its metadata is stable across the read."""
+        path = self.path_for(document_id)
+        try:
+            before = path.stat()
+            if before.st_size > MAX_PLAN_MARKDOWN_BYTES:
+                raise ValueError("plan file exceeds 1 MiB")
+            with path.open("r", encoding="utf-8", newline="") as handle:
+                content = handle.read()
+            after = path.stat()
+        except FileNotFoundError as exc:
+            raise PlanFileConflict("plan file changed while reading") from exc
+        if (
+            before.st_size != after.st_size
+            or before.st_mtime_ns != after.st_mtime_ns
+            or getattr(before, "st_ino", None) != getattr(after, "st_ino", None)
+        ):
+            raise PlanFileConflict("plan file changed while reading")
+        return content
 
     def project(
         self,
@@ -80,3 +105,13 @@ class PlanFileProjector:
         finally:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
+
+
+def _is_link_or_reparse(path: Path) -> bool:
+    try:
+        if path.is_symlink():
+            return True
+        attributes = os.lstat(path).st_file_attributes
+    except (FileNotFoundError, AttributeError, OSError):
+        return False
+    return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))

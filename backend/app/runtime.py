@@ -121,6 +121,9 @@ class RunSnapshot:
     budget: dict[str, Any]
     project_id: str | None = None
     skill_names: tuple[str, ...] = ()
+    source_plan_document_id: str | None = None
+    source_plan_document_version_id: str | None = None
+    source_plan_content_hash: str | None = None
 
 
 class AgentRuntime:
@@ -156,6 +159,7 @@ class AgentRuntime:
             agent_runtime=self,
             route_model=conversation_model or model,
         )
+        self.plan_documents = self.conversation.plan_documents
         self.turn_worker = ManagedTurnWorker(self.conversation)
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
@@ -218,6 +222,9 @@ class AgentRuntime:
             budget=json.loads(row["budget_json"]),
             project_id=row["project_id"],
             skill_names=tuple(json.loads(row["skill_names_json"] or "[]")),
+            source_plan_document_id=row["source_plan_document_id"],
+            source_plan_document_version_id=row["source_plan_document_version_id"],
+            source_plan_content_hash=row["source_plan_content_hash"],
         )
 
     def recoverable_runs(self) -> list[RunSnapshot]:

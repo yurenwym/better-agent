@@ -103,6 +103,7 @@ class PlanVersion:
     status: str
     steps: tuple[PlanStep, ...]
     summary: str = ""
+    source_document_version_id: str | None = None
 
 
 class PlanVersionService:
@@ -115,6 +116,7 @@ class PlanVersionService:
         goal_id: str,
         steps: Iterable[dict[str, Any]],
         summary: str = "",
+        source_document_version_id: str | None = None,
     ) -> PlanVersion:
         with self.db.transaction() as connection:
             current = connection.execute(
@@ -123,7 +125,7 @@ class PlanVersionService:
             ).fetchone()[0]
             version = current + 1
             plan_id = f"pv_{uuid.uuid4().hex}"
-            self._insert(connection, plan_id, run_id, goal_id, version, summary, None, steps)
+            self._insert(connection, plan_id, run_id, goal_id, version, summary, None, steps, source_document_version_id)
         return self.get(plan_id)
 
     def revise(
@@ -133,6 +135,7 @@ class PlanVersionService:
         expected_version: int,
         steps: Iterable[dict[str, Any]],
         summary: str = "",
+        source_document_version_id: str | None = None,
     ) -> PlanVersion:
         with self.db.transaction() as connection:
             current_row = connection.execute(
@@ -165,6 +168,7 @@ class PlanVersionService:
                 summary,
                 expected_version,
                 normalized_steps,
+                source_document_version_id,
             )
         return self.get(plan_id)
 
@@ -230,6 +234,7 @@ class PlanVersionService:
             version=row["version"],
             status=row["status"],
             summary=row["summary"],
+            source_document_version_id=row["source_document_version_id"],
             steps=tuple(
                 PlanStep(
                     id=step["id"],
@@ -252,12 +257,13 @@ class PlanVersionService:
         summary: str,
         base_version: int | None,
         steps: Iterable[dict[str, Any]],
+        source_document_version_id: str | None = None,
     ) -> None:
         now = _now()
         connection.execute(
-            "INSERT INTO plan_versions(id, run_id, goal_id, version, status, summary, base_version, created_at) "
-            "VALUES (?, ?, ?, ?, 'draft', ?, ?, ?)",
-            (plan_id, run_id, goal_id, version, summary, base_version, now),
+            "INSERT INTO plan_versions(id, run_id, goal_id, version, status, summary, base_version, "
+            "source_document_version_id, created_at) VALUES (?, ?, ?, ?, 'draft', ?, ?, ?, ?)",
+            (plan_id, run_id, goal_id, version, summary, base_version, source_document_version_id, now),
         )
         for position, step in enumerate(steps):
             connection.execute(
