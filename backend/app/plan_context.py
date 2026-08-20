@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from .db import Database
@@ -52,11 +53,35 @@ class PlanContextProvider:
         except KeyError:
             return None
 
-        self._sync_file_if_needed(document.id)
-        document = self.service.get_document(document.id)
-        if document.current_version_id is None:
-            return None
-        version = self.service.get_version(document.current_version_id)
+        pinned = self._read_turn_pin(thread_id, turn_id)
+        if pinned is None:
+            self._sync_file_if_needed(document.id)
+            document = self.service.get_document(document.id)
+            if document.current_version_id is None:
+                return None
+            version = self.service.get_version(document.current_version_id)
+            persisted = self._pin_turn(
+                thread_id,
+                turn_id,
+                document.id,
+                version.id,
+                version.version,
+                version.content_hash,
+            )
+            if persisted is not None and persisted["version_id"] != version.id:
+                version = self.service.get_version(persisted["version_id"])
+                document_id = persisted["document_id"] or document.id
+            else:
+                document_id = document.id
+        else:
+            document_id = pinned["document_id"] or document.id
+            version = self.service.get_version(pinned["version_id"])
+            if (
+                version.status != "committed"
+                or version.version != pinned["version"]
+                or version.content_hash != pinned["content_hash"]
+            ):
+                raise PlanDocumentValidationError("persisted plan context no longer matches its committed version")
         if version.status != "committed":
             return None
 
@@ -65,7 +90,7 @@ class PlanContextProvider:
         self._record_context_loaded(
             thread_id,
             turn_id,
-            document.id,
+            document_id,
             version.id,
             version.version,
             version.title,
@@ -74,7 +99,7 @@ class PlanContextProvider:
             crop_metadata,
         )
         return PlanContextSnapshot(
-            plan_document_id=document.id,
+            plan_document_id=document_id,
             version_id=version.id,
             version=version.version,
             content_hash=version.content_hash,
@@ -83,6 +108,62 @@ class PlanContextProvider:
             cropped=cropped,
             crop_metadata=crop_metadata,
         )
+
+    def _read_turn_pin(self, thread_id: str, turn_id: str) -> dict[str, Any] | None:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT plan_context_document_id, plan_context_version_id, plan_context_version, plan_context_hash "
+                "FROM turns WHERE id = ? AND thread_id = ?",
+                (turn_id, thread_id),
+            ).fetchone()
+        if row is None or row["plan_context_version_id"] is None:
+            return None
+        if row["plan_context_version"] is None or not row["plan_context_hash"]:
+            raise PlanDocumentValidationError("persisted plan context pin is incomplete")
+        return {
+            "document_id": row["plan_context_document_id"],
+            "version_id": row["plan_context_version_id"],
+            "version": int(row["plan_context_version"]),
+            "content_hash": row["plan_context_hash"],
+        }
+
+    def _pin_turn(
+        self,
+        thread_id: str,
+        turn_id: str,
+        document_id: str,
+        version_id: str,
+        version: int,
+        revision_hash: str,
+    ) -> dict[str, Any] | None:
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE turns SET plan_context_document_id = ?, plan_context_version_id = ?, "
+                "plan_context_version = ?, plan_context_hash = ?, version = version + 1, updated_at = ? "
+                "WHERE id = ? AND thread_id = ? AND plan_context_version_id IS NULL",
+                (
+                    document_id,
+                    version_id,
+                    version,
+                    revision_hash,
+                    datetime.now(timezone.utc).isoformat(),
+                    turn_id,
+                    thread_id,
+                ),
+            )
+            row = connection.execute(
+                "SELECT plan_context_document_id, plan_context_version_id, plan_context_version, plan_context_hash "
+                "FROM turns WHERE id = ? AND thread_id = ?",
+                (turn_id, thread_id),
+            ).fetchone()
+        if row is None or row["plan_context_version_id"] is None:
+            return None
+        return {
+            "document_id": row["plan_context_document_id"],
+            "version_id": row["plan_context_version_id"],
+            "version": int(row["plan_context_version"]),
+            "content_hash": row["plan_context_hash"],
+        }
 
     def _sync_file_if_needed(self, document_id: str) -> None:
         document = self.service.get_document(document_id)

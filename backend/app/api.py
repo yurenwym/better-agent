@@ -13,6 +13,10 @@ from .events import export_jsonl
 from .plan_documents import PlanDocumentConflict, PlanDocumentValidationError
 
 
+DEFAULT_PLAN_HISTORY_LIMIT = 50
+MAX_PLAN_HISTORY_LIMIT = 100
+
+
 async def _event_stream(service, run_id: str, request: Request, after_seq: int, follow: bool):
     cursor = after_seq
     terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -143,7 +147,13 @@ def register_routes(app) -> None:
         )
 
     @app.get("/api/threads/{thread_id}/plan")
-    async def get_thread_plan(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
+    async def get_thread_plan(
+        thread_id: str,
+        limit: int = DEFAULT_PLAN_HISTORY_LIMIT,
+        offset: int = 0,
+        service=Depends(conversation),
+    ) -> dict[str, Any]:
+        limit, offset = _plan_history_pagination(limit, offset)
         try:
             service.thread(thread_id)
         except KeyError as exc:
@@ -152,24 +162,43 @@ def register_routes(app) -> None:
             document = service.plan_documents.get_by_thread(thread_id)
         except KeyError:
             return {"plan": None}
-        return {"plan": _plan_document_json(document, service.plan_documents)}
+        return {"plan": _plan_document_json(document, service.plan_documents, limit=limit, offset=offset)}
 
     @app.get("/api/plans/{plan_document_id}")
-    async def get_plan_document(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_plan_document(
+        plan_document_id: str,
+        limit: int = DEFAULT_PLAN_HISTORY_LIMIT,
+        offset: int = 0,
+        service=Depends(runtime),
+    ) -> dict[str, Any]:
+        limit, offset = _plan_history_pagination(limit, offset)
         try:
             document = service.plan_documents.get_document(plan_document_id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="plan not found") from exc
-        return _plan_document_json(document, service.plan_documents)
+        return _plan_document_json(document, service.plan_documents, limit=limit, offset=offset)
 
     @app.get("/api/plans/{plan_document_id}/versions")
-    async def get_plan_versions(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_plan_versions(
+        plan_document_id: str,
+        limit: int = DEFAULT_PLAN_HISTORY_LIMIT,
+        offset: int = 0,
+        service=Depends(runtime),
+    ) -> dict[str, Any]:
+        limit, offset = _plan_history_pagination(limit, offset)
         try:
             service.plan_documents.get_document(plan_document_id)
-            versions = service.plan_documents.list_versions(plan_document_id)
+            versions = service.plan_documents.list_versions(plan_document_id, limit=limit, offset=offset)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="plan not found") from exc
-        return {"versions": [_plan_document_version_json(version) for version in versions]}
+        total = service.plan_documents.count_versions(plan_document_id)
+        return {
+            "versions": [_plan_document_version_json(version, include_markdown=False) for version in versions],
+            "versions_total": total,
+            "versions_offset": offset,
+            "versions_limit": limit,
+            "versions_has_more": offset + len(versions) < total,
+        }
 
     @app.get("/api/plans/{plan_document_id}/versions/{version}")
     async def get_plan_version(plan_document_id: str, version: int, service=Depends(runtime)) -> dict[str, Any]:
@@ -187,8 +216,7 @@ def register_routes(app) -> None:
     async def get_plan_file(plan_document_id: str, service=Depends(runtime)) -> PlainTextResponse:
         try:
             document = service.plan_documents.get_document(plan_document_id)
-            path = service.plan_documents.path_for(document.id)
-            content = path.read_text(encoding="utf-8")
+            content = service.plan_documents.projector.read_text_stable(document.id)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="plan not found") from exc
         except (OSError, UnicodeError, ValueError) as exc:
@@ -232,16 +260,18 @@ def register_routes(app) -> None:
             )
         except PlanDocumentValidationError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        except (OSError, UnicodeError):
+            return _plan_projection_failure(service, plan_document_id)
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return _plan_document_version_json(revision)
 
-    @app.post("/api/plans/{plan_document_id}/restore", dependencies=[Depends(mutate)])
+    @app.post("/api/plans/{plan_document_id}/restore", dependencies=[Depends(mutate)], response_model=None)
     async def restore_plan_document(
         plan_document_id: str,
         payload: dict[str, Any],
         service=Depends(runtime),
-    ) -> dict[str, Any]:
+    ) -> dict[str, Any] | JSONResponse:
         expected_hash = payload.get("expected_content_hash", payload.get("expected_file_hash"))
         if not isinstance(expected_hash, str) or not expected_hash:
             raise HTTPException(status_code=422, detail="expected_content_hash is required")
@@ -257,10 +287,12 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=404, detail="plan not found") from exc
         except (PlanDocumentConflict, StopIteration, ValueError) as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (OSError, UnicodeError):
+            return _plan_projection_failure(service, plan_document_id)
         return _plan_document_version_json(restored)
 
-    @app.post("/api/plans/{plan_document_id}/sync-file", dependencies=[Depends(mutate)])
-    async def sync_plan_file(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    @app.post("/api/plans/{plan_document_id}/sync-file", dependencies=[Depends(mutate)], response_model=None)
+    async def sync_plan_file(plan_document_id: str, service=Depends(runtime)) -> dict[str, Any] | JSONResponse:
         try:
             revision = service.plan_documents.sync_file(plan_document_id)
         except KeyError as exc:
@@ -269,6 +301,8 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         except PlanDocumentConflict as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (OSError, UnicodeError):
+            return _plan_projection_failure(service, plan_document_id)
         return _plan_document_version_json(revision)
 
     @app.post("/api/plans/{plan_document_id}/retry-projection", dependencies=[Depends(mutate)])
@@ -681,13 +715,21 @@ def _thread_message_json(message) -> dict[str, Any]:
     }
 
 
-def _plan_document_json(document, service) -> dict[str, Any]:
+def _plan_document_json(
+    document,
+    service,
+    *,
+    limit: int = DEFAULT_PLAN_HISTORY_LIMIT,
+    offset: int = 0,
+) -> dict[str, Any]:
     current = None
     if document.current_version_id:
         try:
             current = _plan_document_version_json(service.get_version(document.current_version_id))
         except KeyError:
             current = None
+    versions = service.list_versions(document.id, limit=limit, offset=offset)
+    total = service.count_versions(document.id)
     return {
         "id": document.id,
         "thread_id": document.thread_id,
@@ -699,18 +741,21 @@ def _plan_document_json(document, service) -> dict[str, Any]:
         "created_at": document.created_at,
         "updated_at": document.updated_at,
         "current": current,
-        "versions": [_plan_document_version_json(item) for item in service.list_versions(document.id)],
+        "versions": [_plan_document_version_json(item, include_markdown=False) for item in versions],
+        "versions_total": total,
+        "versions_offset": offset,
+        "versions_limit": limit,
+        "versions_has_more": offset + len(versions) < total,
     }
 
 
-def _plan_document_version_json(version) -> dict[str, Any]:
-    return {
+def _plan_document_version_json(version, *, include_markdown: bool = True) -> dict[str, Any]:
+    payload = {
         "id": version.id,
         "plan_document_id": version.plan_document_id,
         "version": version.version,
         "base_version_id": version.base_version_id,
         "title": version.title,
-        "markdown": version.markdown_content,
         "content_hash": version.content_hash,
         "source_turn_id": version.source_turn_id,
         "source_message_id": version.source_message_id,
@@ -720,6 +765,17 @@ def _plan_document_version_json(version) -> dict[str, Any]:
         "created_at": version.created_at,
         "committed_at": version.committed_at,
     }
+    if include_markdown:
+        payload["markdown"] = version.markdown_content
+    return payload
+
+
+def _plan_history_pagination(limit: int, offset: int) -> tuple[int, int]:
+    if isinstance(limit, bool) or limit < 1 or limit > MAX_PLAN_HISTORY_LIMIT:
+        raise HTTPException(status_code=422, detail=f"limit must be between 1 and {MAX_PLAN_HISTORY_LIMIT}")
+    if isinstance(offset, bool) or offset < 0:
+        raise HTTPException(status_code=422, detail="offset must be non-negative")
+    return limit, offset
 
 
 def _current_plan_conflict(service, document_id: str) -> dict[str, Any] | None:
@@ -737,6 +793,17 @@ def _current_plan_conflict(service, document_id: str) -> dict[str, Any] | None:
         "content_hash": current.content_hash,
         "file_status": document.file_status,
     }
+
+
+def _plan_projection_failure(service, document_id: str) -> JSONResponse:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "plan file projection failed; retry projection",
+            "retry": True,
+            "current": _current_plan_conflict(service, document_id),
+        },
+    )
 
 
 def _required_int(payload: dict[str, Any], key: str) -> int:

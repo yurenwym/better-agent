@@ -47,6 +47,7 @@ def test_plan_document_read_routes_restore_refresh_state_without_run(tmp_path) -
     assert thread_plan.json()["plan"]["current"]["version"] == 1
     assert snapshot.json()["current"]["markdown"] == "# Version 1\n"
     assert [item["version"] for item in versions.json()["versions"]] == [1]
+    assert "markdown" not in versions.json()["versions"][0]
     assert version.json()["markdown"] == "# Version 1\n"
     assert file_response.text == "# Version 1\n"
     assert file_response.headers["content-type"].startswith("text/markdown")
@@ -55,6 +56,34 @@ def test_plan_document_read_routes_restore_refresh_state_without_run(tmp_path) -
         _count(runtime, "runs"),
         _count(runtime, "plan_versions"),
     ))
+
+
+def test_plan_history_routes_are_paged_and_return_metadata_only(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    current = first
+    for index in range(2, 5):
+        current = runtime.plan_documents.save_model_revision(
+            thread_id=thread.id,
+            title="Travel plan",
+            markdown_content=f"# Version {index}\n",
+            source_turn_id=None,
+            source_message_id=None,
+            actor="user",
+            expected_version_id=current.id,
+            expected_file_hash=current.content_hash,
+        )
+
+    headers = _headers(app)
+    versions = client.get(f"/api/plans/{document.id}/versions?limit=2&offset=1", headers=headers)
+    snapshot = client.get(f"/api/plans/{document.id}?limit=2&offset=2", headers=headers)
+
+    assert versions.status_code == snapshot.status_code == 200
+    assert [item["version"] for item in versions.json()["versions"]] == [2, 3]
+    assert versions.json()["versions_total"] == 4
+    assert versions.json()["versions_has_more"] is True
+    assert all("markdown" not in item for item in versions.json()["versions"])
+    assert [item["version"] for item in snapshot.json()["versions"]] == [3, 4]
 
 
 def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata(tmp_path) -> None:
@@ -89,6 +118,69 @@ def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata
     assert stale.status_code == 409
     assert stale.json()["current"]["version"] == 2
     assert runtime.plan_documents.current_version(document.id).markdown_content == "# Version 2\n\nUpdated"
+
+
+def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+
+    class FailingProjector:
+        def read_hash(self, document_id):
+            return first.content_hash
+
+        def project(self, *args, **kwargs):
+            raise OSError("disk unavailable")
+
+    runtime.plan_documents.projector = FailingProjector()
+    response = client.put(
+        f"/api/plans/{document.id}",
+        headers=_headers(app),
+        json={
+            "expected_version": first.version,
+            "expected_content_hash": first.content_hash,
+            "title": "Travel plan",
+            "markdown": "# Version 2\n",
+        },
+    )
+
+    assert response.status_code == 503
+    assert response.json()["retry"] is True
+    assert response.json()["current"]["file_status"] == "failed"
+
+
+def test_restore_and_sync_projection_failures_are_retryable(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    path = runtime.plan_documents.path_for(document.id)
+    real_projector = runtime.plan_documents.projector
+
+    class FailingProjector:
+        def path_for(self, document_id):
+            return real_projector.path_for(document_id)
+
+        def read_hash(self, document_id):
+            return first.content_hash
+
+        def read_text_stable(self, document_id):
+            raise OSError("disk unavailable")
+
+        def project(self, *args, **kwargs):
+            raise OSError("disk unavailable")
+
+    runtime.plan_documents.projector = FailingProjector()
+    restored = client.post(
+        f"/api/plans/{document.id}/restore",
+        headers=_headers(app),
+        json={"version": 1, "expected_version": 1, "expected_content_hash": first.content_hash},
+    )
+    read_failed = client.post(f"/api/plans/{document.id}/sync-file", headers=_headers(app), json={})
+    path.unlink()
+    write_failed = client.post(f"/api/plans/{document.id}/sync-file", headers=_headers(app), json={})
+
+    assert restored.status_code == read_failed.status_code == write_failed.status_code == 503
+    assert restored.json()["retry"] is True
+    assert read_failed.json()["retry"] is True
+    assert write_failed.json()["retry"] is True
 
 
 def test_plan_document_restore_sync_and_retry_do_not_call_model(tmp_path) -> None:
@@ -144,6 +236,17 @@ def test_plan_file_read_does_not_repair_missing_projection_without_a_write_reque
 
     assert response.status_code == 409
     assert not path.exists()
+
+
+def test_plan_file_read_rejects_an_oversized_or_unstable_file(tmp_path) -> None:
+    runtime, app, client, thread, _ = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    path = runtime.plan_documents.path_for(document.id)
+    path.write_bytes(b"x" * (1024 * 1024 + 1))
+
+    response = client.get(f"/api/plans/{document.id}/file", headers=_headers(app))
+
+    assert response.status_code == 409
 
 
 def test_plan_restore_requires_both_version_and_hash_cas_values(tmp_path) -> None:

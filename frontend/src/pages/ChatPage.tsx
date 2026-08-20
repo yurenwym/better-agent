@@ -23,7 +23,7 @@ import {
 } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AskAnswer, Run, SkillDefinition } from "../types";
+import type { AskAnswer, Run, SkillDefinition, ThreadEvent } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -45,6 +45,45 @@ function clientTurnId(): string {
   return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+export interface PlanReference {
+  planDocumentId: string;
+  versionId: string;
+  version: number;
+  messageId: string;
+  status: "ready" | "failed" | "conflict";
+}
+
+const planReferenceEventTypes = new Set(["plan.document_ready", "plan.document_failed", "plan.document_conflict"]);
+
+export function latestPlanReference(events: ThreadEvent[]): PlanReference | null {
+  const event = [...events].reverse().find((candidate) => {
+    if (!planReferenceEventTypes.has(candidate.type)) return false;
+    return typeof candidate.data.plan_document_id === "string"
+      && candidate.data.plan_document_id.trim().length > 0
+      && typeof candidate.data.version_id === "string"
+      && candidate.data.version_id.trim().length > 0
+      && typeof candidate.data.version === "number"
+      && Number.isInteger(candidate.data.version)
+      && candidate.data.version > 0
+      && typeof candidate.data.content_hash === "string"
+      && /^sha256:[0-9a-f]{64}$/.test(candidate.data.content_hash)
+      && typeof candidate.data.source_message_id === "string"
+      && candidate.data.source_message_id.trim().length > 0
+      && typeof candidate.data.actor === "string"
+      && candidate.data.actor.trim().length > 0;
+  });
+  if (!event) return null;
+  return {
+    planDocumentId: event.data.plan_document_id as string,
+    versionId: event.data.version_id as string,
+    version: event.data.version as number,
+    messageId: event.data.source_message_id as string,
+    status: event.type === "plan.document_failed"
+      ? "failed"
+      : event.type === "plan.document_conflict" ? "conflict" : "ready",
+  };
+}
+
 const turnBusyStates = new Set(["ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING"]);
 const pendingAskConflictText = "当前对话正在等待你的回答，请先回答上方问题；如果想开始新的目标，请先停止询问。";
 
@@ -55,7 +94,6 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [cancelBusy, setCancelBusy] = useState(false);
   const [askBusy, setAskBusy] = useState(false);
   const [pendingAskConflict, setPendingAskConflict] = useState(false);
-  const [composerOpen, setComposerOpen] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
@@ -105,7 +143,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     clearError();
     setBusy(true);
     try {
-      if (!run && onThread && typeof createThread === "function" && typeof submitTurn === "function") {
+      if (onThread && typeof createThread === "function" && typeof submitTurn === "function" && (!run || conversationId)) {
         const firstLine = content.split(/\r?\n/)[0].trim();
         let id = conversationId;
         if (!id) {
@@ -162,7 +200,6 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
         idempotency_key: clientTurnId(),
       }, csrfToken);
       if (result.run) onRun(result.run);
-      if (action === "modify_plan") setComposerOpen(true);
     } catch (caught) {
       showOperationError(caught, "操作失败，请稍后重试");
     } finally {
@@ -268,17 +305,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       ...telemetry.messages.filter((message) => !(message.role === "user" && threadTelemetry.messages.some((item) => item.role === "user" && item.content === message.content))),
     ]
     : telemetry.messages;
-  const readyEvent = [...threadTelemetry.events].reverse().find((event) => event.type === "plan.document_ready");
-  const planReference = readyEvent
-    && typeof readyEvent.data.plan_document_id === "string"
-    && typeof readyEvent.data.version === "number"
-    && typeof readyEvent.data.source_message_id === "string"
-    ? {
-      planDocumentId: readyEvent.data.plan_document_id,
-      version: readyEvent.data.version,
-      messageId: readyEvent.data.source_message_id,
-    }
-    : null;
+  const planReference = latestPlanReference(threadTelemetry.events);
 
   return (
     <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
@@ -288,7 +315,6 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           busy={busy || actionBusy || telemetry.loading || threadTelemetry.loading || threadBusy}
           title={run || conversationId ? "当前目标对话" : "从一个目标开始"}
           description={run || conversationId ? "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。" : "描述你想达成的结果，先从一段可用回答开始。"}
-          composerDisabled={Boolean(approvalRun) || Boolean(directionTurn && !composerOpen)}
           cancelBusy={cancelBusy}
           cancelLabel={threadTelemetry.pendingAsk ? "停止询问" : threadCanCancel ? "停止生成" : "取消任务"}
           onCancel={threadCanCancel ? () => void cancelCurrentTurn(activeTurn!.id) : runCanCancel && run ? () => void runAction(() => cancelCurrentRun(run.id)) : undefined}

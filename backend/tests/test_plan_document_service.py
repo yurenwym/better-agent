@@ -31,6 +31,26 @@ def test_first_model_revision_commits_database_and_file(tmp_path) -> None:
     assert service.path_for(document.id).read_text(encoding="utf-8") == "# 旅行计划\n\n第一天\n"
 
 
+def test_model_revision_links_its_source_message_during_finalize(tmp_path) -> None:
+    from test_runtime import make_runtime
+
+    runtime = make_runtime(tmp_path, object())
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-plan-message-link", "Create a plan", [])
+    source_message = runtime.conversation.messages(thread.id)[0]
+
+    version = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="计划",
+        markdown_content="# 计划\n",
+        source_turn_id=accepted.turn_id,
+        source_message_id=source_message.id,
+        actor="model",
+    )
+
+    assert runtime.conversation.messages(thread.id)[0].plan_document_version_id == version.id
+
+
 def test_same_source_turn_returns_existing_committed_revision(tmp_path) -> None:
     service = _service(tmp_path)
     kwargs = {
@@ -103,6 +123,51 @@ def test_restore_creates_new_version_without_deleting_history(tmp_path) -> None:
     assert restored.version == 3
     assert restored.markdown_content == "# v1\n"
     assert [item.version for item in service.list_versions(second.plan_document_id)] == [1, 2, 3]
+
+
+def test_restore_rejects_a_prepared_revision(tmp_path) -> None:
+    from app.plan_files import PlanFileProjector
+
+    service = _service(tmp_path)
+    first = service.save_model_revision(
+        thread_id="thread-1",
+        title="计划",
+        markdown_content="# v1\n",
+        source_turn_id="turn-1",
+        source_message_id="message-1",
+        actor="model",
+    )
+
+    class FailingProjector:
+        def read_hash(self, *args, **kwargs):
+            return first.content_hash
+
+        def project(self, *args, **kwargs):
+            raise OSError("temporary disk failure")
+
+    service.projector = FailingProjector()
+    with pytest.raises(OSError, match="temporary disk failure"):
+        service.save_model_revision(
+            thread_id="thread-1",
+            title="计划",
+            markdown_content="# prepared\n",
+            source_turn_id="turn-2",
+            source_message_id="message-2",
+            actor="model",
+            expected_version_id=first.id,
+            expected_file_hash=first.content_hash,
+        )
+    prepared = service.list_versions(first.plan_document_id)[-1]
+    assert prepared.status == "prepared"
+
+    service.projector = PlanFileProjector(tmp_path / "data")
+    with pytest.raises(ValueError, match="committed"):
+        service.restore_version(
+            first.plan_document_id,
+            prepared.version,
+            expected_version=first.version,
+            expected_file_hash=first.content_hash,
+        )
 
 
 def test_write_failure_leaves_retryable_intent_and_no_committed_head(tmp_path) -> None:

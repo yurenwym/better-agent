@@ -68,10 +68,22 @@ CREATE TABLE IF NOT EXISTS turns (
     artifact_kind TEXT,
     artifact_operation TEXT,
     artifact_title TEXT,
+    plan_context_document_id TEXT,
+    plan_context_version_id TEXT,
+    plan_context_version INTEGER,
+    plan_context_hash TEXT,
     materialized_goal_id TEXT,
     materialized_run_id TEXT,
     direction_action TEXT,
     direction_idempotency_key TEXT UNIQUE,
+    direction_projection_status TEXT,
+    direction_projection_source_document_id TEXT,
+    direction_projection_source_version_id TEXT,
+    direction_projection_source_hash TEXT,
+    direction_projection_draft_json TEXT,
+    direction_projection_error TEXT,
+    direction_projection_claim_owner TEXT,
+    direction_projection_lease_until TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     UNIQUE(thread_id, client_turn_id)
@@ -383,6 +395,30 @@ class Database:
                 connection.execute("ALTER TABLE turns ADD COLUMN artifact_operation TEXT")
             if "artifact_title" not in turn_columns:
                 connection.execute("ALTER TABLE turns ADD COLUMN artifact_title TEXT")
+            if "plan_context_document_id" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN plan_context_document_id TEXT")
+            if "plan_context_version_id" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN plan_context_version_id TEXT")
+            if "plan_context_version" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN plan_context_version INTEGER")
+            if "plan_context_hash" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN plan_context_hash TEXT")
+            if "direction_projection_status" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_status TEXT")
+            if "direction_projection_source_document_id" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_source_document_id TEXT")
+            if "direction_projection_source_version_id" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_source_version_id TEXT")
+            if "direction_projection_source_hash" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_source_hash TEXT")
+            if "direction_projection_draft_json" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_draft_json TEXT")
+            if "direction_projection_error" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_error TEXT")
+            if "direction_projection_claim_owner" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_claim_owner TEXT")
+            if "direction_projection_lease_until" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_lease_until TEXT")
             message_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(thread_messages)").fetchall()
             }

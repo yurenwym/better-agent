@@ -145,6 +145,8 @@ class PlanVersionService:
             current_version = current_row["version"] if current_row else 0
             if current_version != expected_version:
                 raise PlanConflict(f"expected plan version {expected_version}, current is {current_version}")
+            if source_document_version_id is None and current_row is not None:
+                source_document_version_id = current_row["source_document_version_id"]
             completed = {
                 row["id"]: row["status"]
                 for row in connection.execute(

@@ -47,3 +47,21 @@ def test_plan_approval_only_allows_current_version(tmp_path) -> None:
     approved = service.approve(second.id)
     assert approved.status == "approved"
 
+
+def test_manual_plan_revision_inherits_the_document_source_version(tmp_path) -> None:
+    from app.db import Database
+    from app.domain import PlanVersionService
+
+    service = PlanVersionService(Database(tmp_path / "agent.db"))
+    first = service.create(
+        "run-1",
+        "goal-1",
+        [{"id": "step-a", "title": "A"}],
+        source_document_version_id="planv-document-1",
+    )
+
+    revised = service.revise("run-1", "goal-1", 1, [{"id": "step-a", "title": "A revised"}])
+
+    assert first.source_document_version_id == "planv-document-1"
+    assert revised.source_document_version_id == "planv-document-1"
+

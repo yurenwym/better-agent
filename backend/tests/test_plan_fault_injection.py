@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from pathlib import Path
+import os
 
 import pytest
 
@@ -31,7 +31,7 @@ def test_external_file_change_during_import_is_rejected_without_new_revision(tmp
     path = service.path_for(first.plan_document_id)
     path.write_text("# External\n", encoding="utf-8", newline="\n")
 
-    original_open = Path.open
+    original_fdopen = os.fdopen
     mutated = False
 
     class MutatingReader:
@@ -56,13 +56,13 @@ def test_external_file_change_during_import_is_rejected_without_new_revision(tmp
         def __getattr__(self, name):
             return getattr(self.handle, name)
 
-    def mutate_during_read(self, *args, **kwargs):
-        handle = original_open(self, *args, **kwargs)
-        if self == path and str(args[0] if args else kwargs.get("mode", "r")).startswith("r"):
+    def mutate_during_read(file_descriptor, *args, **kwargs):
+        handle = original_fdopen(file_descriptor, *args, **kwargs)
+        if str(args[0] if args else kwargs.get("mode", "r")).startswith("r"):
             return MutatingReader(handle)
         return handle
 
-    monkeypatch.setattr(Path, "open", mutate_during_read)
+    monkeypatch.setattr("app.plan_files.os.fdopen", mutate_during_read)
 
     from app.plan_documents import PlanDocumentValidationError
 

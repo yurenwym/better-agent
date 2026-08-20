@@ -6,7 +6,7 @@ from contextvars import ContextVar
 from typing import Any, Callable
 
 from .ask import ASK_TOOL_SCHEMA, AskRequest, AskValidationError, parse_ask_tool_call
-from .conversation import ControlHeadDecoder, RouteProtocolError
+from .conversation import ControlHeadDecoder, MixedResponseProtocolError, RouteProtocolError
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
 
@@ -288,6 +288,7 @@ class LiveConversationModel:
             if tool_calls:
                 if forwarded or buffered:
                     reset()
+                    raise MixedResponseProtocolError("ask cannot be combined with a streamed response")
                 if len(tool_calls) != 1:
                     raise GatewayError("conversation supports one ask tool call at a time", "structure")
                 try:

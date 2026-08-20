@@ -152,13 +152,29 @@ class PlanDocumentService:
             raise KeyError(version_id)
         return _version_from_row(row)
 
-    def list_versions(self, document_id: str) -> list[PlanDocumentVersion]:
+    def list_versions(
+        self,
+        document_id: str,
+        *,
+        limit: int | None = None,
+        offset: int = 0,
+    ) -> list[PlanDocumentVersion]:
         with self.db.connection() as connection:
-            rows = connection.execute(
-                "SELECT * FROM plan_document_versions WHERE plan_document_id = ? ORDER BY version",
-                (document_id,),
-            ).fetchall()
+            query = "SELECT * FROM plan_document_versions WHERE plan_document_id = ? ORDER BY version"
+            params: list[object] = [document_id]
+            if limit is not None:
+                query += " LIMIT ? OFFSET ?"
+                params.extend([limit, offset])
+            rows = connection.execute(query, params).fetchall()
         return [_version_from_row(row) for row in rows]
+
+    def count_versions(self, document_id: str) -> int:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id = ?",
+                (document_id,),
+            ).fetchone()
+        return int(row[0]) if row is not None else 0
 
     def pending_intents(self, document_id: str) -> list[PlanWriteIntent]:
         with self.db.connection() as connection:
@@ -338,6 +354,11 @@ class PlanDocumentService:
                 "WHERE version_id = ?",
                 (now, prepared.id),
             )
+            if prepared.source_message_id:
+                connection.execute(
+                    "UPDATE thread_messages SET plan_document_version_id = ? WHERE id = ?",
+                    (prepared.id, prepared.source_message_id),
+                )
             self._append_event(connection, prepared, "plan.document_version_created", actor, now)
             self._append_event(connection, prepared, "plan.document_ready", "worker", now)
         return self.get_version(prepared.id)
@@ -389,6 +410,8 @@ class PlanDocumentService:
         expected_file_hash: str | None = None,
     ) -> PlanDocumentVersion:
         source = next(item for item in self.list_versions(document_id) if item.version == version)
+        if source.status != "committed":
+            raise PlanDocumentConflict("only committed plan versions can be restored")
         document = self.get_document(document_id)
         current = self.current_version(document_id)
         if expected_version is not None and current.version != expected_version:
@@ -427,10 +450,15 @@ class PlanDocumentService:
             reader = getattr(self.projector, "read_text_stable", None)
             raw_content = reader(document_id) if reader is not None else path.read_text(encoding="utf-8")
             content = normalize_markdown(raw_content)
-        except (OSError, UnicodeError, PlanDocumentValidationError, PlanFileConflict, ValueError) as exc:
+        except OSError:
+            self._mark_document_failed(document_id, "plan file cannot be read")
+            raise
+        except PlanFileConflict as exc:
             self._mark_document_failed(document_id, str(exc))
-            message = "plan file changed while reading" if isinstance(exc, PlanFileConflict) else "plan file cannot be imported"
-            raise PlanDocumentValidationError(message) from exc
+            raise PlanDocumentValidationError("plan file changed while reading") from exc
+        except (UnicodeError, PlanDocumentValidationError, ValueError) as exc:
+            self._mark_document_failed(document_id, str(exc))
+            raise PlanDocumentValidationError("plan file cannot be imported") from exc
         file_hash = content_hash(content)
         if file_hash == current.content_hash:
             self._mark_document_ready(document_id, current.id)
@@ -546,9 +574,22 @@ class PlanDocumentService:
                 "SELECT * FROM plan_documents WHERE id = ?", (document.id,)
             ).fetchone()
             if current is None or current["current_version_id"] != intent.expected_head_version_id:
+                now = _now()
                 connection.execute(
-                    "UPDATE plan_write_intents SET status = 'CONFLICT', finished_at = ? WHERE id = ?",
-                    (_now(), intent.id),
+                    "UPDATE plan_write_intents SET status = 'CONFLICT', last_error_json = ?, finished_at = ? WHERE id = ?",
+                    (json.dumps({"error": "plan document head conflict during recovery"}, ensure_ascii=False), now, intent.id),
+                )
+                connection.execute(
+                    "UPDATE plan_documents SET file_status = 'conflict', updated_at = ? WHERE id = ?",
+                    (now, document.id),
+                )
+                self._append_event(
+                    connection,
+                    version,
+                    "plan.document_conflict",
+                    "worker",
+                    now,
+                    {"reason": "plan document head conflict during recovery"},
                 )
                 return
 
@@ -607,11 +648,43 @@ class PlanDocumentService:
 
     def _mark_intent_failed(self, intent_id: str, error: BaseException) -> None:
         with self.db.durable_transaction() as connection:
+            row = connection.execute(
+                "SELECT plan_document_id, version_id FROM plan_write_intents WHERE id = ?",
+                (intent_id,),
+            ).fetchone()
+            now = _now()
             connection.execute(
                 "UPDATE plan_write_intents SET status = 'FAILED', attempts = attempts + 1, "
                 "last_error_json = ?, finished_at = ? WHERE id = ?",
-                (json.dumps({"error": str(error)}, ensure_ascii=False), _now(), intent_id),
+                (json.dumps({"error": str(error)}, ensure_ascii=False), now, intent_id),
             )
+            if row is None:
+                return
+            document = connection.execute(
+                "SELECT file_status FROM plan_documents WHERE id = ?",
+                (row["plan_document_id"],),
+            ).fetchone()
+            if document is None:
+                return
+            should_emit = document["file_status"] != "failed"
+            connection.execute(
+                "UPDATE plan_documents SET file_status = 'failed', updated_at = ? WHERE id = ?",
+                (now, row["plan_document_id"]),
+            )
+            if should_emit:
+                version_row = connection.execute(
+                    "SELECT * FROM plan_document_versions WHERE id = ?",
+                    (row["version_id"],),
+                ).fetchone()
+                if version_row is not None:
+                    self._append_event(
+                        connection,
+                        _version_from_row(version_row),
+                        "plan.document_failed",
+                        "worker",
+                        now,
+                        {"reason": str(error)[:240]},
+                    )
 
     def _mark_intent_conflict(self, intent_id: str, message: str) -> None:
         with self.db.durable_transaction() as connection:

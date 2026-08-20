@@ -212,6 +212,71 @@ describe("ChatPage streaming bootstrap", () => {
     );
 
     await waitFor(() => expect(screen.getByRole("region", { name: "这项请求需要确认" }).textContent).toContain("Training plan · v3"));
+    expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps the conversation composer available while a materialized run awaits approval", () => {
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={{ ...initialRun, state: "AWAITING_APPROVAL" }}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(false);
+  });
+
+  it("routes follow-up messages through the conversation thread after execution materializes", async () => {
+    api.getThread.mockResolvedValue({
+      id: "thread-1",
+      title: "Chat",
+      version: 2,
+      active_turn_id: "turn-1",
+      next_event_seq: 2,
+      turns: [{
+        id: "turn-1",
+        thread_id: "thread-1",
+        client_turn_id: "client-1",
+        parent_turn_id: null,
+        status: "COMPLETED",
+        policy: "answer",
+        content_shape: "markdown",
+        reason_code: "content_only",
+        version: 1,
+        skill_names: [],
+        materialized_goal_id: null,
+        materialized_run_id: null,
+        direction_action: null,
+        direction_idempotency_key: null,
+        created_at: "2026-08-19T00:00:00Z",
+        updated_at: "2026-08-19T00:00:01Z",
+      }],
+    });
+    render(
+      <ChatPage
+        csrfToken="csrf"
+        run={{ ...initialRun, state: "AWAITING_APPROVAL" }}
+        threadId="thread-1"
+        onThread={vi.fn()}
+        onRun={vi.fn()}
+        onOpenTrajectory={vi.fn()}
+        onOpenPlan={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByRole("textbox", { name: "输入消息" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "补充信息" } });
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+
+    await waitFor(() => expect(api.submitTurn).toHaveBeenCalledWith(
+      "thread-1",
+      expect.objectContaining({ content: "补充信息" }),
+      "csrf",
+    ));
+    expect(api.sendMessage).not.toHaveBeenCalled();
   });
 
   it("does not expose budget recovery during ordinary execution", () => {

@@ -191,7 +191,7 @@ export interface PlanDocumentVersion {
   version: number;
   base_version_id: string | null;
   title: string;
-  markdown: string;
+  markdown?: string;
   content_hash: string;
   source_turn_id: string | null;
   source_message_id: string | null;

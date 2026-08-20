@@ -30,16 +30,14 @@ class PlanExecutionCompiler:
         self,
         *,
         source: ExecutionSource,
-        fallback_content: str,
         previous_plan: Any | None = None,
     ) -> PlanDraft:
-        markdown = source.markdown or fallback_content
         goal = {
             "title": source.title,
-            "description": markdown,
+            "description": source.markdown,
             "source_document_version_id": source.version_id,
         }
-        interactions = [markdown]
+        interactions = [source.markdown]
         if previous_plan is not None:
             interactions.append("previous structured plan: " + str(previous_plan))
         draft = await self.model.plan(goal, interactions)

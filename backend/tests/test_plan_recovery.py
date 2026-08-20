@@ -30,7 +30,7 @@ def _prepared_service(tmp_path, *, content="# v1\n", expected_hash=None, with_ev
             (document_id, "thread-1", "计划"),
         )
         connection.execute(
-            "INSERT INTO plan_document_versions(" 
+            "INSERT INTO plan_document_versions("
             "id, plan_document_id, version, title, markdown_content, content_hash, actor, status, created_at) "
             "VALUES (?, ?, 1, ?, ?, ?, 'model', 'prepared', 'now')",
             (version_id, document_id, "计划", content, target_hash),
@@ -85,6 +85,36 @@ def test_recover_third_hash_emits_conflict_event_without_markdown(tmp_path) -> N
     assert len(conflicts) == 1
     assert conflicts[0].data["version_id"] == version_id
     assert "markdown_content" not in conflicts[0].data
+
+
+def test_recover_head_change_marks_conflict_and_emits_stable_event(tmp_path) -> None:
+    service, document_id, version_id, _ = _prepared_service(tmp_path, with_events=True)
+    from app.plan_documents import content_hash
+
+    with service.db.durable_transaction() as connection:
+        connection.execute(
+            "INSERT INTO plan_document_versions("
+            "id, plan_document_id, version, title, markdown_content, content_hash, actor, status, created_at) "
+            "VALUES (?, ?, 2, ?, ?, ?, 'user', 'committed', 'now')",
+            ("planv_new-head", document_id, "计划", "# v2\n", content_hash("# v2\n")),
+        )
+        connection.execute(
+            "UPDATE plan_documents SET current_version_id = ?, projected_version_id = ?, file_status = 'ready' WHERE id = ?",
+            ("planv_new-head", "planv_new-head", document_id),
+        )
+
+    service.recover_pending_intents()
+
+    assert service.get_document(document_id).file_status == "conflict"
+    with service.db.connection() as connection:
+        intent = connection.execute("SELECT status FROM plan_write_intents WHERE version_id = ?", (version_id,)).fetchone()
+    assert intent["status"] == "CONFLICT"
+    conflicts = [event for event in service.events.list("thread-1") if event.type == "plan.document_conflict"]
+    assert len(conflicts) == 1
+    assert conflicts[0].data["plan_document_id"] == document_id
+    assert conflicts[0].data["version_id"] == version_id
+    assert conflicts[0].data["version"] == 1
+    assert conflicts[0].data["actor"] == "model"
 
 
 def test_recover_committed_missing_file_rebuilds_from_sqlite(tmp_path) -> None:

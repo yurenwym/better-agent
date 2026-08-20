@@ -124,6 +124,41 @@ def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
     assert bad_skills.status_code == 422
 
 
+def test_json_request_body_has_a_finite_size_limit(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/threads",
+        headers=_headers(app),
+        json={"title": "x" * (2 * 1024 * 1024)},
+    )
+
+    assert response.status_code == 413
+
+
+def test_json_request_body_limit_also_applies_without_content_length(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    payload = b'{"title":"' + (b"x" * (2 * 1024 * 1024)) + b'"}'
+
+    response = client.post(
+        "/api/threads",
+        headers=_headers(app),
+        content=iter([payload]),
+    )
+
+    assert response.status_code == 413
+
+
 def test_direction_route_materializes_after_confirmation(tmp_path) -> None:
     from app.main import create_app
     from test_materializer import MaterializerModel
@@ -132,6 +167,14 @@ def test_direction_route_materializes_after_confirmation(tmp_path) -> None:
     app = create_app(runtime=runtime)
     client = TestClient(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
+    runtime.plan_documents.save_model_revision(
+        thread_id=thread["id"],
+        title="Execution plan",
+        markdown_content="# Execution plan\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns",
         headers=_headers(app),

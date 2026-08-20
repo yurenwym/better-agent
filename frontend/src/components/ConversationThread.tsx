@@ -17,7 +17,7 @@ interface ConversationThreadProps {
   askBusy?: boolean;
   onAskAnswer?: (answers: AskAnswer[]) => void | Promise<void>;
   onAskCancel?: () => void;
-  planReference?: { planDocumentId: string; version: number; messageId: string } | null;
+  planReference?: { planDocumentId: string; versionId?: string; version: number; messageId: string; status?: "ready" | "failed" | "conflict" } | null;
   onOpenPlan?: (planDocumentId: string) => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
@@ -99,8 +99,12 @@ export default function ConversationThread({ messages, busy = false, title = "�
               </div>
               {assistant && planReference?.messageId === message.id && (
                 <div className="plan-reference-card" role="status">
-                  <div><strong>已保存到计划 · v{planReference.version}</strong><span>这份回答已作为可编辑 Markdown 版本保存</span></div>
-                  <button className="button button-secondary" type="button" onClick={() => onOpenPlan?.(planReference.planDocumentId)}>查看 / 编辑计划</button>
+                  {planReference.status === "failed" || planReference.status === "conflict" ? (
+                    <div><strong>计划文件写入未完成 · v{planReference.version}</strong><span>计划地址已保留，可打开计划页重试写入</span></div>
+                  ) : (
+                    <div><strong>已保存到计划 · v{planReference.version}</strong><span>这份回答已作为可编辑 Markdown 版本保存</span></div>
+                  )}
+                  <button className="button button-secondary" type="button" onClick={() => onOpenPlan?.(planReference.planDocumentId)}>{planReference.status === "failed" || planReference.status === "conflict" ? "打开并重试" : "查看 / 编辑计划"}</button>
                 </div>
               )}
             </div>

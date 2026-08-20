@@ -31,6 +31,23 @@ class BlockingConversationModel:
         raise RuntimeError("cancelled")
 
 
+class LongRunningConversationModel:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+        self.calls = 0
+
+    async def route_and_respond(self, *, on_text_delta, **kwargs):
+        self.calls += 1
+        self.started.set()
+        await self.release.wait()
+        on_text_delta(
+            '{"v":1,"policy":"answer","content_shape":"general",'
+            '"reason_code":"content_only"}\nlong-running answer'
+        )
+        return None
+
+
 class FailingAfterReadableGenerationModel:
     async def route_and_respond(self, *, on_text_delta, on_text_reset, **kwargs):
         on_text_delta(
@@ -153,6 +170,95 @@ async def test_cancel_active_turn_stops_model_and_keeps_terminal_state(tmp_path)
 
     assert runtime.conversation.turn(accepted.turn_id).status == "CANCELLED"
     assert "turn.cancelled" in [event.type for event in runtime.conversation.events.list(thread.id)]
+
+
+@pytest.mark.asyncio
+async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> None:
+    from app.conversation import ManagedTurnWorker
+
+    model = LongRunningConversationModel()
+    runtime = make_runtime(tmp_path, model)
+    worker_one = ManagedTurnWorker(
+        runtime.conversation,
+        owner="worker-one",
+        lease_seconds=0.05,
+        poll_interval=0.005,
+    )
+    worker_two = ManagedTurnWorker(
+        runtime.conversation,
+        owner="worker-two",
+        lease_seconds=0.05,
+        poll_interval=0.005,
+    )
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-long", "Long call", [])
+
+    first_task = asyncio.create_task(worker_one.run_once())
+    await model.started.wait()
+    await asyncio.sleep(0.12)
+
+    assert worker_two.claim_next() is None
+    with runtime.db.connection() as connection:
+        job = connection.execute(
+            "SELECT lease_owner, lease_until FROM turn_jobs WHERE turn_id = ?",
+            (accepted.turn_id,),
+        ).fetchone()
+    assert job["lease_owner"] == "worker-one"
+    assert job["lease_until"]
+
+    model.release.set()
+    assert await first_task is True
+    assert model.calls == 1
+
+
+def test_stale_worker_cannot_finalize_a_taken_over_turn_job(tmp_path) -> None:
+    from app.conversation import ManagedTurnWorker, TurnJobLeaseLost
+
+    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-fenced", "Fence me", [])
+    worker = ManagedTurnWorker(runtime.conversation, owner="old-worker")
+    assert worker.claim_next() == accepted.turn_id
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "UPDATE turn_jobs SET lease_owner = ?, lease_until = ? WHERE turn_id = ?",
+            ("new-worker", "2999-01-01T00:00:00+00:00", accepted.turn_id),
+        )
+
+    with pytest.raises(TurnJobLeaseLost):
+        worker._finish_failure(runtime.conversation.turn(accepted.turn_id), None, 1, "stale worker")
+
+    assert runtime.conversation.turn(accepted.turn_id).status == "ROUTING"
+    with runtime.db.connection() as connection:
+        job = connection.execute(
+            "SELECT status, lease_owner FROM turn_jobs WHERE turn_id = ?",
+            (accepted.turn_id,),
+        ).fetchone()
+    assert job["status"] == "RUNNING"
+    assert job["lease_owner"] == "new-worker"
+    assert len(runtime.conversation.messages(thread.id)) == 1
+
+
+@pytest.mark.asyncio
+async def test_plan_context_load_failure_finishes_turn_as_failed(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+
+    class BrokenPlanContext:
+        def load_for_turn(self, thread_id: str, turn_id: str):
+            raise RuntimeError("plan context unavailable")
+
+    runtime.conversation.plan_context = BrokenPlanContext()
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-context-failure", "Use plan", [])
+
+    assert await runtime.turn_worker.run_once() is True
+
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    with runtime.db.connection() as connection:
+        job = connection.execute(
+            "SELECT status FROM turn_jobs WHERE turn_id = ?", (accepted.turn_id,)
+        ).fetchone()
+    assert job["status"] == "FAILED"
 
 
 @pytest.mark.asyncio
@@ -377,7 +483,7 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
 
     await runtime.turn_worker.run_once()
 
-    assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
     with runtime.db.connection() as connection:
         assistant_messages = connection.execute(
             "SELECT content, status FROM thread_messages WHERE turn_id = ? AND role = 'assistant'",
@@ -387,8 +493,9 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
     assert all(message["status"] != "streaming" for message in assistant_messages)
     visible_messages = [message for message in assistant_messages if message["status"] != "interrupted"]
     assert [message["content"] for message in visible_messages] == [
-        "为了更准确地完成这个目标，请先补充以下信息。"
+        "当前暂时无法生成可用回答，请重试。"
     ]
+    assert runtime.conversation.pending_ask(accepted.turn_id) is None
 
 
 @pytest.mark.asyncio

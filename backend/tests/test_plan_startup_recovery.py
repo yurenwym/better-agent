@@ -35,3 +35,59 @@ def test_build_runtime_recovers_prepared_plan_before_worker_is_available(tmp_pat
     assert runtime.plan_documents.current_version(document_id).status == "committed"
     assert runtime.plan_documents.path_for(document_id).read_text(encoding="utf-8") == content
 
+
+def test_recovery_file_write_failure_marks_document_failed_and_emits_event(tmp_path) -> None:
+    from app.db import Database
+    from app.events import EventStore
+    from app.plan_documents import PlanDocumentService, content_hash
+
+    document_id = "plan_" + "d" * 32
+    version_id = "planv_" + "e" * 32
+    intent_id = "intent_" + "f" * 32
+    content = "# Recovery failure\n"
+    db = Database(tmp_path / "agent.db")
+    events = EventStore(db)
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO threads(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
+            ("thread-failure", "Thread", "now", "now"),
+        )
+        connection.execute(
+            "INSERT INTO plan_documents(id, thread_id, title, file_status, created_at, updated_at) "
+            "VALUES (?, ?, ?, 'pending', 'now', 'now')",
+            (document_id, "thread-failure", "Recovery failure"),
+        )
+        connection.execute(
+            "INSERT INTO plan_document_versions(id, plan_document_id, version, title, markdown_content, content_hash, actor, status, created_at) "
+            "VALUES (?, ?, 1, ?, ?, ?, 'model', 'prepared', 'now')",
+            (version_id, document_id, "Recovery failure", content, content_hash(content)),
+        )
+        connection.execute(
+            "INSERT INTO plan_write_intents(id, plan_document_id, version_id, expected_file_hash, target_file_hash, status, created_at) "
+            "VALUES (?, ?, ?, ?, ?, 'PREPARED', 'now')",
+            (intent_id, document_id, version_id, None, content_hash(content)),
+        )
+
+    class FailingProjector:
+        def read_hash(self, document_id: str):
+            return None
+
+        def project(self, *args, **kwargs):
+            raise OSError("disk unavailable during recovery")
+
+    service = PlanDocumentService(
+        db,
+        tmp_path / "data",
+        projector=FailingProjector(),
+        events=events,
+    )
+    service.recover_pending_intents()
+
+    document = service.get_document(document_id)
+    assert document.file_status == "failed"
+    intent = service.pending_intents(document_id)[0]
+    assert intent.status == "FAILED"
+    assert any(
+        event.type == "plan.document_failed"
+        for event in events.list("thread-failure")
+    )

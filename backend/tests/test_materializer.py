@@ -36,6 +36,14 @@ def _count(runtime, table: str) -> int:
 async def test_execution_materializes_once_only_after_confirmed_direction(tmp_path) -> None:
     runtime = make_runtime(tmp_path, MaterializerModel())
     thread = runtime.conversation.create_thread("Chat")
+    runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Execution plan",
+        markdown_content="# Execution plan\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "每天更新清单", [])
     await runtime.turn_worker.run_once()
     turn = runtime.conversation.turn(accepted.turn_id)

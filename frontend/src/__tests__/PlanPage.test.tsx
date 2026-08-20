@@ -5,6 +5,7 @@ import { ApiError } from "../api";
 
 const api = vi.hoisted(() => ({
   getPlanDocument: vi.fn(),
+  getPlanVersion: vi.fn(),
   getThreadPlan: vi.fn(),
   getPlans: vi.fn(),
   putPlanDocument: vi.fn(),
@@ -60,6 +61,7 @@ describe("PlanPage document editor", () => {
     api.restorePlanDocument.mockResolvedValue(current);
     api.syncPlanFile.mockResolvedValue(current);
     api.retryPlanProjection.mockResolvedValue(document);
+    api.getPlanVersion.mockResolvedValue({ ...current, version: 1, id: "version-1", markdown: "# Travel plan\n\n## Day 1\nOriginal" });
   });
 
   it("loads by stable plan id without requiring a Run and saves exact Markdown with CAS", async () => {
@@ -97,6 +99,21 @@ describe("PlanPage document editor", () => {
     expect((editor as HTMLTextAreaElement).value).toBe("# Local draft");
   });
 
+  it("marks the document retryable when file projection returns a recoverable error", async () => {
+    api.putPlanDocument.mockRejectedValue(new ApiError("projection failed", 503, {
+      retry: true,
+      current: { file_status: "failed" },
+    }));
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.change(editor, { target: { value: "# Local draft" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("写入失败"));
+    expect(screen.getByRole("button", { name: "Retry file write" })).toBeTruthy();
+    expect((editor as HTMLTextAreaElement).value).toBe("# Local draft");
+  });
+
   it("restores a selected history version as a new revision", async () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
     await screen.findByRole("textbox", { name: "Markdown editor" });
@@ -107,6 +124,45 @@ describe("PlanPage document editor", () => {
       { version: 1, expected_version: 2, expected_content_hash: "sha256:v2" },
       "csrf",
     ));
+  });
+
+  it("does not offer restore for a prepared history candidate", async () => {
+    api.getPlanDocument.mockResolvedValue({
+      ...document,
+      versions: [...document.versions, { ...current, id: "prepared-3", version: 3, status: "prepared", markdown: "# Prepared" }],
+    });
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    expect(screen.queryByRole("button", { name: "Restore version 3" })).toBeNull();
+  });
+
+  it("loads Markdown on demand when the history list contains metadata only", async () => {
+    const metadataOnly = {
+      ...document,
+      versions: document.versions.map(({ markdown: _markdown, ...version }) => version),
+    };
+    api.getPlanDocument.mockResolvedValue(metadataOnly);
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+
+    fireEvent.click(screen.getByRole("button", { name: "v1" }));
+
+    await waitFor(() => expect(api.getPlanVersion).toHaveBeenCalledWith("plan-1", 1));
+    expect((screen.getByRole("textbox", { name: "Markdown editor" }) as HTMLTextAreaElement).value).toContain("Day 1");
+  });
+
+  it("keeps a pending document addressable and exposes a projection retry", async () => {
+    const pending = { ...document, current: null, current_version_id: null, projected_version_id: null, file_status: "failed" };
+    api.getPlanDocument.mockResolvedValue(pending);
+    api.retryPlanProjection.mockResolvedValue(pending);
+
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    expect(await screen.findByText("计划文档还没有可用版本")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "重试写入计划文件" }));
+
+    await waitFor(() => expect(api.retryPlanProjection).toHaveBeenCalledWith("plan-1", "csrf"));
   });
 
   it("shows the fixed document source for an execution projection", async () => {
@@ -147,5 +203,48 @@ describe("PlanPage document editor", () => {
     );
 
     expect((await screen.findByText(/执行来源：Travel plan/)).textContent).toContain("文档 v1");
+  });
+
+  it("keeps execution approval and revision controls visible beside the document editor", async () => {
+    api.getPlans.mockResolvedValue({
+      current: {
+        id: "execution-1",
+        run_id: "run-1",
+        goal_id: "goal-1",
+        version: 1,
+        status: "draft",
+        summary: "Compiled execution",
+        source_document_version_id: "version-1",
+        steps: [{ id: "step-1", title: "Track", description: "Track it", status: "pending", position: 0 }],
+      },
+      history: [],
+    });
+
+    render(
+      <PlanPage
+        csrfToken="csrf"
+        planId="plan-1"
+        run={{
+          id: "run-1",
+          goal_id: "goal-1",
+          session_id: "session-1",
+          state: "AWAITING_APPROVAL",
+          resume_state: null,
+          current_plan_version_id: "execution-1",
+          current_step_id: null,
+          version: 1,
+          budget: {},
+          pending_approvals: [],
+          source_plan_document_id: "plan-1",
+          source_plan_document_version_id: "version-1",
+          source_plan_content_hash: "sha256:v1",
+        }}
+        onRun={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+    expect(await screen.findByRole("button", { name: "批准计划" })).toBeTruthy();
+    expect(screen.getByText("调整未完成步骤")).toBeTruthy();
   });
 });

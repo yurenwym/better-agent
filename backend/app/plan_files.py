@@ -53,17 +53,33 @@ class PlanFileProjector:
     def read_text_stable(self, document_id: str) -> str:
         """Read a plan file only when its metadata is stable across the read."""
         path = self.path_for(document_id)
+        file_descriptor: int | None = None
         try:
-            before = path.stat()
+            before = os.lstat(path)
+            if _is_link_or_reparse(path):
+                raise PlanFileSecurityError("plan file cannot be a symlink")
             if before.st_size > MAX_PLAN_MARKDOWN_BYTES:
                 raise ValueError("plan file exceeds 1 MiB")
-            with path.open("r", encoding="utf-8", newline="") as handle:
+            flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
+            file_descriptor = os.open(str(path), flags)
+            opened = os.fstat(file_descriptor)
+            if _is_link_or_reparse(path) or not _same_file_identity(before, opened):
+                raise PlanFileSecurityError("plan file changed to an unsafe target")
+            with os.fdopen(file_descriptor, "r", encoding="utf-8", newline="") as handle:
+                file_descriptor = None
                 content = handle.read()
-            after = path.stat()
+                after_open = os.fstat(handle.fileno())
+            after = os.lstat(path)
         except FileNotFoundError as exc:
             raise PlanFileConflict("plan file changed while reading") from exc
+        finally:
+            if file_descriptor is not None:
+                os.close(file_descriptor)
+        if _is_link_or_reparse(path):
+            raise PlanFileSecurityError("plan file changed to an unsafe target")
         if (
-            before.st_size != after.st_size
+            not _same_file_identity(after_open, after)
+            or before.st_size != after.st_size
             or before.st_mtime_ns != after.st_mtime_ns
             or getattr(before, "st_ino", None) != getattr(after, "st_ino", None)
         ):
@@ -83,6 +99,9 @@ class PlanFileProjector:
         if current_hash != expected_file_hash:
             raise PlanFileConflict("plan file hash conflict")
         path.parent.mkdir(parents=True, exist_ok=True)
+        # The directory can be replaced by a link between the initial path
+        # validation and mkdir; validate the final write location again.
+        path = self.path_for(document_id)
         temporary_path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -96,9 +115,12 @@ class PlanFileProjector:
                 handle.write(normalized.encode("utf-8"))
                 handle.flush()
                 os.fsync(handle.fileno())
+            if self.read_hash(document_id) != expected_file_hash:
+                raise PlanFileConflict("plan file changed before replace")
             os.replace(temporary_path, path)
             temporary_path = None
-            target_hash = content_hash(path.read_text(encoding="utf-8"))
+            path = self.path_for(document_id)
+            target_hash = content_hash(self.read_text_stable(document_id))
             if target_hash != content_hash(normalized):
                 raise OSError("projected plan hash mismatch")
             return target_hash
@@ -115,3 +137,10 @@ def _is_link_or_reparse(path: Path) -> bool:
     except (FileNotFoundError, AttributeError, OSError):
         return False
     return bool(attributes & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400))
+
+
+def _same_file_identity(left, right) -> bool:
+    return (
+        getattr(left, "st_dev", None) == getattr(right, "st_dev", None)
+        and getattr(left, "st_ino", None) == getattr(right, "st_ino", None)
+    )

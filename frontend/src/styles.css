@@ -367,6 +367,9 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
 .plan-reference-card > div { display: grid; gap: 4px; min-width: 0; }
 .plan-reference-card strong { color: var(--color-ink); font-size: 13px; }
 .plan-reference-card span { color: var(--color-muted); font-size: 11px; }
+.plan-pending-card { display: grid; gap: 10px; max-width: 720px; }
+.plan-pending-card p { max-width: 62ch; color: var(--color-muted); line-height: 1.65; }
+.plan-pending-card .button { justify-self: start; }
 .memory-card { display: grid; gap: 16px; border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-panel); padding: 19px; box-shadow: var(--shadow-panel); }
 .memory-card textarea:disabled { opacity: 0.9; }
 .memory-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }

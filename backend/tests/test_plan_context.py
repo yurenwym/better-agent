@@ -140,3 +140,45 @@ def test_context_loaded_event_contains_only_plan_metadata_needed_for_preview(tmp
     assert event.data["title"] == "Training plan"
     assert "markdown" not in event.data
     assert "markdown_content" not in event.data
+
+
+def test_context_snapshot_is_persisted_on_the_turn_and_reused_after_the_document_changes(tmp_path) -> None:
+    from test_runtime import make_runtime
+
+    runtime = make_runtime(tmp_path, None)
+    thread = runtime.conversation.create_thread("Chat")
+    first = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Training plan",
+        markdown_content="# v1\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
+    accepted = runtime.conversation.accept_turn(thread.id, "client-context-pin", "Continue", [])
+
+    snapshot = runtime.conversation.plan_context.load_for_turn(thread.id, accepted.turn_id)
+    runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Training plan",
+        markdown_content="# v2\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="user",
+        expected_version_id=first.id,
+        expected_file_hash=first.content_hash,
+    )
+    retried = runtime.conversation.plan_context.load_for_turn(thread.id, accepted.turn_id)
+
+    assert snapshot is not None and retried is not None
+    assert snapshot.version_id == retried.version_id == first.id
+    with runtime.db.connection() as connection:
+        row = connection.execute(
+            "SELECT plan_context_document_id, plan_context_version_id, plan_context_version, plan_context_hash "
+            "FROM turns WHERE id = ?",
+            (accepted.turn_id,),
+        ).fetchone()
+    assert row["plan_context_document_id"] == first.plan_document_id
+    assert row["plan_context_version_id"] == first.id
+    assert row["plan_context_version"] == 1
+    assert row["plan_context_hash"] == first.content_hash
