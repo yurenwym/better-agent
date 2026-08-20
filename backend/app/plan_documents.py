@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 
 from .db import Database
 
@@ -114,6 +114,16 @@ class PlanDocumentConflict(ValueError):
     pass
 
 
+def _failure_reason(error: BaseException) -> str:
+    if isinstance(error, OSError):
+        return "plan file unavailable"
+    if isinstance(error, UnicodeError):
+        return "plan file encoding invalid"
+    if isinstance(error, PlanDocumentValidationError):
+        return "plan document invalid"
+    return "plan document projection failed"
+
+
 class PlanDocumentService:
     def __init__(self, db: Database, data_root: str | Path, *, projector=None, events=None) -> None:
         from .plan_files import PlanFileProjector
@@ -197,6 +207,7 @@ class PlanDocumentService:
         expected_version_id: str | None = None,
         expected_file_hash: str | None = None,
         change_summary: str = "",
+        owner_check: Callable[[], None] | None = None,
     ) -> PlanDocumentVersion:
         title = validate_title(title)
         markdown_content = normalize_markdown(markdown_content)
@@ -210,7 +221,11 @@ class PlanDocumentService:
             if existing is not None:
                 if existing["status"] == "committed":
                     return self.get_version(existing["id"])
+                if owner_check is not None:
+                    owner_check()
                 self.recover_pending_intents()
+                if owner_check is not None:
+                    owner_check()
                 recovered = self.get_version(existing["id"])
                 if recovered.status == "committed":
                     return recovered
@@ -291,6 +306,8 @@ class PlanDocumentService:
                 "model" if actor == "model" else actor,
                 now,
             )
+        if owner_check is not None:
+            owner_check()
         try:
             self.projector.project(
                 prepared.plan_document_id,
@@ -314,9 +331,11 @@ class PlanDocumentService:
                     "plan.document_failed",
                     "worker",
                     _now(),
-                    {"reason": str(exc)[:240]},
+                    {"reason": _failure_reason(exc)},
                 )
             raise
+        if owner_check is not None:
+            owner_check()
         with self.db.durable_transaction() as connection:
             document = connection.execute(
                 "SELECT * FROM plan_documents WHERE id = ?", (prepared.plan_document_id,)
@@ -515,6 +534,7 @@ class PlanDocumentService:
 
         try:
             current_file_hash = self.projector.read_hash(document.id)
+            file_missing = current_file_hash is None and not self.path_for(document.id).exists()
         except (OSError, UnicodeError, ValueError) as exc:
             self._mark_intent_conflict(intent.id, f"unable to inspect plan file: {exc}")
             return
@@ -523,7 +543,7 @@ class PlanDocumentService:
             self._finalize_prepared(intent.id)
             return
 
-        if current_file_hash != intent.expected_file_hash:
+        if current_file_hash != intent.expected_file_hash and not file_missing:
             self._mark_intent_conflict(intent.id, "plan file changed during recovery")
             return
 
@@ -531,7 +551,7 @@ class PlanDocumentService:
             self.projector.project(
                 document.id,
                 version.markdown_content,
-                expected_file_hash=intent.expected_file_hash,
+                expected_file_hash=None if file_missing else intent.expected_file_hash,
             )
         except (OSError, UnicodeError, ValueError) as exc:
             self._mark_intent_failed(intent.id, exc)
@@ -683,7 +703,7 @@ class PlanDocumentService:
                         "plan.document_failed",
                         "worker",
                         now,
-                        {"reason": str(error)[:240]},
+                        {"reason": _failure_reason(error)},
                     )
 
     def _mark_intent_conflict(self, intent_id: str, message: str) -> None:
@@ -719,7 +739,7 @@ class PlanDocumentService:
                             "plan.document_conflict",
                             "worker",
                             _now(),
-                            {"reason": message[:240]},
+                            {"reason": "plan document conflict"},
                         )
 
     def _mark_intent_committed(self, intent_id: str) -> None:
@@ -763,7 +783,7 @@ class PlanDocumentService:
                         "plan.document_conflict",
                         "worker",
                         _now(),
-                        {"reason": message[:240]},
+                        {"reason": "plan document conflict"},
                     )
 
     def _mark_document_failed(self, document_id: str, message: str) -> None:
@@ -792,7 +812,7 @@ class PlanDocumentService:
                         "plan.document_failed",
                         "worker",
                         _now(),
-                        {"reason": message[:240]},
+                        {"reason": "plan file unavailable"},
                     )
 
     def get_document(self, document_id: str) -> PlanDocument:

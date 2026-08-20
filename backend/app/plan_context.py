@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -85,7 +86,8 @@ class PlanContextProvider:
         if version.status != "committed":
             return None
 
-        markdown, cropped, crop_metadata = self._bounded_markdown(version.markdown_content)
+        request_text = self._turn_request(thread_id, turn_id)
+        markdown, cropped, crop_metadata = self._bounded_markdown(version.markdown_content, request_text)
         context_text = self._render_context(markdown, cropped, crop_metadata)
         self._record_context_loaded(
             thread_id,
@@ -126,6 +128,16 @@ class PlanContextProvider:
             "version": int(row["plan_context_version"]),
             "content_hash": row["plan_context_hash"],
         }
+
+    def _turn_request(self, thread_id: str, turn_id: str) -> str:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT content FROM thread_messages "
+                "WHERE thread_id = ? AND turn_id = ? AND role = 'user' "
+                "ORDER BY created_at, id LIMIT 1",
+                (thread_id, turn_id),
+            ).fetchone()
+        return str(row["content"]) if row is not None else ""
 
     def _pin_turn(
         self,
@@ -225,7 +237,11 @@ class PlanContextProvider:
     def _mark_file_failed(self, document_id: str, message: str) -> None:
         self.service._mark_document_failed(document_id, message)
 
-    def _bounded_markdown(self, content: str) -> tuple[str, bool, dict[str, Any]]:
+    def _bounded_markdown(
+        self,
+        content: str,
+        request_text: str = "",
+    ) -> tuple[str, bool, dict[str, Any]]:
         if len(content) <= self.max_chars:
             return content, False, {
                 "strategy": "full",
@@ -234,15 +250,69 @@ class PlanContextProvider:
                 "omitted_chars": 0,
             }
 
+        lines = content.splitlines(keepends=True)
+        headings: list[tuple[int, str]] = []
+        for index, line in enumerate(lines):
+            match = re.match(r"^#{1,6}[ \t]+(.+?)[ \t]*(?:\r?\n)?$", line)
+            if match:
+                headings.append((index, match.group(1).strip()))
+
+        if not headings:
+            return self._head_tail_crop(content)
+
+        blocks: list[tuple[str, str]] = []
+        for position, (line_index, title) in enumerate(headings):
+            end = headings[position + 1][0] if position + 1 < len(headings) else len(lines)
+            blocks.append((title, "".join(lines[line_index:end])))
+
+        query_terms = _search_terms(request_text)
+        scored = [
+            (sum(1 for term in query_terms if term in _search_terms(title)), position)
+            for position, (title, _) in enumerate(blocks)
+        ]
+        ranked = sorted(scored, key=lambda item: (-item[0], item[1]))
+        matching_positions = [position for score, position in ranked if score > 0][:8]
+        if not matching_positions:
+            matching_positions = list(dict.fromkeys([0, len(blocks) - 1]))
+
+        marker = "\n\n<!-- active_plan sections selected for request -->\n\n"
+        budget = max(self.max_chars - len(marker), 0)
+        index = "[plan sections]\n" + "\n".join(f"- {title}" for title, _ in blocks)
+        index_budget = min(len(index), max(budget // 3, 1024))
+        index_text = index[:index_budget]
+        if len(index_text) < len(index):
+            index_text = index_text.rsplit("\n", 1)[0] + "\n- ..."
+
+        bounded_parts = [index_text, marker.strip()]
+        remaining = max(budget - len("\n\n".join(bounded_parts)), 0)
+        selected_positions: list[int] = []
+        for position in sorted(matching_positions):
+            if remaining <= 0:
+                break
+            title, block = blocks[position]
+            chunk = block[:remaining]
+            bounded_parts.append(chunk)
+            remaining -= len(chunk) + 2
+            selected_positions.append(position)
+
+        bounded = "\n\n".join(bounded_parts)[: self.max_chars]
+        return bounded, True, {
+            "strategy": "heading_index_relevant_sections",
+            "original_chars": len(content),
+            "included_chars": len(bounded),
+            "omitted_chars": max(len(content) - len(bounded), 0),
+            "heading_count": len(headings),
+            "selected_sections": [blocks[position][0] for position in selected_positions],
+        }
+
+    def _head_tail_crop(self, content: str) -> tuple[str, bool, dict[str, Any]]:
         marker = "\n\n<!-- active_plan cropped -->\n\n"
         budget = max(self.max_chars - len(marker), 0)
         head_budget = (budget + 1) // 2
         tail_budget = budget - head_budget
         head = content[:head_budget]
         tail = content[-tail_budget:] if tail_budget else ""
-        bounded = head + marker + tail
-        if len(bounded) > self.max_chars:
-            bounded = bounded[: self.max_chars]
+        bounded = (head + marker + tail)[: self.max_chars]
         return bounded, True, {
             "strategy": "head_tail",
             "original_chars": len(content),
@@ -261,3 +331,15 @@ class PlanContextProvider:
             + "\n</active_plan>"
             + crop_note
         )
+
+
+def _search_terms(text: str) -> set[str]:
+    terms = {
+        token.lower()
+        for token in re.findall(r"[A-Za-z0-9][A-Za-z0-9_-]{2,}", text)
+    }
+    for run in re.findall(r"[\u4e00-\u9fff]+", text):
+        if len(run) > 1:
+            terms.add(run)
+            terms.update(run[index : index + 2] for index in range(len(run) - 1))
+    return terms

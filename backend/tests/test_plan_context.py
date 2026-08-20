@@ -97,6 +97,26 @@ def test_plan_context_crop_is_deterministic_and_bounded(tmp_path) -> None:
     assert first.markdown_content == second.markdown_content
 
 
+def test_long_context_keeps_heading_index_and_request_relevant_middle_section(tmp_path) -> None:
+    db, service = _service(tmp_path)
+    from app.plan_context import PlanContextProvider
+
+    body = "# Long plan\n\n" + "\n".join(
+        f"## Section {index}\n" + ("background details " * 28) + "\n"
+        for index in range(900)
+    )
+    provider = PlanContextProvider(db, service)
+
+    bounded, cropped, metadata = provider._bounded_markdown(body, "请重点说明 Section 700 的安排")
+
+    assert cropped is True
+    assert len(bounded) <= 48_000
+    assert "[plan sections]" in bounded
+    assert "## Section 700" in bounded
+    assert metadata["strategy"] == "heading_index_relevant_sections"
+    assert "Section 700" in metadata["selected_sections"]
+
+
 def test_active_plan_context_marks_markdown_as_untrusted_user_data(tmp_path) -> None:
     db, service = _service(tmp_path)
     service.save_model_revision(

@@ -1280,8 +1280,9 @@ class ManagedTurnWorker:
         with self.db.transaction() as connection:
             result = connection.execute(
                 "UPDATE turn_jobs SET lease_until = ? "
-                "WHERE turn_id = ? AND status = 'RUNNING' AND lease_owner = ?",
-                (lease_until, turn_id, self.owner),
+                "WHERE turn_id = ? AND status = 'RUNNING' AND lease_owner = ? "
+                "AND lease_until IS NOT NULL AND lease_until > ?",
+                (lease_until, turn_id, self.owner, now),
             )
             return result.rowcount == 1
 
@@ -1291,7 +1292,12 @@ class ManagedTurnWorker:
                 "SELECT status, lease_owner, lease_until FROM turn_jobs WHERE turn_id = ?",
                 (turn_id,),
             ).fetchone()
-        if row is None or row["status"] != "RUNNING" or row["lease_owner"] != self.owner:
+        if (
+            row is None
+            or row["status"] != "RUNNING"
+            or row["lease_owner"] != self.owner
+            or not _lease_active(row["lease_until"])
+        ):
             raise TurnJobLeaseLost(turn_id)
 
     def _require_job_owner(self, connection, turn_id: str) -> None:
@@ -1299,7 +1305,12 @@ class ManagedTurnWorker:
             "SELECT status, lease_owner, lease_until FROM turn_jobs WHERE turn_id = ?",
             (turn_id,),
         ).fetchone()
-        if row is None or row["status"] != "RUNNING" or row["lease_owner"] != self.owner:
+        if (
+            row is None
+            or row["status"] != "RUNNING"
+            or row["lease_owner"] != self.owner
+            or not _lease_active(row["lease_until"])
+        ):
             raise TurnJobLeaseLost(turn_id)
 
     def _prepare_generation(self, turn: TurnSnapshot) -> int:
@@ -1523,6 +1534,7 @@ class ManagedTurnWorker:
                         actor="model",
                         expected_version_id=expected_version_id,
                         expected_file_hash=expected_file_hash,
+                        owner_check=lambda: self._assert_job_owner(turn.id),
                     )
                 except PlanDocumentConflict as exc:
                     document_error = str(exc)
@@ -1891,6 +1903,10 @@ def _after_seconds(seconds: float) -> str:
 
 
 def _projection_claim_active(lease_until: str | None) -> bool:
+    return _lease_active(lease_until)
+
+
+def _lease_active(lease_until: str | None) -> bool:
     if not lease_until:
         return False
     try:

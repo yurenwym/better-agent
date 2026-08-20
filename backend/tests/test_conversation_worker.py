@@ -181,13 +181,13 @@ async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> 
     worker_one = ManagedTurnWorker(
         runtime.conversation,
         owner="worker-one",
-        lease_seconds=0.05,
+        lease_seconds=0.2,
         poll_interval=0.005,
     )
     worker_two = ManagedTurnWorker(
         runtime.conversation,
         owner="worker-two",
-        lease_seconds=0.05,
+        lease_seconds=0.2,
         poll_interval=0.005,
     )
     thread = runtime.conversation.create_thread("Chat")
@@ -195,7 +195,7 @@ async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> 
 
     first_task = asyncio.create_task(worker_one.run_once())
     await model.started.wait()
-    await asyncio.sleep(0.12)
+    await asyncio.sleep(0.45)
 
     assert worker_two.claim_next() is None
     with runtime.db.connection() as connection:
@@ -236,6 +236,28 @@ def test_stale_worker_cannot_finalize_a_taken_over_turn_job(tmp_path) -> None:
         ).fetchone()
     assert job["status"] == "RUNNING"
     assert job["lease_owner"] == "new-worker"
+    assert len(runtime.conversation.messages(thread.id)) == 1
+
+
+def test_expired_turn_job_lease_fences_same_owner_before_takeover(tmp_path) -> None:
+    from app.conversation import ManagedTurnWorker, TurnJobLeaseLost
+
+    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-expired-fence", "Expire me", [])
+    worker = ManagedTurnWorker(runtime.conversation, owner="expired-worker")
+    assert worker.claim_next() == accepted.turn_id
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "UPDATE turn_jobs SET lease_until = ? WHERE turn_id = ?",
+            ("2000-01-01T00:00:00+00:00", accepted.turn_id),
+        )
+
+    assert worker._renew_lease(accepted.turn_id) is False
+    with pytest.raises(TurnJobLeaseLost):
+        worker._finish_failure(runtime.conversation.turn(accepted.turn_id), None, 1, "expired worker")
+
+    assert runtime.conversation.turn(accepted.turn_id).status == "ROUTING"
     assert len(runtime.conversation.messages(thread.id)) == 1
 
 

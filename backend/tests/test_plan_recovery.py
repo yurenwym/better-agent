@@ -64,6 +64,47 @@ def test_recover_target_hash_finalizes_without_requiring_model(tmp_path) -> None
     assert service.get_document(document_id).file_status == "ready"
 
 
+def test_recover_prepared_revision_reprojects_when_plan_file_was_deleted(tmp_path) -> None:
+    from app.db import Database
+    from app.plan_documents import content_hash
+    from app.plan_documents import PlanDocumentService
+
+    service = PlanDocumentService(Database(tmp_path / "agent.db"), tmp_path / "data")
+    first = service.save_model_revision(
+        thread_id="thread-1",
+        title="璁″垝",
+        markdown_content="# v1\n",
+        source_turn_id="turn-v1",
+        source_message_id=None,
+        actor="model",
+    )
+    document = service.get_by_thread("thread-1")
+    second_content = "# v2\n"
+    second_hash = content_hash(second_content)
+    second_id = "planv_" + "a" * 32
+    intent_id = "intent_" + "b" * 32
+    with service.db.durable_transaction() as connection:
+        connection.execute(
+            "INSERT INTO plan_document_versions("
+            "id, plan_document_id, version, base_version_id, title, markdown_content, content_hash, "
+            "actor, status, created_at) VALUES (?, ?, 2, ?, ?, ?, ?, 'model', 'prepared', 'now')",
+            (second_id, document.id, first.id, "璁″垝", second_content, second_hash),
+        )
+        connection.execute(
+            "INSERT INTO plan_write_intents("
+            "id, plan_document_id, version_id, expected_head_version_id, expected_file_hash, "
+            "target_file_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'PREPARED', 'now')",
+            (intent_id, document.id, second_id, first.id, first.content_hash, second_hash),
+        )
+    service.path_for(document.id).unlink()
+
+    service.recover_pending_intents()
+
+    assert service.get_version(second_id).status == "committed"
+    assert service.get_document(document.id).file_status == "ready"
+    assert service.path_for(document.id).read_text(encoding="utf-8") == second_content
+
+
 def test_recover_third_hash_marks_conflict_without_overwriting_file(tmp_path) -> None:
     service, document_id, version_id, _ = _prepared_service(tmp_path)
     service.projector.project(document_id, "external\n")

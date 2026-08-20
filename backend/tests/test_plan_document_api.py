@@ -249,6 +249,26 @@ def test_plan_file_read_rejects_an_oversized_or_unstable_file(tmp_path) -> None:
     assert response.status_code == 409
 
 
+def test_plan_file_read_maps_filesystem_errors_to_a_stable_message(tmp_path) -> None:
+    runtime, app, client, thread, _ = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    real_projector = runtime.plan_documents.projector
+
+    class FailingProjector:
+        def path_for(self, document_id):
+            return real_projector.path_for(document_id)
+
+        def read_text_stable(self, document_id):
+            raise OSError("C:/private/server/path/plan.md is unavailable")
+
+    runtime.plan_documents.projector = FailingProjector()
+    response = client.get(f"/api/plans/{document.id}/file", headers=_headers(app))
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "plan file unavailable"
+    assert "private/server/path" not in response.text
+
+
 def test_plan_restore_requires_both_version_and_hash_cas_values(tmp_path) -> None:
     runtime, app, client, thread, first = _seed(tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)

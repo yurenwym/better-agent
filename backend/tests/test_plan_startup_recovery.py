@@ -69,11 +69,14 @@ def test_recovery_file_write_failure_marks_document_failed_and_emits_event(tmp_p
         )
 
     class FailingProjector:
+        def path_for(self, document_id: str):
+            return tmp_path / "missing-plan.md"
+
         def read_hash(self, document_id: str):
             return None
 
         def project(self, *args, **kwargs):
-            raise OSError("disk unavailable during recovery")
+            raise OSError("C:/private/server/path/plan.md is unavailable")
 
     service = PlanDocumentService(
         db,
@@ -87,7 +90,7 @@ def test_recovery_file_write_failure_marks_document_failed_and_emits_event(tmp_p
     assert document.file_status == "failed"
     intent = service.pending_intents(document_id)[0]
     assert intent.status == "FAILED"
-    assert any(
-        event.type == "plan.document_failed"
-        for event in events.list("thread-failure")
-    )
+    failures = [event for event in events.list("thread-failure") if event.type == "plan.document_failed"]
+    assert len(failures) == 1
+    assert failures[0].data["reason"] == "plan file unavailable"
+    assert "private/server/path" not in str(failures[0].data)

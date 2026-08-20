@@ -225,3 +225,30 @@ def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_
     assert recovered.status == "committed"
     assert service.list_versions(recovered.plan_document_id)[0].status == "committed"
     assert service.path_for(recovered.plan_document_id).read_text(encoding="utf-8") == "# 计划\n"
+
+
+def test_revision_owner_check_can_fence_after_file_projection_before_finalize(tmp_path) -> None:
+    service = _service(tmp_path)
+    checks = 0
+
+    def owner_check() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise RuntimeError("turn lease lost")
+
+    with pytest.raises(RuntimeError, match="turn lease lost"):
+        service.save_model_revision(
+            thread_id="thread-1",
+            title="璁″垝",
+            markdown_content="# 璁″垝\n",
+            source_turn_id="turn-owner-check",
+            source_message_id="message-owner-check",
+            actor="model",
+            owner_check=owner_check,
+        )
+
+    document = service.get_by_thread("thread-1")
+    assert checks == 2
+    assert service.list_versions(document.id)[0].status == "prepared"
+    assert service.path_for(document.id).read_text(encoding="utf-8") == "# 璁″垝\n"

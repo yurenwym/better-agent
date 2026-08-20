@@ -220,7 +220,7 @@ def register_routes(app) -> None:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="plan not found") from exc
         except (OSError, UnicodeError, ValueError) as exc:
-            raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise HTTPException(status_code=409, detail="plan file unavailable") from exc
         return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
 
     @app.put("/api/plans/{plan_document_id}", dependencies=[Depends(mutate)], response_model=None)
