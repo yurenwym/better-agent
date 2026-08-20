@@ -43,7 +43,7 @@ The application must not contain a request-keyword policy, a fixed question set,
 - [x] Run frontend tests and production build: 16 files / 78 tests passed; Vite production build passed.
 - [x] Run the deterministic suite and the LLM smoke test using `D:\Users\王一鸣\Desktop\直到尽头\LLM_AP.txt` without printing or committing the key: deterministic 12/12; live smoke 1/1.
 - [x] Run `git diff --check`, inspect staged paths, and ensure `data/`, `memory/`, evaluation results, `.env`, and the LLM key file remain untracked/unstaged.
-- [ ] Commit the correction on `codex/personal-agent-v1`; do not modify `main`.
+- [x] Commit the correction on `codex/personal-agent-v1`; do not modify `main` (`56b79c0`).
 
 ## Verification record
 
