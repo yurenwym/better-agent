@@ -347,6 +347,33 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
 
 
 @pytest.mark.asyncio
+async def test_live_conversation_model_keeps_streaming_a_direct_answer() -> None:
+    from app.live_model import LiveConversationModel
+
+    message = '{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\n# Answer'
+
+    class DirectAnswerGateway:
+        async def complete(self, request, **kwargs):
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    deltas: list[str] = []
+    resets: list[bool] = []
+    response = await LiveConversationModel(DirectAnswerGateway()).route_and_respond(
+        content="给我一份广西攻略",
+        history=[],
+        skill_names=[],
+        on_text_delta=deltas.append,
+        on_text_reset=lambda: resets.append(True),
+        cancel_event=asyncio.Event(),
+    )
+
+    assert response.message == message
+    assert deltas == [message]
+    assert resets == []
+
+
+@pytest.mark.asyncio
 async def test_live_conversation_model_lets_llm_choose_ask_questions_for_personalized_plan() -> None:
     from app.ask import ASK_TOOL_SCHEMA
     from app.live_model import LiveConversationModel

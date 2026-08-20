@@ -334,6 +334,64 @@ async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None
 
 
 @pytest.mark.asyncio
+async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class MixedAskGateway:
+        async def complete(self, request, **kwargs):
+            message = (
+                '{"v":1,"policy":"answer","content_shape":"guide",'
+                '"reason_code":"content_only"}\n'
+                + ("This provider text must not be persisted. " * 10)
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(
+                message=message,
+                tool_calls=[{
+                    "id": "mixed-ask-1",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({
+                            "questions": [{
+                                "id": "missing_context",
+                                "header": "必要信息",
+                                "question": "还需要补充哪项信息？",
+                                "options": [
+                                    {"label": "选项一", "description": "第一种情况"},
+                                    {"label": "选项二", "description": "第二种情况"},
+                                ],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]
+                        }, ensure_ascii=False),
+                    },
+                }],
+            )
+
+    runtime = make_runtime(tmp_path, LiveConversationModel(MixedAskGateway()))
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-mixed-ask", "继续完善计划", [])
+
+    await runtime.turn_worker.run_once()
+
+    assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
+    with runtime.db.connection() as connection:
+        assistant_messages = connection.execute(
+            "SELECT content, status FROM thread_messages WHERE turn_id = ? AND role = 'assistant'",
+            (accepted.turn_id,),
+        ).fetchall()
+    assert [message["status"] for message in assistant_messages] == ["interrupted", "ready"]
+    assert all(message["status"] != "streaming" for message in assistant_messages)
+    visible_messages = [message for message in assistant_messages if message["status"] != "interrupted"]
+    assert [message["content"] for message in visible_messages] == [
+        "为了更准确地完成这个目标，请先补充以下信息。"
+    ]
+
+
+@pytest.mark.asyncio
 async def test_continuation_history_contains_ask_tool_result(tmp_path) -> None:
     runtime = make_runtime(tmp_path, AskConversationModel())
     thread = runtime.conversation.create_thread("Chat")

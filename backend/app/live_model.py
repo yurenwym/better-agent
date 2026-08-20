@@ -277,6 +277,8 @@ class LiveConversationModel:
             )
             tool_calls = getattr(response, "tool_calls", []) or []
             if tool_calls:
+                if forwarded or buffered:
+                    reset()
                 if len(tool_calls) != 1:
                     raise GatewayError("conversation supports one ask tool call at a time", "structure")
                 try:
