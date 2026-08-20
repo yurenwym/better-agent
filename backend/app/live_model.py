@@ -227,9 +227,10 @@ class LiveConversationModel:
                 "The header must have v=1, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
-                "You decide whether the current request needs clarification. "
-                "For a personalized, long-term, or goal-driven plan, call ask_user when missing information would materially change the plan. "
-                "Treat a request to create a training tutorial, program, routine, or regimen intended to be followed by the user as a goal-driven deliverable, not merely a general explanation. "
+                "You decide which relevant personal context is missing from the current request and history. "
+                "For a personalized, long-term, or goal-driven plan, you must call ask_user before drafting when the relevant personal context is not already provided. "
+                "Treat a request to create a training tutorial, program, routine, or regimen intended to be followed by the user as a goal-driven deliverable, not merely a general explanation, and apply the same rule. "
+                "Only skip ask_user when the user explicitly asks for a generic explanation or template, or has already provided the relevant personal context; do not answer first and ask later. "
                 "If it is ambiguous whether the user wants a generic explanation or a personal plan, ask one concise intent question before drafting. "
                 "Choose only the minimum questions needed for this specific request; do not use a fixed questionnaire and do not ask for information that is not relevant. "
                 "For general knowledge, a broad guide, a template, or a useful first answer that can be written with explicit assumptions, answer directly instead of asking for preferences. "
@@ -272,7 +273,7 @@ class LiveConversationModel:
                     on_text_reset()
 
             response = await self.gateway.complete(
-                ModelRequest(messages=request_messages, tools=[ASK_TOOL_SCHEMA]),
+                ModelRequest(messages=request_messages, tools=[ASK_TOOL_SCHEMA], temperature=0),
                 cancel_event=cancel_event,
                 on_text_delta=emit,
                 on_text_reset=reset,
