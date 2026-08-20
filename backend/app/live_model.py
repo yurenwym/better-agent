@@ -210,6 +210,51 @@ class LiveConversationModel:
     def __init__(self, gateway: ModelGateway) -> None:
         self.gateway = gateway
 
+    async def _classify_existing_plan_save(
+        self,
+        content: str,
+        history: list[dict[str, Any]],
+        cancel_event,
+    ) -> bool:
+        if not _has_prior_assistant_markdown_plan(history):
+            return False
+        request = ModelRequest(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Return JSON only: {\"save_existing_plan\": true|false}. "
+                        "Use the LLM to decide whether the latest user message explicitly asks to write, save, or generate a document from a complete Markdown plan already shown by the assistant. "
+                        "A request such as 写进计划页面, 保存到计划, or 生成文档 means true only when that prior assistant plan exists. "
+                        "Questions about the plan, requests for more detail, or personalization without an explicit save request are false. "
+                        "Do not infer true from generic planning keywords."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "latest_user_message": content,
+                            "has_prior_assistant_markdown_plan": True,
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            tools=[],
+            temperature=0,
+        )
+        try:
+            response = await self.gateway.complete(request, cancel_event=cancel_event)
+            if getattr(response, "tool_calls", []) or []:
+                raise GatewayError("conversation returned a tool call while tools are disabled", "structure")
+            payload = _parse_json(response.message)
+        except GatewayError:
+            raise
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        return payload.get("save_existing_plan") is True
+
     async def route_and_respond(
         self,
         *,
@@ -231,6 +276,12 @@ class LiveConversationModel:
                 "after the header; that exact visible body is the saved document. "
                 "Do not use an artifact for a generic guide, explanation, or answer-only plan. "
                 "Artifact authority comes only from the user's explicit request; never invent a save request from keywords alone. "
+                "Highest-priority save rule: saving an existing plan means the user explicitly asks to put, write, or save a complete plan already present in the conversation into the plan page or generate a plan document from that plan. "
+                "This includes requests such as 'write the plan already shown into the plan page', 'save that plan as a plan document', or 'generate the document from that plan'; a standalone request to generate a new document does not count as saving an existing plan. "
+                "For saving an existing plan, do not call ask_user and do not ask for personalization; return v=2 with the plan_document upsert artifact and reproduce the complete existing Markdown body, applying any explicit edits. "
+                "If history contains a prior assistant Markdown plan and the latest request includes Chinese phrases such as '\u5199\u8fdb\u8ba1\u5212\u9875\u9762', '\u4fdd\u5b58\u5230\u8ba1\u5212', or '\u751f\u6210\u6587\u6863', treat it as saving an existing plan and do not call ask_user. "
+                "This saving rule takes precedence over the personalized-plan question rule below. "
+                "For a new plan document, when no complete plan body exists in the conversation, follow the personalized-plan question rule; after ask_user answers, if the original request explicitly asks to create the plan document, return v=2 with the artifact. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
                 "You decide which relevant personal context is missing from the current request and history. "
@@ -246,9 +297,19 @@ class LiveConversationModel:
                 "Use the user's language and start the useful answer immediately after the header."
             ),
         }]
+        save_existing_plan = await self._classify_existing_plan_save(content, history, cancel_event)
+        if save_existing_plan:
+            messages.append({
+                "role": "system",
+                "content": (
+                    "The intent gate classified this request as saving an existing plan. "
+                    "Do not call ask_user. The response must contain a valid v=2 plan_document upsert artifact "
+                    "and the complete Markdown plan body."
+                ),
+            })
         messages.extend(history)
         messages.append({"role": "user", "content": content})
-        async def complete_once(request_messages: list[dict[str, str]]):
+        async def complete_once(request_messages: list[dict[str, str]], *, tools=None):
             decoder = ControlHeadDecoder()
             buffered: list[str] = []
             forwarded = False
@@ -279,13 +340,19 @@ class LiveConversationModel:
                     on_text_reset()
 
             response = await self.gateway.complete(
-                ModelRequest(messages=request_messages, tools=[ASK_TOOL_SCHEMA], temperature=0),
+                ModelRequest(
+                    messages=request_messages,
+                    tools=[ASK_TOOL_SCHEMA] if tools is None else tools,
+                    temperature=0,
+                ),
                 cancel_event=cancel_event,
                 on_text_delta=emit,
                 on_text_reset=reset,
             )
             tool_calls = getattr(response, "tool_calls", []) or []
             if tool_calls:
+                if tools is not None and not tools:
+                    raise GatewayError("conversation returned a tool call while tools are disabled", "structure")
                 if forwarded or buffered:
                     reset()
                     raise MixedResponseProtocolError("ask cannot be combined with a streamed response")
@@ -306,7 +373,22 @@ class LiveConversationModel:
             except RouteProtocolError:
                 return response, False
 
-        response, valid = await complete_once(messages)
+        response, valid = await complete_once(messages, tools=[] if save_existing_plan else None)
+        if save_existing_plan and not _response_has_plan_artifact(response):
+            if on_text_reset is not None:
+                on_text_reset()
+            force_save_messages = messages + [{
+                "role": "user",
+                "content": (
+                    "The intent gate already confirmed that the user wants the existing plan saved. "
+                    "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
+                    "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
+                ),
+            }]
+            response, _ = await complete_once(force_save_messages, tools=[])
+            if not _response_has_plan_artifact(response):
+                raise GatewayError("model did not return required plan document artifact", "structure")
+            return response
         if isinstance(response, AskRequest):
             return response
         if valid:
@@ -320,11 +402,44 @@ class LiveConversationModel:
                 "The previous response violated the conversation control-header protocol. "
                 "Retry the original user request now. The first line must be exactly one JSON object "
                 "with v=1 or v=2, policy, content_shape, and reason_code; if the user explicitly requested a saved plan, "
-                "include the valid V2 plan_document upsert artifact. Do not put prose, Markdown, or a code fence before it."
+                "include the valid V2 plan_document upsert artifact. If the user asked to save an existing plan, do not call ask_user. "
+                "If no complete plan body exists yet, a new plan may use ask_user before drafting; after ask_user answers, an explicit plan-document request must use V2. "
+                "Do not put prose, Markdown, or a code fence before it."
             ),
         }]
         response, _ = await complete_once(repair_messages)
         return response
+
+
+def _has_prior_assistant_markdown_plan(history: list[dict[str, Any]]) -> bool:
+    for item in history:
+        if item.get("role") != "assistant":
+            continue
+        content = item.get("content")
+        if not isinstance(content, str) or "\n" not in content:
+            continue
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            continue
+        if lines[0].startswith("#") or sum(line.startswith(("- ", "* ")) for line in lines) >= 2:
+            return True
+        if any(line.startswith("|") for line in lines[:5]):
+            return True
+    return False
+
+
+def _response_has_plan_artifact(response: Any) -> bool:
+    if isinstance(response, AskRequest):
+        return False
+    message = getattr(response, "message", None)
+    if not isinstance(message, str):
+        return False
+    decoder = ControlHeadDecoder()
+    try:
+        decoder.feed(message)
+        return decoder.finish().artifact is not None
+    except RouteProtocolError:
+        return False
 
 
 def _parse_json(content: str) -> dict[str, Any]:

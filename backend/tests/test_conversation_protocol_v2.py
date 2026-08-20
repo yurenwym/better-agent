@@ -316,3 +316,478 @@ async def test_live_prompt_explains_v2_artifact_authority_without_fixed_keyword_
     assert "plan_document" in prompt
     assert "operation=upsert" in prompt
     assert "explicit" in prompt
+
+
+@pytest.mark.asyncio
+async def test_live_prompt_distinguishes_new_plan_creation_from_existing_plan_save() -> None:
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.request = None
+
+        async def complete(self, request, **kwargs):
+            self.request = request
+            return SimpleNamespace(
+                message='{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\nAnswer',
+                tool_calls=[],
+            )
+
+    gateway = Gateway()
+    await LiveConversationModel(gateway).route_and_respond(
+        content="create a plan document",
+        history=[],
+        skill_names=[],
+        on_text_delta=None,
+        on_text_reset=None,
+        cancel_event=None,
+    )
+    prompt = gateway.request.messages[0]["content"].lower()
+    assert "when no complete plan body exists" in prompt
+    assert "new plan document" in prompt
+    assert "after ask_user answers" in prompt
+    assert "\u5199\u8fdb\u8ba1\u5212\u9875\u9762" in prompt
+    assert "prior assistant markdown plan" in prompt
+
+
+def test_ask_tool_description_excludes_existing_plan_save_requests() -> None:
+    from app.ask import ASK_TOOL_SCHEMA
+
+    description = ASK_TOOL_SCHEMA["function"]["description"].lower()
+    assert "do not call" in description
+    assert "prior assistant markdown plan" in description
+    assert "plan document" in description
+
+
+def test_existing_plan_prefilter_accepts_list_and_table_markdown() -> None:
+    from app.live_model import _has_prior_assistant_markdown_plan
+
+    assert _has_prior_assistant_markdown_plan([
+        {"role": "assistant", "content": "- Day 1\n- Day 2\n"},
+    ])
+    assert _has_prior_assistant_markdown_plan([
+        {"role": "assistant", "content": "| Day | Plan |\n| --- | --- |\n"},
+    ])
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_save_intent_is_llm_checked_before_ask_tool_is_offered() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            message = (
+                '{"v":2,"policy":"answer","content_shape":"plan",'
+                '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Plan"}}\n# Plan\n'
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="\u8fd8\u662f\u6ca1\u6709\u5199\u8fdb\u8ba1\u5212\u9875\u9762\uff0c\u751f\u6210\u6587\u6863\u3002",
+        history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert json.loads(result.message.splitlines()[0])["artifact"]["kind"] == "plan_document"
+    assert gateway.requests[0].tools == []
+    assert gateway.requests[1].tools == []
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_save_repairs_a_missing_artifact_before_returning() -> None:
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            if len(self.requests) == 2:
+                message = '{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\n# Answer\n'
+            else:
+                message = (
+                    '{"v":2,"policy":"answer","content_shape":"plan",'
+                    '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                    '"operation":"upsert","title":"Plan"}}\n# Plan\n'
+                )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    resets = []
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="Save the existing plan as a document",
+        history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: resets.append(True),
+        cancel_event=None,
+    )
+
+    assert result.message.splitlines()[0].startswith('{"v":2')
+    assert '"artifact"' in result.message.splitlines()[0]
+    assert len(gateway.requests) == 3
+    assert all(request.tools == [] for request in gateway.requests)
+    assert resets == [True]
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_save_fails_if_repair_still_has_no_artifact() -> None:
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            message = '{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\n# Answer\n'
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    with pytest.raises(GatewayError, match="plan document artifact"):
+        await LiveConversationModel(gateway).route_and_respond(
+            content="Save the existing plan as a document",
+            history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+            skill_names=[],
+            on_text_delta=lambda _: None,
+            on_text_reset=lambda: None,
+            cancel_event=None,
+        )
+    assert gateway.calls == 3
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_save_rejects_tool_calls_when_tools_are_disabled() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            return SimpleNamespace(
+                message="",
+                tool_calls=[{
+                    "id": "unexpected-ask",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({"questions": [{
+                            "id": "missing",
+                            "header": "Context",
+                            "question": "What is missing?",
+                            "options": [],
+                            "multi_select": False,
+                            "allow_free_text": True,
+                        }]}),
+                    },
+                }],
+            )
+
+    gateway = Gateway()
+    with pytest.raises(GatewayError, match="tools are disabled"):
+        await LiveConversationModel(gateway).route_and_respond(
+            content="Save the existing plan as a document",
+            history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+            skill_names=[],
+            on_text_delta=lambda _: None,
+            on_text_reset=lambda: None,
+            cancel_event=None,
+        )
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_save_does_not_silently_ignore_classifier_gateway_errors() -> None:
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            raise GatewayError("classifier failed", "server")
+
+    gateway = Gateway()
+    with pytest.raises(GatewayError, match="classifier failed"):
+        await LiveConversationModel(gateway).route_and_respond(
+            content="Save the existing plan as a document",
+            history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+            skill_names=[],
+            on_text_delta=lambda _: None,
+            on_text_reset=lambda: None,
+            cancel_event=None,
+        )
+    assert gateway.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_existing_plan_classifier_rejects_unexpected_tool_calls() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(
+                message="",
+                tool_calls=[{
+                    "id": "unexpected",
+                    "function": {
+                        "name": "ask_user",
+                        "arguments": json.dumps({"questions": []}),
+                    },
+                }],
+            )
+
+    gateway = Gateway()
+    with pytest.raises(GatewayError, match="tools are disabled"):
+        await LiveConversationModel(gateway).route_and_respond(
+            content="Save the existing plan as a document",
+            history=[{"role": "assistant", "content": "# Existing plan\n\n## Day 1\n"}],
+            skill_names=[],
+            on_text_delta=lambda _: None,
+            on_text_reset=lambda: None,
+            cancel_event=None,
+        )
+    assert gateway.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_prompt_prioritizes_saving_an_existing_plan_over_personalization_questions() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    class SaveExistingPlanGateway:
+        async def complete(self, request, **kwargs):
+            if request.messages[0]["content"].startswith("Return JSON only"):
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            prompt = request.messages[0]["content"].lower()
+            if "saving an existing plan" not in prompt:
+                return SimpleNamespace(
+                    message="",
+                    tool_calls=[{
+                        "id": "should-not-ask",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({
+                                "questions": [{
+                                    "id": "missing_context",
+                                    "header": "Context",
+                                    "question": "What is missing?",
+                                    "options": [],
+                                    "multi_select": False,
+                                    "allow_free_text": True,
+                                }],
+                            }),
+                        },
+                    }],
+                )
+            message = (
+                '{"v":2,"policy":"answer","content_shape":"travel_plan",'
+                '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Guangxi plan"}}\n'
+                "# Guangxi plan\n\n## Day 1\n桂林\n"
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    result = await LiveConversationModel(SaveExistingPlanGateway()).route_and_respond(
+        content="把刚才的计划写进计划页面，生成计划文档。",
+        history=[
+            {"role": "user", "content": "想花费一个星期，在广西旅游一下，推荐一下攻略。"},
+            {"role": "assistant", "content": "# Guangxi plan\n\n## Day 1\n桂林\n"},
+        ],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert not isinstance(result, AskRequest)
+    header = json.loads(result.message.splitlines()[0])
+    assert header["v"] == 2
+    assert header["artifact"]["kind"] == "plan_document"
+
+
+@pytest.mark.asyncio
+async def test_explicit_save_request_creates_plan_document_without_pending_ask(tmp_path) -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+    from test_runtime import make_runtime
+
+    class FirstPlanModel:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            message = (
+                '{"v":1,"policy":"answer","content_shape":"travel_plan",'
+                '"reason_code":"content_only"}\n# Guangxi plan\n\n## Day 1\nGuilin\n'
+            )
+            on_text_delta(message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    class SaveExistingPlanGateway:
+        async def complete(self, request, **kwargs):
+            if request.messages[0]["content"].startswith("Return JSON only"):
+                return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
+            prompt = request.messages[0]["content"].lower()
+            if "saving an existing plan" not in prompt:
+                return SimpleNamespace(
+                    message="",
+                    tool_calls=[{
+                        "id": "unexpected-ask",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({
+                                "questions": [{
+                                    "id": "missing_context",
+                                    "header": "Context",
+                                    "question": "What is missing?",
+                                    "options": [],
+                                    "multi_select": False,
+                                    "allow_free_text": True,
+                                }],
+                            }),
+                        },
+                    }],
+                )
+            message = (
+                '{"v":2,"policy":"answer","content_shape":"travel_plan",'
+                '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Guangxi plan"}}\n'
+                "# Guangxi plan\n\n## Day 1\nGuilin\n"
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    runtime = make_runtime(tmp_path, FirstPlanModel())
+    thread = runtime.conversation.create_thread("Chat")
+    first = runtime.conversation.accept_turn(
+        thread.id,
+        "first-plan",
+        "Give me a one-week Guangxi travel guide",
+        [],
+    )
+    await runtime.turn_worker.run_once()
+
+    runtime.conversation.route_model = LiveConversationModel(SaveExistingPlanGateway())
+    saved = runtime.conversation.accept_turn(
+        thread.id,
+        "save-plan",
+        "Write the plan into the plan page and generate the document",
+        [],
+    )
+    await runtime.turn_worker.run_once()
+
+    assert runtime.conversation.turn(first.turn_id).status == "COMPLETED"
+    assert runtime.conversation.turn(saved.turn_id).status == "COMPLETED"
+    assert runtime.conversation.pending_ask(saved.turn_id) is None
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    version = runtime.plan_documents.current_version(document.id)
+    assert version.status == "committed"
+    assert runtime.plan_documents.path_for(document.id).read_text(encoding="utf-8") == version.markdown_content
+    assert any(
+        event.type == "plan.document_ready"
+        for event in runtime.conversation.events.list(thread.id)
+    )
+    assert any(
+        message.plan_document_version_id == version.id
+        for message in runtime.conversation.messages(thread.id)
+    )
+
+
+@pytest.mark.asyncio
+async def test_cropped_plan_context_cannot_overwrite_the_committed_document(tmp_path) -> None:
+    from test_runtime import make_runtime
+
+    class Model:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            message = (
+                '{"v":2,"policy":"answer","content_shape":"plan",'
+                '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Large plan"}}\n# Incomplete replacement\n'
+            )
+            on_text_delta(message)
+            return type("Response", (), {"message": message, "tool_calls": []})()
+
+    runtime = make_runtime(tmp_path, Model())
+    thread = runtime.conversation.create_thread("Chat")
+    original = "# Large plan\n\n" + "\n".join(
+        f"## Section {index}\n" + ("preserve this detail " * 20)
+        for index in range(1_000)
+    )
+    saved = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Large plan",
+        markdown_content=original,
+        source_turn_id="seed-turn",
+        source_message_id=None,
+        actor="model",
+    )
+    accepted = runtime.conversation.accept_turn(
+        thread.id,
+        "cropped-save",
+        "Save the existing plan",
+        [],
+    )
+
+    await runtime.turn_worker.run_once()
+
+    current = runtime.plan_documents.current_version(saved.plan_document_id)
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+    assert current.id == saved.id
+    assert current.version == 1
+    assert current.markdown_content == original
+    failure = [
+        event for event in runtime.conversation.events.list(thread.id)
+        if event.type == "plan.document_failed"
+    ]
+    assert failure
+    assert "cropped" in failure[-1].data["reason"]

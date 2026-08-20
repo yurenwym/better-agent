@@ -1509,7 +1509,12 @@ class ManagedTurnWorker:
         document_error_type = "plan.document_failed"
         if decision.artifact is not None:
             markdown = visible_content
-            if not markdown.strip():
+            # A cropped context can only belong to an existing committed document;
+            # V1 has one document per thread, so fail closed instead of creating a
+            # revision from an incomplete view of that document.
+            if plan_context is not None and plan_context.cropped:
+                document_error = "active plan context was cropped; plan document was not overwritten"
+            elif not markdown.strip():
                 document_error = "plan document body is empty"
             else:
                 try:
