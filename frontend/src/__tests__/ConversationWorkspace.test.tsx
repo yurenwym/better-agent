@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, describe, expect, it, vi } from "vitest";
 import ConversationThread from "../components/ConversationThread";
 import WorkspaceSidebar from "../components/WorkspaceSidebar";
-import type { Bootstrap, MessageRecord, Run } from "../types";
+import type { Bootstrap, MessageRecord, PendingAsk, Run } from "../types";
 
 afterEach(cleanup);
 
@@ -76,6 +76,39 @@ describe("conversation workspace", () => {
     expect(screen.queryByText('{"needs_clarification":true}')).toBeNull();
     expect(screen.getByRole("textbox", { name: "输入消息" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();
+  });
+
+  it("keeps the ask card inside the scrollable conversation content region", () => {
+    const pendingAsk: PendingAsk = {
+      id: "ask-layout",
+      turn_id: "turn-layout",
+      status: "PENDING",
+      continuation_turn_id: null,
+      created_at: "2026-08-18T00:00:00Z",
+      answered_at: null,
+      questions: ["当前骑行基础", "训练目标", "可用时间", "限制条件"].map((header, index) => ({
+        id: `question-${index}`,
+        header,
+        question: `请补充${header}`,
+        options: [],
+        multi_select: false,
+        allow_free_text: true,
+      })),
+    };
+
+    render(
+      <ConversationThread
+        messages={messages}
+        pendingAsk={pendingAsk}
+        onAskAnswer={() => undefined}
+        onAskCancel={() => undefined}
+        onSubmit={() => undefined}
+      />,
+    );
+
+    const askCard = screen.getByRole("region", { name: "等待你的回答" });
+    expect(askCard.closest(".conversation-content")).toBeTruthy();
+    expect(document.querySelectorAll(".ask-question")).toHaveLength(4);
   });
 
   it("sends on Enter, keeps Shift+Enter for a newline, and selects skills for this conversation", async () => {

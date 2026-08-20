@@ -71,7 +71,8 @@ export default function ConversationThread({ messages, busy = false, title = "�
         </div>
       </div>
 
-      <div className={`conversation-thread${messages.length === 0 ? " conversation-thread-empty" : ""}`} aria-live="polite" aria-label="消息列表">
+      <div className="conversation-content">
+        <div className={`conversation-thread${messages.length === 0 ? " conversation-thread-empty" : ""}`} aria-live="polite" aria-label="消息列表">
         {messages.length === 0 && (
           <div className="conversation-empty">
             <span className="conversation-empty-mark" aria-hidden="true">BA</span>
@@ -117,25 +118,26 @@ export default function ConversationThread({ messages, busy = false, title = "�
             </div>
           </article>
         )}
-      </div>
-
-      {pendingAsk && onAskAnswer && onAskCancel && (
-        <AskCard ask={pendingAsk} busy={askBusy} onSubmit={onAskAnswer} onCancel={onAskCancel} />
-      )}
-
-      {decision && (
-        <div className="conversation-decision" role="region" aria-label={decision.title}>
-          <div>
-            <span className="eyebrow">NEXT DECISION</span>
-            <strong>{decision.title}</strong>
-            <p>{decision.description}</p>
-          </div>
-          <div className="button-row">
-            <button className="button button-secondary" disabled={busy || decision.busy} type="button" onClick={decision.onSecondary}>{decision.secondaryLabel}</button>
-            <button className="button button-primary" disabled={busy || decision.busy} type="button" onClick={decision.onPrimary}>{decision.busy ? "正在应用…" : decision.primaryLabel}</button>
-          </div>
         </div>
-      )}
+
+        {pendingAsk && onAskAnswer && onAskCancel && (
+          <AskCard ask={pendingAsk} busy={askBusy} onSubmit={onAskAnswer} onCancel={onAskCancel} />
+        )}
+
+        {decision && (
+          <div className="conversation-decision" role="region" aria-label={decision.title}>
+            <div>
+              <span className="eyebrow">NEXT DECISION</span>
+              <strong>{decision.title}</strong>
+              <p>{decision.description}</p>
+            </div>
+            <div className="button-row">
+              <button className="button button-secondary" disabled={busy || decision.busy} type="button" onClick={decision.onSecondary}>{decision.secondaryLabel}</button>
+              <button className="button button-primary" disabled={busy || decision.busy} type="button" onClick={decision.onPrimary}>{decision.busy ? "正在应用…" : decision.primaryLabel}</button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <form className="conversation-composer" onSubmit={(event: FormEvent<HTMLFormElement>) => { event.preventDefault(); void submit(); }}>
         <label className="sr-only" htmlFor="conversation-input">输入消息</label>
