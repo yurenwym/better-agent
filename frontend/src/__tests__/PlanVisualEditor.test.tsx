@@ -20,16 +20,14 @@ describe("PlanVisualEditor", () => {
     expect(onChange).toHaveBeenLastCalledWith("# Updated trip\n\n- Updated train");
   });
 
-  it("deletes a block and can add an editable paragraph", () => {
+  it("does not render per-block delete controls and can add an editable paragraph", () => {
     const onChange = vi.fn();
     render(<PlanVisualEditor markdown={"# Trip\n\nOverview"} onChange={onChange} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "删除第 1 个内容块" }));
-    expect(screen.queryByRole("heading", { name: "Trip" })).toBeNull();
-    expect(onChange).toHaveBeenLastCalledWith("Overview");
+    expect(screen.queryByRole("button", { name: /删除/ })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "添加段落" }));
-    expect(screen.getByRole("textbox", { name: "段落 2" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "段落 3" })).toBeTruthy();
   });
 
   it("renders tables and code blocks as editable visual structures", () => {

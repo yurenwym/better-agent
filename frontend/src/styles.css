@@ -381,7 +381,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
 .plan-visual-editor-title input { min-height: 52px; border: 0; border-bottom: 1px solid var(--color-line-strong); border-radius: 0; background: transparent; color: var(--color-ink); font-family: var(--font-display); font-size: clamp(26px, 4vw, 42px); font-weight: 650; letter-spacing: -0.04em; padding: 4px 0 10px; }
 .plan-visual-editor-title input:focus-visible { border-color: var(--color-accent); }
 .plan-visual-editor-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--color-line); padding-bottom: 14px; }
-.plan-editor-block { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 14px; min-width: 0; border-bottom: 1px solid var(--color-line); padding: 12px 0 16px; }
+.plan-editor-block { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 14px; min-width: 0; border-bottom: 1px solid var(--color-line); padding: 12px 0 16px; }
 .plan-editor-block > h1, .plan-editor-block > h2, .plan-editor-block > h3, .plan-editor-block > h4, .plan-editor-block > h5, .plan-editor-block > h6, .plan-editor-block > p, .plan-editor-block > blockquote, .plan-editor-block > pre, .plan-editor-block > ul, .plan-editor-block > ol { min-width: 0; margin: 0; }
 .plan-editor-block > h1, .plan-editor-block > h2, .plan-editor-block > h3, .plan-editor-block > h4, .plan-editor-block > h5, .plan-editor-block > h6 { color: var(--color-ink); }
 .plan-editor-block > p, .plan-editor-block > blockquote { color: var(--color-ink); line-height: 1.75; }
@@ -391,8 +391,6 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
 .plan-editor-block [contenteditable="true"] { border-radius: var(--radius-sm); outline: none; overflow-wrap: anywhere; }
 .plan-editor-block [contenteditable="true"]:hover { background: var(--color-accent-soft); }
 .plan-editor-block [contenteditable="true"]:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 4px; box-shadow: var(--shadow-focus); }
-.plan-editor-block-actions { display: flex; align-items: flex-start; justify-content: flex-end; min-width: 64px; }
-.plan-editor-block-actions .button { min-height: 40px; padding: 0 10px; }
 .plan-editor-table-wrap, .plan-editor-block-code { grid-column: 1 / -1; min-width: 0; }
 .plan-editor-table-wrap { overflow-x: auto; }
 .plan-editor-table { width: 100%; min-width: 460px; border-collapse: collapse; color: var(--color-ink); }
@@ -501,9 +499,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .plan-library-list { grid-template-columns: 1fr; }
   .plan-editor-grid { grid-template-columns: 1fr; }
   .plan-visual-editor-toolbar { align-items: stretch; flex-direction: column; }
-  .plan-editor-block { grid-template-columns: 1fr; gap: 10px; }
-  .plan-editor-block-actions { justify-content: flex-start; }
-  .plan-editor-block-actions .button { width: auto; }
+  .plan-editor-block { gap: 10px; }
   .plan-readable-card { min-height: 0; }
   .plan-document-hero, .plan-reference-card { align-items: flex-start; flex-direction: column; }
   .plan-reference-card .button { width: 100%; }

@@ -79,29 +79,11 @@ function PlanVisualEditor({ title, onTitleChange, markdown, onChange, disabled =
     });
   }
 
-  function deleteBlock(index: number) {
-    emit(blocks.filter((_, blockIndex) => blockIndex !== index));
-  }
-
   function addParagraph() {
     emit([...blocks, { id: `block-${Date.now()}`, type: "paragraph", text: "" }]);
   }
 
   function renderBlock(block: EditorBlock, index: number) {
-    const actions = (
-      <div className="plan-editor-block-actions">
-        <button
-          aria-label={`删除第 ${index + 1} 个内容块`}
-          className="button button-quiet"
-          disabled={disabled}
-          type="button"
-          onClick={() => deleteBlock(index)}
-        >
-          删除
-        </button>
-      </div>
-    );
-
     let content;
     switch (block.type) {
       case "heading": {
@@ -172,7 +154,7 @@ function PlanVisualEditor({ title, onTitleChange, markdown, onChange, disabled =
         break;
     }
 
-    return <article className={`plan-editor-block plan-editor-block-${block.type}`} key={block.id}>{content}{actions}</article>;
+    return <article className={`plan-editor-block plan-editor-block-${block.type}`} key={block.id}>{content}</article>;
   }
 
   return (
