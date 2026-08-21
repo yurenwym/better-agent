@@ -72,6 +72,11 @@ export function latestPlanReference(events: ThreadEvent[]): PlanReference | null
       && typeof candidate.data.actor === "string"
       && candidate.data.actor.trim().length > 0;
   });
+  const deleted = [...events].reverse().find((candidate) => candidate.type === "plan.document_deleted"
+    && typeof candidate.data.plan_document_id === "string");
+  if (deleted && (!event || (deleted.data.plan_document_id === event.data.plan_document_id && deleted.seq > event.seq))) {
+    return null;
+  }
   if (!event) return null;
   return {
     planDocumentId: event.data.plan_document_id as string,

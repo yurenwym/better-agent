@@ -292,8 +292,10 @@ class LiveConversationModel:
             if getattr(response, "tool_calls", []) or []:
                 return False
             payload = _parse_json(response.message)
-        except GatewayError:
-            raise
+        except GatewayError as exc:
+            if exc.kind == "cancelled":
+                raise
+            return False
         except (TypeError, ValueError, json.JSONDecodeError):
             return False
         return payload.get("plan_document_request") is True
@@ -416,41 +418,39 @@ class LiveConversationModel:
             except RouteProtocolError:
                 return response, False
 
+        async def force_plan_document(instruction: str):
+            if on_text_reset is not None:
+                on_text_reset()
+            force_messages = messages + [{"role": "user", "content": instruction}]
+            forced_response, _ = await complete_once(force_messages, tools=[])
+            if not _response_has_plan_artifact(forced_response):
+                raise GatewayError("model did not return required plan document artifact", "structure")
+            return forced_response
+
         response, valid = await complete_once(messages, tools=[] if save_existing_plan else None)
         declared_plan_document = _response_declares_plan_document_intent(response)
         if (save_existing_plan or declared_plan_document) and not _response_has_plan_artifact(response):
-            if on_text_reset is not None:
-                on_text_reset()
-            force_save_messages = messages + [{
-                "role": "user",
-                "content": (
-                    "The conversation response declared a plan-document request. "
-                    "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
-                    "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
-                ),
-            }]
-            response, _ = await complete_once(force_save_messages, tools=[])
-            if not _response_has_plan_artifact(response):
-                raise GatewayError("model did not return required plan document artifact", "structure")
-            return response
+            return await force_plan_document(
+                "The conversation response declared a plan-document request. "
+                "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
+                "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
+            )
         if isinstance(response, AskRequest):
             if not await self._classify_explicit_plan_document_request(content, history, cancel_event):
                 return response
-            if on_text_reset is not None:
-                on_text_reset()
-            force_save_messages = messages + [{
-                "role": "user",
-                "content": (
+            return await force_plan_document(
+                "The intent gate confirmed an explicit plan-document request. "
+                "Do not call ask_user or request more context. Return a valid v=2 JSON control header "
+                "with exactly one plan_document upsert artifact, followed by a complete Markdown plan using "
+                "reasonable explicit assumptions."
+            )
+        if _response_is_plan_shaped(response) and not _response_has_plan_artifact(response):
+            if await self._classify_explicit_plan_document_request(content, history, cancel_event):
+                return await force_plan_document(
                     "The intent gate confirmed an explicit plan-document request. "
-                    "Do not call ask_user or request more context. Return a valid v=2 JSON control header "
-                    "with exactly one plan_document upsert artifact, followed by a complete Markdown plan using "
-                    "reasonable explicit assumptions."
-                ),
-            }]
-            response, _ = await complete_once(force_save_messages, tools=[])
-            if not _response_has_plan_artifact(response):
-                raise GatewayError("model did not return required plan document artifact", "structure")
-            return response
+                    "Retry with no tool call and return a valid v=2 JSON control header with exactly one "
+                    "plan_document upsert artifact, followed by the complete Markdown plan body."
+                )
         if valid:
             return response
 
@@ -512,6 +512,22 @@ def _response_declares_plan_document_intent(response: Any) -> bool:
     try:
         decoder.feed(message)
         return decoder.finish().content_shape == "plan_document"
+    except RouteProtocolError:
+        return False
+
+
+def _response_is_plan_shaped(response: Any) -> bool:
+    if isinstance(response, AskRequest):
+        return False
+    message = getattr(response, "message", None)
+    if not isinstance(message, str):
+        return False
+    decoder = ControlHeadDecoder()
+    try:
+        decoder.feed(message)
+        decision = decoder.finish()
+        shape = decision.content_shape.lower().replace("-", "_")
+        return "plan" in shape or "document" in shape
     except RouteProtocolError:
         return False
 

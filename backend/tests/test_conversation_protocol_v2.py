@@ -392,7 +392,8 @@ async def test_existing_plan_save_intent_is_llm_checked_before_ask_tool_is_offer
                 '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
                 '"operation":"upsert","title":"Plan"}}\n# Plan\n'
             )
-            kwargs["on_text_delta"](message)
+            if kwargs.get("on_text_delta") is not None:
+                kwargs["on_text_delta"](message)
             return SimpleNamespace(message=message, tool_calls=[])
 
     gateway = Gateway()
@@ -432,7 +433,8 @@ async def test_existing_plan_save_repairs_a_missing_artifact_before_returning() 
                     '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
                     '"operation":"upsert","title":"Plan"}}\n# Plan\n'
                 )
-            kwargs["on_text_delta"](message)
+            if kwargs.get("on_text_delta") is not None:
+                kwargs["on_text_delta"](message)
             return SimpleNamespace(message=message, tool_calls=[])
 
     gateway = Gateway()
@@ -692,6 +694,95 @@ async def test_explicit_new_plan_request_repairs_an_ask_into_a_saved_document() 
     assert json.loads(result.message.splitlines()[0])["artifact"]["kind"] == "plan_document"
     assert gateway.requests[1].tools == []
     assert gateway.requests[2].tools == []
+
+
+@pytest.mark.asyncio
+async def test_plan_shaped_answer_is_repaired_into_a_saved_document() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                message = '{"v":1,"policy":"answer","content_shape":"travel_plan","reason_code":"content_only"}\n# Inner Mongolia\n'
+            elif len(self.requests) == 2:
+                message = '{"plan_document_request":true}'
+            else:
+                message = (
+                    '{"v":2,"policy":"answer","content_shape":"plan_document",'
+                    '"reason_code":"plan_document_upsert","artifact":{"kind":"plan_document",'
+                    '"operation":"upsert","title":"Inner Mongolia plan"}}\n# Inner Mongolia\n'
+                )
+            if len(self.requests) != 2:
+                kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="生成一个7天旅游内蒙的计划，并保存到计划中，不需要询问我，直接生成",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert json.loads(result.message.splitlines()[0])["artifact"]["operation"] == "upsert"
+    assert len(gateway.requests) == 3
+    assert gateway.requests[1].tools == []
+    assert gateway.requests[2].tools == []
+
+
+@pytest.mark.asyncio
+async def test_classifier_failure_preserves_a_valid_ask_request() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                return SimpleNamespace(
+                    message="",
+                    tool_calls=[{
+                        "id": "ask-first",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({"questions": [{
+                                "id": "context",
+                                "header": "Context",
+                                "question": "What should be considered?",
+                                "options": [],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]}),
+                        },
+                    }],
+                )
+            raise GatewayError("classifier unavailable", "server")
+
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="I want a personalized training plan",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert result.questions[0].id == "context"
 
 
 @pytest.mark.asyncio

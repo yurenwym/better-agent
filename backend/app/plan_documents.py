@@ -473,7 +473,9 @@ class PlanDocumentService:
         expected_file_hash: str,
         actor: str = "user",
     ) -> None:
-        """Hide a plan while retaining its immutable revisions for audit/recovery."""
+        """Commit a deletion tombstone before cleaning up its file projection."""
+        from .plan_files import PlanFileConflict
+
         with self.db.durable_transaction() as connection:
             row = connection.execute(
                 "SELECT * FROM plan_documents WHERE id = ? AND deleted_at IS NULL",
@@ -491,9 +493,12 @@ class PlanDocumentService:
                 raise PlanDocumentConflict("plan document head conflict")
             if current.content_hash != expected_file_hash:
                 raise PlanDocumentConflict("plan document hash conflict")
-            if self.projector.read_hash(document_id) != expected_file_hash:
+            try:
+                current_file_hash = self.projector.read_hash(document_id)
+            except PlanFileConflict as exc:
+                raise PlanDocumentConflict("plan file hash conflict") from exc
+            if current_file_hash != expected_file_hash:
                 raise PlanDocumentConflict("plan file hash conflict")
-            self.projector.remove(document_id)
             now = _now()
             connection.execute(
                 "UPDATE plan_documents SET file_status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?",
@@ -507,6 +512,12 @@ class PlanDocumentService:
                 now,
                 {"deleted_at": now},
             )
+        try:
+            self.projector.remove(document_id, expected_file_hash=expected_file_hash)
+        except (OSError, PlanFileConflict, ValueError):
+            # The tombstone is authoritative; startup recovery retries only the
+            # matching file cleanup and never resurrects a deleted document.
+            return
 
     def sync_file(self, document_id: str) -> PlanDocumentVersion:
         """Import a safe third-party edit as a new immutable revision."""
@@ -570,6 +581,7 @@ class PlanDocumentService:
             self._recover_intent(_intent_from_row(row))
 
         self._rebuild_missing_committed_files()
+        self._cleanup_deleted_files()
 
     def _recover_intent(self, intent: PlanWriteIntent) -> None:
         try:
@@ -719,6 +731,21 @@ class PlanDocumentService:
                 self._mark_document_failed(document.id, f"unable to rebuild committed plan file: {exc}")
                 continue
             self._mark_document_ready(document.id, version.id)
+
+    def _cleanup_deleted_files(self) -> None:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT id, current_version_id FROM plan_documents "
+                "WHERE deleted_at IS NOT NULL AND current_version_id IS NOT NULL"
+            ).fetchall()
+        for row in rows:
+            try:
+                version = self.get_version(row["current_version_id"])
+                if self.projector.read_hash(row["id"]) != version.content_hash:
+                    continue
+                self.projector.remove(row["id"], expected_file_hash=version.content_hash)
+            except (KeyError, OSError, UnicodeError, ValueError):
+                continue
 
     def _mark_intent_failed(self, intent_id: str, error: BaseException) -> None:
         with self.db.durable_transaction() as connection:

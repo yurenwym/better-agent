@@ -63,3 +63,19 @@ def test_projector_rechecks_expected_hash_before_replacing_the_file(tmp_path, mo
         projector.project(document_id, "new\n", expected_file_hash=old_hash)
 
     assert path.read_text(encoding="utf-8") == "changed before replace\n"
+
+
+def test_projector_remove_rechecks_the_expected_hash_before_unlinking(tmp_path) -> None:
+    from app.plan_documents import content_hash
+    from app.plan_files import PlanFileConflict, PlanFileProjector
+
+    document_id = "plan_" + "3" * 32
+    projector = PlanFileProjector(tmp_path / "data")
+    projector.project(document_id, "old\n")
+    path = projector.path_for(document_id)
+    path.write_text("changed\n", encoding="utf-8", newline="\n")
+
+    with pytest.raises(PlanFileConflict):
+        projector.remove(document_id, expected_file_hash=content_hash("old\n"))
+
+    assert path.read_text(encoding="utf-8") == "changed\n"

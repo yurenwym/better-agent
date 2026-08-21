@@ -181,6 +181,27 @@ def test_plan_document_delete_rejects_a_stale_head_and_keeps_the_file(tmp_path) 
     assert runtime.plan_documents.get_document(document.id).current_version_id == second.id
 
 
+def test_plan_document_delete_maps_an_external_file_change_to_conflict(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    path = runtime.plan_documents.path_for(document.id)
+    path.write_text("# external\n", encoding="utf-8", newline="\n")
+
+    response = client.request(
+        "DELETE",
+        f"/api/plans/{document.id}",
+        headers=_headers(app),
+        json={
+            "expected_version": first.version,
+            "expected_content_hash": first.content_hash,
+        },
+    )
+
+    assert response.status_code == 409
+    assert runtime.plan_documents.get_document(document.id).file_status == "ready"
+    assert path.read_text(encoding="utf-8") == "# external\n"
+
+
 def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(tmp_path) -> None:
     runtime, app, client, thread, first = _seed(tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)

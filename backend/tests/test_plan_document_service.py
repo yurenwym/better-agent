@@ -157,6 +157,39 @@ def test_deleted_document_can_be_reused_by_a_new_model_revision(tmp_path) -> Non
     assert service.path_for(document.id).read_text(encoding="utf-8") == "# v2\n"
 
 
+def test_delete_tombstone_survives_file_cleanup_failure_and_restart_recovery(tmp_path) -> None:
+    service = _service(tmp_path)
+    first = service.save_model_revision(
+        thread_id="thread-1",
+        title="计划",
+        markdown_content="# v1\n",
+        source_turn_id="turn-1",
+        source_message_id="message-1",
+        actor="model",
+    )
+    path = service.path_for(first.plan_document_id)
+    real_remove = service.projector.remove
+
+    def fail_remove(*args, **kwargs):
+        raise OSError("temporary cleanup failure")
+
+    service.projector.remove = fail_remove
+    service.delete_document(
+        first.plan_document_id,
+        expected_version=first.version,
+        expected_file_hash=first.content_hash,
+    )
+
+    with pytest.raises(KeyError):
+        service.get_document(first.plan_document_id)
+    assert path.exists()
+
+    service.projector.remove = real_remove
+    service.recover_pending_intents()
+
+    assert not path.exists()
+
+
 def test_restore_rejects_a_prepared_revision(tmp_path) -> None:
     from app.plan_files import PlanFileProjector
 

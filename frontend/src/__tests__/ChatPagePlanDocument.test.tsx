@@ -55,6 +55,20 @@ describe("plan document chat reference", () => {
     expect(reference?.status).toBe("failed");
   });
 
+  it("clears a stale saved-plan reference after the document is deleted", () => {
+    expect(latestPlanReference([
+      event("plan.document_ready", {
+        plan_document_id: "plan-1",
+        version_id: "version-1",
+        version: 1,
+        source_message_id: "assistant-plan",
+        content_hash: `sha256:${"a".repeat(64)}`,
+        actor: "model",
+      }, 1),
+      event("plan.document_deleted", { plan_document_id: "plan-1" }, 2),
+    ])).toBeNull();
+  });
+
   it("ignores a failure event with an incomplete hash or actor", () => {
     expect(latestPlanReference([
       event("plan.document_ready", {

@@ -212,6 +212,7 @@ export interface PlanDocument {
   file_path: string;
   created_at: string;
   updated_at: string;
+  deleted_at: string | null;
   current: PlanDocumentVersion | null;
   versions: PlanDocumentVersion[];
 }

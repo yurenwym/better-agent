@@ -128,11 +128,25 @@ class PlanFileProjector:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
-    def remove(self, document_id: str) -> None:
+    def remove(self, document_id: str, *, expected_file_hash: str | None = None) -> None:
         path = self.path_for(document_id)
-        path.unlink(missing_ok=True)
+        if not path.exists():
+            return
+        parent_before = os.lstat(path.parent)
+        file_before = os.lstat(path)
+        if _is_link_or_reparse(path) or _is_link_or_reparse(path.parent):
+            raise PlanFileSecurityError("plan file cannot be removed from a link or reparse point")
+        if expected_file_hash is not None and self.read_hash(document_id) != expected_file_hash:
+            raise PlanFileConflict("plan file hash conflict")
+        parent_after = os.lstat(path.parent)
+        file_after = os.lstat(path)
+        if not _same_file_identity(parent_before, parent_after) or not _same_file_identity(file_before, file_after):
+            raise PlanFileConflict("plan file changed before removal")
+        self.path_for(document_id)
+        path.unlink()
         try:
-            path.parent.rmdir()
+            if not _is_link_or_reparse(path.parent):
+                path.parent.rmdir()
         except OSError:
             pass
 
