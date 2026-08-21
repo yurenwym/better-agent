@@ -255,6 +255,49 @@ class LiveConversationModel:
             return False
         return payload.get("save_existing_plan") is True
 
+    async def _classify_explicit_plan_document_request(
+        self,
+        content: str,
+        history: list[dict[str, Any]],
+        cancel_event,
+    ) -> bool:
+        request = ModelRequest(
+            messages=[
+                {
+                    "role": "system",
+                    "content": (
+                        "Return JSON only: {\"plan_document_request\": true|false}. "
+                        "Use the LLM to decide whether the latest user message explicitly asks for a complete plan document "
+                        "to be generated, written, saved, or put into the plan page. True includes a direct request to proceed "
+                        "without asking questions. False includes a generic guide or recommendation, a question about a plan, "
+                        "or a plan request without an explicit document/save instruction. Do not infer true from planning keywords alone."
+                    ),
+                },
+                {
+                    "role": "user",
+                    "content": json.dumps(
+                        {
+                            "latest_user_message": content,
+                            "has_prior_assistant_markdown_plan": _has_prior_assistant_markdown_plan(history),
+                        },
+                        ensure_ascii=False,
+                    ),
+                },
+            ],
+            tools=[],
+            temperature=0,
+        )
+        try:
+            response = await self.gateway.complete(request, cancel_event=cancel_event)
+            if getattr(response, "tool_calls", []) or []:
+                return False
+            payload = _parse_json(response.message)
+        except GatewayError:
+            raise
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        return payload.get("plan_document_request") is True
+
     async def route_and_respond(
         self,
         *,
@@ -374,13 +417,14 @@ class LiveConversationModel:
                 return response, False
 
         response, valid = await complete_once(messages, tools=[] if save_existing_plan else None)
-        if save_existing_plan and not _response_has_plan_artifact(response):
+        declared_plan_document = _response_declares_plan_document_intent(response)
+        if (save_existing_plan or declared_plan_document) and not _response_has_plan_artifact(response):
             if on_text_reset is not None:
                 on_text_reset()
             force_save_messages = messages + [{
                 "role": "user",
                 "content": (
-                    "The intent gate already confirmed that the user wants the existing plan saved. "
+                    "The conversation response declared a plan-document request. "
                     "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
                     "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
                 ),
@@ -390,6 +434,22 @@ class LiveConversationModel:
                 raise GatewayError("model did not return required plan document artifact", "structure")
             return response
         if isinstance(response, AskRequest):
+            if not await self._classify_explicit_plan_document_request(content, history, cancel_event):
+                return response
+            if on_text_reset is not None:
+                on_text_reset()
+            force_save_messages = messages + [{
+                "role": "user",
+                "content": (
+                    "The intent gate confirmed an explicit plan-document request. "
+                    "Do not call ask_user or request more context. Return a valid v=2 JSON control header "
+                    "with exactly one plan_document upsert artifact, followed by a complete Markdown plan using "
+                    "reasonable explicit assumptions."
+                ),
+            }]
+            response, _ = await complete_once(force_save_messages, tools=[])
+            if not _response_has_plan_artifact(response):
+                raise GatewayError("model did not return required plan document artifact", "structure")
             return response
         if valid:
             return response
@@ -438,6 +498,20 @@ def _response_has_plan_artifact(response: Any) -> bool:
     try:
         decoder.feed(message)
         return decoder.finish().artifact is not None
+    except RouteProtocolError:
+        return False
+
+
+def _response_declares_plan_document_intent(response: Any) -> bool:
+    if isinstance(response, AskRequest):
+        return False
+    message = getattr(response, "message", None)
+    if not isinstance(message, str):
+        return False
+    decoder = ControlHeadDecoder()
+    try:
+        decoder.feed(message)
+        return decoder.finish().content_shape == "plan_document"
     except RouteProtocolError:
         return False
 

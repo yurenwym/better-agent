@@ -191,7 +191,8 @@ CREATE TABLE IF NOT EXISTS plan_documents (
     projected_version_id TEXT,
     file_status TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
 );
 CREATE TABLE IF NOT EXISTS plan_document_versions (
     id TEXT PRIMARY KEY,
@@ -422,6 +423,11 @@ class Database:
             message_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(thread_messages)").fetchall()
             }
+            plan_document_columns = {
+                row["name"] for row in connection.execute("PRAGMA table_info(plan_documents)").fetchall()
+            }
+            if "deleted_at" not in plan_document_columns:
+                connection.execute("ALTER TABLE plan_documents ADD COLUMN deleted_at TEXT")
             if "plan_document_version_id" not in message_columns:
                 connection.execute("ALTER TABLE thread_messages ADD COLUMN plan_document_version_id TEXT")
             if "source_document_version_id" not in plan_columns:

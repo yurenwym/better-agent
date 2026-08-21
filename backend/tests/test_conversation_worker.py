@@ -453,7 +453,8 @@ async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None
     await runtime.turn_worker.run_once()
 
     assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
-    assert len(gateway.requests) == 1
+    assert len(gateway.requests) == 2
+    assert gateway.requests[1].tools == []
     assert _count(runtime, "goals") == 0
     assert _count(runtime, "runs") == 0
     ask = runtime.conversation.pending_ask(accepted.turn_id)

@@ -3,6 +3,7 @@ import {
   ApiError,
   approvePlan,
   cancelStep,
+  deletePlanDocument,
   getPlans,
   getPlanDocument,
   getPlanVersion,
@@ -22,13 +23,14 @@ interface PlanPageProps {
   threadId?: string | null;
   planId?: string | null;
   onRun: (run: Run) => void;
+  onDeleted?: () => void;
 }
 
 function editableSteps(steps: PlanStep[]): Array<{ id: string; title: string }> {
   return steps.filter((step) => step.status !== "completed" && step.status !== "cancelled").map((step) => ({ id: step.id, title: step.title }));
 }
 
-export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun }: PlanPageProps) {
+export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun, onDeleted }: PlanPageProps) {
   const [document, setDocument] = useState<PlanDocument | null>(null);
   const [sourceDocument, setSourceDocument] = useState<PlanDocument | null>(null);
   const [structuredPlans, setStructuredPlans] = useState<PlanResponse | null>(null);
@@ -125,6 +127,19 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       }, csrfToken);
       applyDocument({ ...document, title: saved.title, current_version_id: saved.id, projected_version_id: saved.id, file_status: "ready", current: saved, versions: [...document.versions, saved] });
     } catch (caught) { handleDocumentError(caught, "Plan save failed"); }
+    finally { setBusy(false); }
+  }
+
+  async function deleteDocument() {
+    if (!document || !current || !effectivePlanId || !window.confirm("Delete this plan?")) return;
+    setBusy(true); setError(""); setConflict(null);
+    try {
+      await deletePlanDocument(effectivePlanId, {
+        expected_version: current.version,
+        expected_content_hash: current.content_hash,
+      }, csrfToken);
+      onDeleted?.();
+    } catch (caught) { handleDocumentError(caught, "Plan delete failed"); }
     finally { setBusy(false); }
   }
 
@@ -227,7 +242,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   if (document && current) {
     return (
       <div className="page-stack plan-document-page">
-        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / MARKDOWN</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span></section>
+        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / MARKDOWN</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span><button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
         {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><pre>{String(conflict.markdown ?? "")}</pre></section>}
         <section className="plan-editor-grid">

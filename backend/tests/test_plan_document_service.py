@@ -125,6 +125,38 @@ def test_restore_creates_new_version_without_deleting_history(tmp_path) -> None:
     assert [item.version for item in service.list_versions(second.plan_document_id)] == [1, 2, 3]
 
 
+def test_deleted_document_can_be_reused_by_a_new_model_revision(tmp_path) -> None:
+    service = _service(tmp_path)
+    first = service.save_model_revision(
+        thread_id="thread-1",
+        title="旧计划",
+        markdown_content="# v1\n",
+        source_turn_id="turn-1",
+        source_message_id="message-1",
+        actor="model",
+    )
+    service.delete_document(
+        first.plan_document_id,
+        expected_version=first.version,
+        expected_file_hash=first.content_hash,
+    )
+
+    revived = service.save_model_revision(
+        thread_id="thread-1",
+        title="新计划",
+        markdown_content="# v2\n",
+        source_turn_id="turn-2",
+        source_message_id="message-2",
+        actor="model",
+    )
+
+    document = service.get_by_thread("thread-1")
+    assert revived.version == 2
+    assert document.deleted_at is None
+    assert service.current_version(document.id).id == revived.id
+    assert service.path_for(document.id).read_text(encoding="utf-8") == "# v2\n"
+
+
 def test_restore_rejects_a_prepared_revision(tmp_path) -> None:
     from app.plan_files import PlanFileProjector
 

@@ -158,6 +158,20 @@ export async function putPlanDocument(
   }));
 }
 
+export async function deletePlanDocument(
+  planDocumentId: string,
+  payload: { expected_version: number; expected_content_hash: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<void> {
+  const response = await fetcher(`/api/plans/${planDocumentId}`, {
+    method: "DELETE",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) await planJson<never>(response);
+}
+
 export async function restorePlanDocument(
   planDocumentId: string,
   payload: { version: number; expected_version: number; expected_content_hash: string },

@@ -6,7 +6,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Depends, HTTPException, Request
-from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 from .ask import AskValidationError
 from .events import export_jsonl
@@ -222,6 +222,34 @@ def register_routes(app) -> None:
         except (OSError, UnicodeError, ValueError) as exc:
             raise HTTPException(status_code=409, detail="plan file unavailable") from exc
         return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
+
+    @app.delete("/api/plans/{plan_document_id}", dependencies=[Depends(mutate)], status_code=204)
+    async def delete_plan_document(
+        plan_document_id: str,
+        payload: dict[str, Any],
+        service=Depends(runtime),
+    ) -> Response:
+        expected_hash = payload.get("expected_content_hash", payload.get("expected_file_hash"))
+        if not isinstance(expected_hash, str) or not expected_hash:
+            raise HTTPException(status_code=422, detail="expected_content_hash is required")
+        try:
+            service.plan_documents.delete_document(
+                plan_document_id,
+                expected_version=_required_int(payload, "expected_version"),
+                expected_file_hash=expected_hash,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        except PlanDocumentConflict as exc:
+            return JSONResponse(
+                status_code=409,
+                content={"detail": str(exc), "current": _current_plan_conflict(service, plan_document_id)},
+            )
+        except OSError:
+            return _plan_projection_failure(service, plan_document_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return Response(status_code=204)
 
     @app.put("/api/plans/{plan_document_id}", dependencies=[Depends(mutate)], response_model=None)
     async def update_plan_document(
@@ -740,6 +768,7 @@ def _plan_document_json(
         "file_path": f"plans/{document.id}/plan.md",
         "created_at": document.created_at,
         "updated_at": document.updated_at,
+        "deleted_at": document.deleted_at,
         "current": current,
         "versions": [_plan_document_version_json(item, include_markdown=False) for item in versions],
         "versions_total": total,

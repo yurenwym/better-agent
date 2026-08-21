@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({
   getThreadPlan: vi.fn(),
   getPlans: vi.fn(),
   putPlanDocument: vi.fn(),
+  deletePlanDocument: vi.fn(),
   restorePlanDocument: vi.fn(),
   syncPlanFile: vi.fn(),
   retryPlanProjection: vi.fn(),
@@ -58,6 +59,7 @@ describe("PlanPage document editor", () => {
     api.getPlanDocument.mockResolvedValue(document);
     api.getThreadPlan.mockResolvedValue({ plan: document });
     api.putPlanDocument.mockResolvedValue(current);
+    api.deletePlanDocument.mockResolvedValue(undefined);
     api.restorePlanDocument.mockResolvedValue(current);
     api.syncPlanFile.mockResolvedValue(current);
     api.retryPlanProjection.mockResolvedValue(document);
@@ -97,6 +99,22 @@ describe("PlanPage document editor", () => {
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("conflict"));
     expect((editor as HTMLTextAreaElement).value).toBe("# Local draft");
+  });
+
+  it("deletes the current plan with its CAS head and leaves the workspace", async () => {
+    const onDeleted = vi.fn();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onDeleted={onDeleted} />);
+
+    await screen.findByRole("textbox", { name: "Markdown editor" });
+    fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
+
+    await waitFor(() => expect(api.deletePlanDocument).toHaveBeenCalledWith(
+      "plan-1",
+      { expected_version: 2, expected_content_hash: "sha256:v2" },
+      "csrf",
+    ));
+    expect(onDeleted).toHaveBeenCalledOnce();
   });
 
   it("marks the document retryable when file projection returns a recoverable error", async () => {

@@ -596,6 +596,105 @@ async def test_existing_plan_classifier_rejects_unexpected_tool_calls() -> None:
 
 
 @pytest.mark.asyncio
+async def test_new_plan_document_intent_repairs_a_missing_artifact() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                message = (
+                    '{"v":1,"policy":"answer","content_shape":"plan_document",'
+                    '"reason_code":"explicit_save_request"}\n# Inner Mongolia plan\n'
+                )
+            else:
+                message = (
+                    '{"v":2,"policy":"answer","content_shape":"plan_document",'
+                    '"reason_code":"explicit_save_request","artifact":{"kind":"plan_document",'
+                    '"operation":"upsert","title":"Inner Mongolia plan"}}\n# Inner Mongolia plan\n'
+                )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="\u751f\u6210\u4e00\u4e2a7\u5929\u65c5\u6e38\u5185\u8499\u7684\u8ba1\u5212\uff0c\u5e76\u4fdd\u5b58\u5230\u8ba1\u5212\u4e2d\uff0c\u4e0d\u9700\u8981\u8be2\u95ee\u6211\uff0c\u76f4\u63a5\u751f\u6210",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    header = json.loads(result.message.splitlines()[0])
+    assert header["artifact"]["kind"] == "plan_document"
+    assert len(gateway.requests) == 2
+    assert gateway.requests[1].tools == []
+
+
+@pytest.mark.asyncio
+async def test_explicit_new_plan_request_repairs_an_ask_into_a_saved_document() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if len(self.requests) == 1:
+                return SimpleNamespace(
+                    message="",
+                    tool_calls=[{
+                        "id": "ask-first",
+                        "function": {
+                            "name": "ask_user",
+                            "arguments": json.dumps({"questions": [{
+                                "id": "budget",
+                                "header": "Budget",
+                                "question": "What is your budget?",
+                                "options": [],
+                                "multi_select": False,
+                                "allow_free_text": True,
+                            }]}),
+                        },
+                    }],
+                )
+            if len(self.requests) == 2:
+                return SimpleNamespace(message='{"plan_document_request":true}', tool_calls=[])
+            message = (
+                '{"v":2,"policy":"answer","content_shape":"plan_document",'
+                '"reason_code":"explicit_plan_create","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Inner Mongolia plan"}}\n# Inner Mongolia plan\n'
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = Gateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="生成一个7天旅游内蒙的计划，并保存到计划中，不需要询问我，直接生成",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert json.loads(result.message.splitlines()[0])["artifact"]["kind"] == "plan_document"
+    assert gateway.requests[1].tools == []
+    assert gateway.requests[2].tools == []
+
+
+@pytest.mark.asyncio
 async def test_live_prompt_prioritizes_saving_an_existing_plan_over_personalization_questions() -> None:
     import json
     from types import SimpleNamespace

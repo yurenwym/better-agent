@@ -13,7 +13,7 @@ from .db import Database
 
 MAX_PLAN_MARKDOWN_BYTES = 1024 * 1024
 MAX_PLAN_TITLE_LENGTH = 120
-PlanDocumentFileStatus = Literal["pending", "ready", "conflict", "failed"]
+PlanDocumentFileStatus = Literal["pending", "ready", "conflict", "failed", "deleted"]
 PlanDocumentVersionStatus = Literal["prepared", "committed", "abandoned"]
 PlanWriteIntentStatus = Literal["PREPARED", "FILE_WRITTEN", "COMMITTED", "CONFLICT", "FAILED"]
 
@@ -32,6 +32,7 @@ class PlanDocument:
     file_status: PlanDocumentFileStatus
     created_at: str
     updated_at: str
+    deleted_at: str | None = None
 
 
 @dataclass(frozen=True)
@@ -138,7 +139,7 @@ class PlanDocumentService:
     def get_by_thread(self, thread_id: str) -> PlanDocument:
         with self.db.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM plan_documents WHERE thread_id = ?", (thread_id,)
+                "SELECT * FROM plan_documents WHERE thread_id = ? AND deleted_at IS NULL", (thread_id,)
             ).fetchone()
         if row is None:
             raise KeyError(thread_id)
@@ -147,7 +148,7 @@ class PlanDocumentService:
     def current_version(self, document_id: str) -> PlanDocumentVersion:
         with self.db.connection() as connection:
             document = connection.execute(
-                "SELECT current_version_id FROM plan_documents WHERE id = ?", (document_id,)
+                "SELECT current_version_id FROM plan_documents WHERE id = ? AND deleted_at IS NULL", (document_id,)
             ).fetchone()
         if document is None or document["current_version_id"] is None:
             raise KeyError(document_id)
@@ -253,6 +254,16 @@ class PlanDocumentService:
                 )
                 document = connection.execute(
                     "SELECT * FROM plan_documents WHERE id = ?", (document_id,)
+                ).fetchone()
+            elif document["deleted_at"] is not None:
+                if expected_version_id is None:
+                    expected_version_id = document["current_version_id"]
+                connection.execute(
+                    "UPDATE plan_documents SET deleted_at = NULL, file_status = 'pending', updated_at = ? WHERE id = ?",
+                    (now, document["id"]),
+                )
+                document = connection.execute(
+                    "SELECT * FROM plan_documents WHERE id = ?", (document["id"],)
                 ).fetchone()
             current_id = document["current_version_id"]
             if current_id != expected_version_id:
@@ -365,7 +376,7 @@ class PlanDocumentService:
             )
             connection.execute(
                 "UPDATE plan_documents SET title = ?, current_version_id = ?, projected_version_id = ?, "
-                "file_status = 'ready', updated_at = ? WHERE id = ?",
+                "file_status = 'ready', deleted_at = NULL, updated_at = ? WHERE id = ?",
                 (prepared.title, prepared.id, prepared.id, now, prepared.plan_document_id),
             )
             connection.execute(
@@ -453,6 +464,49 @@ class PlanDocumentService:
         self.get_document(document_id)
         self.recover_pending_intents()
         return self.get_document(document_id)
+
+    def delete_document(
+        self,
+        document_id: str,
+        *,
+        expected_version: int,
+        expected_file_hash: str,
+        actor: str = "user",
+    ) -> None:
+        """Hide a plan while retaining its immutable revisions for audit/recovery."""
+        with self.db.durable_transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM plan_documents WHERE id = ? AND deleted_at IS NULL",
+                (document_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(document_id)
+            version_row = connection.execute(
+                "SELECT * FROM plan_document_versions WHERE id = ?", (row["current_version_id"],)
+            ).fetchone()
+            if version_row is None:
+                raise PlanDocumentConflict("plan document has no committed version")
+            current = _version_from_row(version_row)
+            if current.version != expected_version:
+                raise PlanDocumentConflict("plan document head conflict")
+            if current.content_hash != expected_file_hash:
+                raise PlanDocumentConflict("plan document hash conflict")
+            if self.projector.read_hash(document_id) != expected_file_hash:
+                raise PlanDocumentConflict("plan file hash conflict")
+            self.projector.remove(document_id)
+            now = _now()
+            connection.execute(
+                "UPDATE plan_documents SET file_status = 'deleted', deleted_at = ?, updated_at = ? WHERE id = ?",
+                (now, now, document_id),
+            )
+            self._append_event(
+                connection,
+                current,
+                "plan.document_deleted",
+                actor,
+                now,
+                {"deleted_at": now},
+            )
 
     def sync_file(self, document_id: str) -> PlanDocumentVersion:
         """Import a safe third-party edit as a new immutable revision."""
@@ -621,7 +675,7 @@ class PlanDocumentService:
             )
             connection.execute(
                 "UPDATE plan_documents SET title = ?, current_version_id = ?, projected_version_id = ?, "
-                "file_status = 'ready', updated_at = ? WHERE id = ?",
+                "file_status = 'ready', deleted_at = NULL, updated_at = ? WHERE id = ?",
                 (version.title, version.id, version.id, now, document.id),
             )
             connection.execute(
@@ -640,7 +694,7 @@ class PlanDocumentService:
     def _rebuild_missing_committed_files(self) -> None:
         with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM plan_documents WHERE current_version_id IS NOT NULL"
+                "SELECT * FROM plan_documents WHERE current_version_id IS NOT NULL AND deleted_at IS NULL"
             ).fetchall()
 
         for row in rows:
@@ -817,7 +871,9 @@ class PlanDocumentService:
 
     def get_document(self, document_id: str) -> PlanDocument:
         with self.db.connection() as connection:
-            row = connection.execute("SELECT * FROM plan_documents WHERE id = ?", (document_id,)).fetchone()
+            row = connection.execute(
+                "SELECT * FROM plan_documents WHERE id = ? AND deleted_at IS NULL", (document_id,)
+            ).fetchone()
         if row is None:
             raise KeyError(document_id)
         return _document_from_row(row)
@@ -828,6 +884,7 @@ def _document_from_row(row) -> PlanDocument:
         id=row["id"], thread_id=row["thread_id"], title=row["title"],
         current_version_id=row["current_version_id"], projected_version_id=row["projected_version_id"],
         file_status=row["file_status"], created_at=row["created_at"], updated_at=row["updated_at"],
+        deleted_at=row["deleted_at"],
     )
 
 

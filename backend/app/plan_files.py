@@ -128,6 +128,14 @@ class PlanFileProjector:
             if temporary_path is not None:
                 temporary_path.unlink(missing_ok=True)
 
+    def remove(self, document_id: str) -> None:
+        path = self.path_for(document_id)
+        path.unlink(missing_ok=True)
+        try:
+            path.parent.rmdir()
+        except OSError:
+            pass
+
 
 def _is_link_or_reparse(path: Path) -> bool:
     try:

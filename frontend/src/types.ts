@@ -208,7 +208,7 @@ export interface PlanDocument {
   title: string;
   current_version_id: string | null;
   projected_version_id: string | null;
-  file_status: "pending" | "ready" | "conflict" | "failed" | string;
+  file_status: "pending" | "ready" | "conflict" | "failed" | "deleted" | string;
   file_path: string;
   created_at: string;
   updated_at: string;

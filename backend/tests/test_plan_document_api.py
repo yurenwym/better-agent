@@ -120,6 +120,67 @@ def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata
     assert runtime.plan_documents.current_version(document.id).markdown_content == "# Version 2\n\nUpdated"
 
 
+def test_plan_document_delete_requires_cas_and_removes_document_without_erasing_history(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    headers = _headers(app)
+    path = runtime.plan_documents.path_for(document.id)
+
+    response = client.request(
+        "DELETE",
+        f"/api/plans/{document.id}",
+        headers=headers,
+        json={
+            "expected_version": first.version,
+            "expected_content_hash": first.content_hash,
+        },
+    )
+
+    assert response.status_code == 204
+    assert not path.exists()
+    assert client.get(f"/api/plans/{document.id}", headers=headers).status_code == 404
+    assert client.get(f"/api/threads/{thread.id}/plan", headers=headers).json() == {"plan": None}
+    with runtime.db.connection() as connection:
+        assert connection.execute(
+            "SELECT status FROM plan_document_versions WHERE id = ?", (first.id,)
+        ).fetchone()["status"] == "committed"
+        assert connection.execute(
+            "SELECT deleted_at FROM plan_documents WHERE id = ?", (document.id,)
+        ).fetchone()["deleted_at"] is not None
+
+
+def test_plan_document_delete_rejects_a_stale_head_and_keeps_the_file(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    headers = _headers(app)
+    second = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Travel plan",
+        markdown_content="# Version 2\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="user",
+        expected_version_id=first.id,
+        expected_file_hash=first.content_hash,
+    )
+    path = runtime.plan_documents.path_for(document.id)
+
+    response = client.request(
+        "DELETE",
+        f"/api/plans/{document.id}",
+        headers=headers,
+        json={
+            "expected_version": first.version,
+            "expected_content_hash": first.content_hash,
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["current"]["version"] == second.version
+    assert path.exists()
+    assert runtime.plan_documents.get_document(document.id).current_version_id == second.id
+
+
 def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(tmp_path) -> None:
     runtime, app, client, thread, first = _seed(tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)

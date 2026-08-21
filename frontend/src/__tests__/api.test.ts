@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, deletePlanDocument, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -54,6 +54,24 @@ describe("REST client", () => {
 
     expect(result.csrf_token).toBe("csrf");
     expect(fetcher).toHaveBeenCalledWith("/api/bootstrap");
+  });
+
+  it("deletes a plan with CAS metadata and CSRF protection", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true });
+
+    await deletePlanDocument("plan-1", {
+      expected_version: 2,
+      expected_content_hash: "sha256:v2",
+    }, "csrf", fetcher);
+
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/plans/plan-1",
+      expect.objectContaining({
+        method: "DELETE",
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+        body: JSON.stringify({ expected_version: 2, expected_content_hash: "sha256:v2" }),
+      }),
+    );
   });
 
   it("sends the selected skills only with the current message", async () => {
