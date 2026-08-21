@@ -83,6 +83,21 @@ describe("PlanPage document editor", () => {
     expect(onSelectPlan).toHaveBeenCalledWith("plan-2");
   });
 
+  it("keeps the detail pane empty until the user selects a saved plan", async () => {
+    render(<PlanPage csrfToken="csrf" planId={null} threadId={null} run={null} onRun={vi.fn()} />);
+
+    await screen.findByRole("button", { name: /Training plan/ });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(api.getPlanDocument).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "选择一个计划" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Markdown editor" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: /Training plan/ }));
+
+    await waitFor(() => expect(api.getPlanDocument).toHaveBeenCalledWith("plan-2"));
+    expect(await screen.findByRole("textbox", { name: "Markdown editor" })).toBeTruthy();
+  });
+
   it("loads by stable plan id without requiring a Run and saves exact Markdown with CAS", async () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 

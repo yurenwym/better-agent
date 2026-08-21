@@ -129,11 +129,6 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     return () => { active = false; };
   }, []);
 
-  useEffect(() => {
-    if (planId || selectedPlanId || planSummaries.length === 0) return;
-    setSelectedPlanId(planSummaries[0].id);
-  }, [planId, selectedPlanId, planSummaries]);
-
   function applyDocument(next: PlanDocument) {
     setDocument(next);
     setTitle(next.current?.title ?? next.title);
@@ -376,7 +371,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     );
   }
 
-  if (!run && !threadId && !activePlanId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENTS</span><h2>计划版本</h2><p>保存一份计划后，它会在这里以 Markdown 文档、版本历史和可恢复文件的形式出现。</p></section></PlanShell>;
+  if (!run && !threadId && !activePlanId) return <PlanShell {...shellProps}><section className="empty-panel plan-empty-state" aria-label="Plan detail placeholder"><span className="eyebrow">PLAN LIBRARY</span><h2>{planSummaries.length ? "选择一个计划" : "还没有已保存计划"}</h2><p>{planSummaries.length ? "从左侧选择计划名称，查看 Markdown 内容、版本历史和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p></section></PlanShell>;
   if (!document && threadId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENT</span><h2>当前对话还没有计划</h2><p>{error || "模型明确保存计划后，文档会出现在这里。"}</p></section></PlanShell>;
 
   const structured = structuredPlans?.current;

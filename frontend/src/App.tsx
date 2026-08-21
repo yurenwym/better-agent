@@ -44,7 +44,7 @@ export default function App() {
 
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
-  const widePage = page === "chat" || page === "trajectory";
+  const widePage = page === "chat" || page === "trajectory" || page === "plan";
   const fluidPage = page === "chat";
 
   return (
