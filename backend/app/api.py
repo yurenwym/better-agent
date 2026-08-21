@@ -164,6 +164,15 @@ def register_routes(app) -> None:
             return {"plan": None}
         return {"plan": _plan_document_json(document, service.plan_documents, limit=limit, offset=offset)}
 
+    @app.get("/api/plans")
+    async def list_plan_documents(service=Depends(runtime)) -> dict[str, Any]:
+        return {
+            "plans": [
+                _plan_document_summary_json(document, service.plan_documents)
+                for document in service.plan_documents.list_documents()
+            ]
+        }
+
     @app.get("/api/plans/{plan_document_id}")
     async def get_plan_document(
         plan_document_id: str,
@@ -775,6 +784,24 @@ def _plan_document_json(
         "versions_offset": offset,
         "versions_limit": limit,
         "versions_has_more": offset + len(versions) < total,
+    }
+
+
+def _plan_document_summary_json(document, service) -> dict[str, Any]:
+    version = None
+    if document.current_version_id:
+        try:
+            version = service.get_version(document.current_version_id).version
+        except KeyError:
+            pass
+    return {
+        "id": document.id,
+        "thread_id": document.thread_id,
+        "title": document.title,
+        "version": version,
+        "file_status": document.file_status,
+        "created_at": document.created_at,
+        "updated_at": document.updated_at,
     }
 
 

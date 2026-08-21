@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
   ApiError,
   approvePlan,
@@ -8,6 +8,7 @@ import {
   getPlanDocument,
   getPlanVersion,
   getThreadPlan,
+  listPlanDocuments,
   putPlanDocument,
   restorePlanDocument,
   retryPlanProjection,
@@ -15,7 +16,7 @@ import {
   revisePlan,
 } from "../api";
 import MarkdownMessage from "../components/MarkdownMessage";
-import type { PlanDocument, PlanDocumentVersion, PlanResponse, PlanStep, Run } from "../types";
+import type { PlanDocument, PlanDocumentSummary, PlanDocumentVersion, PlanResponse, PlanStep, Run } from "../types";
 
 interface PlanPageProps {
   csrfToken: string;
@@ -23,14 +24,84 @@ interface PlanPageProps {
   threadId?: string | null;
   planId?: string | null;
   onRun: (run: Run) => void;
+  onSelectPlan?: (planId: string) => void;
   onDeleted?: () => void;
+}
+
+interface PlanLibraryProps {
+  plans: PlanDocumentSummary[];
+  selectedPlanId: string | null;
+  busy: boolean;
+  onSelect: (planId: string) => void;
+}
+
+function formatPlanDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric" }).format(date);
+}
+
+function planStatusLabel(status: string): string {
+  if (status === "ready") return "已保存";
+  if (status === "failed") return "待重试";
+  if (status === "conflict") return "有冲突";
+  if (status === "pending") return "准备中";
+  return status;
+}
+
+function PlanLibrary({ plans, selectedPlanId, busy, onSelect }: PlanLibraryProps) {
+  return (
+    <nav className="plan-library" aria-label="Saved plans">
+      <div className="plan-library-heading">
+        <div>
+          <span className="eyebrow">PLAN LIBRARY</span>
+          <h2>已保存计划</h2>
+        </div>
+        <span className="plan-library-count">{plans.length} 份</span>
+      </div>
+      {plans.length === 0 ? (
+        <p className="plan-library-empty">保存计划后，它们会按时间出现在这里。</p>
+      ) : (
+        <div className="plan-library-list">
+          {plans.map((plan) => (
+            <button
+              aria-current={selectedPlanId === plan.id ? "page" : undefined}
+              className={`plan-library-item${selectedPlanId === plan.id ? " plan-library-item-selected" : ""}`}
+              disabled={busy}
+              key={plan.id}
+              type="button"
+              onClick={() => onSelect(plan.id)}
+            >
+              <span className="plan-library-item-title">{plan.title}</span>
+              <span className="plan-library-item-meta">
+                <span>{plan.version ? `v${plan.version}` : "新计划"}</span>
+                <span>{planStatusLabel(plan.file_status)}</span>
+                <span>{formatPlanDate(plan.updated_at)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </nav>
+  );
+}
+
+function PlanShell({ children, plans, selectedPlanId, busy, onSelect }: PlanLibraryProps & { children: ReactNode }) {
+  return (
+    <div className="plan-workspace">
+      <PlanLibrary plans={plans} selectedPlanId={selectedPlanId} busy={busy} onSelect={onSelect} />
+      <section className="plan-detail-column">{children}</section>
+    </div>
+  );
 }
 
 function editableSteps(steps: PlanStep[]): Array<{ id: string; title: string }> {
   return steps.filter((step) => step.status !== "completed" && step.status !== "cancelled").map((step) => ({ id: step.id, title: step.title }));
 }
 
-export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun, onDeleted }: PlanPageProps) {
+export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun, onSelectPlan, onDeleted }: PlanPageProps) {
+  const [planSummaries, setPlanSummaries] = useState<PlanDocumentSummary[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string | null>(planId);
   const [document, setDocument] = useState<PlanDocument | null>(null);
   const [sourceDocument, setSourceDocument] = useState<PlanDocument | null>(null);
   const [structuredPlans, setStructuredPlans] = useState<PlanResponse | null>(null);
@@ -42,11 +113,45 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [conflict, setConflict] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
 
+  const activePlanId = planId ?? selectedPlanId;
+
+  useEffect(() => {
+    setSelectedPlanId(planId);
+  }, [planId]);
+
+  useEffect(() => {
+    let active = true;
+    listPlanDocuments()
+      .then((response) => {
+        if (active) setPlanSummaries(response.plans);
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    if (planId || selectedPlanId || planSummaries.length === 0) return;
+    setSelectedPlanId(planSummaries[0].id);
+  }, [planId, selectedPlanId, planSummaries]);
+
   function applyDocument(next: PlanDocument) {
     setDocument(next);
     setTitle(next.current?.title ?? next.title);
     setMarkdown(next.current?.markdown ?? "");
     setSelectedVersion(next.current?.version ?? null);
+    setPlanSummaries((items) => {
+      const summary = {
+        id: next.id,
+        thread_id: next.thread_id,
+        title: next.title,
+        version: next.current?.version ?? null,
+        file_status: next.file_status,
+        created_at: next.created_at,
+        updated_at: next.updated_at,
+      } satisfies PlanDocumentSummary;
+      const existing = items.some((item) => item.id === next.id);
+      return existing ? items.map((item) => item.id === next.id ? summary : item) : [summary, ...items];
+    });
   }
 
   useEffect(() => {
@@ -61,8 +166,8 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         let nextDocument: PlanDocument | null = null;
         let nextStructuredPlans: PlanResponse | null = null;
         let nextSourceDocument: PlanDocument | null = null;
-        if (planId) {
-          nextDocument = await getPlanDocument(planId);
+        if (activePlanId) {
+          nextDocument = await getPlanDocument(activePlanId);
         } else if (threadId) {
           const response = await getThreadPlan(threadId);
           nextDocument = response.plan;
@@ -93,11 +198,16 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     }
     void load();
     return () => { active = false; };
-  }, [planId, threadId, run?.id, run?.source_plan_document_id]);
+  }, [activePlanId, threadId, run?.id, run?.source_plan_document_id]);
 
   const current = document?.current ?? null;
   const history = useMemo(() => [...(document?.versions ?? [])].sort((a, b) => b.version - a.version), [document?.versions]);
-  const effectivePlanId = planId ?? document?.id ?? null;
+  const effectivePlanId = activePlanId ?? document?.id ?? null;
+
+  function selectPlan(nextPlanId: string) {
+    setSelectedPlanId(nextPlanId);
+    onSelectPlan?.(nextPlanId);
+  }
 
   function handleDocumentError(caught: unknown, fallback: string) {
     if (caught instanceof ApiError && caught.status === 409 && caught.payload && typeof caught.payload === "object") {
@@ -229,19 +339,29 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     );
   }
 
+  const shellProps = {
+    plans: planSummaries,
+    selectedPlanId: activePlanId,
+    busy,
+    onSelect: selectPlan,
+  };
+
   if (document && !current) {
     return (
-      <div className="page-stack plan-document-page">
+      <PlanShell {...shellProps}>
+        <div className="page-stack plan-document-page">
         <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / PENDING</span><h2>{document.title}</h2><p>计划 ID · {document.id} · {document.file_path}</p></div><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span></section>
         {error && <p className="error-message" role="alert">{error}</p>}
         <section className="card plan-pending-card" role="status"><span className="eyebrow">DOCUMENT PROJECTION</span><h3>计划文档还没有可用版本</h3><p>计划地址已经保留。文件写入失败或仍在准备中，可以从这里重试，不需要重新调用模型。</p><button className="button button-primary" disabled={busy} type="button" onClick={() => void retryProjection()}>{busy ? "正在重试…" : "重试写入计划文件"}</button></section>
-      </div>
+        </div>
+      </PlanShell>
     );
   }
 
   if (document && current) {
     return (
-      <div className="page-stack plan-document-page">
+      <PlanShell {...shellProps}>
+        <div className="page-stack plan-document-page">
         <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / MARKDOWN</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span><button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
         {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><pre>{String(conflict.markdown ?? "")}</pre></section>}
@@ -251,17 +371,18 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         </section>
         <section className="card plan-history-card"><div className="panel-toolbar"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Version history</h3></div><div className="button-row"><button className="button button-secondary" disabled={busy} type="button" onClick={() => void syncFile()}>Sync file</button><button className="button button-quiet" disabled={busy} type="button" onClick={() => void retryProjection()}>Retry projection</button></div></div><div className="history-list">{history.map((version) => <div className={selectedVersion === version.version ? "history-row history-row-selected" : "history-row"} key={version.id}><button className="history-version" disabled={busy} type="button" onClick={() => void selectHistoryVersion(version)}>v{version.version}</button><span>{version.actor}</span><span>{version.change_summary || "No summary"}</span><span>{version.content_hash.slice(0, 18)}</span>{version.status === "committed" && version.version !== current.version && <button className="button button-quiet" disabled={busy} type="button" aria-label={`Restore version ${version.version}`} onClick={() => void restore(version)}>Restore</button>}</div>)}</div></section>
         {renderStructuredPlan()}
-      </div>
+        </div>
+      </PlanShell>
     );
   }
 
-  if (!run && !threadId && !planId) return <section className="empty-panel"><span className="eyebrow">PLAN DOCUMENTS</span><h2>计划版本</h2><p>保存一份计划后，它会在这里以 Markdown 文档、版本历史和可恢复文件的形式出现。</p></section>;
-  if (!document && threadId) return <section className="empty-panel"><span className="eyebrow">PLAN DOCUMENT</span><h2>当前对话还没有计划</h2><p>{error || "模型明确保存计划后，文档会出现在这里。"}</p></section>;
+  if (!run && !threadId && !activePlanId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENTS</span><h2>计划版本</h2><p>保存一份计划后，它会在这里以 Markdown 文档、版本历史和可恢复文件的形式出现。</p></section></PlanShell>;
+  if (!document && threadId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENT</span><h2>当前对话还没有计划</h2><p>{error || "模型明确保存计划后，文档会出现在这里。"}</p></section></PlanShell>;
 
   const structured = structuredPlans?.current;
   const sourceVersionId = structured?.source_document_version_id ?? run?.source_plan_document_version_id ?? null;
   const sourceVersion = sourceVersionId
     ? sourceDocument?.versions.find((version) => version.id === sourceVersionId) ?? null
     : null;
-  return <div className="page-stack"><section className="hero-panel"><div><span className="eyebrow">PLAN / EXECUTION PROJECTION</span><h2>计划版本</h2><p>结构化执行快照只在明确进入执行流程后出现；聊天中保存的 Markdown 计划不会自动创建 Run。</p>{sourceVersion && <p className="plan-source-reference">执行来源：{sourceVersion.title} · 文档 v{sourceVersion.version}{sourceDocument?.current && sourceDocument.current.version !== sourceVersion.version ? ` · 当前文档 v${sourceDocument.current.version}` : ""}</p>}</div>{structured && <span className="version-badge">v{structured.version} · {structured.status}</span>}</section>{error && <p className="error-message" role="alert">{error}</p>}{!structured ? <p className="empty-state">等待 Runtime 生成结构化执行计划。</p> : renderStructuredPlan()}</div>;
+  return <PlanShell {...shellProps}><div className="page-stack"><section className="hero-panel"><div><span className="eyebrow">PLAN / EXECUTION PROJECTION</span><h2>计划版本</h2><p>结构化执行快照只在明确进入执行流程后出现；聊天中保存的 Markdown 计划不会自动创建 Run。</p>{sourceVersion && <p className="plan-source-reference">执行来源：{sourceVersion.title} · 文档 v{sourceVersion.version}{sourceDocument?.current && sourceDocument.current.version !== sourceVersion.version ? ` · 当前文档 v${sourceDocument.current.version}` : ""}</p>}</div>{structured && <span className="version-badge">v{structured.version} · {structured.status}</span>}</section>{error && <p className="error-message" role="alert">{error}</p>}{!structured ? <p className="empty-state">等待 Runtime 生成结构化执行计划。</p> : renderStructuredPlan()}</div></PlanShell>;
 }

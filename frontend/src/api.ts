@@ -7,6 +7,7 @@ import type {
   MessageRecord,
   MemoryRecord,
   PlanDocument,
+  PlanDocumentSummary,
   PlanDocumentVersion,
   PlanResponse,
   PlanVersion,
@@ -117,6 +118,10 @@ export async function getThread(threadId: string, fetcher: Fetcher = fetch): Pro
 
 export async function getThreadPlan(threadId: string, fetcher: Fetcher = fetch): Promise<ThreadPlanResponse> {
   return planJson<ThreadPlanResponse>(await fetcher(`/api/threads/${threadId}/plan`));
+}
+
+export async function listPlanDocuments(fetcher: Fetcher = fetch): Promise<{ plans: PlanDocumentSummary[] }> {
+  return planJson<{ plans: PlanDocumentSummary[] }>(await fetcher("/api/plans"));
 }
 
 export async function getPlanDocument(planDocumentId: string, fetcher: Fetcher = fetch): Promise<PlanDocument> {

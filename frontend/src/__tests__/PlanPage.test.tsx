@@ -4,6 +4,7 @@ import PlanPage from "../pages/PlanPage";
 import { ApiError } from "../api";
 
 const api = vi.hoisted(() => ({
+  listPlanDocuments: vi.fn(),
   getPlanDocument: vi.fn(),
   getPlanVersion: vi.fn(),
   getThreadPlan: vi.fn(),
@@ -56,6 +57,10 @@ const document = {
 describe("PlanPage document editor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.listPlanDocuments.mockResolvedValue({ plans: [
+      { id: "plan-1", thread_id: "thread-1", title: "Travel plan", version: 2, file_status: "ready", created_at: current.created_at, updated_at: current.created_at },
+      { id: "plan-2", thread_id: "thread-2", title: "Training plan", version: 1, file_status: "ready", created_at: current.created_at, updated_at: current.created_at },
+    ] });
     api.getPlanDocument.mockResolvedValue(document);
     api.getThreadPlan.mockResolvedValue({ plan: document });
     api.putPlanDocument.mockResolvedValue(current);
@@ -64,6 +69,18 @@ describe("PlanPage document editor", () => {
     api.syncPlanFile.mockResolvedValue(current);
     api.retryPlanProjection.mockResolvedValue(document);
     api.getPlanVersion.mockResolvedValue({ ...current, version: 1, id: "version-1", markdown: "# Travel plan\n\n## Day 1\nOriginal" });
+  });
+
+  it("lists saved plan titles and selects a plan by stable id", async () => {
+    const onSelectPlan = vi.fn();
+    render(<PlanPage csrfToken="csrf" planId={null} threadId={null} run={null} onRun={vi.fn()} onSelectPlan={onSelectPlan} />);
+
+    const list = await screen.findByRole("navigation", { name: "Saved plans" });
+    expect(list.textContent).toContain("Travel plan");
+    expect(list.textContent).toContain("Training plan");
+    fireEvent.click(screen.getByRole("button", { name: /Training plan/ }));
+
+    expect(onSelectPlan).toHaveBeenCalledWith("plan-2");
   });
 
   it("loads by stable plan id without requiring a Run and saves exact Markdown with CAS", async () => {

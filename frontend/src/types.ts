@@ -217,6 +217,16 @@ export interface PlanDocument {
   versions: PlanDocumentVersion[];
 }
 
+export interface PlanDocumentSummary {
+  id: string;
+  thread_id: string;
+  title: string;
+  version: number | null;
+  file_status: "pending" | "ready" | "conflict" | "failed" | "deleted" | string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ThreadPlanResponse {
   plan: PlanDocument | null;
 }

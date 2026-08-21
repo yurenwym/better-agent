@@ -145,6 +145,14 @@ class PlanDocumentService:
             raise KeyError(thread_id)
         return _document_from_row(row)
 
+    def list_documents(self) -> list[PlanDocument]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM plan_documents WHERE deleted_at IS NULL "
+                "ORDER BY updated_at DESC, id DESC"
+            ).fetchall()
+        return [_document_from_row(row) for row in rows]
+
     def current_version(self, document_id: str) -> PlanDocumentVersion:
         with self.db.connection() as connection:
             document = connection.execute(

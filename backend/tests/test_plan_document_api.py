@@ -58,6 +58,38 @@ def test_plan_document_read_routes_restore_refresh_state_without_run(tmp_path) -
     ))
 
 
+def test_plan_document_index_lists_saved_titles_without_markdown(tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(tmp_path)
+    second_thread = runtime.conversation.create_thread("Second plan thread")
+    second = runtime.plan_documents.save_model_revision(
+        thread_id=second_thread.id,
+        title="Training plan",
+        markdown_content="# Training\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
+
+    response = client.get("/api/plans", headers=_headers(app))
+
+    assert response.status_code == 200
+    plans = response.json()["plans"]
+    assert {item["id"] for item in plans} == {first.plan_document_id, second.plan_document_id}
+    assert {item["title"] for item in plans} == {"Travel plan", "Training plan"}
+    assert all("markdown" not in item for item in plans)
+
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    current = runtime.plan_documents.current_version(document.id)
+    runtime.plan_documents.delete_document(
+        document.id,
+        expected_version=current.version,
+        expected_file_hash=current.content_hash,
+    )
+
+    remaining = client.get("/api/plans", headers=_headers(app))
+    assert [item["id"] for item in remaining.json()["plans"]] == [second.plan_document_id]
+
+
 def test_plan_history_routes_are_paged_and_return_metadata_only(tmp_path) -> None:
     runtime, app, client, thread, first = _seed(tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
