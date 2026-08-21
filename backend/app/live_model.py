@@ -270,7 +270,9 @@ class LiveConversationModel:
                         "Use the LLM to decide whether the latest user message explicitly asks for a complete plan document "
                         "to be generated, written, saved, or put into the plan page. True includes a direct request to proceed "
                         "without asking questions. False includes a generic guide or recommendation, a question about a plan, "
-                        "or a plan request without an explicit document/save instruction. Do not infer true from planning keywords alone."
+                        "or a plan request without an explicit document/save instruction. Merely asking to make a 7-day diet, "
+                        "travel, or training plan is an answer request, not a document save request. Do not infer true from "
+                        "planning keywords alone."
                     ),
                 },
                 {
@@ -429,12 +431,16 @@ class LiveConversationModel:
 
         response, valid = await complete_once(messages, tools=[] if save_existing_plan else None)
         declared_plan_document = _response_declares_plan_document_intent(response)
+        plan_document_intent: bool | None = True if save_existing_plan else None
         if (save_existing_plan or declared_plan_document) and not _response_has_plan_artifact(response):
-            return await force_plan_document(
-                "The conversation response declared a plan-document request. "
-                "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
-                "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
-            )
+            if plan_document_intent is None:
+                plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
+            if plan_document_intent:
+                return await force_plan_document(
+                    "The conversation response declared a plan-document request. "
+                    "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
+                    "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
+                )
         if isinstance(response, AskRequest):
             if not await self._classify_explicit_plan_document_request(content, history, cancel_event):
                 return response
@@ -445,7 +451,9 @@ class LiveConversationModel:
                 "reasonable explicit assumptions."
             )
         if _response_is_plan_shaped(response) and not _response_has_plan_artifact(response):
-            if await self._classify_explicit_plan_document_request(content, history, cancel_event):
+            if plan_document_intent is None:
+                plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
+            if plan_document_intent:
                 return await force_plan_document(
                     "The intent gate confirmed an explicit plan-document request. "
                     "Retry with no tool call and return a valid v=2 JSON control header with exactly one "
