@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PlanPage from "../pages/PlanPage";
 import { ApiError } from "../api";
@@ -54,6 +54,11 @@ const document = {
   ],
 };
 
+async function enterEditMode() {
+  fireEvent.click(await screen.findByRole("button", { name: "编辑计划" }));
+  return screen.findByRole("region", { name: "可视化计划编辑器" });
+}
+
 describe("PlanPage document editor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -95,26 +100,60 @@ describe("PlanPage document editor", () => {
     fireEvent.click(screen.getByRole("button", { name: /Training plan/ }));
 
     await waitFor(() => expect(api.getPlanDocument).toHaveBeenCalledWith("plan-2"));
-    expect(await screen.findByRole("textbox", { name: "Markdown editor" })).toBeTruthy();
+    expect((await screen.findAllByRole("heading", { name: "Travel plan" })).length).toBeGreaterThan(0);
+  });
+
+  it("starts in rendered mode and saves edits made in the visual plan", async () => {
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    expect(await screen.findByRole("button", { name: "编辑计划" })).toBeTruthy();
+    expect(screen.queryByRole("textbox", { name: "Markdown editor" })).toBeNull();
+    const editor = await enterEditMode();
+    const heading = within(editor).getByRole("heading", { name: "Day 2" });
+    heading.textContent = "Updated day";
+    fireEvent.input(heading);
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
+
+    await waitFor(() => expect(api.putPlanDocument).toHaveBeenCalledWith(
+      "plan-1",
+      expect.objectContaining({ markdown: expect.stringContaining("## Updated day") }),
+      "csrf",
+    ));
+  });
+
+  it("cancels visual editing without changing the saved view", async () => {
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    const editor = await enterEditMode();
+    const heading = within(editor).getByRole("heading", { name: "Day 2" });
+    heading.textContent = "Local draft";
+    fireEvent.input(heading);
+    fireEvent.click(screen.getByRole("button", { name: "取消编辑" }));
+
+    expect(screen.queryByRole("region", { name: "可视化计划编辑器" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "Markdown editor" })).toBeNull();
+    expect(screen.getAllByRole("heading", { name: "Day 2" }).length).toBeGreaterThan(0);
   });
 
   it("loads by stable plan id without requiring a Run and saves exact Markdown with CAS", async () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 
-    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
-    expect((editor as HTMLTextAreaElement).value).toBe(current.markdown);
-    expect(screen.getByRole("heading", { name: "Day 2" })).toBeTruthy();
+    const editor = await enterEditMode();
+    expect(within(editor).getByRole("heading", { name: "Travel plan" })).toBeTruthy();
+    expect(within(editor).getByRole("heading", { name: "Day 2" })).toBeTruthy();
     expect(screen.getAllByText("Updated").length).toBeGreaterThan(0);
 
-    fireEvent.change(editor, { target: { value: "# Edited\n" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    const heading = within(editor).getByRole("heading", { name: "Travel plan" });
+    heading.textContent = "Edited";
+    fireEvent.input(heading);
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
 
     await waitFor(() => expect(api.putPlanDocument).toHaveBeenCalledWith(
       "plan-1",
       expect.objectContaining({
         expected_version: 2,
         expected_content_hash: "sha256:v2",
-        markdown: "# Edited\n",
+        markdown: expect.stringContaining("# Edited"),
       }),
       "csrf",
     ));
@@ -125,12 +164,14 @@ describe("PlanPage document editor", () => {
       current: { version: 3, content_hash: "sha256:v3", markdown: "# Server" },
     }));
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
-    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
-    fireEvent.change(editor, { target: { value: "# Local draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    const editor = await enterEditMode();
+    const heading = within(editor).getByRole("heading", { name: "Day 2" });
+    heading.textContent = "Local draft";
+    fireEvent.input(heading);
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("conflict"));
-    expect((editor as HTMLTextAreaElement).value).toBe("# Local draft");
+    expect(within(editor).getByRole("heading", { name: "Local draft" })).toBeTruthy();
   });
 
   it("deletes the current plan with its CAS head and leaves the workspace", async () => {
@@ -138,7 +179,7 @@ describe("PlanPage document editor", () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onDeleted={onDeleted} />);
 
-    await screen.findByRole("textbox", { name: "Markdown editor" });
+    await screen.findByRole("button", { name: "Delete plan" });
     fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
 
     await waitFor(() => expect(api.deletePlanDocument).toHaveBeenCalledWith(
@@ -155,18 +196,20 @@ describe("PlanPage document editor", () => {
       current: { file_status: "failed" },
     }));
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
-    const editor = await screen.findByRole("textbox", { name: "Markdown editor" });
-    fireEvent.change(editor, { target: { value: "# Local draft" } });
-    fireEvent.click(screen.getByRole("button", { name: "Save plan" }));
+    const editor = await enterEditMode();
+    const heading = within(editor).getByRole("heading", { name: "Day 2" });
+    heading.textContent = "Local draft";
+    fireEvent.input(heading);
+    fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("写入失败"));
     expect(screen.getByRole("button", { name: "Retry file write" })).toBeTruthy();
-    expect((editor as HTMLTextAreaElement).value).toBe("# Local draft");
+    expect(within(editor).getByRole("heading", { name: "Local draft" })).toBeTruthy();
   });
 
   it("restores a selected history version as a new revision", async () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
-    await screen.findByRole("textbox", { name: "Markdown editor" });
+    await enterEditMode();
     fireEvent.click(screen.getByRole("button", { name: "Restore version 1" }));
 
     await waitFor(() => expect(api.restorePlanDocument).toHaveBeenCalledWith(
@@ -182,7 +225,7 @@ describe("PlanPage document editor", () => {
       versions: [...document.versions, { ...current, id: "prepared-3", version: 3, status: "prepared", markdown: "# Prepared" }],
     });
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
-    await screen.findByRole("textbox", { name: "Markdown editor" });
+    await enterEditMode();
 
     expect(screen.queryByRole("button", { name: "Restore version 3" })).toBeNull();
   });
@@ -194,12 +237,12 @@ describe("PlanPage document editor", () => {
     };
     api.getPlanDocument.mockResolvedValue(metadataOnly);
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
-    await screen.findByRole("textbox", { name: "Markdown editor" });
+    const editor = await enterEditMode();
 
     fireEvent.click(screen.getByRole("button", { name: "v1" }));
 
     await waitFor(() => expect(api.getPlanVersion).toHaveBeenCalledWith("plan-1", 1));
-    expect((screen.getByRole("textbox", { name: "Markdown editor" }) as HTMLTextAreaElement).value).toContain("Day 1");
+    await waitFor(() => expect(within(editor).getByRole("heading", { name: "Day 1" })).toBeTruthy());
   });
 
   it("keeps a pending document addressable and exposes a projection retry", async () => {
@@ -293,7 +336,7 @@ describe("PlanPage document editor", () => {
       />,
     );
 
-    await screen.findByRole("textbox", { name: "Markdown editor" });
+    await screen.findByRole("button", { name: "编辑计划" });
     expect(await screen.findByRole("button", { name: "批准计划" })).toBeTruthy();
     expect(screen.getByText("调整未完成步骤")).toBeTruthy();
   });

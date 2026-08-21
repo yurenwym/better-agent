@@ -16,6 +16,7 @@ import {
   revisePlan,
 } from "../api";
 import MarkdownMessage from "../components/MarkdownMessage";
+import PlanVisualEditor from "../components/PlanVisualEditor";
 import type { PlanDocument, PlanDocumentSummary, PlanDocumentVersion, PlanResponse, PlanStep, Run } from "../types";
 
 interface PlanPageProps {
@@ -112,6 +113,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [error, setError] = useState("");
   const [conflict, setConflict] = useState<Record<string, unknown> | null>(null);
   const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const activePlanId = planId ?? selectedPlanId;
 
@@ -153,6 +155,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     let active = true;
     setError("");
     setConflict(null);
+    setEditing(false);
     setDocument(null);
     setSourceDocument(null);
     setStructuredPlans(null);
@@ -231,8 +234,19 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         change_summary: "Edited in plan workspace",
       }, csrfToken);
       applyDocument({ ...document, title: saved.title, current_version_id: saved.id, projected_version_id: saved.id, file_status: "ready", current: saved, versions: [...document.versions, saved] });
+      setEditing(false);
     } catch (caught) { handleDocumentError(caught, "Plan save failed"); }
     finally { setBusy(false); }
+  }
+
+  function cancelEditing() {
+    if (!current) return;
+    setTitle(current.title);
+    setMarkdown(current.markdown ?? "");
+    setSelectedVersion(current.version);
+    setConflict(null);
+    setError("");
+    setEditing(false);
   }
 
   async function deleteDocument() {
@@ -357,13 +371,10 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     return (
       <PlanShell {...shellProps}>
         <div className="page-stack plan-document-page">
-        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / MARKDOWN</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span><button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
+        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / RENDERED VIEW</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span>{editing ? <><button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>取消编辑</button><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>保存计划</button></> : <button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>编辑计划</button>}<button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
-        {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><pre>{String(conflict.markdown ?? "")}</pre></section>}
-        <section className="plan-editor-grid">
-          <div className="card plan-editor-card"><div className="panel-toolbar"><div><span className="eyebrow">SOURCE OF TRUTH</span><h3>Edit Markdown</h3></div><span className="muted">CAS v{current.version}</span></div><label className="field-label" htmlFor="plan-title">Title</label><input id="plan-title" value={title} maxLength={120} onChange={(event) => setTitle(event.target.value)} /><label className="field-label" htmlFor="plan-markdown">Markdown</label><textarea aria-label="Markdown editor" id="plan-markdown" value={markdown} onChange={(event) => setMarkdown(event.target.value)} rows={24} /><div className="form-footer"><span className="muted">{document.file_path}</span><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>Save plan</button></div></div>
-          <div className="card plan-preview-card"><div className="panel-toolbar"><div><span className="eyebrow">PREVIEW</span><h3>Readable view</h3></div><span className="muted">Exact Markdown</span></div><MarkdownMessage content={markdown} /></div>
-        </section>
+        {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><div className="plan-conflict-preview"><MarkdownMessage content={String(conflict.markdown ?? "")} /></div></section>}
+        {editing ? <section className="card plan-editor-card"><PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} /></section> : <section className="card plan-readable-card"><div className="panel-toolbar"><div><span className="eyebrow">PLAN CONTENT</span><h3>Readable plan</h3></div><span className="muted">Rendered view</span></div><MarkdownMessage content={markdown} /></section>}
         <section className="card plan-history-card"><div className="panel-toolbar"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Version history</h3></div><div className="button-row"><button className="button button-secondary" disabled={busy} type="button" onClick={() => void syncFile()}>Sync file</button><button className="button button-quiet" disabled={busy} type="button" onClick={() => void retryProjection()}>Retry projection</button></div></div><div className="history-list">{history.map((version) => <div className={selectedVersion === version.version ? "history-row history-row-selected" : "history-row"} key={version.id}><button className="history-version" disabled={busy} type="button" onClick={() => void selectHistoryVersion(version)}>v{version.version}</button><span>{version.actor}</span><span>{version.change_summary || "No summary"}</span><span>{version.content_hash.slice(0, 18)}</span>{version.status === "committed" && version.version !== current.version && <button className="button button-quiet" disabled={busy} type="button" aria-label={`Restore version ${version.version}`} onClick={() => void restore(version)}>Restore</button>}</div>)}</div></section>
         {renderStructuredPlan()}
         </div>
