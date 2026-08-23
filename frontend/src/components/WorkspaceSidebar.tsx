@@ -1,6 +1,6 @@
 import type { Bootstrap, Run } from "../types";
 
-export type WorkspacePage = "chat" | "plan" | "trajectory" | "memory";
+export type WorkspacePage = "chat" | "plan" | "trajectory" | "research" | "schedules" | "memory";
 
 interface WorkspaceSidebarProps {
   activePage: WorkspacePage;
@@ -8,12 +8,15 @@ interface WorkspaceSidebarProps {
   run: Run | null;
   onNavigate: (page: WorkspacePage) => void;
   onNewConversation: () => void;
+  onHumanMode?: (enabled:boolean)=>void;
 }
 
 const navItems: Array<{ id: WorkspacePage; label: string; glyph: "chat" | "plan" | "trace" | "memory" }> = [
   { id: "chat", label: "对话", glyph: "chat" },
   { id: "plan", label: "计划", glyph: "plan" },
   { id: "trajectory", label: "轨迹", glyph: "trace" },
+  { id: "research", label: "研究", glyph: "trace" },
+  { id: "schedules", label: "定时", glyph: "plan" },
   { id: "memory", label: "记忆", glyph: "memory" },
 ];
 
@@ -41,7 +44,7 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-export default function WorkspaceSidebar({ activePage, bootstrap, run, onNavigate, onNewConversation }: WorkspaceSidebarProps) {
+export default function WorkspaceSidebar({ activePage, bootstrap, run, onNavigate, onNewConversation, onHumanMode }: WorkspaceSidebarProps) {
   return (
     <aside className="workspace-sidebar" aria-label="工作区侧栏">
       <div className="sidebar-brand-row">
@@ -91,6 +94,7 @@ export default function WorkspaceSidebar({ activePage, bootstrap, run, onNavigat
           <div><span>模型连接</span><strong>{bootstrap?.api_key_configured ? "模型已连接" : "等待模型配置"}</strong></div>
           <div><span>服务地址</span><code>127.0.0.1:8000</code></div>
           <div><span>API 环境变量</span><code>{bootstrap?.api_key_env ?? "AGENT_MODEL_API_KEY"}</code></div>
+          <label className="settings-toggle"><span>真人对话模式</span><input type="checkbox" checked={bootstrap?.human_mode??false} onChange={event=>onHumanMode?.(event.target.checked)}/></label>
         </div>
       </details>
     </aside>

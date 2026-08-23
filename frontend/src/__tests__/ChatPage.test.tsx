@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
   cancelTurn: vi.fn(),
   selectDirection: vi.fn(),
   getSkills: vi.fn(),
+  getResearchJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+  cancelResearch: vi.fn(),
   getRun: vi.fn(),
   sendMessage: vi.fn(),
   getEvents: vi.fn(),

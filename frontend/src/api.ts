@@ -6,6 +6,9 @@ import type {
   GoalResponse,
   MessageRecord,
   MemoryRecord,
+  MemoryEntry,
+  MemoryProposal,
+  MemoryEpisode,
   PlanDocument,
   PlanDocumentSummary,
   PlanDocumentVersion,
@@ -19,6 +22,8 @@ import type {
   ThreadMessage,
   ThreadPlanResponse,
   Turn,
+  ResearchJob,
+  ResearchSchedule,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -209,6 +214,14 @@ export async function getThreadMessages(threadId: string, fetcher: Fetcher = fet
 export async function getThreadEvents(threadId: string, afterSeq = 0, fetcher: Fetcher = fetch): Promise<{ events: ThreadEvent[] }> {
   return json<{ events: ThreadEvent[] }>(await fetcher(`/api/threads/${threadId}/events?after_seq=${afterSeq}`));
 }
+
+export async function getResearchJobs(threadId?: string, fetcher: Fetcher = fetch): Promise<{jobs:ResearchJob[]}> { return json(await fetcher(`/api/research/jobs${threadId ? `?thread_id=${encodeURIComponent(threadId)}` : ""}`)); }
+export async function getResearchJob(id:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}`));}
+export async function cancelResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}/cancel`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
+export async function getResearchReport(id:string,fetcher:Fetcher=fetch):Promise<{job_id:string;title:string;markdown:string}>{return json(await fetcher(`/api/research/jobs/${id}/report`));}
+export async function getSchedules(fetcher:Fetcher=fetch):Promise<{schedules:ResearchSchedule[]}>{return json(await fetcher("/api/research/schedules"));}
+export async function runSchedule(id:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<{job_id:string;status:string}>{return json(await fetcher(`/api/research/schedules/${id}/run`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({client_request_id:key})}));}
+export async function setHumanMode(enabled:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<{human_mode:boolean}>{return json(await fetcher("/api/settings/human-mode",{method:"PUT",headers:mutationHeaders(csrf),body:JSON.stringify({enabled})}));}
 
 export async function cancelTurn(turnId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<Turn> {
   return json<Turn>(await fetcher(`/api/turns/${turnId}/cancel`, {
@@ -413,6 +426,12 @@ export function subscribeToEvents(
   source.onerror = () => { /* native EventSource reconnects and carries Last-Event-ID */ };
   return () => source.close();
 }
+export async function getMemoryOverview(fetcher:Fetcher=fetch):Promise<{entries:MemoryEntry[];proposals:MemoryProposal[];episodes:MemoryEpisode[]}>{return json(await fetcher("/api/memories"));}
+export async function createMemoryEntry(payload:{kind:string;scope_type:string;scope_id:string;content:string;idempotency_key:string},csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher("/api/memory/entries",{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function updateMemoryEntry(id:string,content:string,base_revision_id:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}`,{method:"PATCH",headers:mutationHeaders(csrf),body:JSON.stringify({content,base_revision_id})}));}
+export async function archiveMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}/archive`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
+export async function purgeMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/entries/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除失败");}
+export async function decideMemoryProposal(id:string,accept:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryProposal>{return json(await fetcher(`/api/memory/proposals/${id}/decision`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({accept,idempotency_key:crypto.randomUUID()})}));}
 
 export function subscribeToThreadEvents(
   threadId: string,

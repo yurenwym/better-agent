@@ -18,6 +18,9 @@ export function hydrateThreadMessages(messages: ThreadMessage[]): MessageRecord[
     generation: message.generation,
     status: message.status,
     plan_document_version_id: message.plan_document_version_id,
+    presentation: message.presentation ?? "standard",
+    origin: "history",
+    research_job_id: message.research_job_id,
   }));
 }
 
@@ -125,6 +128,8 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
       streaming: true,
       generation: generationOf(event),
       status: "streaming",
+      presentation: event.data.presentation === "human_bubbles" ? "human_bubbles" : "standard",
+      origin: "live",
     }];
   }
   if (event.type === "message.snapshot" && id) {

@@ -10,6 +10,8 @@ const api = vi.hoisted(() => ({
   getThreadMessages: vi.fn(),
   subscribeToThreadEvents: vi.fn(),
   getSkills: vi.fn(),
+  getResearchJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+  cancelResearch: vi.fn(),
   getEvents: vi.fn(),
   getMessages: vi.fn(),
   getStats: vi.fn(),

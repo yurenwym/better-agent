@@ -1,0 +1,7 @@
+import { useEffect,useState } from "react";
+import { getResearchJobs,getResearchReport } from "../api";
+import type { ResearchJob } from "../types";
+import MarkdownMessage from "../components/MarkdownMessage";
+import ResearchProgressCard from "../components/ResearchProgressCard";
+
+export default function ResearchPage(){const [jobs,setJobs]=useState<ResearchJob[]>([]),[selected,setSelected]=useState<ResearchJob|null>(null),[report,setReport]=useState("");useEffect(()=>{void getResearchJobs().then(x=>setJobs(x.jobs))},[]);async function open(job:ResearchJob){setSelected(job);if(job.status==="COMPLETED")setReport((await getResearchReport(job.id)).markdown)}return <div className="research-page"><section className="research-list"><span className="eyebrow">RESEARCH HISTORY</span><h3>深度研究</h3>{jobs.length===0?<p className="muted">明确要求“深度研究并附来源”后，任务会出现在这里。</p>:jobs.map(job=><button className="research-list-item" key={job.id} onClick={()=>void open(job)}><strong>{job.title||job.topic}</strong><span>{job.status} · {job.source_count} 个来源</span><time>{new Date(job.created_at).toLocaleString("zh-CN")}</time></button>)}</section><section className="research-detail">{selected?<><ResearchProgressCard job={selected}/>{report&&<article className="research-report"><MarkdownMessage content={report}/></article>}</>:<div className="empty-panel"><h3>选择一项研究</h3><p>查看阶段、证据数量和最终带来源报告。</p></div>}</section></div>}

@@ -1,0 +1,9 @@
+import type { ResearchJob } from "../types";
+
+const labels: Record<string, string> = { queued:"等待开始",planning:"正在规划",retrieving:"正在检索来源",distilling:"正在提炼证据",reflecting:"正在检查缺口",curating:"正在整理大纲",writing:"正在撰写报告",summarizing:"正在生成摘要",finalizing:"正在校验引用",completed:"研究完成",failed:"研究失败",cancelled:"已取消" };
+
+export default function ResearchProgressCard({ job, onCancel, onRetry, onOpen }: { job: ResearchJob; onCancel?:()=>void; onRetry?:()=>void; onOpen?:()=>void }) {
+  const active = job.status === "QUEUED" || job.status === "RUNNING";
+  const progress=Math.max(8,["queued","planning","retrieving","distilling","reflecting","curating","writing","summarizing","finalizing","completed"].indexOf(job.phase)*11);
+  return <section className={`research-progress research-${job.status.toLowerCase()}`} aria-label="深度研究进度"><div className="research-progress-head"><div><span className="eyebrow">DEEP RESEARCH</span><strong>{job.title || job.topic}</strong></div><span className="research-status" role="status" aria-atomic="true">{labels[job.phase] || job.phase}</span></div><div className="research-meter" role="progressbar" aria-label="研究进度" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><span style={{ width: `${progress}%` }} /></div><div className="research-progress-meta"><span>{job.source_count} 个来源</span><span>{job.evidence_count} 条证据</span><span>第 {job.attempts || 1} 次执行</span></div><div className="button-row">{active && onCancel && <button className="button button-quiet" onClick={onCancel} type="button">取消研究</button>}{job.status === "FAILED" && onRetry && <button className="button button-secondary" onClick={onRetry} type="button">重试</button>}{job.status === "COMPLETED" && onOpen && <button className="button button-primary" onClick={onOpen} type="button">查看报告</button>}</div></section>;
+}

@@ -1,16 +1,20 @@
 import { useEffect, useState } from "react";
-import { getBootstrap } from "./api";
+import { getBootstrap, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import type { Bootstrap, Run } from "./types";
 import ChatPage from "./pages/ChatPage";
 import PlanPage from "./pages/PlanPage";
 import TrajectoryPage from "./pages/TrajectoryPage";
 import MemoryPage from "./pages/MemoryPage";
+import ResearchPage from "./pages/ResearchPage";
+import SchedulesPage from "./pages/SchedulesPage";
 
 const headings: Record<WorkspacePage, string> = {
   chat: "目标对话",
   plan: "计划版本",
   trajectory: "运行轨迹",
+  research: "深度研究",
+  schedules: "定时研究",
   memory: "长期记忆",
 };
 
@@ -28,8 +32,9 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
+function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(/^\/plans\//.test(path))return "plan";if(path==="/research")return "research";if(path==="/schedules")return "schedules";return "chat"; }
 export default function App() {
-  const [page, setPage] = useState<WorkspacePage>(() => typeof window !== "undefined" && /^\/plans\//.test(window.location.pathname) ? "plan" : "chat");
+  const [page, setPage] = useState<WorkspacePage>(pageFromPath);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [run, setRun] = useState<Run | null>(null);
   const [threadId, setThreadId] = useState<string | null>(null);
@@ -40,6 +45,7 @@ export default function App() {
 
   useEffect(() => {
     getBootstrap().then(setBootstrap).catch(() => undefined);
+    const pop=()=>setPage(pageFromPath());window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
   }, []);
 
   const csrfToken = bootstrap?.csrf_token ?? "";
@@ -55,6 +61,7 @@ export default function App() {
         run={run}
         onNavigate={setPage}
         onNewConversation={() => { setRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
+        onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
         {!fluidPage && (
@@ -83,6 +90,8 @@ export default function App() {
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("chat"); window.history.pushState({}, "", "/"); }} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}
+          {page === "research" && <ResearchPage />}
+          {page === "schedules" && <SchedulesPage csrfToken={csrfToken} />}
         </div>
       </main>
     </div>

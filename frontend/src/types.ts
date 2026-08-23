@@ -16,6 +16,7 @@ export interface Bootstrap {
   version: string;
   api_key_env: string;
   api_key_configured: boolean;
+  human_mode?: boolean;
 }
 
 export interface SkillDefinition {
@@ -53,6 +54,9 @@ export interface MessageRecord {
   generation?: number;
   status?: string;
   plan_document_version_id?: string | null;
+  presentation?: "standard" | "human_bubbles";
+  origin?: "history" | "live";
+  research_job_id?: string | null;
 }
 
 export type TurnStatus =
@@ -139,9 +143,14 @@ export interface ThreadMessage {
   generation: number;
   content_length: number;
   plan_document_version_id?: string | null;
+  presentation?: "standard" | "human_bubbles";
+  research_job_id?: string | null;
   created_at: string;
   completed_at: string | null;
 }
+
+export interface ResearchJob { id:string;thread_id:string;source_turn_id:string;schedule_id:string|null;retry_of_job_id:string|null;trigger_kind:string;topic:string;source_scopes:string[];status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED"|"CANCELLED";phase:string;attempts:number;cancel_requested_at:string|null;created_at:string;updated_at:string;title:string|null;source_count:number;evidence_count:number;assistant_message_id:string|null; }
+export interface ResearchSchedule { id:string;name:string;thread_id:string;topic:string;source_scopes:string[];trigger_type:"daily"|"weekly"|"interval_hours";trigger_time:string|null;trigger_weekday:number|null;interval_hours:number|null;timezone:string;enabled:boolean;notify_enabled:boolean;next_run_at:string|null;last_run_at:string|null;last_job_id:string|null;created_at:string;updated_at:string; }
 
 export interface ThreadEvent {
   schema_version: number;
@@ -276,3 +285,6 @@ export interface MemoryRecord {
   evidence_event_ids: string[];
   path: string;
 }
+export interface MemoryEntry {id:string;kind:"preference"|"constraint"|"fact"|"decision"|"lesson";scope_type:"user"|"project";scope_id:string;status:"ACTIVE"|"ARCHIVED"|"PURGED";content:string;revision_id:string;revision_no:number;pinned:boolean;importance:number;sensitivity:string;created_at:string;updated_at:string;}
+export interface MemoryProposal {id:string;operation:string;target_entry_id:string|null;base_revision_id:string|null;kind:string;scope_type:string;scope_id:string;content:string;confidence:number;status:string;accepted_revision_id:string|null;reason:string;created_at:string;}
+export interface MemoryEpisode {id:string;thread_id:string;project_id:string|null;start_message_seq:number;end_message_seq:number;summary:string;sensitivity:string;retrieval_policy:string;status:string;created_at:string;}

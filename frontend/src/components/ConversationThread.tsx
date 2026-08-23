@@ -2,7 +2,9 @@ import { FormEvent, KeyboardEvent, useState } from "react";
 import { presentMessage } from "../conversation";
 import MarkdownMessage from "./MarkdownMessage";
 import AskCard from "./AskCard";
-import type { AskAnswer, MessageRecord, PendingAsk, SkillDefinition } from "../types";
+import HumanBubbles from "./HumanBubbles";
+import ResearchProgressCard from "./ResearchProgressCard";
+import type { AskAnswer, MessageRecord, PendingAsk, ResearchJob, SkillDefinition } from "../types";
 
 interface ConversationThreadProps {
   messages: MessageRecord[];
@@ -19,6 +21,9 @@ interface ConversationThreadProps {
   onAskCancel?: () => void;
   planReference?: { planDocumentId: string; versionId?: string; version: number; messageId: string; status?: "ready" | "failed" | "conflict" } | null;
   onOpenPlan?: (planDocumentId: string) => void;
+  researchJobs?: ResearchJob[];
+  onCancelResearch?: (jobId: string) => void;
+  onOpenResearch?: (jobId: string) => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
@@ -38,7 +43,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -93,10 +98,13 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 <time dateTime={message.created_at}>{formatTime(message.created_at)}</time>
               </div>
               <div className="message-card">
-                <MarkdownMessage content={view.summary} className="message-summary" />
+                {message.presentation === "human_bubbles" && assistant
+                  ? <HumanBubbles messageId={message.id} content={message.content} origin={message.origin} complete={!message.streaming} />
+                  : <MarkdownMessage content={view.summary} className="message-summary" />}
                 {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
                 {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
               </div>
+              {assistant && message.research_job_id && researchJobs.find((job) => job.id === message.research_job_id) && <ResearchProgressCard job={researchJobs.find((job) => job.id === message.research_job_id)!} onCancel={onCancelResearch ? () => onCancelResearch(message.research_job_id!) : undefined} onOpen={onOpenResearch ? () => onOpenResearch(message.research_job_id!) : undefined} />}
               {assistant && planReference?.messageId === message.id && (
                 <div className="plan-reference-card" role="status">
                   {planReference.status === "failed" || planReference.status === "conflict" ? (

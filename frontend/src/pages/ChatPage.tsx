@@ -20,10 +20,12 @@ import {
   selectDirection,
   sendMessage,
   submitTurn,
+  getResearchJobs,
+  cancelResearch,
 } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AskAnswer, Run, SkillDefinition, ThreadEvent } from "../types";
+import type { AskAnswer, ResearchJob, Run, SkillDefinition, ThreadEvent } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -102,12 +104,18 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
+  const [researchJobs, setResearchJobs] = useState<ResearchJob[]>([]);
   const conversationId = threadId ?? localThreadId;
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
   const onMaterialized = useCallback((runId: string) => {
     void getRun(runId).then(onRun).catch(() => undefined);
   }, [onRun]);
   const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized);
+
+  useEffect(() => {
+    if (!conversationId) { setResearchJobs([]); return; }
+    void getResearchJobs(conversationId).then((result) => setResearchJobs(result.jobs)).catch(() => undefined);
+  }, [conversationId, threadTelemetry.events.filter((event) => event.type.startsWith("research.")).at(-1)?.seq]);
 
   useEffect(() => {
     setLocalThreadId(threadId ?? null);
@@ -329,6 +337,9 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           onAskCancel={() => { if (activeTurn) void cancelCurrentTurn(activeTurn.id); }}
           planReference={planReference}
           onOpenPlan={onOpenPlan}
+          researchJobs={researchJobs}
+          onCancelResearch={(jobId) => { void cancelResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))); }}
+          onOpenResearch={() => { window.history.pushState({}, "", "/research"); window.dispatchEvent(new PopStateEvent("popstate")); }}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
