@@ -471,6 +471,11 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
 
     class MixedAskGateway:
         async def complete(self, request, **kwargs):
+            if request.tools == []:
+                return SimpleNamespace(
+                    message='{"plan_document_request":false}',
+                    tool_calls=[],
+                )
             message = (
                 '{"v":1,"policy":"answer","content_shape":"guide",'
                 '"reason_code":"content_only"}\n'
@@ -506,7 +511,7 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
 
     await runtime.turn_worker.run_once()
 
-    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    assert runtime.conversation.turn(accepted.turn_id).status == "AWAITING_INPUT"
     with runtime.db.connection() as connection:
         assistant_messages = connection.execute(
             "SELECT content, status FROM thread_messages WHERE turn_id = ? AND role = 'assistant'",
@@ -516,9 +521,12 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
     assert all(message["status"] != "streaming" for message in assistant_messages)
     visible_messages = [message for message in assistant_messages if message["status"] != "interrupted"]
     assert [message["content"] for message in visible_messages] == [
-        "当前暂时无法生成可用回答，请重试。"
+        "为了更准确地完成这个目标，请先补充以下信息。"
     ]
-    assert runtime.conversation.pending_ask(accepted.turn_id) is None
+    ask = runtime.conversation.pending_ask(accepted.turn_id)
+    assert ask is not None
+    assert ask.call_id == "mixed-ask-1"
+    assert [question.id for question in ask.questions] == ["missing_context"]
 
 
 @pytest.mark.asyncio

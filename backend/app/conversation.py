@@ -40,12 +40,6 @@ class TurnJobLeaseLost(RuntimeError):
     preserve_partial = False
 
 
-class MixedResponseProtocolError(RouteProtocolError):
-    """A tool call was mixed with user-visible streamed text."""
-
-    preserve_partial = False
-
-
 @dataclass(frozen=True)
 class RouteArtifact:
     kind: str
