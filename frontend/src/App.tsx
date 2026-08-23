@@ -90,7 +90,7 @@ export default function App() {
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("chat"); window.history.pushState({}, "", "/"); }} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}
-          {page === "research" && <ResearchPage />}
+          {page === "research" && <ResearchPage csrfToken={csrfToken} />}
           {page === "schedules" && <SchedulesPage csrfToken={csrfToken} />}
         </div>
       </main>

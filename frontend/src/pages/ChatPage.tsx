@@ -22,6 +22,7 @@ import {
   submitTurn,
   getResearchJobs,
   cancelResearch,
+  retryResearch,
 } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
@@ -339,6 +340,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           onOpenPlan={onOpenPlan}
           researchJobs={researchJobs}
           onCancelResearch={(jobId) => { void cancelResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))); }}
+          onRetryResearch={(jobId) => { void retryResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))); }}
           onOpenResearch={() => { window.history.pushState({}, "", "/research"); window.dispatchEvent(new PopStateEvent("popstate")); }}
           skills={skills}
           selectedSkills={selectedSkills}

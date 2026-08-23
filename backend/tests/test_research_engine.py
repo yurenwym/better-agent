@@ -68,6 +68,25 @@ async def test_zero_evidence_and_unknown_citation_cannot_finalize() -> None:
 
 
 @pytest.mark.asyncio
+async def test_source_hash_citation_is_normalized_to_the_exact_source_id() -> None:
+    class HashOnlyCitationModel(FakeModel):
+        async def write(self, heading: str, thesis: str, evidence: list[Evidence], prior_summary: str):
+            source_id = evidence[0].source_id.removeprefix("source_")
+            return f"## {heading}\n\n{evidence[0].text} [[source:{source_id}]]", thesis
+
+    class PrefixedRetriever:
+        async def retrieve(self, query: str, request: ResearchRequest):
+            return [Source("source_exacthash", 0, "web", "https://example.com/exact", None, "Exact", "body" * 100, None, "n", .9)]
+
+    events = [event async for event in ResearchEngine(HashOnlyCitationModel(), PrefixedRetriever()).run_research(
+        ResearchRequest("j3", "x", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data["markdown"] for event in events if event.type == "report")
+    assert "https://example.com/exact" in report
+    assert "[[source:" not in report
+
+
+@pytest.mark.asyncio
 async def test_recovery_keeps_persisted_source_identity_for_completed_section() -> None:
     old_source=Source("old-source",1,"web","https://example.com/old",None,"Old","old body"*80,None,"old",.8,"old-hash")
     old_evidence=Evidence("old-evidence",old_source.id,"old fact",None,.9)
@@ -109,6 +128,13 @@ def test_source_filter_is_stable_deduplicated_and_domain_bounded() -> None:
     assert [item.id for item in result] == ["s0", "s1", "s2"]
     assert [item.ordinal for item in result] == [1, 2, 3]
     assert all("#" not in (item.canonical_url or "") for item in result)
+
+
+def test_merge_sources_never_exceeds_the_research_limit() -> None:
+    existing = [Source(f"old-{i}", i, "web", f"https://old{i}.example/item", None, f"Old {i}", "body" * 100, None, "n", .9) for i in range(2)]
+    new = [Source("new", 0, "web", "https://new.example/item", None, "New", "body" * 100, None, "n", .9)]
+    request = ResearchRequest("j", "x", ("web",), ResearchLimits(max_sources=2))
+    assert len(ResearchEngine._merge_sources(existing, new, request)) == 2
 
 
 @pytest.mark.asyncio

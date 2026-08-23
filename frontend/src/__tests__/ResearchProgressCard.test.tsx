@@ -11,3 +11,11 @@ it("renders structured research progress and cancel action", () => {
   fireEvent.click(screen.getByRole("button", { name: "取消研究" }));
   expect(cancel).toHaveBeenCalled();
 });
+
+it("explains a failed research job and offers recovery", () => {
+  const retry = vi.fn();
+  render(<ResearchProgressCard job={{ id:"r",thread_id:"t",source_turn_id:"x",schedule_id:null,retry_of_job_id:null,trigger_kind:"manual",topic:"研究 SQLite",source_scopes:["web"],status:"FAILED",phase:"failed",attempts:1,cancel_requested_at:null,created_at:"n",updated_at:"n",title:null,source_count:4,evidence_count:9,assistant_message_id:"m",failure_reason_code:"unknowncitation" }} onRetry={retry} />);
+  expect(screen.getByRole("alert").textContent).toContain("引用校验未通过");
+  fireEvent.click(screen.getByRole("button", { name: "重新研究" }));
+  expect(retry).toHaveBeenCalled();
+});

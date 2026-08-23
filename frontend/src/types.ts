@@ -149,7 +149,7 @@ export interface ThreadMessage {
   completed_at: string | null;
 }
 
-export interface ResearchJob { id:string;thread_id:string;source_turn_id:string;schedule_id:string|null;retry_of_job_id:string|null;trigger_kind:string;topic:string;source_scopes:string[];status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED"|"CANCELLED";phase:string;attempts:number;cancel_requested_at:string|null;created_at:string;updated_at:string;title:string|null;source_count:number;evidence_count:number;assistant_message_id:string|null; }
+export interface ResearchJob { id:string;thread_id:string;source_turn_id:string;schedule_id:string|null;retry_of_job_id:string|null;trigger_kind:string;topic:string;source_scopes:string[];status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED"|"CANCELLED";phase:string;attempts:number;cancel_requested_at:string|null;created_at:string;updated_at:string;title:string|null;source_count:number;evidence_count:number;assistant_message_id:string|null;failure_reason_code?:string|null; }
 export interface ResearchSchedule { id:string;name:string;thread_id:string;topic:string;source_scopes:string[];trigger_type:"daily"|"weekly"|"interval_hours";trigger_time:string|null;trigger_weekday:number|null;interval_hours:number|null;timezone:string;enabled:boolean;notify_enabled:boolean;next_run_at:string|null;last_run_at:string|null;last_job_id:string|null;created_at:string;updated_at:string; }
 export interface NotificationChannel {id:string;name:string;channel_type:"serverchan"|"wecom"|"dingtalk"|"webhook";secret_env_name:string;enabled:boolean;configured:boolean;}
 

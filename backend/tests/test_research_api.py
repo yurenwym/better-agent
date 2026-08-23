@@ -37,3 +37,15 @@ def test_research_routes_create_list_detail_cancel_retry(tmp_path) -> None:
     assert http.post(f"/api/research/jobs/{job_id}/cancel", headers=headers, json={}).json()["status"] == "CANCELLED"
     retried = http.post(f"/api/research/jobs/{job_id}/retry", headers=headers, json={"client_request_id":"retry1"})
     assert retried.status_code == 202 and retried.json()["job_id"] != job_id
+
+
+def test_research_job_api_returns_a_stable_failure_reason(tmp_path) -> None:
+    http, runtime = client(tmp_path)
+    csrf = http.get("/api/bootstrap").json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
+    thread = http.post("/api/threads", headers=headers, json={}).json()
+    job = runtime.research.create_manual(thread["id"], "research", "failed-api", ("web",))
+    runtime.research.claim_next("worker", 30)
+    runtime.research.fail(job.id, "worker", "unknowncitation")
+    payload = http.get(f"/api/research/jobs/{job.id}").json()
+    assert payload["failure_reason_code"] == "unknowncitation"

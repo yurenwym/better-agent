@@ -40,6 +40,7 @@ class ResearchJob:
     source_count: int = 0
     evidence_count: int = 0
     assistant_message_id: str | None = None
+    failure_reason_code: str | None = None
 
 
 class ResearchService:
@@ -321,9 +322,16 @@ class ResearchService:
 
     @staticmethod
     def _job(job_id: str, connection) -> ResearchJob:
-        row = connection.execute("SELECT j.*,r.title report_title,r.markdown report_markdown,r.source_count,r.evidence_count,r.assistant_message_id FROM research_jobs j LEFT JOIN research_reports r ON r.job_id=j.id WHERE j.id=?", (job_id,)).fetchone()
+        row = connection.execute(
+            "SELECT j.*,r.title report_title,r.markdown report_markdown,"
+            "MAX(r.source_count,(SELECT COUNT(*) FROM research_sources s WHERE s.job_id=j.id)) source_count,"
+            "MAX(r.evidence_count,(SELECT COUNT(*) FROM research_evidence e WHERE e.job_id=j.id)) evidence_count,"
+            "r.assistant_message_id FROM research_jobs j LEFT JOIN research_reports r ON r.job_id=j.id WHERE j.id=?",
+            (job_id,),
+        ).fetchone()
         if not row: raise KeyError(job_id)
-        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"])
+        error = json.loads(row["last_error_json"] or "{}")
+        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"))
 
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()

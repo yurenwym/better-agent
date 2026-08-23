@@ -23,6 +23,7 @@ interface ConversationThreadProps {
   onOpenPlan?: (planDocumentId: string) => void;
   researchJobs?: ResearchJob[];
   onCancelResearch?: (jobId: string) => void;
+  onRetryResearch?: (jobId: string) => void;
   onOpenResearch?: (jobId: string) => void;
   skills?: SkillDefinition[];
   selectedSkills?: string[];
@@ -43,7 +44,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -104,7 +105,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 {view.detail && <MarkdownMessage content={view.detail} className="message-detail" />}
                 {view.bullets.length > 0 && <ul className="message-bullets">{view.bullets.map((bullet) => <li key={bullet}>{bullet}</li>)}</ul>}
               </div>
-              {assistant && message.research_job_id && researchJobs.find((job) => job.id === message.research_job_id) && <ResearchProgressCard job={researchJobs.find((job) => job.id === message.research_job_id)!} onCancel={onCancelResearch ? () => onCancelResearch(message.research_job_id!) : undefined} onOpen={onOpenResearch ? () => onOpenResearch(message.research_job_id!) : undefined} />}
+              {assistant && message.research_job_id && researchJobs.find((job) => job.id === message.research_job_id) && <ResearchProgressCard job={researchJobs.find((job) => job.id === message.research_job_id)!} onCancel={onCancelResearch ? () => onCancelResearch(message.research_job_id!) : undefined} onRetry={onRetryResearch ? () => onRetryResearch(message.research_job_id!) : undefined} onOpen={onOpenResearch ? () => onOpenResearch(message.research_job_id!) : undefined} />}
               {assistant && planReference?.messageId === message.id && (
                 <div className="plan-reference-card" role="status">
                   {planReference.status === "failed" || planReference.status === "conflict" ? (

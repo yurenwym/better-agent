@@ -133,10 +133,10 @@ class ResearchEngine:
         keys={(item.kind,item.canonical_url or item.locator or item.content_hash) for item in accepted}
         ids={item.id for item in accepted};next_ordinal=max((item.ordinal for item in accepted),default=0)+1
         for source in filter_sources(new,min_chars=request.limits.min_source_chars,max_sources=request.limits.max_sources):
+            if len(accepted)>=request.limits.max_sources:break
             key=(source.kind,source.canonical_url or source.locator or source.content_hash)
             if source.id in ids or key in keys:continue
             accepted.append(replace(source,ordinal=next_ordinal));ids.add(source.id);keys.add(key);next_ordinal+=1
-            if len(accepted)>=request.limits.max_sources:break
         return accepted
 
     @staticmethod
