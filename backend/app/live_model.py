@@ -356,7 +356,8 @@ class LiveConversationModel:
                 body=f"已记住：{item.content}\n\n你可以随时在记忆页面编辑、停用或删除。"
                 if on_text_delta is not None:on_text_delta(header+body)
                 return type("RememberResponse",(),{"message":header+body,"tool_calls":[],"finish_reason":"stop"})()
-        start_research,research_topic=(await self._classify_explicit_research_request(content,cancel_event)) if isinstance(self.gateway, ModelGateway) else (False,content)
+        explicit_research=bool(re.search(r"(?:深度|深入)(?:研究|调研)|\bdeep\s+research\b",content,re.I))
+        start_research,research_topic=(True,content.strip()[:2000]) if explicit_research else ((await self._classify_explicit_research_request(content,cancel_event)) if isinstance(self.gateway, ModelGateway) else (False,content))
         if start_research:
             header=json.dumps({"v":3,"policy":"start_research","content_shape":"research","reason_code":"explicit_deep_research","research":{"topic":research_topic,"scope":"web"}},ensure_ascii=False)+"\n"
             if on_text_delta is not None:on_text_delta(header)

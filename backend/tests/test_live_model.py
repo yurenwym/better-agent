@@ -442,3 +442,19 @@ async def test_live_conversation_model_lets_llm_choose_ask_questions_for_persona
     assert "generic explanation or a personal plan" in prompt
     assert "must call ask_user before drafting" in prompt
     assert "already provided the relevant personal context" in prompt
+
+
+@pytest.mark.asyncio
+async def test_explicit_sourced_deep_research_routes_without_waiting_for_classifier() -> None:
+    from app.conversation import ControlHeadDecoder
+    from app.live_model import LiveConversationModel
+    class NeverCalled:
+        async def complete(self,*args,**kwargs):raise AssertionError("explicit research must not call the model classifier")
+    chunks=[]
+    response=await LiveConversationModel(NeverCalled()).route_and_respond(
+        content="请深度研究 SQLite WAL 是否适合作为本地 Agent 的存储方案，给出带引用来源的完整报告",
+        history=[],skill_names=[],on_text_delta=chunks.append,on_text_reset=None,cancel_event=None,
+    )
+    decoder=ControlHeadDecoder();decoder.feed("".join(chunks));header=decoder.finish()
+    assert header.policy=="start_research" and header.research_scope=="web"
+    assert "SQLite WAL" in (header.research_topic or "")
