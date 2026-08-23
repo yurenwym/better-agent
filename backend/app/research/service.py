@@ -1,0 +1,270 @@
+from __future__ import annotations
+
+import json
+import uuid
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Any
+
+from ..db import Database
+from ..events import ThreadEventStore
+
+
+TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+
+
+class ResearchConflict(ValueError): pass
+
+
+@dataclass(frozen=True)
+class ResearchJob:
+    id: str
+    thread_id: str
+    source_turn_id: str
+    schedule_id: str | None
+    retry_of_job_id: str | None
+    trigger_kind: str
+    occurrence_key: str
+    topic: str
+    source_scopes: tuple[str, ...]
+    status: str
+    phase: str
+    attempts: int
+    max_attempts: int
+    cancel_requested_at: str | None
+    created_at: str
+    updated_at: str
+    report_title: str | None = None
+    report_markdown: str | None = None
+    source_count: int = 0
+    evidence_count: int = 0
+    assistant_message_id: str | None = None
+
+
+class ResearchService:
+    def __init__(self, db: Database, events: ThreadEventStore, engine=None) -> None:
+        self.db = db
+        self.events = events
+        self.engine = engine
+        self.notifications = None
+
+    def create_manual(self, thread_id: str, topic: str, client_request_id: str, source_scopes: tuple[str, ...]) -> ResearchJob:
+        key = f"manual:{thread_id}:{client_request_id}"
+        with self.db.connection() as connection:
+            row = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (key,)).fetchone()
+        if row: return self.get(row["id"])
+        return self._create_anchor_job(thread_id, topic, source_scopes, "manual", key, f"research:{client_request_id}")
+
+    def create_from_turn(self, turn_id: str, topic: str, source_scopes: tuple[str, ...]) -> ResearchJob:
+        with self.db.connection() as connection:
+            turn = connection.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
+            if not turn: raise KeyError(turn_id)
+            prior = connection.execute("SELECT id FROM research_jobs WHERE source_turn_id=?", (turn_id,)).fetchone()
+            if prior: return self.get(prior["id"])
+        now = _now(); job_id = f"research_{uuid.uuid4().hex}"; message_id = f"message_{uuid.uuid4().hex}"
+        with self.db.transaction() as connection:
+            next_seq = int(connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (turn["thread_id"],)).fetchone()[0])
+            connection.execute("INSERT INTO research_jobs(id,thread_id,source_turn_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at) VALUES (?,?,?,'manual',?, ?,?,'QUEUED','queued',?,?,?)", (job_id, turn["thread_id"], turn_id, f"manual:{turn_id}", topic, json.dumps(source_scopes), now, now, now))
+            connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,research_job_id,created_at) VALUES (?,?,?,'assistant','','streaming',1,0,?,'standard',?,?)", (message_id, turn["thread_id"], turn_id, next_seq, job_id, now))
+            connection.execute("INSERT INTO research_reports(job_id,assistant_message_id,created_at,updated_at) VALUES (?,?,?,?)", (job_id, message_id, now, now))
+            connection.execute("UPDATE turns SET status='COMPLETED',policy='start_research',content_shape='research',reason_code='explicit_deep_research',version=version+1,updated_at=? WHERE id=?", (now, turn_id))
+            connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn_id))
+            self.events.append(turn["thread_id"], turn_id, "research.queued", "research_worker", {"job_id": job_id, "trigger_kind": "manual"}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def _create_anchor_job(
+        self, thread_id: str, topic: str, source_scopes: tuple[str, ...], trigger_kind: str,
+        occurrence_key: str, client_turn_id: str, *, schedule_id: str | None = None,
+        retry_of_job_id: str | None = None,
+    ) -> ResearchJob:
+        topic = topic.strip()
+        if not topic or len(topic) > 2000: raise ValueError("research topic must be 1-2000 characters")
+        scopes = tuple(dict.fromkeys(source_scopes or ("web",)))
+        if not set(scopes) <= {"web", "local_note"}: raise ValueError("invalid research source scope")
+        now = _now(); turn_id = f"turn_{uuid.uuid4().hex}"; job_id = f"research_{uuid.uuid4().hex}"
+        user_id = f"message_{uuid.uuid4().hex}"; assistant_id = f"message_{uuid.uuid4().hex}"
+        with self.db.transaction() as connection:
+            existing = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (occurrence_key,)).fetchone()
+            if existing: return self._job(existing["id"], connection)
+            thread = connection.execute("SELECT active_turn_id FROM threads WHERE id=?", (thread_id,)).fetchone()
+            if not thread: raise KeyError(thread_id)
+            if thread["active_turn_id"]:
+                active = connection.execute("SELECT status FROM turns WHERE id=?", (thread["active_turn_id"],)).fetchone()
+                if active and active["status"] not in TERMINAL: raise ResearchConflict("thread has an active turn")
+            connection.execute(
+                "INSERT INTO turns(id,thread_id,client_turn_id,status,policy,content_shape,reason_code,version,created_at,updated_at) "
+                "VALUES (?,?,?,'COMPLETED','start_research','research',?,1,?,?)",
+                (turn_id, thread_id, client_turn_id, "scheduled_research" if trigger_kind == "scheduled" else "explicit_deep_research", now, now),
+            )
+            next_seq = int(connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)).fetchone()[0])
+            connection.execute(
+                "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,created_at,completed_at) "
+                "VALUES (?,?,?,'user',?,'ready',1,?,?, 'standard',?,?)",
+                (user_id, thread_id, turn_id, topic, len(topic), next_seq, now, now),
+            )
+            connection.execute(
+                "INSERT INTO research_jobs(id,thread_id,source_turn_id,schedule_id,retry_of_job_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,'QUEUED','queued',?,?,?)",
+                (job_id, thread_id, turn_id, schedule_id, retry_of_job_id, trigger_kind, occurrence_key, topic, json.dumps(scopes), now, now, now),
+            )
+            connection.execute(
+                "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,research_job_id,created_at) "
+                "VALUES (?,?,?,'assistant','','streaming',1,0,?,'standard',?,?)",
+                (assistant_id, thread_id, turn_id, next_seq + 1, job_id, now),
+            )
+            connection.execute(
+                "INSERT INTO research_reports(job_id,assistant_message_id,created_at,updated_at) VALUES (?,?,?,?)",
+                (job_id, assistant_id, now, now),
+            )
+            self.events.append(thread_id, turn_id, "research.queued", "research_worker", {"job_id": job_id, "trigger_kind": trigger_kind, "schedule_id": schedule_id}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def claim_next(self, owner: str, lease_seconds: int) -> ResearchJob | None:
+        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+        with self.db.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM research_jobs WHERE available_at<=? AND (status='QUEUED' OR (status='RUNNING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1",
+                (now, now),
+            ).fetchone()
+            if not row: return None
+            if row["status"] == "RUNNING":
+                connection.execute("UPDATE research_job_attempts SET status='LEASE_LOST',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, row["id"]))
+            attempt = int(row["attempts"]) + 1
+            connection.execute(
+                "UPDATE research_jobs SET status='RUNNING',phase=CASE WHEN phase='queued' THEN 'planning' ELSE phase END,lease_owner=?,lease_until=?,attempts=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=?",
+                (owner, until, attempt, now, now, row["id"]),
+            )
+            connection.execute(
+                "INSERT INTO research_job_attempts(id,job_id,attempt,lease_owner,status,started_at) VALUES (?,?,?,?,'RUNNING',?)",
+                (f"research_attempt_{uuid.uuid4().hex}", row["id"], attempt, owner, now),
+            )
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.started", "research_worker", {"job_id": row["id"], "attempt": attempt}, connection=connection, occurred_at=now)
+            return self._job(row["id"], connection)
+
+    def renew(self, job_id: str, owner: str, lease_seconds: int) -> bool:
+        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+        with self.db.transaction() as connection:
+            result = connection.execute("UPDATE research_jobs SET lease_until=?,updated_at=? WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_until>?", (until, now, job_id, owner, now))
+            return result.rowcount == 1
+
+    def set_phase(self, job_id: str, owner: str, phase: str, detail: str = "") -> ResearchJob:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = self._owned(job_id, owner, connection)
+            connection.execute("UPDATE research_jobs SET phase=?,updated_at=? WHERE id=?", (phase, now, job_id))
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.phase_changed", "research_worker", {"job_id": job_id, "phase": phase, "detail": detail[:300]}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def apply_event(self, job_id: str, owner: str, event) -> None:
+        if event.type == "phase": self.set_phase(job_id, owner, event.phase, str(event.data.get("detail", ""))); return
+        with self.db.transaction() as connection:
+            row = self._owned(job_id, owner, connection); now = _now()
+            if event.type == "plan":
+                connection.execute("UPDATE research_reports SET title=?,outline_json=?,updated_at=? WHERE job_id=?", (event.data.get("title"), json.dumps(event.data, ensure_ascii=False), now, job_id))
+                kind = "research.plan_ready"; data = {"job_id": job_id, "title": event.data.get("title"), "section_count": len(event.data.get("sections", [])), "query_count": len(event.data.get("queries", []))}
+            elif event.type == "sources":
+                for source in event.data.get("items", []):
+                    connection.execute(
+                        "INSERT INTO research_sources(id,job_id,ordinal,kind,canonical_url,locator,title,content,content_hash,published_at,retrieved_at,quality_score,metadata_json) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING",
+                        (source.id, job_id, source.ordinal, source.kind, source.canonical_url, source.locator, source.title, source.content,
+                         source.content_hash, source.published_at, source.retrieved_at, source.quality_score, json.dumps(source.metadata)),
+                    )
+                kind = "research.sources_updated"; data = {"job_id": job_id, "source_count": int(event.data.get("count", 0))}
+            elif event.type == "evidence":
+                for evidence in event.data.get("items", []):
+                    connection.execute(
+                        "INSERT OR IGNORE INTO research_evidence(id,job_id,source_id,text,date_hint,relevance,created_at) VALUES (?,?,?,?,?,?,?)",
+                        (evidence.id, job_id, evidence.source_id, evidence.text, evidence.date_hint, evidence.relevance, now),
+                    )
+                return
+            elif event.type == "section":
+                ordinal = int(event.data["ordinal"]); section_id = f"research_section_{job_id}_{ordinal}"
+                connection.execute("INSERT INTO research_sections(id,job_id,ordinal,heading,status,markdown,summary,updated_at,completed_at) VALUES (?,?,?,?,'COMPLETED',?,?,?,?) ON CONFLICT(job_id,ordinal) DO UPDATE SET heading=excluded.heading,status='COMPLETED',markdown=excluded.markdown,summary=excluded.summary,updated_at=excluded.updated_at,completed_at=excluded.completed_at", (section_id, job_id, ordinal, event.data["heading"], event.data.get("markdown", ""), event.data.get("summary", ""), now, now))
+                kind = "research.section_completed"; data = {"job_id": job_id, "section_id": section_id, "ordinal": ordinal}
+            elif event.type == "report":
+                return
+            else: return
+            self.events.append(row["thread_id"], row["source_turn_id"], kind, "research_worker", data, connection=connection, occurred_at=now)
+
+    def complete(self, job_id: str, owner: str, title: str, markdown: str, source_count: int, evidence_count: int) -> ResearchJob:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = self._owned(job_id, owner, connection)
+            report = connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?", (job_id,)).fetchone()
+            message_id = report["assistant_message_id"]
+            connection.execute("UPDATE research_reports SET title=?,markdown=?,partial_markdown=?,source_count=?,evidence_count=?,updated_at=?,completed_at=? WHERE job_id=?", (title, markdown, markdown, source_count, evidence_count, now, now, job_id))
+            connection.execute("UPDATE thread_messages SET content=?,content_length=?,status='ready',completed_at=? WHERE id=?", (markdown, len(markdown), now, message_id))
+            connection.execute("UPDATE research_jobs SET status='COMPLETED',phase='completed',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+            connection.execute("UPDATE research_job_attempts SET status='COMPLETED',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, job_id))
+            self.events.append(row["thread_id"], row["source_turn_id"], "message.snapshot", "research_worker", {"message_id": message_id, "generation": 1, "content": markdown, "offset": len(markdown)}, connection=connection, occurred_at=now)
+            self.events.append(row["thread_id"], row["source_turn_id"], "message.completed", "research_worker", {"message_id": message_id, "generation": 1, "finish_reason": "completed"}, connection=connection, occurred_at=now)
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.completed", "research_worker", {"job_id": job_id, "report_url": f"/api/research/jobs/{job_id}/report", "message_id": message_id, "source_count": source_count}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def fail(self, job_id: str, owner: str, reason: str, retryable: bool = False) -> ResearchJob:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = self._owned(job_id, owner, connection)
+            connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',last_error_json=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (json.dumps({"reason_code": reason}), now, now, job_id))
+            connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'", (now, json.dumps({"reason_code": reason}), job_id))
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.failed", "research_worker", {"job_id": job_id, "reason_code": reason, "retryable": retryable}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def finish_cancelled(self, job_id: str, owner: str) -> ResearchJob:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = self._owned(job_id, owner, connection)
+            connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+            connection.execute("UPDATE research_job_attempts SET status='CANCELLED',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, job_id))
+            connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=?", (now, job_id))
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.cancelled", "research_worker", {"job_id": job_id}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def cancel(self, job_id: str) -> ResearchJob:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = connection.execute("SELECT * FROM research_jobs WHERE id=?", (job_id,)).fetchone()
+            if not row: raise KeyError(job_id)
+            if row["status"] in TERMINAL: return self._job(job_id, connection)
+            if row["status"] == "RUNNING":
+                connection.execute("UPDATE research_jobs SET cancel_requested_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+            else:
+                connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',cancel_requested_at=?,finished_at=?,updated_at=? WHERE id=?", (now, now, now, job_id))
+                connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=?", (now, job_id))
+                self.events.append(row["thread_id"], row["source_turn_id"], "research.cancelled", "research_worker", {"job_id": job_id}, connection=connection, occurred_at=now)
+        return self.get(job_id)
+
+    def retry(self, job_id: str, topic: str | None, client_key: str) -> ResearchJob:
+        old = self.get(job_id); key = f"retry:{job_id}:{client_key}"
+        with self.db.connection() as connection:
+            prior = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (key,)).fetchone()
+        if prior: return self.get(prior["id"])
+        return self._create_anchor_job(old.thread_id, topic or old.topic, old.source_scopes, "retry", key, f"research-retry:{client_key}", retry_of_job_id=job_id)
+
+    def get(self, job_id: str) -> ResearchJob:
+        with self.db.connection() as connection: return self._job(job_id, connection)
+
+    def list(self, *, thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0) -> list[ResearchJob]:
+        clauses, args = [], []
+        for field, value in (("thread_id", thread_id), ("schedule_id", schedule_id), ("status", status)):
+            if value: clauses.append(f"j.{field}=?"); args.append(value)
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        with self.db.connection() as connection:
+            rows = connection.execute(f"SELECT j.id FROM research_jobs j{where} ORDER BY j.created_at DESC,j.id LIMIT ? OFFSET ?", (*args, min(max(limit, 1), 100), max(offset, 0))).fetchall()
+            return [self._job(row["id"], connection) for row in rows]
+
+    @staticmethod
+    def _owned(job_id: str, owner: str, connection):
+        row = connection.execute("SELECT * FROM research_jobs WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_until>?", (job_id, owner, _now())).fetchone()
+        if not row: raise PermissionError("research job lease lost")
+        return row
+
+    @staticmethod
+    def _job(job_id: str, connection) -> ResearchJob:
+        row = connection.execute("SELECT j.*,r.title report_title,r.markdown report_markdown,r.source_count,r.evidence_count,r.assistant_message_id FROM research_jobs j LEFT JOIN research_reports r ON r.job_id=j.id WHERE j.id=?", (job_id,)).fetchone()
+        if not row: raise KeyError(job_id)
+        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"])
+
+
+def _now() -> str: return datetime.now(timezone.utc).isoformat()

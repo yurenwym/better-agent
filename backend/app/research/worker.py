@@ -1,0 +1,66 @@
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import uuid
+
+from .engine import ResearchCancelled
+from .models import ResearchLimits, ResearchRequest
+
+
+class ManagedResearchWorker:
+    def __init__(self, service, *, poll_interval: float = .2, lease_seconds: int = 30) -> None:
+        self.service = service; self.owner = f"research-worker-{uuid.uuid4().hex}"; self.poll_interval = poll_interval; self.lease_seconds = lease_seconds
+        self._task = None; self._stop = None; self._active_cancel = None
+
+    async def start(self):
+        if self._task: return
+        self._stop = asyncio.Event(); self._task = asyncio.create_task(self._loop(), name="research-worker")
+
+    async def stop(self):
+        if not self._task: return
+        self._stop.set()
+        if self._active_cancel: self._active_cancel.set()
+        task, self._task = self._task, None
+        with contextlib.suppress(asyncio.CancelledError): await task
+
+    async def run_once(self):
+        job = self.service.claim_next(self.owner, self.lease_seconds)
+        if not job: return False
+        cancel = asyncio.Event(); self._active_cancel = cancel
+        heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel))
+        report = None
+        try:
+            request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel)
+            async for event in self.service.engine.run_research(request):
+                current = self.service.get(job.id)
+                if current.cancel_requested_at: cancel.set()
+                if event.type == "report": report = event.data
+                self.service.apply_event(job.id, self.owner, event)
+            if not report: raise RuntimeError("research report missing")
+            self.service.complete(job.id, self.owner, report["title"], report["markdown"], int(report["source_count"]), int(report["evidence_count"]))
+            notifier = getattr(self.service, "notifications", None)
+            if notifier is not None:
+                await notifier.deliver_completed(job.id, report["title"], report["markdown"])
+        except ResearchCancelled:
+            self.service.finish_cancelled(job.id, self.owner)
+        except PermissionError:
+            pass
+        except Exception as exc:
+            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, type(exc).__name__.lower())
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError): await heartbeat
+            self._active_cancel = None
+        return True
+
+    async def _loop(self):
+        while not self._stop.is_set():
+            if not await self.run_once():
+                try: await asyncio.wait_for(self._stop.wait(), self.poll_interval)
+                except asyncio.TimeoutError: pass
+
+    async def _heartbeat(self, job_id, cancel):
+        while True:
+            await asyncio.sleep(max(self.lease_seconds / 3, .05))
+            if not self.service.renew(job_id, self.owner, self.lease_seconds): cancel.set(); return
