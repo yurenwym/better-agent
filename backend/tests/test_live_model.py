@@ -450,8 +450,8 @@ async def test_explicit_sourced_deep_research_routes_without_waiting_for_classif
     from app.live_model import LiveConversationModel
     class NeverCalled:
         async def complete(self,*args,**kwargs):raise AssertionError("explicit research must not call the model classifier")
-    chunks=[]
-    response=await LiveConversationModel(NeverCalled()).route_and_respond(
+    chunks=[];model=LiveConversationModel(NeverCalled());model.memory_store=object()
+    response=await model.route_and_respond(
         content="请深度研究 SQLite WAL 是否适合作为本地 Agent 的存储方案，给出带引用来源的完整报告",
         history=[],skill_names=[],on_text_delta=chunks.append,on_text_reset=None,cancel_event=None,
     )

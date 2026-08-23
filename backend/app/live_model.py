@@ -323,6 +323,7 @@ class LiveConversationModel:
     async def _classify_explicit_remember(self,content:str,cancel_event):
         if not isinstance(self.gateway,ModelGateway):return None
         explicit_marker=bool(re.search(r"(?:请|帮我|以后)?\s*(?:记住|记得)|\bremember\b",content,re.I))
+        if not explicit_marker:return None
         request=ModelRequest(messages=[{"role":"system","content":"Return JSON only: {\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}. True only when the user explicitly commands you to remember stable information for future conversations. Examples that MUST be true: 'Remember that I dislike spicy food', '请记住我喜欢简洁明确的回答', '以后记得我九点后出发'. Ordinary statements without an explicit remember-for-future command are false. Preserve only the stable fact in content. Never include credentials or secrets."},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220)
         try:
             payload=_parse_json((await self.gateway.complete(request,cancel_event=cancel_event)).message)
