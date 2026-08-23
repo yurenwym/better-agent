@@ -12,6 +12,7 @@ class ManagedResearchWorker:
     def __init__(self, service, *, poll_interval: float = .2, lease_seconds: int = 30) -> None:
         self.service = service; self.owner = f"research-worker-{uuid.uuid4().hex}"; self.poll_interval = poll_interval; self.lease_seconds = lease_seconds
         self._task = None; self._stop = None; self._active_cancel = None
+        self._shutdown = False
 
     async def start(self):
         if self._task: return
@@ -20,6 +21,7 @@ class ManagedResearchWorker:
     async def stop(self):
         if not self._task: return
         self._stop.set()
+        self._shutdown = True
         if self._active_cancel: self._active_cancel.set()
         task, self._task = self._task, None
         with contextlib.suppress(asyncio.CancelledError): await task
@@ -31,7 +33,7 @@ class ManagedResearchWorker:
         heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel))
         report = None
         try:
-            request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel)
+            request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel, self.service.completed_sections(job.id))
             async for event in self.service.engine.run_research(request):
                 current = self.service.get(job.id)
                 if current.cancel_requested_at: cancel.set()
@@ -43,11 +45,13 @@ class ManagedResearchWorker:
             if notifier is not None:
                 await notifier.deliver_completed(job.id, report["title"], report["markdown"])
         except ResearchCancelled:
-            self.service.finish_cancelled(job.id, self.owner)
+            if not self._shutdown:
+                self.service.finish_cancelled(job.id, self.owner)
         except PermissionError:
             pass
         except Exception as exc:
-            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, type(exc).__name__.lower())
+            retryable=isinstance(exc,(TimeoutError,ConnectionError,asyncio.TimeoutError)) or getattr(exc,"kind","") in {"timeout","rate_limit","server"}
+            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, type(exc).__name__.lower(),retryable)
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError): await heartbeat

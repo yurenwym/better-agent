@@ -38,7 +38,8 @@ class WebSearchRetriever:
                     if not any(x in content_type for x in ("text/html", "text/plain")): continue
                     raw = fetched.content[:self.max_bytes].decode(fetched.encoding or "utf-8", errors="replace")
                     text = self._text(raw)[:self.max_chars]
-                    sources.append(Source(f"source_{uuid.uuid4().hex}", 0, "web", current, None, title, text, None, datetime.now(timezone.utc).isoformat(), .5, hashlib.sha256(text.encode()).hexdigest()))
+                    digest=hashlib.sha256(text.encode()).hexdigest();stable=hashlib.sha256(f"{request.job_id}:web:{current}:{digest}".encode()).hexdigest()
+                    sources.append(Source(f"source_{stable}", 0, "web", current, None, title, text, None, datetime.now(timezone.utc).isoformat(), .5, digest))
                 except (ValueError, httpx.HTTPError, UnicodeError):
                     continue
             return sources

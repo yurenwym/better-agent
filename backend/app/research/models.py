@@ -21,6 +21,7 @@ class ResearchRequest:
     source_scopes: tuple[str, ...]
     limits: ResearchLimits
     cancel_event: Any | None = None
+    completed_sections: dict[int, dict[str, str]] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)

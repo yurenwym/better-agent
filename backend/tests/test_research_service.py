@@ -73,3 +73,6 @@ def test_cancel_and_retry_are_idempotent_new_jobs(tmp_path) -> None:
     repeated = service.retry(job.id, "new", "retry-key")
     assert retry.id == repeated.id and retry.id != job.id and retry.retry_of_job_id == job.id
 
+def test_retryable_failure_requeues_until_max_attempts(tmp_path):
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","retryable",("web",));service.claim_next("w",30)
+ queued=service.fail(job.id,"w","timeout",True);assert queued.status=="QUEUED"

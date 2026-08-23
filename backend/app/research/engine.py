@@ -77,6 +77,11 @@ class ResearchEngine:
         bodies, summaries = [], []
         for section in sections:
             self._cancel(request)
+            saved=request.completed_sections.get(section.ordinal)
+            if saved:
+                body,summary=saved["markdown"],saved["summary"]
+                bodies.append(body);summaries.append(summary)
+                continue
             body, summary = await self.model.write(section.heading, section.thesis, [evidence_by_id[item] for item in section.evidence_ids], summaries[-1] if summaries else "")
             bodies.append(body); summaries.append(summary)
             yield ResearchEvent("section", "writing", {"ordinal": section.ordinal, "heading": section.heading, "markdown": body, "summary": summary})

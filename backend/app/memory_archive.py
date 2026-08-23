@@ -35,9 +35,14 @@ class ConversationArchiver:
             state=c.execute("SELECT * FROM conversation_archive_state WHERE owner_id=? AND thread_id=?",(owner_id,thread_id)).fetchone()
             if state["state"]=="RESERVED" and state["lease_until"] and state["lease_until"]>now.isoformat():return None
             rows=c.execute("SELECT m.message_seq,m.turn_id,m.role,m.content,m.status,t.status turn_status FROM thread_messages m JOIN turns t ON t.id=m.turn_id WHERE m.thread_id=? AND m.message_seq>? ORDER BY m.message_seq",(thread_id,state["archived_through_seq"])).fetchall()
-            ready=[r for r in rows if r["status"]=="ready" and r["turn_status"] in {"COMPLETED","FAILED","CANCELLED"}]
+            eligible=[]
+            for row in rows:
+                if row["turn_status"] not in {"COMPLETED","FAILED","CANCELLED"}:
+                    break
+                if row["status"]=="ready":eligible.append(row)
+            ready=eligible
             if len(ready)<=self.keep_messages:return None
-            cutoff=ready[-self.keep_messages]["message_seq"]-1
+            cutoff=ready[-1]["message_seq"] if self.keep_messages==0 else ready[-self.keep_messages]["message_seq"]-1
             selected=[dict(r) for r in ready if r["message_seq"]<=cutoff]
             if not selected:return None
             start,end=selected[0]["message_seq"],selected[-1]["message_seq"]

@@ -77,7 +77,8 @@ class LocalNoteRetriever:
             except (OSError,UnicodeError):continue
             lowered=(path.name+" "+text).lower();score=sum(term in lowered for term in terms)
             if terms and score==0:continue
-            result.append(Source(f"source_{uuid.uuid4().hex}",0,"local_note",None,str(path.relative_to(self.root)).replace("\\","/"),path.stem,text,None,datetime.now(timezone.utc).isoformat(),min(.5+score*.08,1),hashlib.sha256(text.encode()).hexdigest()))
+            digest=hashlib.sha256(text.encode()).hexdigest();stable=hashlib.sha256(f"{request.job_id}:local_note:{path.relative_to(self.root)}:{digest}".encode()).hexdigest()
+            result.append(Source(f"source_{stable}",0,"local_note",None,str(path.relative_to(self.root)).replace("\\","/"),path.stem,text,None,datetime.now(timezone.utc).isoformat(),min(.5+score*.08,1),digest))
         return result[:20]
 
 

@@ -573,10 +573,26 @@ def register_routes(app) -> None:
     @app.get("/api/notification/channels")
     async def list_channels(service=Depends(runtime)) -> dict[str, Any]:return {"channels":[_channel_json(x) for x in service.notifications.list()]}
 
+    @app.put("/api/notification/channels/{channel_id}",dependencies=[Depends(mutate)])
+    async def update_channel(channel_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
+        try:return _channel_json(service.notifications.update(channel_id,name=payload.get("name"),enabled=payload.get("enabled"),secret_env_name=payload.get("secret_env_name")))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+    @app.delete("/api/notification/channels/{channel_id}",status_code=204,dependencies=[Depends(mutate)])
+    async def delete_channel(channel_id:str,service=Depends(runtime))->Response:
+        try:service.notifications.delete(channel_id);return Response(status_code=204)
+        except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
+
     @app.post("/api/notification/channels/{channel_id}/test", dependencies=[Depends(mutate)])
     async def test_channel(channel_id:str,service=Depends(runtime))->dict[str,Any]:
         try:return vars(await service.notifications.test(channel_id))
         except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
+
+    @app.post("/api/research/jobs/{job_id}/notifications/{channel_id}/retry",dependencies=[Depends(mutate)])
+    async def retry_notification(job_id:str,channel_id:str,service=Depends(runtime))->dict[str,Any]:
+        try:return vars(await service.notifications.retry(job_id,channel_id))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="report or channel not found") from exc
 
     @app.get("/api/skills")
     async def list_skills(request: Request) -> dict[str, Any]:

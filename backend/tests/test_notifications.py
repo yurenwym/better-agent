@@ -27,3 +27,11 @@ def test_channel_env_name_is_validated_and_api_shape_masked(tmp_path) -> None:
     with pytest.raises(ValueError): service.create("bad", "webhook", "lower-key")
     item = service.create("Hook", "webhook", "MISSING_WEBHOOK")
     assert item.configured is False and item.secret_env_name == "MISSING_WEBHOOK"
+
+@pytest.mark.asyncio
+async def test_private_webhook_is_blocked_by_default(tmp_path,monkeypatch):
+ monkeypatch.setenv("PRIVATE_HOOK","http://127.0.0.1/hook")
+ service=NotificationService(Database(tmp_path/"a.db"),transport=httpx.MockTransport(lambda request:httpx.Response(200)))
+ channel=service.create("private","webhook","PRIVATE_HOOK")
+ result=await service.test(channel.id)
+ assert result.status=="FAILED" and "private" in (result.error or "")
