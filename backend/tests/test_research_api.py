@@ -49,3 +49,17 @@ def test_research_job_api_returns_a_stable_failure_reason(tmp_path) -> None:
     runtime.research.fail(job.id, "worker", "unknowncitation")
     payload = http.get(f"/api/research/jobs/{job.id}").json()
     assert payload["failure_reason_code"] == "unknowncitation"
+
+
+def test_research_job_delete_requires_terminal_state_and_removes_it(tmp_path) -> None:
+    http, runtime = client(tmp_path)
+    csrf = http.get("/api/bootstrap").json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
+    thread = http.post("/api/threads", headers=headers, json={}).json()
+    job = runtime.research.create_manual(thread["id"], "delete me", "delete-api", ("web",))
+    active = http.delete(f"/api/research/jobs/{job.id}", headers=headers)
+    assert active.status_code == 409
+    runtime.research.cancel(job.id)
+    deleted = http.delete(f"/api/research/jobs/{job.id}", headers=headers)
+    assert deleted.status_code == 204
+    assert http.get(f"/api/research/jobs/{job.id}").status_code == 404

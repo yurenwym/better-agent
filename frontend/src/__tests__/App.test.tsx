@@ -5,7 +5,7 @@ import StatsBar from "../components/StatsBar";
 import EventStream from "../components/EventStream";
 import ApprovalCard from "../components/ApprovalCard";
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.pushState({}, "", "/"); });
 
 describe("personal agent workspace", () => {
   it("switches between the four core pages", () => {
@@ -51,6 +51,15 @@ describe("personal agent workspace", () => {
     expect(main.className).toContain("workspace-main-viewport");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-wide");
     expect(main.querySelector(".workspace-page-chat")?.className).toContain("workspace-page-fluid");
+  });
+
+  it("removes the redundant research page heading and uses the fluid shell", () => {
+    window.history.pushState({}, "", "/research");
+    render(<App />);
+
+    const main = screen.getByRole("main");
+    expect(main.querySelector(".workspace-page-header-research")).toBeNull();
+    expect(main.querySelector(".workspace-page-research")?.className).toContain("workspace-page-fluid");
   });
 
   it("exposes a labelled goal message form", () => {

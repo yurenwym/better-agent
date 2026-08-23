@@ -50,8 +50,10 @@ export default function App() {
 
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
-  const widePage = page === "chat" || page === "trajectory" || page === "plan";
-  const fluidPage = page === "chat";
+  const widePage = page === "chat" || page === "trajectory" || page === "plan" || page === "research";
+  const fluidPage = page === "chat" || page === "research";
+  const showTopbar = page !== "chat";
+  const showPageHeader = page !== "chat" && page !== "research";
 
   return (
     <div className="workspace-app">
@@ -64,7 +66,7 @@ export default function App() {
         onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
-        {!fluidPage && (
+        {showTopbar && (
           <header className="workspace-topbar">
             <div className="workspace-title-lockup">
               <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
@@ -78,7 +80,7 @@ export default function App() {
           </header>
         )}
 
-        {!fluidPage && (
+        {showPageHeader && (
           <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}`}>
             <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
             {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}

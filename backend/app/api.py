@@ -515,6 +515,14 @@ def register_routes(app) -> None:
         try: return _research_job_json(service.research.cancel(job_id))
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
+    @app.delete("/api/research/jobs/{job_id}", status_code=204, dependencies=[Depends(mutate)])
+    async def delete_research(job_id: str, service=Depends(runtime)) -> Response:
+        from .research.service import ResearchConflict
+        try: service.research.delete(job_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+        except ResearchConflict as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(status_code=204)
+
     @app.post("/api/research/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(mutate)])
     async def retry_research(job_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         key = payload.get("client_request_id")

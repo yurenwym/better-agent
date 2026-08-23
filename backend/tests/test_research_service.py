@@ -74,6 +74,23 @@ def test_cancel_and_retry_are_idempotent_new_jobs(tmp_path) -> None:
     repeated = service.retry(job.id, "new", "retry-key")
     assert retry.id == repeated.id and retry.id != job.id and retry.retry_of_job_id == job.id
 
+def test_delete_terminal_research_removes_artifacts_and_preserves_conversation(tmp_path):
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"old","delete-job",("web",));service.cancel(job.id)
+ retry=service.retry(job.id,"new","delete-retry")
+ service.delete(job.id)
+ with pytest.raises(KeyError):service.get(job.id)
+ with db.connection() as c:
+  assert c.execute("SELECT COUNT(*) FROM research_reports WHERE job_id=?",(job.id,)).fetchone()[0]==0
+  assert c.execute("SELECT retry_of_job_id FROM research_jobs WHERE id=?",(retry.id,)).fetchone()[0] is None
+  message=c.execute("SELECT research_job_id,content FROM thread_messages WHERE thread_id=? AND role='assistant' ORDER BY message_seq LIMIT 1",(job.thread_id,)).fetchone()
+  assert message[0] is None and message[1]=="该深度研究记录已删除。"
+
+def test_delete_rejects_an_active_research(tmp_path):
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"active","active-delete",("web",))
+ with pytest.raises(ResearchConflict,match="active"):
+  service.delete(job.id)
+ assert service.get(job.id).status=="QUEUED"
+
 def test_retryable_failure_requeues_until_max_attempts(tmp_path):
  _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","retryable",("web",));service.claim_next("w",30)
  queued=service.fail(job.id,"w","timeout",True);assert queued.status=="QUEUED"

@@ -302,6 +302,21 @@ class ResearchService:
         if prior: return self.get(prior["id"])
         return self._create_anchor_job(old.thread_id, topic or old.topic, old.source_scopes, "retry", key, f"research-retry:{client_key}", retry_of_job_id=job_id)
 
+    def delete(self, job_id: str) -> None:
+        with self.db.transaction() as connection:
+            row = connection.execute("SELECT status FROM research_jobs WHERE id=?", (job_id,)).fetchone()
+            if not row: raise KeyError(job_id)
+            if row["status"] not in TERMINAL:
+                raise ResearchConflict("active research must be cancelled before deletion")
+            connection.execute("UPDATE research_jobs SET retry_of_job_id=NULL WHERE retry_of_job_id=?", (job_id,))
+            connection.execute("UPDATE research_schedules SET last_job_id=NULL WHERE last_job_id=?", (job_id,))
+            replacement = "该深度研究记录已删除。"
+            connection.execute(
+                "UPDATE thread_messages SET content=?,content_length=?,status='ready',research_job_id=NULL WHERE research_job_id=?",
+                (replacement, len(replacement), job_id),
+            )
+            connection.execute("DELETE FROM research_jobs WHERE id=?", (job_id,))
+
     def get(self, job_id: str) -> ResearchJob:
         with self.db.connection() as connection: return self._job(job_id, connection)
 

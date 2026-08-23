@@ -219,6 +219,7 @@ export async function getThreadEvents(threadId: string, afterSeq = 0, fetcher: F
 export async function getResearchJobs(threadId?: string, fetcher: Fetcher = fetch): Promise<{jobs:ResearchJob[]}> { return json(await fetcher(`/api/research/jobs${threadId ? `?thread_id=${encodeURIComponent(threadId)}` : ""}`)); }
 export async function getResearchJob(id:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}`));}
 export async function cancelResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}/cancel`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
+export async function deleteResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/research/jobs/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除研究失败");}
 export async function retryResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<{job_id:string;status:string}>{return json(await fetcher(`/api/research/jobs/${id}/retry`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({client_request_id:crypto.randomUUID()})}));}
 export async function getResearchReport(id:string,fetcher:Fetcher=fetch):Promise<{job_id:string;title:string;markdown:string}>{return json(await fetcher(`/api/research/jobs/${id}/report`));}
 export async function getSchedules(fetcher:Fetcher=fetch):Promise<{schedules:ResearchSchedule[]}>{return json(await fetcher("/api/research/schedules"));}
