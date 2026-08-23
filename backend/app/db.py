@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
@@ -324,6 +325,139 @@ CREATE TABLE IF NOT EXISTS tool_calls (
 """
 
 
+MIGRATION_20260823 = r"""
+CREATE TABLE IF NOT EXISTS memory_entries (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN ('preference','constraint','fact','decision','lesson')),
+ scope_type TEXT NOT NULL CHECK(scope_type IN ('user','project')), scope_id TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL CHECK(status IN ('ACTIVE','ARCHIVED','PURGED')), current_revision_id TEXT,
+ canonical_fingerprint TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0 CHECK(pinned IN (0,1)),
+ importance REAL NOT NULL DEFAULT .5 CHECK(importance BETWEEN 0 AND 1), sensitivity TEXT NOT NULL DEFAULT 'normal',
+ valid_until TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_active_fingerprint ON memory_entries(owner_id,scope_type,scope_id,canonical_fingerprint) WHERE status='ACTIVE';
+CREATE INDEX IF NOT EXISTS idx_memory_entries_scope ON memory_entries(owner_id,scope_type,scope_id,status,pinned,importance,updated_at);
+CREATE TABLE IF NOT EXISTS memory_revisions (
+ id TEXT PRIMARY KEY, entry_id TEXT NOT NULL REFERENCES memory_entries(id) ON DELETE CASCADE,
+ revision_no INTEGER NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('CREATE','UPDATE','ROLLBACK','RESTORE')),
+ content TEXT NOT NULL, content_hash TEXT NOT NULL, base_revision_id TEXT, actor TEXT NOT NULL,
+ source_refs_json TEXT NOT NULL DEFAULT '[]', reason TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL,
+ UNIQUE(entry_id,revision_no)
+);
+CREATE TABLE IF NOT EXISTS memory_proposals (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, operation TEXT NOT NULL CHECK(operation IN ('ADD','UPDATE','ARCHIVE')),
+ target_entry_id TEXT, base_revision_id TEXT,
+ kind TEXT NOT NULL CHECK(kind IN ('preference','constraint','fact','decision','lesson')),
+ scope_type TEXT NOT NULL CHECK(scope_type IN ('user','project')), scope_id TEXT NOT NULL DEFAULT '',
+ content TEXT NOT NULL, fingerprint TEXT NOT NULL, evidence_refs_json TEXT NOT NULL DEFAULT '[]', evidence_hash TEXT NOT NULL DEFAULT '',
+ origin TEXT NOT NULL, confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1), reason TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','ACCEPTED','REJECTED','SUPERSEDED')),
+ request_idempotency_key TEXT NOT NULL UNIQUE, decision_idempotency_key TEXT UNIQUE, accepted_revision_id TEXT,
+ created_at TEXT NOT NULL, decided_at TEXT
+);
+CREATE TABLE IF NOT EXISTS conversation_archive_state (
+ owner_id TEXT NOT NULL, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+ archived_through_seq INTEGER NOT NULL DEFAULT 0, reserved_start_seq INTEGER, reserved_end_seq INTEGER, source_hash TEXT,
+ state TEXT NOT NULL DEFAULT 'IDLE' CHECK(state IN ('IDLE','RESERVED','FAILED')), lease_owner TEXT, lease_until TEXT,
+ attempts INTEGER NOT NULL DEFAULT 0, error TEXT, PRIMARY KEY(owner_id,thread_id)
+);
+CREATE TABLE IF NOT EXISTS memory_episodes (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE, project_id TEXT,
+ start_message_seq INTEGER NOT NULL, end_message_seq INTEGER NOT NULL, source_hash TEXT NOT NULL, summary TEXT NOT NULL,
+ topics_json TEXT NOT NULL DEFAULT '[]', decisions_json TEXT NOT NULL DEFAULT '[]', open_loops_json TEXT NOT NULL DEFAULT '[]',
+ sensitivity TEXT NOT NULL DEFAULT 'normal', retrieval_policy TEXT NOT NULL DEFAULT 'thread', retain_until TEXT,
+ status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(status IN ('ACTIVE','ARCHIVED','DELETED','RAW_REFERENCE')),
+ supersedes_episode_id TEXT, model_id TEXT, prompt_version TEXT NOT NULL DEFAULT 'episode-v1', created_at TEXT NOT NULL,
+ UNIQUE(owner_id,thread_id,start_message_seq,end_message_seq,source_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_memory_episodes_scope ON memory_episodes(owner_id,thread_id,project_id,status,created_at);
+CREATE TABLE IF NOT EXISTS memory_context_pins (
+ model_invocation_id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, parent_type TEXT NOT NULL, parent_id TEXT NOT NULL, purpose TEXT NOT NULL,
+ query_hash TEXT NOT NULL, scope_hash TEXT NOT NULL, revision_ids_json TEXT NOT NULL, episode_ids_json TEXT NOT NULL,
+ tokenizer_version TEXT NOT NULL, renderer_version TEXT NOT NULL, budget_json TEXT NOT NULL, token_count INTEGER NOT NULL,
+ rendered_hash TEXT NOT NULL, invocation_state TEXT NOT NULL DEFAULT 'PREPARED', invalidated_at TEXT, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS memory_projection_intents (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, path TEXT NOT NULL, expected_hash TEXT, target_hash TEXT NOT NULL,
+ state TEXT NOT NULL CHECK(state IN ('PENDING','COMMITTED','FAILED','CONFLICT')), attempts INTEGER NOT NULL DEFAULT 0,
+ error TEXT, created_at TEXT NOT NULL, finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS memory_audit_events (
+ row_id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, seq INTEGER NOT NULL, event_id TEXT NOT NULL UNIQUE,
+ aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+ operation TEXT NOT NULL, actor TEXT NOT NULL, occurred_at TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}', UNIQUE(owner_id,seq)
+);
+CREATE TABLE IF NOT EXISTS legacy_memory_mappings (legacy_id TEXT PRIMARY KEY, disposition TEXT NOT NULL, target_id TEXT, reason TEXT NOT NULL DEFAULT '');
+
+CREATE TABLE IF NOT EXISTS research_jobs (
+ id TEXT PRIMARY KEY, thread_id TEXT NOT NULL REFERENCES threads(id), source_turn_id TEXT NOT NULL UNIQUE REFERENCES turns(id),
+ schedule_id TEXT, retry_of_job_id TEXT REFERENCES research_jobs(id),
+ trigger_kind TEXT NOT NULL CHECK(trigger_kind IN ('manual','scheduled','retry','run_now')), occurrence_key TEXT NOT NULL UNIQUE,
+ topic TEXT NOT NULL CHECK(length(topic) BETWEEN 1 AND 2000), source_scopes_json TEXT NOT NULL DEFAULT '["web"]',
+ status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','COMPLETED','FAILED','CANCELLED')),
+ phase TEXT NOT NULL CHECK(phase IN ('queued','planning','retrieving','distilling','reflecting','curating','writing','summarizing','finalizing','completed','failed','cancelled')),
+ available_at TEXT NOT NULL, lease_owner TEXT, lease_until TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 2,
+ cancel_requested_at TEXT, started_at TEXT, finished_at TEXT, last_error_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_research_claim ON research_jobs(status,available_at,lease_until,created_at);
+CREATE INDEX IF NOT EXISTS idx_research_thread ON research_jobs(thread_id,created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_research_schedule ON research_jobs(schedule_id,created_at DESC);
+CREATE TABLE IF NOT EXISTS research_job_attempts (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE, attempt INTEGER NOT NULL,
+ lease_owner TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('RUNNING','COMPLETED','FAILED','LEASE_LOST','CANCELLED')),
+ started_at TEXT NOT NULL, finished_at TEXT, error_json TEXT, UNIQUE(job_id,attempt)
+);
+CREATE TABLE IF NOT EXISTS research_reports (
+ job_id TEXT PRIMARY KEY REFERENCES research_jobs(id) ON DELETE CASCADE, title TEXT, outline_json TEXT, summary_json TEXT, markdown TEXT,
+ partial_markdown TEXT NOT NULL DEFAULT '', source_count INTEGER NOT NULL DEFAULT 0, evidence_count INTEGER NOT NULL DEFAULT 0,
+ assistant_message_id TEXT UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT
+);
+CREATE TABLE IF NOT EXISTS research_sources (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL,
+ kind TEXT NOT NULL CHECK(kind IN ('web','local_note')), canonical_url TEXT, locator TEXT, title TEXT NOT NULL, content TEXT NOT NULL,
+ content_hash TEXT NOT NULL, published_at TEXT, retrieved_at TEXT NOT NULL, quality_score REAL NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}',
+ UNIQUE(job_id,ordinal), UNIQUE(job_id,kind,content_hash)
+);
+CREATE TABLE IF NOT EXISTS research_evidence (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE,
+ source_id TEXT NOT NULL REFERENCES research_sources(id) ON DELETE CASCADE, text TEXT NOT NULL, date_hint TEXT,
+ relevance REAL NOT NULL CHECK(relevance BETWEEN 0 AND 1), created_at TEXT NOT NULL, UNIQUE(job_id,source_id,text)
+);
+CREATE TABLE IF NOT EXISTS research_sections (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, heading TEXT NOT NULL,
+ thesis TEXT NOT NULL DEFAULT '', evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+ status TEXT NOT NULL CHECK(status IN ('PENDING','WRITING','COMPLETED')), markdown TEXT NOT NULL DEFAULT '', summary TEXT NOT NULL DEFAULT '',
+ generation INTEGER NOT NULL DEFAULT 1, updated_at TEXT NOT NULL, completed_at TEXT, UNIQUE(job_id,ordinal)
+);
+CREATE TABLE IF NOT EXISTS research_schedules (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, thread_id TEXT NOT NULL UNIQUE REFERENCES threads(id), topic TEXT NOT NULL,
+ source_scopes_json TEXT NOT NULL DEFAULT '["web"]', trigger_type TEXT NOT NULL CHECK(trigger_type IN ('daily','weekly','interval_hours')),
+ trigger_time TEXT, trigger_weekday INTEGER CHECK(trigger_weekday BETWEEN 0 AND 6), interval_hours INTEGER CHECK(interval_hours BETWEEN 1 AND 720),
+ timezone TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)), notify_enabled INTEGER NOT NULL DEFAULT 1 CHECK(notify_enabled IN (0,1)),
+ next_run_at TEXT, last_run_at TEXT, last_job_id TEXT, deleted_at TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ CHECK((trigger_type='daily' AND trigger_time IS NOT NULL AND trigger_weekday IS NULL AND interval_hours IS NULL)
+ OR (trigger_type='weekly' AND trigger_time IS NOT NULL AND trigger_weekday IS NOT NULL AND interval_hours IS NULL)
+ OR (trigger_type='interval_hours' AND trigger_time IS NULL AND trigger_weekday IS NULL AND interval_hours IS NOT NULL))
+);
+CREATE TABLE IF NOT EXISTS notification_channels (
+ id TEXT PRIMARY KEY, name TEXT NOT NULL, channel_type TEXT NOT NULL CHECK(channel_type IN ('serverchan','wecom','dingtalk','webhook')),
+ secret_env_name TEXT NOT NULL, enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ UNIQUE(channel_type,name)
+);
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+ id TEXT PRIMARY KEY, job_id TEXT NOT NULL REFERENCES research_jobs(id) ON DELETE CASCADE,
+ channel_id TEXT NOT NULL REFERENCES notification_channels(id) ON DELETE CASCADE, attempt INTEGER NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('PENDING','SENT','FAILED')), http_status INTEGER, provider_code TEXT, error TEXT,
+ created_at TEXT NOT NULL, finished_at TEXT, UNIQUE(job_id,channel_id,attempt)
+);
+CREATE TABLE IF NOT EXISTS app_settings (
+ id INTEGER PRIMARY KEY CHECK(id=1), human_mode INTEGER NOT NULL DEFAULT 0 CHECK(human_mode IN (0,1)), updated_at TEXT NOT NULL
+);
+"""
+
+MIGRATIONS = ((1, MIGRATION_20260823),)
+
+
 class Database:
     def __init__(self, path: str | Path, workspace: str | Path | None = None) -> None:
         self.path = Path(path)
@@ -351,6 +485,37 @@ class Database:
         connection = self._connect()
         try:
             connection.executescript(SCHEMA)
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS schema_migrations(version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL)"
+            )
+            self._add_column(connection, "threads", "owner_id TEXT NOT NULL DEFAULT 'local-user'")
+            self._add_column(connection, "threads", "project_id TEXT")
+            self._add_column(connection, "thread_messages", "message_seq INTEGER")
+            self._add_column(connection, "thread_messages", "presentation TEXT NOT NULL DEFAULT 'standard'")
+            self._add_column(connection, "thread_messages", "research_job_id TEXT")
+            connection.execute(
+                "UPDATE thread_messages SET message_seq=(SELECT COUNT(*) FROM thread_messages prior "
+                "WHERE prior.thread_id=thread_messages.thread_id AND (prior.created_at < thread_messages.created_at "
+                "OR (prior.created_at=thread_messages.created_at AND prior.id <= thread_messages.id))) WHERE message_seq IS NULL"
+            )
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_message_seq ON thread_messages(thread_id,message_seq)")
+            connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_message_research ON thread_messages(research_job_id) WHERE research_job_id IS NOT NULL")
+            for version, sql in MIGRATIONS:
+                checksum = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+                row = connection.execute("SELECT checksum FROM schema_migrations WHERE version=?", (version,)).fetchone()
+                if row and row["checksum"] != checksum:
+                    raise RuntimeError(f"schema migration {version} checksum mismatch")
+                if not row:
+                    connection.executescript(sql)
+                    connection.execute(
+                        "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES (?,?,datetime('now'))",
+                        (version, checksum),
+                    )
+            connection.execute("INSERT OR IGNORE INTO app_settings(id,human_mode,updated_at) VALUES (1,0,datetime('now'))")
+            try:
+                connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(entry_id UNINDEXED,owner_id UNINDEXED,content,tokenize='trigram')")
+            except sqlite3.OperationalError:
+                connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(entry_id UNINDEXED,owner_id UNINDEXED,content,tokenize='unicode61')")
             plan_columns = {
                 row["name"]
                 for row in connection.execute("PRAGMA table_info(plan_versions)").fetchall()
@@ -487,6 +652,13 @@ class Database:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _add_column(connection: sqlite3.Connection, table: str, definition: str) -> None:
+        name = definition.split()[0]
+        columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
+        if name not in columns:
+            connection.execute(f"ALTER TABLE {table} ADD COLUMN {definition}")
 
     @contextmanager
     def durable_transaction(self) -> Iterator[sqlite3.Connection]:

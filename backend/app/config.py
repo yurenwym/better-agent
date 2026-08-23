@@ -24,7 +24,7 @@ class AppConfig:
         }
 
 
-def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY"):
+def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY", model_id: str | None = None):
     """Load the local three-line live-test file without returning the secret."""
     values: dict[str, str] = {}
     for raw_line in Path(path).read_text(encoding="utf-8").splitlines():
@@ -32,18 +32,22 @@ def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY"):
         if not line or line.startswith("#"):
             continue
         key, separator, value = line.partition("=")
-        if not separator or key not in {"LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_ID"}:
+        if not separator or key not in {"LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_ID", "LLM_MODEL_IDS", "API_KEY", "BASE_URL", "MODEL_ID"}:
             raise ValueError("invalid LLM_AP entry")
-        values[key] = value
-    required = {"LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_ID"}
-    if set(values) != required or any(not values[key] for key in required):
-        raise ValueError("LLM_AP must define LLM_API_KEY, LLM_BASE_URL, and LLM_MODEL_ID")
+        values[{"API_KEY":"LLM_API_KEY","BASE_URL":"LLM_BASE_URL","MODEL_ID":"LLM_MODEL_ID"}.get(key,key)] = value
+    if not values.get("LLM_API_KEY") or not values.get("LLM_BASE_URL"):
+        raise ValueError("LLM_AP must define an API key and base URL")
+    configured_model = model_id or values.get("LLM_MODEL_ID") or next((item.strip() for item in values.get("LLM_MODEL_IDS", "").split(",") if item.strip()), None)
+    if not configured_model: raise ValueError("LLM_AP must define or receive a model ID")
     os.environ[api_key_env] = values["LLM_API_KEY"]
     from .model_gateway import ModelProfile
 
+    base_url = values["LLM_BASE_URL"].rstrip("/")
+    if base_url.endswith("/models"):
+        base_url = base_url[:-7]
     return ModelProfile(
-        base_url=values["LLM_BASE_URL"],
-        model=values["LLM_MODEL_ID"],
+        base_url=base_url,
+        model=configured_model,
         api_key_env=api_key_env,
     )
 

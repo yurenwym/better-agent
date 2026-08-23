@@ -30,3 +30,10 @@ def test_model_profile_can_be_loaded_from_named_environment_settings(monkeypatch
     assert profile.base_url == "https://provider.test/v1"
     assert profile.public_view()["api_key_configured"] is True
     assert "secret-value" not in str(profile.public_view())
+
+
+def test_llm_file_accepts_models_endpoint_but_normalizes_chat_base(tmp_path) -> None:
+    from app.config import load_llm_ap
+    path = tmp_path / "LLM_API.txt"
+    path.write_text("LLM_API_KEY=x\nLLM_BASE_URL=https://provider.test/v1/models\nLLM_MODEL_ID=m\n", encoding="utf-8")
+    assert load_llm_ap(path).base_url == "https://provider.test/v1"

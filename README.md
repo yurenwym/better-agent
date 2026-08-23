@@ -1,6 +1,6 @@
 # better-agent
 
-本地单用户 Personal Agent V1：澄清 → 计划 → 审批 → 顺序 ReAct → 观察/复盘 → 记忆确认。服务只监听 loopback，SQLite 使用 WAL，事件日志 append-only。
+本地单用户 Personal Agent V1：澄清 → 计划 → 审批 → 顺序 ReAct → 观察/复盘，并提供三层记忆、证据优先的深度研究、定时研究、通知和真人对话模式。服务只监听 loopback，SQLite 使用 WAL，事件日志 append-only。
 
 ## 启动
 
@@ -24,9 +24,11 @@ python scripts/start.py
 也可以让启动进程优先从本地 `LLM_AP.txt` 读取 Profile。文件只把 Key 放进当前进程环境，不会写入数据库、事件、导出或前端：
 
 ```powershell
-$env:LLM_AP_PATH = "D:\Users\王一鸣\Desktop\直到尽头\LLM_AP.txt"
+$env:LLM_AP_PATH = "D:\Users\王一鸣\Desktop\直到尽头\LLM_API.txt"
 python scripts/start.py
 ```
+
+`LLM_BASE_URL` 可以填写 OpenAI-compatible API 根地址（如 `/v1`）或模型探测地址（如 `/v1/models`）；启动时会安全规范化。Web 深度研究默认使用公开搜索端点，也可通过 `RESEARCH_SEARCH_BASE_URL` 指向可访问的兼容搜索页。本地资料放入 `data/research_notes/`，请求研究时选择 `local_note` 来源。
 
 ## 测试与评测
 
@@ -46,7 +48,7 @@ Set-Location ..
 
 ```powershell
 Set-Location backend
-python -m app.eval run --suite v1 --mode live --llm-ap "D:\Users\王一鸣\Desktop\直到尽头\LLM_AP.txt"
+python -m app.eval run --suite v1 --mode live --llm-ap "D:\Users\王一鸣\Desktop\直到尽头\LLM_API.txt"
 ```
 
 `live` 会保存脱敏的网关/请求统计和待人工质量评分报告，不把模型原文或 Key 写入报告。基线比较：
