@@ -24,6 +24,7 @@ import type {
   Turn,
   ResearchJob,
   ResearchSchedule,
+  NotificationChannel,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -220,7 +221,13 @@ export async function getResearchJob(id:string,fetcher:Fetcher=fetch):Promise<Re
 export async function cancelResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}/cancel`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
 export async function getResearchReport(id:string,fetcher:Fetcher=fetch):Promise<{job_id:string;title:string;markdown:string}>{return json(await fetcher(`/api/research/jobs/${id}/report`));}
 export async function getSchedules(fetcher:Fetcher=fetch):Promise<{schedules:ResearchSchedule[]}>{return json(await fetcher("/api/research/schedules"));}
+export async function createSchedule(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchSchedule>{return json(await fetcher("/api/research/schedules",{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function updateSchedule(id:string,payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchSchedule>{return json(await fetcher(`/api/research/schedules/${id}`,{method:"PUT",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function deleteSchedule(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/research/schedules/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除定时任务失败");}
 export async function runSchedule(id:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<{job_id:string;status:string}>{return json(await fetcher(`/api/research/schedules/${id}/run`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({client_request_id:key})}));}
+export async function getNotificationChannels(fetcher:Fetcher=fetch):Promise<{channels:NotificationChannel[]}>{return json(await fetcher("/api/notification/channels"));}
+export async function createNotificationChannel(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<NotificationChannel>{return json(await fetcher("/api/notification/channels",{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function deleteNotificationChannel(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/notification/channels/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除通知渠道失败");}
 export async function setHumanMode(enabled:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<{human_mode:boolean}>{return json(await fetcher("/api/settings/human-mode",{method:"PUT",headers:mutationHeaders(csrf),body:JSON.stringify({enabled})}));}
 
 export async function cancelTurn(turnId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<Turn> {
@@ -432,6 +439,8 @@ export async function updateMemoryEntry(id:string,content:string,base_revision_i
 export async function archiveMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}/archive`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
 export async function purgeMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/entries/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除失败");}
 export async function decideMemoryProposal(id:string,accept:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryProposal>{return json(await fetcher(`/api/memory/proposals/${id}/decision`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({accept,idempotency_key:crypto.randomUUID()})}));}
+export async function updateMemoryEpisode(id:string,summary:string,retrieval_policy:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEpisode>{return json(await fetcher(`/api/memory/episodes/${id}`,{method:"PATCH",headers:mutationHeaders(csrf),body:JSON.stringify({summary,retrieval_policy})}));}
+export async function deleteMemoryEpisode(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/episodes/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除经历失败");}
 
 export function subscribeToThreadEvents(
   threadId: string,

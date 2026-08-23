@@ -25,3 +25,26 @@ async def test_archiver_never_crosses_a_pending_turn(tmp_path):
    c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES (?,?,?,?,?,'ready',1,1,?,?)",(f"pm{i}",thread.id,turn,"user","x",i+1,now))
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),keep_messages=0)
  episode=await arch.archive_thread(thread.id);assert episode and episode.end_message_seq==1
+
+@pytest.mark.asyncio
+async def test_archiver_keeps_whole_turn_bundles(tmp_path):
+ db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+ with db.transaction() as c:
+  for i in range(3):
+   turn=f"b{i}";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
+   for role in ("user","assistant"):
+    seq=i*2+(1 if role=="user" else 2);c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES (?,?,?,?,?,'ready',1,1,?,?)",(f"bm{seq}",thread.id,turn,role,"x",seq,now))
+ episode=await ConversationArchiver(db,MemoryStore(db,tmp_path/"m"),keep_messages=3).archive_thread(thread.id)
+ assert episode and episode.end_message_seq==2
+
+@pytest.mark.asyncio
+async def test_archiver_hashes_excluded_terminal_messages_without_summarizing_them(tmp_path):
+ db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n";seen=[]
+ with db.transaction() as c:
+  c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'CANCELLED',?,?)",("cancelled",thread.id,"cancelled",now,now))
+  for seq,role,status,content in ((1,"user","ready","keep"),(2,"assistant","cancelled","partial")):
+   c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES (?,?,?,?,?,?,1,1,?,?)",(f"cm{seq}",thread.id,"cancelled",role,content,status,seq,now))
+ async def summarize(messages):seen.extend(messages);return "summary"
+ episode=await ConversationArchiver(db,MemoryStore(db,tmp_path/"m"),summarize,keep_messages=0).archive_thread(thread.id)
+ assert episode and episode.end_message_seq==2
+ assert [item["content"] for item in seen]==["keep"]

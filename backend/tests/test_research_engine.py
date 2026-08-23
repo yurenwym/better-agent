@@ -4,7 +4,7 @@ import asyncio
 
 import pytest
 
-from app.research.engine import InsufficientEvidence, ResearchEngine, UnknownCitation
+from app.research.engine import InsufficientEvidence, ResearchCancelled, ResearchEngine, UnknownCitation
 from app.research.models import Evidence, ResearchLimits, ResearchPlan, ResearchRequest, Source
 from app.research.retriever import filter_sources, validate_public_url
 
@@ -67,6 +67,39 @@ async def test_zero_evidence_and_unknown_citation_cannot_finalize() -> None:
         _ = [event async for event in ResearchEngine(FakeModel(bad_citation=True), FakeRetriever()).run_research(ResearchRequest("j2", "x", ("web",), ResearchLimits(reflection_rounds=0)))]
 
 
+@pytest.mark.asyncio
+async def test_recovery_keeps_persisted_source_identity_for_completed_section() -> None:
+    old_source=Source("old-source",1,"web","https://example.com/old",None,"Old","old body"*80,None,"old",.8,"old-hash")
+    old_evidence=Evidence("old-evidence",old_source.id,"old fact",None,.9)
+    request=ResearchRequest("same-job","x",("web",),ResearchLimits(reflection_rounds=0),completed_sections={1:{"markdown":"## Old\n\nold fact [[source:old-source]]","summary":"old"}},recovered_sources=(old_source,),recovered_evidence=(old_evidence,))
+    events=[event async for event in ResearchEngine(FakeModel(),FakeRetriever()).run_research(request)]
+    report=next(event.data["markdown"] for event in events if event.type=="report")
+    assert "https://example.com/old" in report
+
+
+@pytest.mark.asyncio
+async def test_recovery_uses_persisted_plan_and_completed_section_identity() -> None:
+    class Changed(FakeModel):
+        async def plan(self,*args):return ResearchPlan("changed",("changed one","changed two"),("changed",))
+        async def curate(self,plan,evidence):return [("changed", "changed", tuple(item.id for item in evidence))]
+    source=Source("old-source",1,"web","https://example.com/old",None,"Old","old body"*80,None,"old",.8,"old-hash")
+    evidence=Evidence("old-evidence",source.id,"old fact",None,.9)
+    request=ResearchRequest("same-job","x",("web",),ResearchLimits(reflection_rounds=0),completed_sections={2:{"heading":"Stable two","markdown":"## Stable two\n\nold fact [[source:old-source]]","summary":"old"}},recovered_sources=(source,),recovered_evidence=(evidence,),recovered_plan=ResearchPlan("stable",("Stable one","Stable two"),("stable",)))
+    events=[event async for event in ResearchEngine(Changed(),FakeRetriever()).run_research(request)]
+    report=next(event.data["markdown"] for event in events if event.type=="report")
+    assert "# stable" in report and "## Stable two" in report
+
+
+@pytest.mark.asyncio
+async def test_cancel_after_summarize_prevents_report_commit() -> None:
+    cancel=asyncio.Event()
+    class Cancelling(FakeModel):
+        async def summarize(self,sections):cancel.set();return await super().summarize(sections)
+    request=ResearchRequest("cancel-late","x",("web",),ResearchLimits(reflection_rounds=0),cancel_event=cancel)
+    with pytest.raises(ResearchCancelled):
+        _=[event async for event in ResearchEngine(Cancelling(),FakeRetriever()).run_research(request)]
+
+
 def test_source_filter_is_stable_deduplicated_and_domain_bounded() -> None:
     sources = [
         Source(f"s{i}", 0, "web", f"https://example.com/a{i}#fragment", None, f"Title {i}", "body" * 100, None, "n", 1 - i / 100)
@@ -86,4 +119,3 @@ async def test_url_safety_rejects_private_and_loopback_hosts(monkeypatch) -> Non
         await validate_public_url("http://localhost/admin", resolver=addresses)
     with pytest.raises(ValueError, match="scheme"):
         await validate_public_url("file:///etc/passwd", resolver=addresses)
-

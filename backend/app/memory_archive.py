@@ -39,14 +39,22 @@ class ConversationArchiver:
             for row in rows:
                 if row["turn_status"] not in {"COMPLETED","FAILED","CANCELLED"}:
                     break
-                if row["status"]=="ready":eligible.append(row)
-            ready=eligible
-            if len(ready)<=self.keep_messages:return None
-            cutoff=ready[-1]["message_seq"] if self.keep_messages==0 else ready[-self.keep_messages]["message_seq"]-1
-            selected=[dict(r) for r in ready if r["message_seq"]<=cutoff]
-            if not selected:return None
-            start,end=selected[0]["message_seq"],selected[-1]["message_seq"]
-            digest="sha256:"+hashlib.sha256(json.dumps(selected,ensure_ascii=False,sort_keys=True).encode()).hexdigest();attempts=int(state["attempts"])+1
+                eligible.append(row)
+            if sum(row["status"]=="ready" for row in eligible)<=self.keep_messages:return None
+            bundles=[]
+            for row in eligible:
+                if not bundles or bundles[-1][0]!=row["turn_id"]:bundles.append((row["turn_id"],[row]))
+                else:bundles[-1][1].append(row)
+            remaining=sum(row["status"]=="ready" for row in eligible);archive_count=0
+            for _,bundle in bundles:
+                ready_count=sum(row["status"]=="ready" for row in bundle)
+                if remaining-ready_count<self.keep_messages:break
+                remaining-=ready_count;archive_count+=1
+            source_rows=[dict(row) for _,bundle in bundles[:archive_count] for row in bundle]
+            if not source_rows:return None
+            selected=[row for row in source_rows if row["status"]=="ready"]
+            start,end=source_rows[0]["message_seq"],source_rows[-1]["message_seq"]
+            digest="sha256:"+hashlib.sha256(json.dumps(source_rows,ensure_ascii=False,sort_keys=True).encode()).hexdigest();attempts=int(state["attempts"])+1
             c.execute("UPDATE conversation_archive_state SET state='RESERVED',reserved_start_seq=?,reserved_end_seq=?,source_hash=?,lease_owner=?,lease_until=?,attempts=? WHERE owner_id=? AND thread_id=?",(start,end,digest,f"archiver-{uuid.uuid4().hex}",until,attempts,owner_id,thread_id))
             return start,end,digest,selected,attempts
 

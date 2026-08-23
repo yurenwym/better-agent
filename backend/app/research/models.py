@@ -22,6 +22,9 @@ class ResearchRequest:
     limits: ResearchLimits
     cancel_event: Any | None = None
     completed_sections: dict[int, dict[str, str]] = field(default_factory=dict)
+    recovered_sources: tuple[Source, ...] = ()
+    recovered_evidence: tuple[Evidence, ...] = ()
+    recovered_plan: ResearchPlan | None = None
 
 
 @dataclass(frozen=True)

@@ -84,6 +84,11 @@ describe("thread telemetry reconciliation", () => {
     expect(applyThreadEvent(current, retry)).toEqual([]);
   });
 
+  it("marks an exhausted research message as failed", () => {
+    const completed = { ...event({ message_id: "m1", generation: 1, finish_reason: "failed" }), type: "message.completed" };
+    expect(applyThreadEvent([message("")], completed)[0]).toMatchObject({ streaming: false, status: "failed" });
+  });
+
   it("does not hydrate interrupted generations into the visible chat", () => {
     const interrupted: ThreadMessage = {
       id: "m1",

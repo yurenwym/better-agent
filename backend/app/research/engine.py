@@ -23,22 +23,24 @@ class ResearchEngine:
     async def run_research(self, request: ResearchRequest) -> AsyncIterator[ResearchEvent]:
         self._cancel(request)
         yield ResearchEvent("phase", "planning", {"detail": "正在规划研究范围"})
-        try:
-            plan = await self.model.plan(request.topic, request.limits)
-            plan = self._valid_plan(plan, request)
-        except Exception:
-            plan = self._fallback_plan(request.topic, request.limits.max_sections, request.limits.max_queries)
+        if request.recovered_plan:plan=request.recovered_plan
+        else:
+            try:
+                plan = await self.model.plan(request.topic, request.limits)
+                plan = self._valid_plan(plan, request)
+            except Exception:
+                plan = self._fallback_plan(request.topic, request.limits.max_sections, request.limits.max_queries)
         yield ResearchEvent("plan", "planning", {"title": plan.title, "sections": list(plan.sections), "queries": list(plan.queries)})
 
-        sources: list[Source] = []
+        sources: list[Source] = list(request.recovered_sources)
         used_queries = list(plan.queries)
         yield ResearchEvent("phase", "retrieving", {"detail": "正在检索来源"})
-        sources.extend(await self._retrieve(used_queries, request))
-        sources = filter_sources(sources, min_chars=request.limits.min_source_chars, max_sources=request.limits.max_sources)
+        sources = self._merge_sources(sources, await self._retrieve(used_queries, request), request)
         yield ResearchEvent("sources", "retrieving", {"count": len(sources), "items": sources})
 
         yield ResearchEvent("phase", "distilling", {"detail": "正在逐条提炼证据"})
-        evidence = await self._distill(sources, request, plan)
+        recovered_ids={item.id for item in request.recovered_sources}
+        evidence = [*request.recovered_evidence, *await self._distill([item for item in sources if item.id not in recovered_ids], request, plan)]
         if not evidence: raise InsufficientEvidence("insufficient_evidence")
         yield ResearchEvent("evidence", "distilling", {"count": len(evidence), "items": evidence})
 
@@ -53,7 +55,7 @@ class ResearchEngine:
                     seen.add(self._query_key(query)); normalized.append(query)
             if normalized:
                 extra = await self._retrieve(normalized, request)
-                combined = filter_sources([*sources, *extra], min_chars=request.limits.min_source_chars, max_sources=request.limits.max_sources)
+                combined = self._merge_sources(sources, extra, request)
                 new_ids = {item.id for item in combined} - {item.id for item in sources}
                 evidence.extend(await self._distill([item for item in combined if item.id in new_ids], request, plan))
                 sources = combined; used_queries.extend(normalized)
@@ -69,6 +71,10 @@ class ResearchEngine:
             heading, thesis, ids = raw
             ids = tuple(dict.fromkeys(item for item in ids if item in valid_ids))
             if ids: sections.append(CuratedSection(index, str(heading), str(thesis), ids))
+        by_ordinal={item.ordinal:item for item in sections}
+        for ordinal,saved in request.completed_sections.items():
+            by_ordinal[ordinal]=CuratedSection(ordinal,saved.get("heading",f"Section {ordinal}"),saved.get("summary",""),())
+        sections=[by_ordinal[item] for item in sorted(by_ordinal)]
         if not sections:
             sections = [CuratedSection(1, plan.sections[0], "基于现有证据", tuple(item.id for item in evidence))]
 
@@ -88,6 +94,7 @@ class ResearchEngine:
 
         yield ResearchEvent("phase", "summarizing", {"detail": "正在生成摘要"})
         tldr, points = await self.model.summarize(bodies)
+        self._cancel(request)
         raw = f"# {plan.title}\n\n> {tldr}\n\n## 核心要点\n\n" + "".join(f"- {item}\n" for item in points) + "\n" + "\n\n".join(bodies)
         try: body = render_citations(raw, sources)
         except KeyError as exc: raise UnknownCitation(f"unknown source citation: {exc.args[0]}") from exc
@@ -119,6 +126,18 @@ class ResearchEngine:
                 except Exception: return []
                 return [replace(item, source_id=source.id) for item in raw[:6] if 0 <= item.relevance <= 1 and item.relevance >= .25 and item.text.strip()]
         return [item for batch in await asyncio.gather(*(one(source) for source in sources)) for item in batch]
+
+    @staticmethod
+    def _merge_sources(existing: list[Source], new: list[Source], request: ResearchRequest) -> list[Source]:
+        accepted=list(existing[:request.limits.max_sources])
+        keys={(item.kind,item.canonical_url or item.locator or item.content_hash) for item in accepted}
+        ids={item.id for item in accepted};next_ordinal=max((item.ordinal for item in accepted),default=0)+1
+        for source in filter_sources(new,min_chars=request.limits.min_source_chars,max_sources=request.limits.max_sources):
+            key=(source.kind,source.canonical_url or source.locator or source.content_hash)
+            if source.id in ids or key in keys:continue
+            accepted.append(replace(source,ordinal=next_ordinal));ids.add(source.id);keys.add(key);next_ordinal+=1
+            if len(accepted)>=request.limits.max_sources:break
+        return accepted
 
     @staticmethod
     def _valid_plan(plan: ResearchPlan, request: ResearchRequest) -> ResearchPlan:

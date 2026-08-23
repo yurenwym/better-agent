@@ -6,6 +6,7 @@ import uuid
 
 from .engine import ResearchCancelled
 from .models import ResearchLimits, ResearchRequest
+from .service import ResearchConflict
 
 
 class ManagedResearchWorker:
@@ -33,12 +34,14 @@ class ManagedResearchWorker:
         heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel))
         report = None
         try:
-            request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel, self.service.completed_sections(job.id))
+            sections,sources,evidence,plan=self.service.recovery_context(job.id)
+            request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel, sections, sources, evidence, plan)
             async for event in self.service.engine.run_research(request):
                 current = self.service.get(job.id)
                 if current.cancel_requested_at: cancel.set()
                 if event.type == "report": report = event.data
                 self.service.apply_event(job.id, self.owner, event)
+            if self.service.get(job.id).cancel_requested_at: raise ResearchCancelled("research cancelled")
             if not report: raise RuntimeError("research report missing")
             self.service.complete(job.id, self.owner, report["title"], report["markdown"], int(report["source_count"]), int(report["evidence_count"]))
             notifier = getattr(self.service, "notifications", None)
@@ -47,6 +50,11 @@ class ManagedResearchWorker:
         except ResearchCancelled:
             if not self._shutdown:
                 self.service.finish_cancelled(job.id, self.owner)
+        except ResearchConflict:
+            if self.service.get(job.id).cancel_requested_at:
+                self.service.finish_cancelled(job.id,self.owner)
+            else:
+                raise
         except PermissionError:
             pass
         except Exception as exc:

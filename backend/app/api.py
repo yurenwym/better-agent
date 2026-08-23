@@ -804,6 +804,17 @@ def register_routes(app) -> None:
         except KeyError as exc:raise HTTPException(status_code=404,detail="proposal not found") from exc
         except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
 
+    @app.patch("/api/memory/episodes/{episode_id}",dependencies=[Depends(mutate)])
+    async def edit_memory_episode(episode_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
+        try:return _memory_episode_json(service.memory_store.edit_episode(episode_id,"local-user",payload.get("summary",""),payload.get("retrieval_policy")))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+    @app.delete("/api/memory/episodes/{episode_id}",status_code=204,dependencies=[Depends(mutate)])
+    async def delete_memory_episode(episode_id:str,service=Depends(runtime))->Response:
+        try:service.memory_store.delete_episode(episode_id,"local-user");return Response(status_code=204)
+        except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
+
     @app.get("/api/memories/{memory_id}/versions")
     async def list_memory_versions(memory_id: str, request: Request) -> dict[str, Any]:
         service = runtime(request)

@@ -171,7 +171,7 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
       ? {
         ...message,
         streaming: false,
-        status: event.data.finish_reason === "cancelled" ? "cancelled" : "ready",
+        status: event.data.finish_reason === "cancelled" ? "cancelled" : event.data.finish_reason === "failed" ? "failed" : "ready",
       }
       : message);
   }

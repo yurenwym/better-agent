@@ -8,6 +8,7 @@ from typing import Any
 
 from ..db import Database
 from ..events import ThreadEventStore
+from .models import Evidence, ResearchPlan, Source
 
 
 TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
@@ -124,6 +125,20 @@ class ResearchService:
     def claim_next(self, owner: str, lease_seconds: int) -> ResearchJob | None:
         now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
         with self.db.transaction() as connection:
+            exhausted=connection.execute("SELECT * FROM research_jobs WHERE status='RUNNING' AND attempts>=max_attempts AND lease_until<=? ORDER BY created_at,id",(now,)).fetchall()
+            for stale in exhausted:
+                if stale["cancel_requested_at"]:
+                    message_id=connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?",(stale["id"],)).fetchone()[0]
+                    connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?",(now,now,stale["id"]))
+                    connection.execute("UPDATE research_job_attempts SET status='CANCELLED',finished_at=? WHERE job_id=? AND status='RUNNING'",(now,stale["id"]))
+                    connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=? AND status='streaming'",(now,stale["id"]))
+                    self.events.append(stale["thread_id"],stale["source_turn_id"],"research.cancelled","research_worker",{"job_id":stale["id"]},connection=connection,occurred_at=now)
+                    self.events.append(stale["thread_id"],stale["source_turn_id"],"message.completed","research_worker",{"message_id":message_id,"generation":1,"finish_reason":"cancelled"},connection=connection,occurred_at=now)
+                    continue
+                connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=?,last_error_json=? WHERE id=?",(now,now,json.dumps({"reason_code":"max_attempts_exhausted"}),stale["id"]))
+                connection.execute("UPDATE research_job_attempts SET status='LEASE_LOST',finished_at=? WHERE job_id=? AND status='RUNNING'",(now,stale["id"]))
+                self.events.append(stale["thread_id"],stale["source_turn_id"],"research.failed","research_worker",{"job_id":stale["id"],"reason_code":"max_attempts_exhausted","retryable":False},connection=connection,occurred_at=now)
+                self._fail_message(stale,"max_attempts_exhausted",connection,now)
             row = connection.execute(
                 "SELECT * FROM research_jobs WHERE attempts < max_attempts AND available_at<=? AND (status='QUEUED' OR (status='RUNNING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1",
                 (now, now),
@@ -196,6 +211,7 @@ class ResearchService:
         now = _now()
         with self.db.transaction() as connection:
             row = self._owned(job_id, owner, connection)
+            if row["cancel_requested_at"]:raise ResearchConflict("research was cancelled before completion")
             report = connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?", (job_id,)).fetchone()
             message_id = report["assistant_message_id"]
             connection.execute("UPDATE research_reports SET title=?,markdown=?,partial_markdown=?,source_count=?,evidence_count=?,updated_at=?,completed_at=? WHERE job_id=?", (title, markdown, markdown, source_count, evidence_count, now, now, job_id))
@@ -220,12 +236,39 @@ class ResearchService:
             connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',last_error_json=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (json.dumps({"reason_code": reason}), now, now, job_id))
             connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'", (now, json.dumps({"reason_code": reason}), job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "research.failed", "research_worker", {"job_id": job_id, "reason_code": reason, "retryable": retryable}, connection=connection, occurred_at=now)
+            self._fail_message(row,reason,connection,now)
         return self.get(job_id)
 
     def completed_sections(self,job_id:str)->dict[int,dict[str,str]]:
         with self.db.connection() as connection:
             rows=connection.execute("SELECT ordinal,heading,markdown,summary FROM research_sections WHERE job_id=? AND status='COMPLETED' ORDER BY ordinal",(job_id,)).fetchall()
         return {int(row["ordinal"]):dict(row) for row in rows}
+
+    def recovery_context(self,job_id:str)->tuple[dict[int,dict[str,str]],tuple[Source,...],tuple[Evidence,...],ResearchPlan|None]:
+        sections=self.completed_sections(job_id)
+        if not sections:return {},(),(),None
+        with self.db.connection() as connection:
+            source_rows=connection.execute("SELECT * FROM research_sources WHERE job_id=? ORDER BY ordinal",(job_id,)).fetchall()
+            evidence_rows=connection.execute("SELECT * FROM research_evidence WHERE job_id=? ORDER BY created_at,id",(job_id,)).fetchall()
+            report=connection.execute("SELECT title,outline_json FROM research_reports WHERE job_id=?",(job_id,)).fetchone()
+        import re
+        cited={item for section in sections.values() for item in re.findall(r"\[\[source:([^\]]+)\]\]",section["markdown"])}
+        sources={row["id"]:Source(row["id"],int(row["ordinal"]),row["kind"],row["canonical_url"],row["locator"],row["title"],row["content"],row["published_at"],row["retrieved_at"],float(row["quality_score"]),row["content_hash"],json.loads(row["metadata_json"] or "{}")) for row in source_rows}
+        evidence=tuple(Evidence(row["id"],row["source_id"],row["text"],row["date_hint"],float(row["relevance"])) for row in evidence_rows)
+        if not cited or not cited<=set(sources) or not cited<={item.source_id for item in evidence}:return {},(),(),None
+        outline=json.loads(report["outline_json"] or "{}") if report else {}
+        plan=ResearchPlan(str(outline.get("title") or report["title"]),tuple(outline.get("sections",())),tuple(outline.get("queries",()))) if outline.get("sections") else None
+        return sections,tuple(sources.values()),evidence,plan
+
+    def recovery_sections(self,job_id:str)->dict[int,dict[str,str]]:
+        return self.recovery_context(job_id)[0]
+
+    def _fail_message(self,row,reason,connection,now)->None:
+        report=connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?",(row["id"],)).fetchone()
+        if not report or not report["assistant_message_id"]:return
+        message_id=report["assistant_message_id"]
+        connection.execute("UPDATE thread_messages SET status='failed',completed_at=? WHERE id=? AND status='streaming'",(now,message_id))
+        self.events.append(row["thread_id"],row["source_turn_id"],"message.completed","research_worker",{"message_id":message_id,"generation":1,"finish_reason":"failed","reason_code":reason},connection=connection,occurred_at=now)
 
     def finish_cancelled(self, job_id: str, owner: str) -> ResearchJob:
         now = _now()

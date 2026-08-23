@@ -353,6 +353,20 @@ class MemoryStore:
         with self.db.connection() as connection:
             return [self._episode(row["id"], owner_id, connection) for row in connection.execute(query, args)]
 
+    def edit_episode(self,episode_id:str,owner_id:str,summary:str,retrieval_policy:str|None=None)->MemoryEpisode:
+        summary=_redact(summary.strip())
+        if not summary:raise ValueError("episode summary is required")
+        if retrieval_policy not in {None,"thread","project"}:raise ValueError("invalid retrieval policy")
+        with self.db.transaction() as connection:
+            self._episode(episode_id,owner_id,connection)
+            connection.execute("UPDATE memory_episodes SET summary=?,retrieval_policy=COALESCE(?,retrieval_policy) WHERE id=? AND owner_id=?",(summary,retrieval_policy,episode_id,owner_id))
+        return self.get_episode(episode_id,owner_id)
+
+    def delete_episode(self,episode_id:str,owner_id:str)->None:
+        with self.db.transaction() as connection:
+            self._episode(episode_id,owner_id,connection)
+            connection.execute("UPDATE memory_episodes SET status='DELETED',summary='[DELETED]',topics_json='[]',decisions_json='[]',open_loops_json='[]' WHERE id=? AND owner_id=?",(episode_id,owner_id))
+
     def get(self, entry_id: str, owner_id: str = "local-user") -> MemoryEntry:
         with self.db.connection() as connection: return self._entry(entry_id, owner_id, connection)
 
