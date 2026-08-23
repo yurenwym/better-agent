@@ -25,6 +25,7 @@ coverage/
 data/*.db
 data/*.db-*
 data/*.log
+data/*.png
 data/memory/
 data/artifacts/
 data/plans/
