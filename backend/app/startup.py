@@ -53,6 +53,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     from .research.live import LiveResearchModel
     from .research.service import ResearchService
     from .research.web import WebSearchRetriever
+    from .research.tavily import TavilySearchRetriever
     from .research.retriever import CombinedRetriever, LocalNoteRetriever
     from .research.worker import ManagedResearchWorker
 
@@ -63,7 +64,11 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.memory_context = MemoryContextProvider(db)
     runtime.archiver = ConversationArchiver(db, runtime.memory_store)
     runtime.memory_store.recover_projections()
-    engine = ResearchEngine(LiveResearchModel(gateway), CombinedRetriever(WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", "https://html.duckduckgo.com/html/")), LocalNoteRetriever(root / "research_notes"))) if gateway else None
+    provider=os.getenv("RESEARCH_SEARCH_PROVIDER","duckduckgo").strip().lower()
+    if provider=="tavily":web_retriever=TavilySearchRetriever(os.getenv("TAVILY_API_KEY",""))
+    elif provider=="duckduckgo":web_retriever=WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", "https://html.duckduckgo.com/html/"))
+    else:raise ValueError(f"unsupported RESEARCH_SEARCH_PROVIDER: {provider}")
+    engine = ResearchEngine(LiveResearchModel(gateway), CombinedRetriever(web_retriever, LocalNoteRetriever(root / "research_notes"))) if gateway else None
     runtime.research = ResearchService(db, runtime.conversation.events, engine)
     runtime.research_worker = ManagedResearchWorker(runtime.research) if engine else None
     from .research.scheduler import ManagedScheduler, ScheduleService

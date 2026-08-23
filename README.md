@@ -28,7 +28,7 @@ $env:LLM_AP_PATH = "D:\Users\王一鸣\Desktop\直到尽头\LLM_API.txt"
 python scripts/start.py
 ```
 
-`LLM_BASE_URL` 可以填写 OpenAI-compatible API 根地址（如 `/v1`）或模型探测地址（如 `/v1/models`）；启动时会安全规范化。Web 深度研究默认使用公开搜索端点，也可通过 `RESEARCH_SEARCH_BASE_URL` 指向可访问的兼容搜索页。本地资料放入 `data/research_notes/`，请求研究时选择 `local_note` 来源。
+`LLM_BASE_URL` 可以填写 OpenAI-compatible API 根地址（如 `/v1`）或模型探测地址（如 `/v1/models`）；启动时会安全规范化。Web 深度研究默认使用 DuckDuckGo，也可设置 `RESEARCH_SEARCH_PROVIDER=tavily` 并通过环境变量 `TAVILY_API_KEY` 提供密钥；不会在供应商之间静默回退。`RESEARCH_SEARCH_BASE_URL` 仅用于替换 DuckDuckGo 兼容搜索页。本地资料放入 `data/research_notes/`，请求研究时选择 `local_note` 来源。
 
 ## 测试与评测
 

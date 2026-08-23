@@ -48,3 +48,20 @@ def test_runtime_uses_one_configured_profile_without_cross_vendor_fallback(tmp_p
     runtime = build_runtime(tmp_path)
 
     assert isinstance(runtime.model, LiveRuntimeModel)
+
+
+def test_runtime_explicitly_selects_tavily_without_search_fallback(tmp_path,monkeypatch)->None:
+    from app.startup import build_runtime
+    from app.research.tavily import TavilySearchRetriever
+    monkeypatch.setenv("AGENT_MODEL_API_KEY","configured");monkeypatch.setenv("AGENT_MODEL_BASE_URL","https://provider.test/v1");monkeypatch.setenv("AGENT_MODEL_ID","demo")
+    monkeypatch.setenv("RESEARCH_SEARCH_PROVIDER","tavily");monkeypatch.setenv("TAVILY_API_KEY","search-key")
+    runtime=build_runtime(tmp_path)
+    assert isinstance(runtime.research.engine.retriever.retrievers[0],TavilySearchRetriever)
+
+
+def test_runtime_rejects_tavily_without_key(tmp_path,monkeypatch)->None:
+    import pytest
+    from app.startup import build_runtime
+    monkeypatch.setenv("AGENT_MODEL_API_KEY","configured");monkeypatch.setenv("AGENT_MODEL_BASE_URL","https://provider.test/v1");monkeypatch.setenv("AGENT_MODEL_ID","demo")
+    monkeypatch.setenv("RESEARCH_SEARCH_PROVIDER","tavily");monkeypatch.delenv("TAVILY_API_KEY",raising=False)
+    with pytest.raises(ValueError,match="TAVILY_API_KEY"):build_runtime(tmp_path)
