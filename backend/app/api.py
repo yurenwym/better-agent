@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Any
 from urllib.parse import urlparse
 
@@ -49,8 +50,13 @@ async def _thread_event_stream(service, thread_id: str, request: Request, after_
         if await request.is_disconnected():
             return
         thread = service.thread(thread_id)
+        with service.db.connection() as connection:
+            research_active = connection.execute(
+                "SELECT 1 FROM research_jobs WHERE thread_id=? AND status IN ('QUEUED','RUNNING') LIMIT 1",
+                (thread_id,),
+            ).fetchone() is not None
         if not events and thread.active_turn_id:
-            if service.turn(thread.active_turn_id).status in terminal_states:
+            if service.turn(thread.active_turn_id).status in terminal_states and not research_active:
                 return
         if not events:
             yield ": keep-alive\n\n"
@@ -86,12 +92,28 @@ def register_routes(app) -> None:
     @app.get("/api/bootstrap")
     async def bootstrap(request: Request) -> dict[str, Any]:
         config = request.app.state.config
+        settings = getattr(request.app.state.runtime, "settings", None)
         return {
             "csrf_token": request.app.state.csrf_token,
             "version": config.version,
             "api_key_env": getattr(config, "api_key_env", "AGENT_MODEL_API_KEY"),
             "api_key_configured": getattr(config, "api_key_configured", False),
+            "human_mode": settings.get().human_mode if settings else False,
         }
+
+    @app.get("/api/settings")
+    async def get_settings(service=Depends(runtime)) -> dict[str, Any]:
+        settings = getattr(service, "settings", None)
+        return {"human_mode": settings.get().human_mode if settings else False}
+
+    @app.put("/api/settings/human-mode", dependencies=[Depends(mutate)])
+    async def set_human_mode(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        settings = getattr(service, "settings", None)
+        if settings is None: raise HTTPException(status_code=503, detail="settings are not configured")
+        try:
+            result = settings.set_human_mode(payload.get("enabled"))
+            return {"human_mode": result.human_mode, "updated_at": result.updated_at}
+        except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.post("/api/threads", status_code=201, dependencies=[Depends(mutate)])
     async def create_thread(payload: dict[str, Any], service=Depends(conversation)) -> dict[str, Any]:
@@ -447,6 +469,115 @@ def register_routes(app) -> None:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="turn not found") from exc
 
+    @app.post("/api/threads/{thread_id}/research", status_code=202, dependencies=[Depends(mutate)])
+    async def create_research(thread_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        research = getattr(service, "research", None)
+        if research is None:
+            raise HTTPException(status_code=503, detail="research is not configured")
+        try:
+            scopes = payload.get("source_scopes", ["web"])
+            if not isinstance(scopes, list): raise ValueError("source_scopes must be an array")
+            job = research.create_manual(thread_id, str(payload.get("topic", "")), str(payload.get("client_request_id", "")), tuple(scopes))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409 if "active turn" in str(exc) else 422, detail=str(exc)) from exc
+        return {"job_id": job.id, "status": job.status, "event_cursor": service.conversation.thread(thread_id).next_event_seq - 1}
+
+    @app.get("/api/research/jobs")
+    async def list_research_jobs(thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0, service=Depends(runtime)) -> dict[str, Any]:
+        research = getattr(service, "research", None)
+        return {"jobs": [] if research is None else [_research_job_json(job) for job in research.list(thread_id=thread_id, schedule_id=schedule_id, status=status, limit=limit, offset=offset)]}
+
+    @app.get("/api/research/jobs/{job_id}")
+    async def get_research_job(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try: return _research_job_json(service.research.get(job_id))
+        except (AttributeError, KeyError) as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+
+    @app.get("/api/research/jobs/{job_id}/report")
+    async def get_research_report(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            job = service.research.get(job_id)
+            if not job.report_markdown: raise HTTPException(status_code=409, detail="research report is not ready")
+            return {"job_id": job.id, "title": job.report_title, "markdown": job.report_markdown}
+        except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+
+    @app.get("/api/research/jobs/{job_id}/sources")
+    async def get_research_sources(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try: service.research.get(job_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+        with service.db.connection() as connection:
+            rows = connection.execute("SELECT id,ordinal,kind,canonical_url,locator,title,published_at,retrieved_at,quality_score FROM research_sources WHERE job_id=? ORDER BY ordinal", (job_id,)).fetchall()
+        return {"sources": [dict(row) for row in rows]}
+
+    @app.post("/api/research/jobs/{job_id}/cancel", dependencies=[Depends(mutate)])
+    async def cancel_research(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try: return _research_job_json(service.research.cancel(job_id))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+
+    @app.post("/api/research/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(mutate)])
+    async def retry_research(job_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        key = payload.get("client_request_id")
+        if not isinstance(key, str) or not key: raise HTTPException(status_code=422, detail="client_request_id is required")
+        try:
+            job = service.research.retry(job_id, payload.get("topic"), key)
+            return {"job_id": job.id, "status": job.status}
+        except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
+
+    @app.post("/api/research/schedules", status_code=201, dependencies=[Depends(mutate)])
+    async def create_schedule(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            result = service.schedules.create(name=payload.get("name", ""), topic=payload.get("topic", ""), source_scopes=tuple(payload.get("source_scopes", ["web"])), trigger_type=payload.get("trigger_type", "daily"), trigger_time=payload.get("trigger_time"), trigger_weekday=payload.get("trigger_weekday"), interval_hours=payload.get("interval_hours"), timezone_name=payload.get("timezone", "Asia/Shanghai"), enabled=payload.get("enabled", True), notify_enabled=payload.get("notify_enabled", True))
+            return _schedule_json(result)
+        except (ValueError, TypeError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/research/schedules")
+    async def list_schedules(service=Depends(runtime)) -> dict[str, Any]:
+        return {"schedules": [_schedule_json(item) for item in service.schedules.list()]}
+
+    @app.get("/api/research/schedules/{schedule_id}")
+    async def get_schedule(schedule_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try: return _schedule_json(service.schedules.get(schedule_id))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="schedule not found") from exc
+
+    @app.put("/api/research/schedules/{schedule_id}", dependencies=[Depends(mutate)])
+    async def update_schedule(schedule_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        try: return _schedule_json(service.schedules.update(schedule_id, **payload))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="schedule not found") from exc
+        except (ValueError, TypeError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/research/schedules/{schedule_id}", status_code=204, dependencies=[Depends(mutate)])
+    async def delete_schedule(schedule_id: str, service=Depends(runtime)) -> Response:
+        try: service.schedules.delete(schedule_id); return Response(status_code=204)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="schedule not found") from exc
+
+    @app.post("/api/research/schedules/{schedule_id}/run", status_code=202, dependencies=[Depends(mutate)])
+    async def run_schedule(schedule_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        key=payload.get("client_request_id")
+        if not isinstance(key,str) or not key: raise HTTPException(status_code=422,detail="client_request_id is required")
+        try:
+            job=service.schedules.run_now(schedule_id,key); return {"job_id":job.id,"status":job.status}
+        except KeyError as exc: raise HTTPException(status_code=404,detail="schedule not found") from exc
+
+    @app.get("/api/research/schedules/{schedule_id}/jobs")
+    async def schedule_jobs(schedule_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        try: service.schedules.get(schedule_id)
+        except KeyError as exc: raise HTTPException(status_code=404,detail="schedule not found") from exc
+        return {"jobs":[_research_job_json(job) for job in service.research.list(schedule_id=schedule_id)]}
+
+    @app.post("/api/notification/channels", status_code=201, dependencies=[Depends(mutate)])
+    async def create_channel(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        try:return _channel_json(service.notifications.create(payload.get("name",""),payload.get("channel_type",""),payload.get("secret_env_name",""),payload.get("enabled",True)))
+        except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+    @app.get("/api/notification/channels")
+    async def list_channels(service=Depends(runtime)) -> dict[str, Any]:return {"channels":[_channel_json(x) for x in service.notifications.list()]}
+
+    @app.post("/api/notification/channels/{channel_id}/test", dependencies=[Depends(mutate)])
+    async def test_channel(channel_id:str,service=Depends(runtime))->dict[str,Any]:
+        try:return vars(await service.notifications.test(channel_id))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
+
     @app.get("/api/skills")
     async def list_skills(request: Request) -> dict[str, Any]:
         service = runtime(request)
@@ -623,7 +754,39 @@ def register_routes(app) -> None:
     @app.get("/api/memories")
     async def list_memories(request: Request) -> dict[str, Any]:
         service = runtime(request)
+        store = getattr(service, "memory_store", None)
+        if store is not None:
+            return {"entries": [_memory_entry_json(item) for item in store.list_entries()], "proposals": [_memory_proposal_json(item) for item in store.list_proposals()], "episodes": [_memory_episode_json(item) for item in store.list_episodes()]}
         return {"memories": [_memory_json(record) for record in service.memory.all_records()]}
+
+    @app.post("/api/memory/entries", status_code=201, dependencies=[Depends(mutate)])
+    async def create_memory_entry(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+        try:
+            item=service.memory_store.remember("local-user",payload.get("kind","fact"),payload.get("scope_type","user"),payload.get("scope_id",""),payload.get("content",""),payload.get("idempotency_key") or f"api:{uuid.uuid4().hex}",payload.get("source_refs",[]),pinned=payload.get("pinned",False),importance=float(payload.get("importance",.5)))
+            return _memory_entry_json(item)
+        except (ValueError,KeyError) as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+    @app.patch("/api/memory/entries/{entry_id}", dependencies=[Depends(mutate)])
+    async def edit_memory_entry(entry_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
+        try:return _memory_entry_json(service.memory_store.edit(entry_id,"local-user",payload.get("content",""),payload.get("base_revision_id","")))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
+
+    @app.post("/api/memory/entries/{entry_id}/archive", dependencies=[Depends(mutate)])
+    async def archive_memory_entry(entry_id:str,service=Depends(runtime))->dict[str,Any]:
+        try:return _memory_entry_json(service.memory_store.set_status(entry_id,"local-user","ARCHIVED"))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+
+    @app.delete("/api/memory/entries/{entry_id}",status_code=204,dependencies=[Depends(mutate)])
+    async def purge_memory_entry(entry_id:str,service=Depends(runtime))->Response:
+        try:service.memory_store.purge(entry_id,"local-user");return Response(status_code=204)
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+
+    @app.post("/api/memory/proposals/{proposal_id}/decision",dependencies=[Depends(mutate)])
+    async def decide_memory_proposal(proposal_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
+        try:return _memory_proposal_json(service.memory_store.decide_proposal(proposal_id,"local-user",payload.get("accept") is True,payload.get("idempotency_key") or f"decision:{uuid.uuid4().hex}"))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="proposal not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
 
     @app.get("/api/memories/{memory_id}/versions")
     async def list_memory_versions(memory_id: str, request: Request) -> dict[str, Any]:
@@ -747,9 +910,31 @@ def _thread_message_json(message) -> dict[str, Any]:
         "generation": message.generation,
         "content_length": message.content_length,
         "plan_document_version_id": message.plan_document_version_id,
+        "presentation": getattr(message, "presentation", "standard"),
+        "research_job_id": getattr(message, "research_job_id", None),
         "created_at": message.created_at,
         "completed_at": message.completed_at,
     }
+
+
+def _research_job_json(job) -> dict[str, Any]:
+    return {
+        "id": job.id, "thread_id": job.thread_id, "source_turn_id": job.source_turn_id,
+        "schedule_id": job.schedule_id, "retry_of_job_id": job.retry_of_job_id,
+        "trigger_kind": job.trigger_kind, "topic": job.topic, "source_scopes": list(job.source_scopes),
+        "status": job.status, "phase": job.phase, "attempts": job.attempts,
+        "cancel_requested_at": job.cancel_requested_at, "created_at": job.created_at, "updated_at": job.updated_at,
+        "title": job.report_title, "source_count": job.source_count, "evidence_count": job.evidence_count,
+        "assistant_message_id": job.assistant_message_id,
+    }
+
+
+def _schedule_json(item) -> dict[str, Any]:
+    return {"id":item.id,"name":item.name,"thread_id":item.thread_id,"topic":item.topic,"source_scopes":list(item.source_scopes),"trigger_type":item.trigger_type,"trigger_time":item.trigger_time,"trigger_weekday":item.trigger_weekday,"interval_hours":item.interval_hours,"timezone":item.timezone,"enabled":item.enabled,"notify_enabled":item.notify_enabled,"next_run_at":item.next_run_at,"last_run_at":item.last_run_at,"last_job_id":item.last_job_id,"created_at":item.created_at,"updated_at":item.updated_at}
+
+
+def _channel_json(item) -> dict[str, Any]:
+    return {"id":item.id,"name":item.name,"channel_type":item.channel_type,"secret_env_name":item.secret_env_name,"enabled":item.enabled,"configured":item.configured}
 
 
 def _plan_document_json(
@@ -920,6 +1105,18 @@ def _memory_json(record) -> dict[str, Any]:
         "evidence_event_ids": list(record.evidence_event_ids),
         "path": record.path,
     }
+
+
+def _memory_entry_json(item) -> dict[str, Any]:
+    return {"id":item.id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"status":item.status,"content":item.content,"revision_id":item.revision_id,"revision_no":item.revision_no,"pinned":item.pinned,"importance":item.importance,"sensitivity":item.sensitivity,"created_at":item.created_at,"updated_at":item.updated_at}
+
+
+def _memory_proposal_json(item) -> dict[str, Any]:
+    return {"id":item.id,"operation":item.operation,"target_entry_id":item.target_entry_id,"base_revision_id":item.base_revision_id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"content":item.content,"confidence":item.confidence,"status":item.status,"accepted_revision_id":item.accepted_revision_id,"reason":item.reason,"created_at":item.created_at}
+
+
+def _memory_episode_json(item) -> dict[str, Any]:
+    return {"id":item.id,"thread_id":item.thread_id,"project_id":item.project_id,"start_message_seq":item.start_message_seq,"end_message_seq":item.end_message_seq,"summary":item.summary,"sensitivity":item.sensitivity,"retrieval_policy":item.retrieval_policy,"status":item.status,"created_at":item.created_at}
 
 
 def _memory_version_json(version) -> dict[str, Any]:

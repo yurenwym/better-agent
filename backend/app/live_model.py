@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
+import re
 from contextvars import ContextVar
 from typing import Any, Callable
 
@@ -207,8 +209,10 @@ class LiveRuntimeModel:
 class LiveConversationModel:
     """Conversation adapter with a bounded ask tool and control-header repair."""
 
-    def __init__(self, gateway: ModelGateway) -> None:
+    def __init__(self, gateway: ModelGateway, settings=None) -> None:
         self.gateway = gateway
+        self.settings = settings
+        self.memory_store = None
 
     async def _classify_existing_plan_save(
         self,
@@ -302,6 +306,37 @@ class LiveConversationModel:
             return False
         return payload.get("plan_document_request") is True
 
+    async def _classify_explicit_research_request(self, content: str, cancel_event) -> tuple[bool, str]:
+        request = ModelRequest(messages=[
+            {"role":"system","content":"Return JSON only: {\"start_research\":true|false,\"topic\":\"...\"}. True only when the user explicitly requests deep research, investigation, comparison with sources, or a sourced report. Ordinary questions, guides, plans, recommendations, and requests that can be answered directly are false. Preserve the requested topic concisely."},
+            {"role":"user","content":content},
+        ],tools=[],temperature=0,max_tokens=200)
+        try:
+            response=await self.gateway.complete(request,cancel_event=cancel_event)
+            payload=_parse_json(response.message)
+            return payload.get("start_research") is True, str(payload.get("topic") or content).strip()[:2000]
+        except GatewayError as exc:
+            if exc.kind=="cancelled":raise
+            return False,content
+        except (TypeError,ValueError,json.JSONDecodeError):return False,content
+
+    async def _classify_explicit_remember(self,content:str,cancel_event):
+        if not isinstance(self.gateway,ModelGateway):return None
+        explicit_marker=bool(re.search(r"(?:请|帮我|以后)?\s*(?:记住|记得)|\bremember\b",content,re.I))
+        request=ModelRequest(messages=[{"role":"system","content":"Return JSON only: {\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}. True only when the user explicitly commands you to remember stable information for future conversations. Examples that MUST be true: 'Remember that I dislike spicy food', '请记住我喜欢简洁明确的回答', '以后记得我九点后出发'. Ordinary statements without an explicit remember-for-future command are false. Preserve only the stable fact in content. Never include credentials or secrets."},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220)
+        try:
+            payload=_parse_json((await self.gateway.complete(request,cancel_event=cancel_event)).message)
+            if payload.get("remember") is not True and explicit_marker:
+                repair=ModelRequest(messages=[*request.messages,{"role":"system","content":"The application already verified an explicit remember-for-future command. Return the same JSON schema with remember=true and extract the stable information; do not ask a question."}],tools=[],temperature=0,max_tokens=220)
+                payload=_parse_json((await self.gateway.complete(repair,cancel_event=cancel_event)).message)
+            if payload.get("remember") is not True:return None
+            if payload.get("kind") not in {"preference","constraint","fact","decision","lesson"} or payload.get("scope_type") not in {"user","project"}:return None
+            return payload
+        except GatewayError as exc:
+            if exc.kind=="cancelled":raise
+            return None
+        except Exception:return None
+
     async def route_and_respond(
         self,
         *,
@@ -312,12 +347,28 @@ class LiveConversationModel:
         on_text_reset,
         cancel_event,
     ) -> Any:
+        human_mode = bool(self.settings and self.settings.get().human_mode)
+        if self.memory_store is not None:
+            remember=await self._classify_explicit_remember(content,cancel_event)
+            if remember:
+                item=self.memory_store.remember("local-user",remember["kind"],remember["scope_type"],remember.get("scope_id", ""),remember["content"],f"conversation:{hashlib.sha256(content.encode()).hexdigest()}")
+                header=json.dumps({"v":1,"policy":"answer","content_shape":"text","reason_code":"memory_saved"},ensure_ascii=False)+"\n"
+                body=f"已记住：{item.content}\n\n你可以随时在记忆页面编辑、停用或删除。"
+                if on_text_delta is not None:on_text_delta(header+body)
+                return type("RememberResponse",(),{"message":header+body,"tool_calls":[],"finish_reason":"stop"})()
+        start_research,research_topic=(await self._classify_explicit_research_request(content,cancel_event)) if isinstance(self.gateway, ModelGateway) else (False,content)
+        if start_research:
+            header=json.dumps({"v":3,"policy":"start_research","content_shape":"research","reason_code":"explicit_deep_research","research":{"topic":research_topic,"scope":"web"}},ensure_ascii=False)+"\n"
+            if on_text_delta is not None:on_text_delta(header)
+            return type("ResearchRouteResponse",(),{"message":header,"tool_calls":[],"finish_reason":"stop"})()
         messages: list[dict[str, str]] = [{
             "role": "system",
             "content": (
                 "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
-                "Use the V1 header for answer-only compatibility and use V2 when declaring a saved document. "
-                "The header must have v=1 or v=2, policy=answer|propose_execution|clarify, content_shape, and reason_code. "
+                "Use V1 for answer-only compatibility, V2 for saved documents, and V3 for explicit deep research. "
+                "The header policy is answer|propose_execution|clarify|start_research. "
+                "Only when the user explicitly asks for deep research, investigation, or a sourced report, return exactly "
+                "v=3, policy=start_research, content_shape=research, reason_code=explicit_deep_research, and research={topic,scope:web}; no visible body or artifact. "
                 "For an explicit request to create, save, or modify a plan document, use v=2 with exactly one artifact "
                 "object: kind=plan_document, operation=upsert, and a concise title. Return the complete Markdown document "
                 "after the header; that exact visible body is the saved document. "
@@ -344,6 +395,13 @@ class LiveConversationModel:
                 "Use the user's language and start the useful answer immediately after the header."
             ),
         }]
+        if human_mode:
+            messages.append({"role": "system", "content": (
+                "Human conversation mode applies only to user-facing text after the exact JSON control header. "
+                "Never apply it to control JSON, ask_user, plan_document artifacts, research reports, runtime JSON, tools, or citations. "
+                "Use natural spoken Chinese in usually 1-2 and at most 3 bubbles. Put [[next]] on its own line only at a real pause. "
+                "Avoid Markdown headings, tables, and report-style numbered lists in the ordinary visible body."
+            )})
         save_existing_plan = await self._classify_existing_plan_save(content, history, cancel_event)
         if save_existing_plan:
             messages.append({

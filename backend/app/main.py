@@ -95,11 +95,21 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
         if plan_documents is not None:
             plan_documents.recover_pending_intents()
         worker = getattr(runtime, "turn_worker", None)
+        research_worker = getattr(runtime, "research_worker", None)
+        scheduler = getattr(runtime, "scheduler", None)
         if worker is not None:
             await worker.start()
+        if research_worker is not None:
+            await research_worker.start()
+        if scheduler is not None:
+            await scheduler.start()
         try:
             yield
         finally:
+            if scheduler is not None:
+                await scheduler.stop()
+            if research_worker is not None:
+                await research_worker.stop()
             if worker is not None:
                 await worker.stop()
 

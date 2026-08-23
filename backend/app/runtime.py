@@ -161,6 +161,10 @@ class AgentRuntime:
         )
         self.plan_documents = self.conversation.plan_documents
         self.turn_worker = ManagedTurnWorker(self.conversation)
+        self.research = None
+        self.research_worker = None
+        self.scheduler = None
+        self.archiver = None
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
         self.context_assembler = ContextAssembler()
@@ -928,17 +932,13 @@ class AgentRuntime:
             return
         goal = self._goal(run.goal_id)
         interactions = self._interaction_text(run.id)
-        memories = [
-            MemoryForContext(
-                id=record.id,
-                content=record.content,
-                scope=record.scope,
-                status=record.status,
-                project_id=record.project_id,
-                skill_name=record.skill_name,
-            )
-            for record in self.memory.all_records()
-        ]
+        provider = getattr(self, "memory_context", None)
+        if provider is not None:
+            from .memory_v2 import MemoryContextRequest
+            selected = provider.select(MemoryContextRequest("local-user", run.source_turn_id or run.id, run.project_id, interactions[-1] if interactions else "", purpose=kind))
+            memories = [MemoryForContext(id=revision_id, content=selected.rendered, scope="global", status="confirmed", project_id=None, skill_name=None) for revision_id in selected.revision_ids[:1]]
+        else:
+            memories = [MemoryForContext(id=record.id,content=record.content,scope=record.scope,status=record.status,project_id=record.project_id,skill_name=record.skill_name) for record in self.memory.all_records()]
         plan = args[1] if kind == "reflection" and len(args) > 1 else ""
         step = args[0] if kind == "react" and args else ""
         observation = args[1] if kind == "react" and len(args) > 1 else ""
