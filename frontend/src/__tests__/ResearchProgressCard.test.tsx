@@ -5,6 +5,8 @@ import ResearchProgressCard from "../components/ResearchProgressCard";
 it("renders structured research progress and cancel action", () => {
   const cancel = vi.fn();
   render(<ResearchProgressCard job={{ id:"r",thread_id:"t",source_turn_id:"x",schedule_id:null,retry_of_job_id:null,trigger_kind:"manual",topic:"研究 SQLite",source_scopes:["web"],status:"RUNNING",phase:"distilling",attempts:1,cancel_requested_at:null,created_at:"n",updated_at:"n",title:null,source_count:3,evidence_count:8,assistant_message_id:"m" }} onCancel={cancel} />);
+  expect(screen.getByRole("status", { name: "深度研究已启动" }).textContent).toContain("已进入深度研究模式");
+  expect(screen.getByText("我会在后台检索并核对来源，完成后生成带引用的报告。你可以继续浏览当前对话。"));
   expect(screen.getByText("正在提炼证据")).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "取消研究" }));
   expect(cancel).toHaveBeenCalled();
