@@ -195,3 +195,40 @@ def test_concurrent_preview_same_key_creates_one_program(tmp_path) -> None:
     assert results[0]==results[1]
     with db.connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM goal_programs").fetchone()[0]==1
+
+
+def test_completed_program_saves_one_bounded_memory_episode_and_replays_safely(tmp_path) -> None:
+    from app.memory_v2 import MemoryStore
+
+    db, _, goals, version = service(tmp_path)
+    goals.memory_store = MemoryStore(db, tmp_path / "memory")
+    draft = preview(goals, version)
+    active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
+    for index, action in enumerate(active["actions"]):
+        goals.complete_action(action["id"], expected_version=0, idempotency_key=f"complete-{index}")
+
+    ready = goals.get(draft["id"])
+    completed = goals.transition(draft["id"], "complete", expected_version=ready["version"], idempotency_key="finish-goal")
+    replay = goals.transition(draft["id"], "complete", expected_version=ready["version"], idempotency_key="finish-goal")
+
+    assert completed == replay
+    assert completed["status"] == "COMPLETED"
+    assert completed["completion_summary"].startswith("已完成目标“一周力扣训练”")
+    assert completed["completion_episode_id"].startswith("episode_")
+    episodes = goals.memory_store.list_episodes(thread_id=completed["source_thread_id"])
+    assert len(episodes) == 1
+    assert episodes[0].summary == completed["completion_summary"]
+    assert "private" not in episodes[0].summary
+
+
+def test_program_list_exposes_plan_relationship_and_terminal_lifecycle(tmp_path) -> None:
+    _, _, goals, version = service(tmp_path)
+    draft = preview(goals, version)
+    active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
+    paused = goals.transition(active["id"], "pause", expected_version=active["version"], idempotency_key="pause")
+
+    listed = goals.list()
+
+    assert listed[0]["id"] == paused["id"]
+    assert listed[0]["source_plan_document_id"] == version.plan_document_id
+    assert listed[0]["status"] == "PAUSED"

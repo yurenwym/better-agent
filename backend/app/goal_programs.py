@@ -362,8 +362,26 @@ class GoalProgramService:
         changed=connection.execute(f"UPDATE goal_programs SET status=?,updated_at=?{terminal_field},version=version+1 WHERE id=? AND version=? AND status=?",params).rowcount
         if changed!=1: raise GoalProgramConflict("program version conflict",self._program_json(connection,row["id"],row["owner_id"]))
         if target=="CANCELLED": connection.execute("UPDATE goal_actions SET status='CANCELLED',cancel_reason='PROGRAM_CANCELLED',cancelled_at=?,updated_at=?,version=version+1 WHERE program_id=? AND status='SCHEDULED'",(now,now,row["id"]))
+        if target=="COMPLETED": self._save_completion_episode(connection,row)
         event_type={"pause":"program.paused","resume":"program.resumed","complete":"program.completed","cancel":"program.cancelled"}[operation]
         self._event(connection,row["id"],None,event_type,"user",{})
+
+    def _save_completion_episode(self, connection, row) -> None:
+        actions=connection.execute("SELECT required,status FROM goal_actions WHERE program_id=?",(row["id"],)).fetchall()
+        required=sum(bool(item["required"]) and item["status"] not in {"DEFERRED","CANCELLED"} for item in actions)
+        completed=sum(bool(item["required"]) and item["status"]=="COMPLETED" for item in actions)
+        optional=sum(not item["required"] and item["status"]=="COMPLETED" for item in actions)
+        skipped=sum(item["status"]=="SKIPPED" for item in actions)
+        summary=f"已完成目标“{row['objective_title']}”。执行周期 {row['start_date']} 至 {row['end_date']}；必做行动完成 {completed}/{required}，选做完成 {optional}，跳过 {skipped}。"
+        source_hash=_hash({"program_id":row["id"],"program_version_id":row["current_program_version_id"],"summary":summary})
+        episode_id=f"episode_{uuid.uuid4().hex}"
+        connection.execute(
+            "INSERT OR IGNORE INTO memory_episodes(id,owner_id,thread_id,project_id,start_message_seq,end_message_seq,source_hash,summary,sensitivity,retrieval_policy,status,created_at) "
+            "VALUES (?,?,?,NULL,0,0,?,?,'normal','thread','ACTIVE',?)",
+            (episode_id,row["owner_id"],row["source_thread_id"],source_hash,summary,_now()),
+        )
+        episode=connection.execute("SELECT id FROM memory_episodes WHERE owner_id=? AND thread_id=? AND start_message_seq=0 AND end_message_seq=0 AND source_hash=?",(row["owner_id"],row["source_thread_id"],source_hash)).fetchone()
+        connection.execute("UPDATE goal_programs SET completion_summary=?,completion_episode_id=? WHERE id=?",(summary,episode["id"],row["id"]))
 
     def _tombstone(self, connection, row, expected_version: int) -> None:
         if row["version"]!=expected_version: raise GoalProgramConflict("program version conflict",self._program_json(connection,row["id"],row["owner_id"]))
@@ -426,7 +444,7 @@ class GoalProgramService:
     def _program_json(self, connection, program_id, owner_id):
         row=self._program_row(connection,program_id,owner_id); structure=self._structure(connection,row["current_program_version_id"]) if row["current_program_version_id"] else None
         actions=connection.execute("SELECT * FROM goal_actions WHERE program_id=? ORDER BY scheduled_date,position,id",(program_id,)).fetchall()
-        result=self._program_summary(row); result.update({"source_thread_id":row["source_thread_id"],"source_plan_document_id":row["source_plan_document_id"],"source_plan_document_version_id":row["source_plan_document_version_id"],"source_plan_content_hash":row["source_plan_content_hash"],"compile_status":row["compile_status"],"compile_error_code":row["compile_error_code"],"daily_minutes":row["daily_minutes"],"current_program_version_id":row["current_program_version_id"],"structure":structure,"actions":[self._action_json(a) for a in actions],"progress":self._progress(connection,program_id),"next_event_seq":row["next_event_seq"],"deleted_at":row["deleted_at"]})
+        result=self._program_summary(row); result.update({"source_thread_id":row["source_thread_id"],"source_plan_document_id":row["source_plan_document_id"],"source_plan_document_version_id":row["source_plan_document_version_id"],"source_plan_content_hash":row["source_plan_content_hash"],"compile_status":row["compile_status"],"compile_error_code":row["compile_error_code"],"daily_minutes":row["daily_minutes"],"current_program_version_id":row["current_program_version_id"],"structure":structure,"actions":[self._action_json(a) for a in actions],"progress":self._progress(connection,program_id),"next_event_seq":row["next_event_seq"],"deleted_at":row["deleted_at"],"completion_summary":row["completion_summary"],"completion_episode_id":row["completion_episode_id"]})
         return result
 
     @staticmethod

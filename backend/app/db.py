@@ -545,10 +545,16 @@ CREATE TABLE IF NOT EXISTS goal_review_action_snapshots (
 );
 """
 
+MIGRATION_20260824_GOAL_COMPLETION = r"""
+ALTER TABLE goal_programs ADD COLUMN completion_summary TEXT;
+ALTER TABLE goal_programs ADD COLUMN completion_episode_id TEXT;
+"""
+
 MIGRATIONS = (
     (1, MIGRATION_20260823),
     (2, MIGRATION_20260824_GOAL_PROGRAMS),
     (3, MIGRATION_20260824_GOAL_REVIEWS),
+    (4, MIGRATION_20260824_GOAL_COMPLETION),
 )
 
 

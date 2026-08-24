@@ -2,15 +2,16 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TodayPage from "../pages/TodayPage";
 
-const api=vi.hoisted(()=>({getToday:vi.fn(),mutateGoalAction:vi.fn(),transitionGoalProgram:vi.fn(),requestGoalActionHelp:vi.fn(),proposeGoalAdjustment:vi.fn(),decideGoalAdjustment:vi.fn(),syncGoalAdjustment:vi.fn()}));
+const api=vi.hoisted(()=>({getToday:vi.fn(),listGoalPrograms:vi.fn(),deleteGoalProgram:vi.fn(),mutateGoalAction:vi.fn(),transitionGoalProgram:vi.fn(),requestGoalActionHelp:vi.fn(),proposeGoalAdjustment:vi.fn(),decideGoalAdjustment:vi.fn(),syncGoalAdjustment:vi.fn()}));
 vi.mock("../api",()=>({...api,ApiError:class ApiError extends Error{status=409;}}));
 afterEach(cleanup);
 
 const action={id:"action-1",program_id:"program-1",program_version_id:"pv-1",logical_key:"d1",scheduled_date:"2026-09-01",position:1,title:"完成一道题",description:"数组练习",estimated_minutes:60,completion_criteria:"提交通过",required:true,status:"SCHEDULED",version:0,completed_at:null,skipped_at:null,deferred_at:null,cancelled_at:null,deferred_from_action_id:null,cancel_reason:null};
 const response={date:null,programs:[{program:{id:"program-1",objective_title:"一周力扣",objective_summary:"每天一道",status:"ACTIVE",timezone:"Asia/Shanghai",start_date:"2026-09-01",end_date:"2026-09-07",version:2},local_date:"2026-09-01",day_number:1,today:[action],overdue:[],today_estimated_minutes:60,progress:{required_completed:0,required_total:7,completion_rate:0,completion_ready:false,optional_completed:0},review:null}]};
+const program={...response.programs[0].program,compile_status:"READY",compile_error_code:null,daily_minutes:60,source_thread_id:"thread-1",source_plan_document_id:"plan-1",source_plan_document_version_id:"plan-version-1",source_plan_content_hash:"sha256:x",current_program_version_id:"pv-1",structure:null,actions:[action],progress:response.programs[0].progress,next_event_seq:4,deleted_at:null,completion_summary:null,completion_episode_id:null};
 
 describe("TodayPage",()=>{
-  beforeEach(()=>{vi.clearAllMocks();api.getToday.mockResolvedValue(response);api.mutateGoalAction.mockResolvedValue({});api.transitionGoalProgram.mockResolvedValue({});api.requestGoalActionHelp.mockResolvedValue({thread_id:"thread-1",action_id:"action-1"});});
+  beforeEach(()=>{vi.clearAllMocks();api.getToday.mockResolvedValue(response);api.listGoalPrograms.mockResolvedValue({programs:[program]});api.deleteGoalProgram.mockResolvedValue(undefined);api.mutateGoalAction.mockResolvedValue({});api.transitionGoalProgram.mockResolvedValue({});api.requestGoalActionHelp.mockResolvedValue({thread_id:"thread-1",action_id:"action-1"});});
   it("renders grouped actions and refetches after completion",async()=>{
     api.mutateGoalAction.mockResolvedValueOnce({action:{...action,status:"COMPLETED",version:1}});
     render(<TodayPage csrfToken="csrf"/>);
@@ -55,5 +56,30 @@ describe("TodayPage",()=>{
     expect(await screen.findByRole("heading",{name:"今天的复盘"})).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"接受调整"}));
     await waitFor(()=>expect(api.decideGoalAdjustment).toHaveBeenCalledWith("proposal-auto","accept",0,expect.any(String),"csrf"));
+  });
+  it("lists a paused program and lets the user resume it",async()=>{
+    const paused={...program,status:"PAUSED",version:3};
+    api.listGoalPrograms.mockResolvedValue({programs:[paused]});api.getToday.mockResolvedValue({date:null,programs:[]});
+    render(<TodayPage csrfToken="csrf"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"恢复执行"}));
+    await waitFor(()=>expect(api.transitionGoalProgram).toHaveBeenCalledWith("program-1","resume",3,expect.any(String),"csrf"));
+  });
+  it("requires confirmation before completing a ready goal",async()=>{
+    const ready={...program,version:4,progress:{...program.progress,required_completed:7,completion_rate:1,completion_ready:true}};
+    api.listGoalPrograms.mockResolvedValue({programs:[ready]});api.getToday.mockResolvedValue({date:null,programs:[{...response.programs[0],program:ready,progress:ready.progress,today:[]}]});
+    render(<TodayPage csrfToken="csrf"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"完成目标"}));
+    expect(api.transitionGoalProgram).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"确认完成"}));
+    await waitFor(()=>expect(api.transitionGoalProgram).toHaveBeenCalledWith("program-1","complete",4,expect.any(String),"csrf"));
+  });
+  it("deletes a terminal program after confirmation",async()=>{
+    const completed={...program,status:"COMPLETED",version:5,completion_summary:"目标周期已完成。"};
+    api.listGoalPrograms.mockResolvedValueOnce({programs:[completed]}).mockResolvedValue({programs:[]});api.getToday.mockResolvedValue({date:null,programs:[]});
+    render(<TodayPage csrfToken="csrf"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"删除记录"}));
+    fireEvent.click(screen.getByRole("button",{name:"确认删除"}));
+    await waitFor(()=>expect(api.deleteGoalProgram).toHaveBeenCalledWith("program-1",5,expect.any(String),"csrf"));
+    expect(await screen.findByText("执行记录已删除")).toBeTruthy();
   });
 });

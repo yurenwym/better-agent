@@ -54,7 +54,7 @@ export default function ConfirmDialog({ open, title, description, confirmLabel =
         </div>
         <div className="confirm-dialog-actions">
           <button className="button button-secondary" disabled={busy} ref={cancelRef} type="button" onClick={onCancel}>取消</button>
-          <button className="button button-danger confirm-dialog-danger" disabled={busy} type="button" onClick={onConfirm}>{busy ? "正在删除…" : confirmLabel}</button>
+          <button className="button button-danger confirm-dialog-danger" disabled={busy} type="button" onClick={onConfirm}>{busy ? "正在处理…" : confirmLabel}</button>
         </div>
       </section>
     </div>

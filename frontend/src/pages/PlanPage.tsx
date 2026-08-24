@@ -16,6 +16,7 @@ import {
   revisePlan,
   previewGoalProgram,
   activateGoalProgram,
+  listGoalPrograms,
 } from "../api";
 import MarkdownMessage from "../components/MarkdownMessage";
 import PlanVisualEditor from "../components/PlanVisualEditor";
@@ -126,6 +127,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [dailyMinutes, setDailyMinutes] = useState(60);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteNotice, setDeleteNotice] = useState<{message:string;tone:"success"|"error"}|null>(null);
+  const [linkedProgram, setLinkedProgram] = useState<GoalProgram | null>(null);
 
   const activePlanId = showLibrary ? null : planId ?? selectedPlanId;
 
@@ -199,6 +201,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           const response = await getThreadPlan(threadId);
           nextDocument = response.plan;
         }
+        const programs = nextDocument ? (await listGoalPrograms()).programs : [];
         if (run) {
           nextStructuredPlans = await getPlans(run.id);
           if (run.source_plan_document_id) {
@@ -217,6 +220,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           if (nextDocument) applyDocument(nextDocument);
           setStructuredPlans(nextStructuredPlans);
           setSourceDocument(nextSourceDocument);
+          setLinkedProgram(nextDocument ? programs.find(item=>item.source_plan_document_id===nextDocument!.id&&["DRAFT","ACTIVE","PAUSED"].includes(item.status))??programs.find(item=>item.source_plan_document_id===nextDocument!.id)??null : null);
           setDraft(nextStructuredPlans?.current ? editableSteps(nextStructuredPlans.current.steps) : []);
         }
       } catch (caught) {
@@ -410,7 +414,8 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     return (
       <PlanShell {...shellProps}>
         <div className="page-stack plan-document-page">
-        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT</span><h2>{document.title}</h2><p>已保存计划 · 可直接查看和编辑</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span>{editing ? <><button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>取消编辑</button><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>保存计划</button></> : <><button className="button button-secondary" disabled={busy} type="button" onClick={()=>setShowExecution(value=>!value)}>开始执行</button><button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>编辑计划</button></>}<button className="button button-danger" disabled={busy} type="button" onClick={() => setDeleteOpen(true)}>删除计划</button></div></section>
+        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT</span><h2>{document.title}</h2><p>已保存计划 · 可直接查看和编辑</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span>{editing ? <><button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>取消编辑</button><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>保存计划</button></> : <>{linkedProgram?<span className={`plan-execution-status status-${linkedProgram.status.toLowerCase()}`}>{linkedProgram.status==="PAUSED"?"执行已暂停":linkedProgram.status==="ACTIVE"?"正在执行":linkedProgram.status==="DRAFT"?"执行待确认":linkedProgram.status==="COMPLETED"?"执行已完成":"执行已取消"}</span>:<button className="button button-secondary" disabled={busy} type="button" onClick={()=>setShowExecution(value=>!value)}>开始执行</button>}<button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>编辑计划</button></>}<button className="button button-danger" disabled={busy} type="button" onClick={() => setDeleteOpen(true)}>删除计划</button></div></section>
+        {linkedProgram&&<section className="plan-linked-program"><div><span className="eyebrow">LINKED EXECUTION</span><strong>{linkedProgram.objective_title}</strong><p>必做进度 {linkedProgram.progress.required_completed}/{linkedProgram.progress.required_total} · {linkedProgram.start_date} 至 {linkedProgram.end_date}</p></div><span>{linkedProgram.status}</span></section>}
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
         {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><div className="plan-conflict-preview"><MarkdownMessage content={String(conflict.markdown ?? "")} /></div></section>}
         {editing ? <section className="card plan-editor-card"><PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} /></section> : <section className="card plan-readable-card"><div className="panel-toolbar"><div><span className="eyebrow">PLAN CONTENT</span><h3>Readable plan</h3></div><span className="muted">Rendered view</span></div><MarkdownMessage content={markdown} /></section>}

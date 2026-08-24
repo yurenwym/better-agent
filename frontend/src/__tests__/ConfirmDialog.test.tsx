@@ -27,3 +27,19 @@ it("keeps destructive confirmation inside the application", () => {
   fireEvent.click(confirm);
   expect(onConfirm).toHaveBeenCalledOnce();
 });
+
+it("uses a neutral busy label for non-delete confirmations", () => {
+  render(
+    <ConfirmDialog
+      open
+      busy
+      title="确认完成目标？"
+      description="完成后会保存总结。"
+      confirmLabel="确认完成"
+      onCancel={vi.fn()}
+      onConfirm={vi.fn()}
+    />,
+  );
+
+  expect((screen.getByRole("button", { name: "正在处理…" }) as HTMLButtonElement).disabled).toBe(true);
+});

@@ -67,3 +67,18 @@ def test_lifecycle_and_request_help_routes_do_not_create_run(tmp_path) -> None:
     assert help_response.status_code == 202 and paused.status_code == 200 and paused.json()["status"] == "PAUSED"
     with runtime.db.connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
+
+
+def test_completed_program_returns_memory_summary_over_http(tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path)
+    draft=client.post(f"/api/plans/{version.plan_document_id}/program-preview",headers=headers(app,"preview"),json={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60}).json()
+    active=client.post(f"/api/programs/{draft['id']}/activate",headers=headers(app,"activate"),json={"expected_version":draft["version"]}).json()
+    for index,action in enumerate(active["actions"]):
+        client.post(f"/api/actions/{action['id']}/complete",headers=headers(app,f"complete-{index}"),json={"expected_version":action["version"]})
+    ready=client.get(f"/api/programs/{draft['id']}",headers={"host":"127.0.0.1:8000"}).json()
+
+    completed=client.post(f"/api/programs/{draft['id']}/complete",headers=headers(app,"finish"),json={"expected_version":ready["version"]})
+
+    assert completed.status_code==200
+    assert completed.json()["completion_episode_id"].startswith("episode_")
+    assert completed.json()["completion_summary"].startswith("已完成目标")

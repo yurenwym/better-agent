@@ -268,6 +268,7 @@ export interface GoalProgram {
   source_thread_id: string; source_plan_document_id: string; source_plan_document_version_id: string;
   source_plan_content_hash: string; current_program_version_id: string | null;
   structure: ProgramStructure | null; actions: GoalAction[]; progress: GoalProgress; next_event_seq: number; deleted_at: string | null;
+  completion_summary: string | null; completion_episode_id: string | null;
 }
 
 export interface TodayProgramGroup {

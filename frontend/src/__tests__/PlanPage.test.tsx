@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   retryPlanProjection: vi.fn(),
   previewGoalProgram: vi.fn(),
   activateGoalProgram: vi.fn(),
+  listGoalPrograms: vi.fn(),
 }));
 
 vi.mock("../api", () => ({ ...api, ApiError: class ApiError extends Error { status = 409; payload: unknown; constructor(message: string, status: number, payload: unknown) { super(message); this.status = status; this.payload = payload; } } }));
@@ -77,6 +78,7 @@ describe("PlanPage document editor", () => {
     api.retryPlanProjection.mockResolvedValue(document);
     api.previewGoalProgram.mockResolvedValue(null);
     api.activateGoalProgram.mockResolvedValue(null);
+    api.listGoalPrograms.mockResolvedValue({ programs: [] });
     api.getPlanVersion.mockResolvedValue({ ...current, version: 1, id: "version-1", markdown: "# Travel plan\n\n## Day 1\nOriginal" });
   });
 
@@ -105,6 +107,14 @@ describe("PlanPage document editor", () => {
 
     await waitFor(() => expect(api.getPlanDocument).toHaveBeenCalledWith("plan-2"));
     expect((await screen.findAllByRole("heading", { name: "Travel plan" })).length).toBeGreaterThan(0);
+  });
+
+  it("shows the linked execution instead of offering a duplicate start", async () => {
+    api.listGoalPrograms.mockResolvedValue({programs:[{id:"program-1",source_plan_document_id:"plan-1",objective_title:"Travel plan",status:"PAUSED",version:3,progress:{required_completed:2,required_total:7,completion_rate:2/7,completion_ready:false}}]});
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    expect(await screen.findByText("执行已暂停")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "开始执行" })).toBeNull();
   });
 
   it("starts in rendered mode and saves edits made in the visual plan", async () => {
