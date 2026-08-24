@@ -14,7 +14,7 @@ describe("personal agent workspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
     expect(screen.getAllByRole("heading", { name: "运行轨迹" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "计划" }));
-    expect(screen.getAllByRole("heading", { name: "计划版本" }).length).toBeGreaterThan(0);
+    expect(screen.getAllByRole("heading", { name: "已保存计划" }).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("button", { name: "记忆" }));
     expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
   });
@@ -60,6 +60,17 @@ describe("personal agent workspace", () => {
     const main = screen.getByRole("main");
     expect(main.querySelector(".workspace-page-header-research")).toBeNull();
     expect(main.querySelector(".workspace-page-research")?.className).toContain("workspace-page-fluid");
+  });
+
+  it("uses the same fluid master-detail shell for today", () => {
+    window.history.pushState({}, "", "/today");
+    render(<App />);
+
+    const main = screen.getByRole("main");
+    expect(main.querySelector(".workspace-page-header-today")).toBeNull();
+    expect(main.querySelector(".workspace-page-today")?.className).toContain("workspace-page-fluid");
+    expect(main.querySelector(".today-list")).toBeTruthy();
+    expect(main.querySelector(".today-detail")).toBeTruthy();
   });
 
   it("exposes a labelled goal message form", () => {

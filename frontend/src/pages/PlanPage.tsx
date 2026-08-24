@@ -118,14 +118,16 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [editing, setEditing] = useState(false);
   const [program, setProgram] = useState<GoalProgram | null>(null);
   const [showExecution, setShowExecution] = useState(false);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0,10));
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai");
   const [dailyMinutes, setDailyMinutes] = useState(60);
 
-  const activePlanId = planId ?? selectedPlanId;
+  const activePlanId = showLibrary ? null : planId ?? selectedPlanId;
 
   useEffect(() => {
     setSelectedPlanId(planId);
+    if (planId) setShowLibrary(false);
   }, [planId]);
 
   useEffect(() => {
@@ -226,6 +228,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const effectivePlanId = activePlanId ?? document?.id ?? null;
 
   function selectPlan(nextPlanId: string) {
+    setShowLibrary(false);
     setSelectedPlanId(nextPlanId);
     onSelectPlan?.(nextPlanId);
   }
@@ -280,6 +283,14 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         expected_version: current.version,
         expected_content_hash: current.content_hash,
       }, csrfToken);
+      setPlanSummaries((items) => items.filter((item) => item.id !== effectivePlanId));
+      setSelectedPlanId(null);
+      setDocument(null);
+      setSourceDocument(null);
+      setStructuredPlans(null);
+      setProgram(null);
+      setShowExecution(false);
+      setShowLibrary(true);
       onDeleted?.();
     } catch (caught) { handleDocumentError(caught, "Plan delete failed"); }
     finally { setBusy(false); }
@@ -394,7 +405,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     return (
       <PlanShell {...shellProps}>
         <div className="page-stack plan-document-page">
-        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT / RENDERED VIEW</span><h2>{document.title}</h2><p>Conversation-owned document · version {current.version} · {current.content_hash}</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span>{editing ? <><button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>取消编辑</button><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>保存计划</button></> : <><button className="button button-secondary" disabled={busy} type="button" onClick={()=>setShowExecution(value=>!value)}>开始执行</button><button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>编辑计划</button></>}<button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
+        <section className="plan-document-hero"><div><span className="eyebrow">PLAN DOCUMENT</span><h2>{document.title}</h2><p>已保存计划 · 可直接查看和编辑</p></div><div className="button-row"><span className={`version-badge file-status-${document.file_status}`}>{document.file_status}</span>{editing ? <><button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>取消编辑</button><button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>保存计划</button></> : <><button className="button button-secondary" disabled={busy} type="button" onClick={()=>setShowExecution(value=>!value)}>开始执行</button><button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>编辑计划</button></>}<button className="button button-danger" disabled={busy} type="button" onClick={() => void deleteDocument()}>Delete plan</button></div></section>
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
         {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><div className="plan-conflict-preview"><MarkdownMessage content={String(conflict.markdown ?? "")} /></div></section>}
         {editing ? <section className="card plan-editor-card"><PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} /></section> : <section className="card plan-readable-card"><div className="panel-toolbar"><div><span className="eyebrow">PLAN CONTENT</span><h3>Readable plan</h3></div><span className="muted">Rendered view</span></div><MarkdownMessage content={markdown} /></section>}
@@ -406,7 +417,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     );
   }
 
-  if (!run && !threadId && !activePlanId) return <PlanShell {...shellProps}><section className="empty-panel plan-empty-state" aria-label="Plan detail placeholder"><span className="eyebrow">PLAN LIBRARY</span><h2>{planSummaries.length ? "选择一个计划" : "还没有已保存计划"}</h2><p>{planSummaries.length ? "从左侧选择计划名称，查看 Markdown 内容、版本历史和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p></section></PlanShell>;
+  if (showLibrary || (!run && !threadId && !activePlanId)) return <PlanShell {...shellProps}><section className="empty-panel plan-empty-state" aria-label="Plan detail placeholder"><span className="eyebrow">PLAN LIBRARY</span><h2>{planSummaries.length ? "选择一个计划" : "还没有已保存计划"}</h2><p>{planSummaries.length ? "从左侧选择计划名称，查看计划内容和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p></section></PlanShell>;
   if (!document && threadId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENT</span><h2>当前对话还没有计划</h2><p>{error || "模型明确保存计划后，文档会出现在这里。"}</p></section></PlanShell>;
 
   const structured = structuredPlans?.current;
@@ -414,5 +425,5 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const sourceVersion = sourceVersionId
     ? sourceDocument?.versions.find((version) => version.id === sourceVersionId) ?? null
     : null;
-  return <PlanShell {...shellProps}><div className="page-stack"><section className="hero-panel"><div><span className="eyebrow">PLAN / EXECUTION PROJECTION</span><h2>计划版本</h2><p>结构化执行快照只在明确进入执行流程后出现；聊天中保存的 Markdown 计划不会自动创建 Run。</p>{sourceVersion && <p className="plan-source-reference">执行来源：{sourceVersion.title} · 文档 v{sourceVersion.version}{sourceDocument?.current && sourceDocument.current.version !== sourceVersion.version ? ` · 当前文档 v${sourceDocument.current.version}` : ""}</p>}</div>{structured && <span className="version-badge">v{structured.version} · {structured.status}</span>}</section>{error && <p className="error-message" role="alert">{error}</p>}{!structured ? <p className="empty-state">等待 Runtime 生成结构化执行计划。</p> : renderStructuredPlan()}</div></PlanShell>;
+  return <PlanShell {...shellProps}><div className="page-stack">{sourceVersion && <p className="plan-source-reference">执行来源：{sourceVersion.title} · 文档 v{sourceVersion.version}{sourceDocument?.current && sourceDocument.current.version !== sourceVersion.version ? ` · 当前文档 v${sourceDocument.current.version}` : ""}</p>}{error && <p className="error-message" role="alert">{error}</p>}{!structured ? <p className="empty-state">等待 Runtime 生成结构化执行计划。</p> : renderStructuredPlan()}</div></PlanShell>;
 }

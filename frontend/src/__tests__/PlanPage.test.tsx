@@ -178,7 +178,7 @@ describe("PlanPage document editor", () => {
     expect(within(editor).getByRole("heading", { name: "Local draft" })).toBeTruthy();
   });
 
-  it("deletes the current plan with its CAS head and leaves the workspace", async () => {
+  it("deletes the current plan with its CAS head and returns to the plan library", async () => {
     const onDeleted = vi.fn();
     vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onDeleted={onDeleted} />);
@@ -192,6 +192,9 @@ describe("PlanPage document editor", () => {
       "csrf",
     ));
     expect(onDeleted).toHaveBeenCalledOnce();
+    expect(screen.getByRole("heading", { name: "选择一个计划" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Travel plan/ })).toBeNull();
+    expect(screen.getByRole("button", { name: /Training plan/ })).toBeTruthy();
   });
 
   it("marks the document retryable when file projection returns a recoverable error", async () => {
