@@ -30,6 +30,22 @@ def test_fastapi_serves_built_frontend_from_same_origin(tmp_path) -> None:
     assert "local-ui" in response.text
 
 
+def test_fastapi_serves_spa_index_for_known_frontend_routes_only(tmp_path) -> None:
+    from app.main import create_app
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    (dist / "index.html").write_text("<html><body>local-ui</body></html>", encoding="utf-8")
+    client = TestClient(create_app(static_dir=dist))
+    headers = {"host": "127.0.0.1:8000"}
+
+    for path in ("/plans", "/plans/plan-1", "/today", "/research", "/schedules"):
+        response = client.get(path, headers=headers)
+        assert response.status_code == 200
+        assert "local-ui" in response.text
+    assert client.get("/api/not-real", headers=headers).status_code == 404
+
+
 def test_start_script_defaults_to_loopback() -> None:
     from app.startup import DEFAULT_HOST, DEFAULT_PORT
 

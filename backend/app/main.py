@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.types import ASGIApp, Receive, Scope, Send
 
@@ -138,6 +139,16 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
     if static_dir is not None:
         static_path = Path(static_dir)
         if static_path.is_dir() and (static_path / "index.html").is_file():
+            index_path = static_path / "index.html"
+
+            @app.get("/plans", include_in_schema=False)
+            @app.get("/plans/{plan_id}", include_in_schema=False)
+            @app.get("/today", include_in_schema=False)
+            @app.get("/research", include_in_schema=False)
+            @app.get("/schedules", include_in_schema=False)
+            async def frontend_route(plan_id: str | None = None):
+                return FileResponse(index_path)
+
             app.mount("/", StaticFiles(directory=static_path, html=True), name="frontend")
 
     return app
