@@ -179,6 +179,15 @@ def test_candidate_content_must_exactly_describe_target_bundle_diff(tmp_path):
             reason="mismatch", idempotency_key="mismatch",
         )
 
+    deleted = service.bundles.ensure({"core_policy":"frozen", "permissions":["read"]})
+    deletion = service.propose_candidate(
+        candidate_type="prompt", experience_ids=[item["id"] for item in experiences(service, base.id, 6)[3:]],
+        base_bundle_id=base.id, target_bundle_id=deleted.id,
+        proposed_content={"prompt":None}, permission_diff={"added":[]}, reason="delete",
+        idempotency_key="deletion",
+    )
+    assert deletion["proposed_content"] == {"prompt": None}
+
 
 def test_only_one_canary_is_active_and_old_promotion_cannot_rollback_new_stable(tmp_path):
     _, bundles, service, base, target = setup_service(tmp_path)
@@ -214,3 +223,19 @@ def test_second_active_canary_is_rejected(tmp_path):
     second_approved = service.get_candidate(second["id"])
     with pytest.raises(EvolutionConflict, match="another canary"):
         service.start_canary(second["id"], expected_version=second_approved["version"], approval_id=second_approval["id"], allocation_percent=10, assignment_unit="run", idempotency_key="canary-2")
+
+
+def test_online_canary_rejects_candidate_types_without_a_runtime_adapter(tmp_path):
+    _, bundles, service, base, _ = setup_service(tmp_path)
+    target = bundles.ensure({**base.manifest, "skills":{"new":"digest"}})
+    evidence = experiences(service, base.id)
+    item = service.propose_candidate(
+        candidate_type="skill", experience_ids=[entry["id"] for entry in evidence],
+        base_bundle_id=base.id, target_bundle_id=target.id, proposed_content={"skills":{"new":"digest"}},
+        permission_diff={"added":[]}, reason="skill", idempotency_key="skill-candidate",
+    )
+    service.evaluate(item["id"], expected_version=item["version"], deterministic_checks={"safe":True}, metrics={}, eval_set_digest="set", evaluator_digest="eval", idempotency_key="skill-eval")
+    approval = service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), idempotency_key="skill-approve")
+    approved = service.get_candidate(item["id"])
+    with pytest.raises(EvolutionGateError, match="runtime adapter"):
+        service.start_canary(item["id"], expected_version=approved["version"], approval_id=approval["id"], allocation_percent=10, assignment_unit="run", idempotency_key="skill-canary")

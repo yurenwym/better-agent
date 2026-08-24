@@ -35,6 +35,10 @@ def _digest(value: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _manifest_diff(base: dict[str, Any], target: dict[str, Any]) -> dict[str, Any]:
+    return {key: target.get(key) for key in base.keys() | target.keys() if base.get(key) != target.get(key)}
+
+
 def _future(value: str) -> bool:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -117,7 +121,7 @@ class EvolutionService:
             base = self._bundle_row(connection, base_bundle_id)
             target = self._bundle_row(connection, target_bundle_id)
             base_manifest, target_manifest = json.loads(base["manifest_json"]), json.loads(target["manifest_json"])
-            actual_diff = {key: value for key, value in target_manifest.items() if base_manifest.get(key) != value}
+            actual_diff = _manifest_diff(base_manifest, target_manifest)
             if proposed_content != actual_diff:
                 raise EvolutionGateError("proposed content must match the target bundle diff")
             if base_manifest.get("core_policy") != target_manifest.get("core_policy"):
@@ -198,10 +202,9 @@ class EvolutionService:
         item = self.get_candidate(candidate_id, owner_id)
         base = self.bundles.get(item["base_bundle_id"]).manifest
         target = self.bundles.get(item["target_bundle_id"]).manifest
-        checks["candidate_diff_bound"] = item["proposed_content"] == {
-            key: value for key, value in target.items() if base.get(key) != value
-        }
+        checks["candidate_diff_bound"] = item["proposed_content"] == _manifest_diff(base, target)
         checks["target_bundle_digest"] = self.bundles.get(item["target_bundle_id"]).bundle_hash == item["target_bundle_digest"]
+        checks["target_runtime_contract"] = self._target_runtime_contract(item["candidate_type"], target)
         metrics = {"passed": report.passed, "total": len(report.results)}
         return self.evaluate(
             candidate_id, expected_version=expected_version, deterministic_checks=checks, metrics=metrics,
@@ -308,6 +311,8 @@ class EvolutionService:
             if connection.execute("SELECT 1 FROM canary_deployments WHERE status='ACTIVE'").fetchone() is not None:
                 raise EvolutionConflict("another canary deployment is already active")
             candidate = self._candidate_db(connection, candidate_id, owner_id)
+            if candidate["candidate_type"] != "prompt":
+                raise EvolutionGateError("candidate type does not have an online runtime adapter")
             approval = connection.execute(
                 "SELECT * FROM evolution_decisions WHERE id=? AND candidate_id=? AND decision='APPROVE'", (approval_id, candidate_id)
             ).fetchone()
@@ -328,6 +333,17 @@ class EvolutionService:
             self._advance(connection, candidate_id, expected_version, "CANARY", deployment_id=deployment_id)
             self._event(connection, candidate_id, "evolution.canary.started", "release-manager", {"deployment_id": deployment_id}, f"canary:{idempotency_key}")
             return self._deployment(connection.execute("SELECT * FROM canary_deployments WHERE id=?", (deployment_id,)).fetchone())
+
+    @staticmethod
+    def _target_runtime_contract(candidate_type: str, manifest: dict[str, Any]) -> bool:
+        if candidate_type != "prompt":
+            return False
+        prompt = manifest.get("prompts", manifest.get("prompt"))
+        if not isinstance(prompt, (str, dict)) or not prompt:
+            return False
+        from .agents import expert_system_prompt
+        rendered = expert_system_prompt(manifest)
+        return str(prompt) in rendered and "Return JSON only" in rendered
 
     def record_exposure(
         self, deployment_id: str, run_id: str, assignment_key: str, *, success: bool, safety_pass: bool,

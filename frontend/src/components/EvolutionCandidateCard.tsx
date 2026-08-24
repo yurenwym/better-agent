@@ -31,7 +31,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
     <footer className="evolution-actions">
       {candidate.status === "READY_FOR_EVAL" && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>开始评测</button>}
       {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
-      {candidate.status === "APPROVED" && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("canary")}>开始 Canary</button>}
+      {candidate.status === "APPROVED" && (candidate.kind === "prompt" ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("canary")}>开始 Canary</button> : <span className="canary-gate-note">该类型尚未配置在线运行适配器</span>)}
       {candidate.status === "CANARY" && <><button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚 Canary</button>{(candidate.canary?.sample_size ?? 0) >= 3 ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("promote")}>正式启用</button> : <span className="canary-gate-note">还需 {3 - (candidate.canary?.sample_size ?? 0)} 个挑战组样本</span>}</>}
       {candidate.status === "PROMOTED" && <button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚版本</button>}
     </footer>

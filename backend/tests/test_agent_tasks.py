@@ -107,10 +107,13 @@ def test_cancel_cannot_overwrite_a_terminal_run(tmp_path):
 
 
 def test_run_idempotency_and_fanout_bind_the_full_request(tmp_path):
-    _, tasks, bundle_id = service(tmp_path)
+    db, tasks, bundle_id = service(tmp_path)
     run = tasks.create_run("local-user", "goal", {"x": 1}, bundle_id, idempotency_key="bound-run")
     with pytest.raises(AgentTaskConflict, match="payload changed"):
         tasks.create_run("local-user", "different", {"x": 1}, bundle_id, idempotency_key="bound-run")
+    other_bundle = BehaviorBundleService(db).ensure({"code":"other"})
+    with pytest.raises(AgentTaskConflict, match="payload changed"):
+        tasks.create_run("local-user", "goal", {"x": 1}, other_bundle.id, idempotency_key="bound-run")
     parent = tasks.claim_next("coordinator", 30)
     children = [{"child_key":"one", "role":"researcher", "objective":"first", "budget_units":1}]
     tasks.fan_out(parent["id"], "coordinator", parent["lease_epoch"], children, "ALL_DONE")
