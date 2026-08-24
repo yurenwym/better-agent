@@ -32,3 +32,12 @@ it("confirms conversation deletion in the app and reports failures without alert
   await waitFor(() => expect(api.deleteThread).toHaveBeenCalledWith("thread-1", "csrf"));
   expect((await screen.findByRole("alert")).textContent).toContain("删除会话失败");
 });
+
+it("confirms successful conversation deletion", async () => {
+  render(<App />);
+
+  fireEvent.click(await screen.findByRole("button", { name: "删除会话：骑行计划" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+  expect(await screen.findByText("会话已删除")).toBeTruthy();
+});

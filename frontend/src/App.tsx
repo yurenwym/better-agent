@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { deleteThread, getBootstrap, listThreads, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import ConfirmDialog from "./components/ConfirmDialog";
+import AppToast from "./components/AppToast";
 import type { Bootstrap, Run, Thread } from "./types";
 import ChatPage from "./pages/ChatPage";
 import PlanPage from "./pages/PlanPage";
@@ -45,7 +46,7 @@ export default function App() {
   const [threads,setThreads]=useState<Thread[]>([]);
   const [threadToDelete,setThreadToDelete]=useState<Thread|null>(null);
   const [deletingThread,setDeletingThread]=useState(false);
-  const [notice,setNotice]=useState("");
+  const [notice,setNotice]=useState<{message:string;tone:"success"|"error"}|null>(null);
   const [planId, setPlanId] = useState<string | null>(() => {
     const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/plans\/([^/]+)$/) : null;
     return match?.[1] ?? null;
@@ -57,12 +58,6 @@ export default function App() {
     const pop=()=>{setPage(pageFromPath());setThreadId(threadFromPath());};window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
   }, []);
 
-  useEffect(() => {
-    if (!notice) return;
-    const timer = window.setTimeout(() => setNotice(""), 5000);
-    return () => window.clearTimeout(timer);
-  }, [notice]);
-
   async function confirmThreadDelete() {
     if (!threadToDelete) return;
     setDeletingThread(true);
@@ -71,8 +66,9 @@ export default function App() {
       setThreads(items=>items.filter(item=>item.id!==threadToDelete.id));
       if(threadId===threadToDelete.id){setRun(null);setThreadId(null);setPlanId(null);setPage("chat");window.history.pushState({},"","/");}
       setThreadToDelete(null);
+      setNotice({message:"会话已删除",tone:"success"});
     } catch {
-      setNotice("删除会话失败。请先停止正在进行的回复或研究后重试。");
+      setNotice({message:"删除会话失败。请先停止正在进行的回复或研究后重试。",tone:"error"});
       setThreadToDelete(null);
     } finally {
       setDeletingThread(false);
@@ -133,7 +129,7 @@ export default function App() {
         </div>
       </main>
       <ConfirmDialog open={Boolean(threadToDelete)} title="删除会话？" description={`确定删除“${threadToDelete?.title??""}”吗？已保存的计划、研究和目标不会被删除。`} busy={deletingThread} onCancel={()=>setThreadToDelete(null)} onConfirm={()=>void confirmThreadDelete()} />
-      {notice&&<div className="app-toast" role="alert"><span>{notice}</span><button aria-label="关闭提示" type="button" onClick={()=>setNotice("")}>×</button></div>}
+      {notice&&<AppToast message={notice.message} tone={notice.tone} onDismiss={()=>setNotice(null)} />}
     </div>
   );
 }

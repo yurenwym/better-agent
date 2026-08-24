@@ -20,6 +20,7 @@ import {
 import MarkdownMessage from "../components/MarkdownMessage";
 import PlanVisualEditor from "../components/PlanVisualEditor";
 import ConfirmDialog from "../components/ConfirmDialog";
+import AppToast from "../components/AppToast";
 import type { GoalProgram, PlanDocument, PlanDocumentSummary, PlanDocumentVersion, PlanResponse, PlanStep, Run } from "../types";
 
 interface PlanPageProps {
@@ -124,6 +125,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai");
   const [dailyMinutes, setDailyMinutes] = useState(60);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteNotice, setDeleteNotice] = useState<{message:string;tone:"success"|"error"}|null>(null);
 
   const activePlanId = showLibrary ? null : planId ?? selectedPlanId;
 
@@ -293,8 +295,9 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       setProgram(null);
       setShowExecution(false);
       setShowLibrary(true);
+      setDeleteNotice({ message: "计划已删除", tone: "success" });
       onDeleted?.();
-    } catch (caught) { handleDocumentError(caught, "Plan delete failed"); }
+    } catch { setDeleteNotice({ message: "计划删除失败，请稍后重试", tone: "error" }); }
     finally { setBusy(false); setDeleteOpen(false); }
   }
 
@@ -415,12 +418,13 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         <section className="card plan-history-card"><div className="panel-toolbar"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Version history</h3></div><div className="button-row"><button className="button button-secondary" disabled={busy} type="button" onClick={() => void syncFile()}>Sync file</button><button className="button button-quiet" disabled={busy} type="button" onClick={() => void retryProjection()}>Retry projection</button></div></div><div className="history-list">{history.map((version) => <div className={selectedVersion === version.version ? "history-row history-row-selected" : "history-row"} key={version.id}><button className="history-version" disabled={busy} type="button" onClick={() => void selectHistoryVersion(version)}>v{version.version}</button><span>{version.actor}</span><span>{version.change_summary || "No summary"}</span><span>{version.content_hash.slice(0, 18)}</span>{version.status === "committed" && version.version !== current.version && <button className="button button-quiet" disabled={busy} type="button" aria-label={`Restore version ${version.version}`} onClick={() => void restore(version)}>Restore</button>}</div>)}</div></section>
         {renderStructuredPlan()}
         <ConfirmDialog open={deleteOpen} title="删除计划？" description={`确定删除“${document.title}”吗？计划内容及其历史版本将无法恢复。`} busy={busy} onCancel={()=>setDeleteOpen(false)} onConfirm={()=>void deleteDocument()} />
+        {deleteNotice&&<AppToast message={deleteNotice.message} tone={deleteNotice.tone} onDismiss={()=>setDeleteNotice(null)} />}
         </div>
       </PlanShell>
     );
   }
 
-  if (showLibrary || (!run && !threadId && !activePlanId)) return <PlanShell {...shellProps}><section className="empty-panel plan-empty-state" aria-label="Plan detail placeholder"><span className="eyebrow">PLAN LIBRARY</span><h2>{planSummaries.length ? "选择一个计划" : "还没有已保存计划"}</h2><p>{planSummaries.length ? "从左侧选择计划名称，查看计划内容和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p></section></PlanShell>;
+  if (showLibrary || (!run && !threadId && !activePlanId)) return <><PlanShell {...shellProps}><section className="empty-panel plan-empty-state" aria-label="Plan detail placeholder"><span className="eyebrow">PLAN LIBRARY</span><h2>{planSummaries.length ? "选择一个计划" : "还没有已保存计划"}</h2><p>{planSummaries.length ? "从左侧选择计划名称，查看计划内容和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p></section></PlanShell>{deleteNotice&&<AppToast message={deleteNotice.message} tone={deleteNotice.tone} onDismiss={()=>setDeleteNotice(null)} />}</>;
   if (!document && threadId) return <PlanShell {...shellProps}><section className="empty-panel"><span className="eyebrow">PLAN DOCUMENT</span><h2>当前对话还没有计划</h2><p>{error || "模型明确保存计划后，文档会出现在这里。"}</p></section></PlanShell>;
 
   const structured = structuredPlans?.current;

@@ -197,6 +197,18 @@ describe("PlanPage document editor", () => {
     expect(screen.getByRole("heading", { name: "选择一个计划" })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Travel plan/ })).toBeNull();
     expect(screen.getByRole("button", { name: /Training plan/ })).toBeTruthy();
+    expect(screen.getByText("计划已删除")).toBeTruthy();
+  });
+
+  it("shows a deletion failure notice and keeps the plan", async () => {
+    api.deletePlanDocument.mockRejectedValueOnce(new Error("busy"));
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "删除计划" }));
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
+
+    expect(await screen.findByText("计划删除失败，请稍后重试")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Travel plan" }).length).toBeGreaterThan(0);
   });
 
   it("marks the document retryable when file projection returns a recoverable error", async () => {

@@ -43,4 +43,16 @@ it("opens a report and deletes it after confirmation", async () => {
   fireEvent.click(screen.getByRole("button", { name:"确认删除" }));
   await waitFor(() => expect(api.deleteResearch).toHaveBeenCalledWith(job.id,"csrf"));
   expect(screen.queryByRole("button", { name:/SQLite WAL 研究/ })).toBeNull();
+  expect(screen.getByText("研究已删除")).toBeTruthy();
+});
+
+it("shows a deletion failure notice and keeps the research", async () => {
+  api.deleteResearch.mockRejectedValueOnce(new Error("running"));
+  render(<ResearchPage csrfToken="csrf" />);
+  fireEvent.click(await screen.findByRole("button", { name:/SQLite WAL 研究/ }));
+  fireEvent.click(await screen.findByRole("button", { name:"删除研究" }));
+  fireEvent.click(screen.getByRole("button", { name:"确认删除" }));
+
+  expect(await screen.findByText("研究删除失败。正在运行的研究需要先取消。")).toBeTruthy();
+  expect(screen.getByRole("button", { name:/SQLite WAL 研究/ })).toBeTruthy();
 });
