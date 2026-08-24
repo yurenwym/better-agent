@@ -11,6 +11,7 @@ interface WorkspaceSidebarProps {
   onNavigate: (page: WorkspacePage) => void;
   onNewConversation: () => void;
   onSelectThread?: (threadId:string)=>void;
+  onDeleteThread?: (threadId:string)=>void;
   onHumanMode?: (enabled:boolean)=>void;
 }
 
@@ -48,7 +49,7 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[], activeThreadId=null, onNavigate, onNewConversation, onSelectThread, onHumanMode }: WorkspaceSidebarProps) {
+export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[], activeThreadId=null, onNavigate, onNewConversation, onSelectThread, onDeleteThread, onHumanMode }: WorkspaceSidebarProps) {
   return (
     <aside className="workspace-sidebar" aria-label="工作区侧栏">
       <div className="sidebar-brand-row">
@@ -81,7 +82,7 @@ export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[
       </nav>
 
       <div className="sidebar-section-label">会话历史</div>
-      <nav className="sidebar-session-list" aria-label="会话历史">{threads.length?threads.map(thread=><button aria-current={activeThreadId===thread.id?"page":undefined} className={`sidebar-session-item${activeThreadId===thread.id?" active":""}`} key={thread.id} type="button" onClick={()=>onSelectThread?.(thread.id)}><strong>{thread.title}</strong><span>{new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(thread.updated_at))}</span></button>):<p>还没有历史会话</p>}</nav>
+      <nav className="sidebar-session-list" aria-label="会话历史">{threads.length?threads.map(thread=><div className={`sidebar-session-row${activeThreadId===thread.id?" active":""}`} key={thread.id}><button aria-current={activeThreadId===thread.id?"page":undefined} className="sidebar-session-item" type="button" onClick={()=>onSelectThread?.(thread.id)}><strong>{thread.title}</strong><span>{new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(thread.updated_at))}</span></button><button aria-label={`删除会话：${thread.title}`} className="sidebar-session-delete" type="button" onClick={()=>onDeleteThread?.(thread.id)}><svg aria-hidden="true" viewBox="0 0 24 24" fill="none"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5"/></svg></button></div>):<p>还没有历史会话</p>}</nav>
       {run&&<div className="sidebar-session-card"><span className="session-dot" aria-hidden="true"/><div><strong>当前目标</strong><span>{stateLabels[run.state]??run.state}</span></div><code title={run.id}>{run.id.slice(-8)}</code></div>}
 
       <div className="sidebar-spacer" />

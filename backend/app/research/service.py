@@ -89,7 +89,7 @@ class ResearchService:
         with self.db.transaction() as connection:
             existing = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (occurrence_key,)).fetchone()
             if existing: return self._job(existing["id"], connection)
-            thread = connection.execute("SELECT active_turn_id FROM threads WHERE id=?", (thread_id,)).fetchone()
+            thread = connection.execute("SELECT active_turn_id FROM threads WHERE id=? AND deleted_at IS NULL", (thread_id,)).fetchone()
             if not thread: raise KeyError(thread_id)
             if thread["active_turn_id"]:
                 active = connection.execute("SELECT status FROM turns WHERE id=?", (thread["active_turn_id"],)).fetchone()

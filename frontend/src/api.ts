@@ -111,6 +111,15 @@ export async function listThreads(fetcher: Fetcher = fetch): Promise<{ threads: 
   return json<{ threads: Thread[] }>(await fetcher("/api/threads"));
 }
 
+export async function deleteThread(threadId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<void> {
+  const response = await fetcher(`/api/threads/${threadId}`, {
+    method: "DELETE",
+    headers: mutationHeaders(csrfToken),
+    body: "{}",
+  });
+  if (!response.ok) throw new Error("删除会话失败");
+}
+
 export interface TurnSubmission {
   thread_id: string;
   turn_id: string;

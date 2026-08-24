@@ -53,7 +53,8 @@ CREATE TABLE IF NOT EXISTS threads (
     active_turn_id TEXT,
     next_event_seq INTEGER NOT NULL DEFAULT 1,
     created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    deleted_at TEXT
 );
 CREATE TABLE IF NOT EXISTS turns (
     id TEXT PRIMARY KEY,
@@ -583,6 +584,7 @@ class Database:
             )
             self._add_column(connection, "threads", "owner_id TEXT NOT NULL DEFAULT 'local-user'")
             self._add_column(connection, "threads", "project_id TEXT")
+            self._add_column(connection, "threads", "deleted_at TEXT")
             self._add_column(connection, "thread_messages", "message_seq INTEGER")
             self._add_column(connection, "thread_messages", "presentation TEXT NOT NULL DEFAULT 'standard'")
             self._add_column(connection, "thread_messages", "research_job_id TEXT")

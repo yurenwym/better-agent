@@ -301,7 +301,7 @@ class ConversationService:
 
     def thread(self, thread_id: str) -> ThreadSnapshot:
         with self.db.connection() as connection:
-            row = connection.execute("SELECT * FROM threads WHERE id = ?", (thread_id,)).fetchone()
+            row = connection.execute("SELECT * FROM threads WHERE id = ? AND deleted_at IS NULL", (thread_id,)).fetchone()
         if row is None:
             raise KeyError(thread_id)
         return ThreadSnapshot(
@@ -317,13 +317,37 @@ class ConversationService:
     def threads(self, owner_id: str = "local-user") -> list[ThreadSnapshot]:
         with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM threads WHERE owner_id=? ORDER BY updated_at DESC,created_at DESC,id DESC",
+                "SELECT * FROM threads WHERE owner_id=? AND deleted_at IS NULL ORDER BY updated_at DESC,created_at DESC,id DESC",
                 (owner_id,),
             ).fetchall()
         return [ThreadSnapshot(
             id=row["id"], title=row["title"], version=row["version"], active_turn_id=row["active_turn_id"],
             next_event_seq=row["next_event_seq"], created_at=row["created_at"], updated_at=row["updated_at"],
         ) for row in rows]
+
+    def delete_thread(self, thread_id: str, owner_id: str = "local-user") -> None:
+        now = _now()
+        with self.db.transaction() as connection:
+            row = connection.execute(
+                "SELECT active_turn_id FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL",
+                (thread_id, owner_id),
+            ).fetchone()
+            if row is None:
+                raise KeyError(thread_id)
+            if row["active_turn_id"]:
+                turn = connection.execute("SELECT status FROM turns WHERE id=?", (row["active_turn_id"],)).fetchone()
+                if turn is not None and turn["status"] in {"ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING", "AWAITING_INPUT"}:
+                    raise ValueError("active conversation must be stopped before deletion")
+            research = connection.execute(
+                "SELECT 1 FROM research_jobs WHERE thread_id=? AND status IN ('QUEUED','RUNNING') LIMIT 1",
+                (thread_id,),
+            ).fetchone()
+            if research is not None:
+                raise ValueError("active research must be stopped before deletion")
+            connection.execute(
+                "UPDATE threads SET deleted_at=?, updated_at=?, version=version+1 WHERE id=?",
+                (now, now, thread_id),
+            )
 
     def turn(self, turn_id: str) -> TurnSnapshot:
         with self.db.connection() as connection:
@@ -601,7 +625,7 @@ class ConversationService:
         now = _now()
         with (self.db.transaction() if connection is None else contextlib.nullcontext(connection)) as connection:
             thread = connection.execute(
-                "SELECT * FROM threads WHERE id = ?", (thread_id,)
+                "SELECT * FROM threads WHERE id = ? AND deleted_at IS NULL", (thread_id,)
             ).fetchone()
             if thread is None:
                 raise KeyError(thread_id)

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, createResearch, deletePlanDocument, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, createResearch, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -60,6 +60,15 @@ describe("REST client", () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ threads: [] }) });
     await listThreads(fetcher);
     expect(fetcher).toHaveBeenCalledWith("/api/threads");
+  });
+
+  it("deletes a conversation thread with CSRF protection", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true });
+    await deleteThread("thread-1", "csrf", fetcher);
+    expect(fetcher).toHaveBeenCalledWith("/api/threads/thread-1", expect.objectContaining({
+      method: "DELETE",
+      headers: expect.objectContaining({ "X-CSRF-Token": "csrf" }),
+    }));
   });
 
   it("starts research in a dedicated thread with explicit source scopes",async()=>{

@@ -284,6 +284,16 @@ def register_routes(app) -> None:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
+    @app.delete("/api/threads/{thread_id}", status_code=204, dependencies=[Depends(mutate)])
+    async def delete_thread(thread_id: str, service=Depends(conversation)) -> Response:
+        try:
+            service.delete_thread(thread_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return Response(status_code=204)
+
     @app.get("/api/threads/{thread_id}/messages")
     async def get_thread_messages(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
         try:

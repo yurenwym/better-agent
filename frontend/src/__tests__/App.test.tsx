@@ -83,10 +83,22 @@ describe("personal agent workspace", () => {
     const onSelectThread = vi.fn();
     render(<WorkspaceSidebar activePage="chat" activeThreadId="thread-2" bootstrap={null} run={null} threads={threads} onNavigate={()=>undefined} onNewConversation={()=>undefined} onSelectThread={onSelectThread}/>);
 
-    expect(screen.getByRole("button", { name: /广西旅行/ }).getAttribute("aria-current")).toBe("page");
-    fireEvent.click(screen.getByRole("button", { name: /骑行计划/ }));
+    expect(screen.getByRole("button", { name: /^广西旅行/ }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(screen.getByRole("button", { name: /^骑行计划/ }));
     expect(onSelectThread).toHaveBeenCalledWith("thread-1");
-    expect(screen.getByRole("button", { name: /广西旅行/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^广西旅行/ })).toBeTruthy();
+  });
+
+  it("offers a separate labelled delete action for every conversation", () => {
+    const threads = [
+      { id: "thread-1", title: "骑行计划", version: 1, active_turn_id: null, next_event_seq: 2, created_at: "2026-08-24T01:00:00Z", updated_at: "2026-08-24T01:00:00Z" },
+    ] satisfies Thread[];
+    const onDeleteThread = vi.fn();
+    render(<WorkspaceSidebar activePage="chat" activeThreadId="thread-1" bootstrap={null} run={null} threads={threads} onNavigate={()=>undefined} onNewConversation={()=>undefined} onSelectThread={()=>undefined} onDeleteThread={onDeleteThread}/>);
+
+    fireEvent.click(screen.getByRole("button", { name: "删除会话：骑行计划" }));
+
+    expect(onDeleteThread).toHaveBeenCalledWith("thread-1");
   });
 
   it("exposes a labelled goal message form", () => {

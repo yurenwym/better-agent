@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getBootstrap, listThreads, setHumanMode } from "./api";
+import { deleteThread, getBootstrap, listThreads, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import type { Bootstrap, Run, Thread } from "./types";
 import ChatPage from "./pages/ChatPage";
@@ -71,6 +71,7 @@ export default function App() {
         onNavigate={(next)=>{setPage(next);if(next==="today")window.history.pushState({},"","/today");}}
         onNewConversation={() => { setRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
         onSelectThread={(nextThreadId)=>{setRun(null);setThreadId(nextThreadId);setPlanId(null);window.history.pushState({},"",`/threads/${nextThreadId}`);setPage("chat");}}
+        onDeleteThread={(deleteThreadId)=>{const thread=threads.find(item=>item.id===deleteThreadId);if(!thread||!window.confirm(`确定删除“${thread.title}”吗？已保存的计划、研究和目标不会被删除。`))return;void deleteThread(deleteThreadId,csrfToken).then(()=>{setThreads(items=>items.filter(item=>item.id!==deleteThreadId));if(threadId===deleteThreadId){setRun(null);setThreadId(null);setPlanId(null);setPage("chat");window.history.pushState({},"","/");}}).catch(()=>window.alert("删除会话失败。请先停止正在进行的回复或研究后重试。"));}}
         onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">

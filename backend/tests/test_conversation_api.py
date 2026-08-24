@@ -119,6 +119,73 @@ def test_thread_list_preserves_multiple_conversations_and_owner_scope(tmp_path) 
     assert all(item["id"] != "other-thread" for item in response.json()["threads"])
 
 
+def test_deleting_thread_removes_it_from_history_and_blocks_direct_access(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    thread = client.post("/api/threads", headers=_headers(app), json={"title": "待删除会话"}).json()
+    accepted = client.post(
+        f"/api/threads/{thread['id']}/turns",
+        headers=_headers(app),
+        json={"client_turn_id": "client-delete", "content": "保留审计内容", "skill_names": []},
+    ).json()
+    client.post(f"/api/turns/{accepted['turn_id']}/cancel", headers=_headers(app), json={})
+
+    deleted = client.delete(f"/api/threads/{thread['id']}", headers=_headers(app))
+
+    assert deleted.status_code == 204
+    assert client.get(f"/api/threads/{thread['id']}", headers={"host": "127.0.0.1:8000"}).status_code == 404
+    assert client.post(
+        f"/api/threads/{thread['id']}/turns",
+        headers=_headers(app),
+        json={"client_turn_id": "after-delete", "content": "不应写入", "skill_names": []},
+    ).status_code == 404
+    assert all(item["id"] != thread["id"] for item in client.get("/api/threads", headers={"host": "127.0.0.1:8000"}).json()["threads"])
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT deleted_at FROM threads WHERE id=?", (thread["id"],)).fetchone()["deleted_at"]
+        assert connection.execute("SELECT COUNT(*) FROM thread_messages WHERE thread_id=?", (thread["id"],)).fetchone()[0] == 1
+
+
+def test_deleting_thread_is_owner_scoped(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    with runtime.db.transaction() as connection:
+        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread-delete','private','other-user',0,1,datetime('now'),datetime('now'))")
+
+    response = client.delete("/api/threads/other-thread-delete", headers=_headers(app))
+
+    assert response.status_code == 404
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT deleted_at FROM threads WHERE id='other-thread-delete'").fetchone()["deleted_at"] is None
+
+
+def test_deleting_thread_requires_active_work_to_stop_first(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    thread = client.post("/api/threads", headers=_headers(app), json={"title": "回复中"}).json()
+    client.post(
+        f"/api/threads/{thread['id']}/turns",
+        headers=_headers(app),
+        json={"client_turn_id": "client-active", "content": "继续回复", "skill_names": []},
+    )
+
+    response = client.delete(f"/api/threads/{thread['id']}", headers=_headers(app))
+
+    assert response.status_code == 409
+    assert client.get(f"/api/threads/{thread['id']}", headers={"host": "127.0.0.1:8000"}).status_code == 200
+
+
 def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
