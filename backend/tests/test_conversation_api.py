@@ -100,6 +100,25 @@ def test_turn_submission_is_durable_and_idempotent_before_model_finishes(tmp_pat
     assert _count(runtime, "runs") == 0
 
 
+def test_thread_list_preserves_multiple_conversations_and_owner_scope(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    first = client.post("/api/threads", headers=_headers(app), json={"title": "骑行计划"}).json()
+    second = client.post("/api/threads", headers=_headers(app), json={"title": "广西旅行"}).json()
+    with runtime.db.transaction() as connection:
+        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread','private','other-user',0,1,datetime('now'),datetime('now'))")
+
+    response = client.get("/api/threads", headers={"host": "127.0.0.1:8000"})
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()["threads"]] == [second["id"], first["id"]]
+    assert all(item["id"] != "other-thread" for item in response.json()["threads"])
+
+
 def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway

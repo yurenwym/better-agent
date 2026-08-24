@@ -55,6 +55,7 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .sidebar-session-card span:not(.session-dot) { color: var(--color-muted); font-size: 11px; }
 .sidebar-session-card p { grid-column: 1 / -1; font-size: 12px; }
 .sidebar-session-card code { font-size: 10px; }
+.sidebar-session-list{display:grid;gap:4px;max-height:min(32vh,260px);overflow-y:auto;padding-right:2px}.sidebar-session-list>p{padding:8px 10px;font-size:12px}.sidebar-session-item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:8px;width:100%;min-height:44px;border:1px solid transparent;border-radius:var(--radius-sm);background:transparent;padding:8px 10px;color:var(--color-muted);text-align:left}.sidebar-session-item strong{min-width:0;overflow:hidden;color:inherit;font-size:12px;text-overflow:ellipsis;white-space:nowrap}.sidebar-session-item span{font-size:10px}.sidebar-session-item:hover,.sidebar-session-item.active{border-color:var(--color-line);background:var(--color-panel);color:var(--color-ink)}.sidebar-session-item.active{border-color:#d5def3;box-shadow:inset 3px 0 var(--color-accent)}
 .session-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--color-success); box-shadow: 0 0 0 4px var(--color-success-soft); }
 .sidebar-spacer { flex: 1; }
 .sidebar-settings { border-top: 1px solid var(--color-line); padding-top: 10px; }
@@ -461,7 +462,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .sidebar-brand { min-width: 0; padding: 0; }
   .sidebar-new-session { position: fixed; z-index: 2; top: 14px; right: 18px; width: 42px; min-width: 42px; padding: 0; font-size: 0; }
   .sidebar-plus { font-size: 22px; }
-  .sidebar-section-label, .sidebar-session-card, .sidebar-spacer { display: none; }
+  .sidebar-section-label, .sidebar-session-list, .sidebar-session-card, .sidebar-spacer { display: none; }
   .sidebar-nav { grid-column: 1; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); width: 100%; min-width: 0; max-width: 100%; gap: 4px; padding-top: 4px; }
   .sidebar-nav-item { min-width: 0; width: auto; justify-content: center; padding: 0 6px; }
   .sidebar-nav-item > span:not(.sidebar-nav-meta):not(.sidebar-badge) { min-width: 0; overflow: hidden; }

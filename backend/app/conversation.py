@@ -314,6 +314,17 @@ class ConversationService:
             updated_at=row["updated_at"],
         )
 
+    def threads(self, owner_id: str = "local-user") -> list[ThreadSnapshot]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM threads WHERE owner_id=? ORDER BY updated_at DESC,created_at DESC,id DESC",
+                (owner_id,),
+            ).fetchall()
+        return [ThreadSnapshot(
+            id=row["id"], title=row["title"], version=row["version"], active_turn_id=row["active_turn_id"],
+            next_event_seq=row["next_event_seq"], created_at=row["created_at"], updated_at=row["updated_at"],
+        ) for row in rows]
+
     def turn(self, turn_id: str) -> TurnSnapshot:
         with self.db.connection() as connection:
             row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()

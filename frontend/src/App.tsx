@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { getBootstrap, setHumanMode } from "./api";
+import { getBootstrap, listThreads, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
-import type { Bootstrap, Run } from "./types";
+import type { Bootstrap, Run, Thread } from "./types";
 import ChatPage from "./pages/ChatPage";
 import PlanPage from "./pages/PlanPage";
 import TrajectoryPage from "./pages/TrajectoryPage";
@@ -35,11 +35,13 @@ const stateLabels: Record<string, string> = {
 };
 
 function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";return "chat"; }
+function threadFromPath(): string|null { const match=typeof window!=="undefined"?window.location.pathname.match(/^\/threads\/([^/]+)$/):null;return match?.[1]??null; }
 export default function App() {
   const [page, setPage] = useState<WorkspacePage>(pageFromPath);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
   const [run, setRun] = useState<Run | null>(null);
-  const [threadId, setThreadId] = useState<string | null>(null);
+  const [threadId, setThreadId] = useState<string | null>(threadFromPath);
+  const [threads,setThreads]=useState<Thread[]>([]);
   const [planId, setPlanId] = useState<string | null>(() => {
     const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/plans\/([^/]+)$/) : null;
     return match?.[1] ?? null;
@@ -47,7 +49,8 @@ export default function App() {
 
   useEffect(() => {
     getBootstrap().then(setBootstrap).catch(() => undefined);
-    const pop=()=>setPage(pageFromPath());window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
+    listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);
+    const pop=()=>{setPage(pageFromPath());setThreadId(threadFromPath());};window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
   }, []);
 
   const csrfToken = bootstrap?.csrf_token ?? "";
@@ -61,10 +64,13 @@ export default function App() {
     <div className="workspace-app">
       <WorkspaceSidebar
         activePage={page}
+        activeThreadId={threadId}
         bootstrap={bootstrap}
         run={run}
+        threads={threads}
         onNavigate={(next)=>{setPage(next);if(next==="today")window.history.pushState({},"","/today");}}
         onNewConversation={() => { setRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
+        onSelectThread={(nextThreadId)=>{setRun(null);setThreadId(nextThreadId);setPlanId(null);window.history.pushState({},"",`/threads/${nextThreadId}`);setPage("chat");}}
         onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
@@ -90,7 +96,7 @@ export default function App() {
         )}
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={(nextThreadId)=>{setThreadId(nextThreadId);window.history.pushState({},"",`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads));}} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
           {page === "today" && <TodayPage csrfToken={csrfToken} onHelp={(nextThreadId)=>{setThreadId(nextThreadId);setPage("chat");window.history.pushState({},"","/");}} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("plan"); window.history.pushState({}, "", "/plans"); }} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}

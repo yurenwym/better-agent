@@ -143,10 +143,11 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
 
             @app.get("/plans", include_in_schema=False)
             @app.get("/plans/{plan_id}", include_in_schema=False)
+            @app.get("/threads/{thread_id}", include_in_schema=False)
             @app.get("/today", include_in_schema=False)
             @app.get("/research", include_in_schema=False)
             @app.get("/schedules", include_in_schema=False)
-            async def frontend_route(plan_id: str | None = None):
+            async def frontend_route(plan_id: str | None = None, thread_id: str | None = None):
                 return FileResponse(index_path)
 
             app.mount("/", StaticFiles(directory=static_path, html=True), name="frontend")

@@ -1,4 +1,4 @@
-import type { Bootstrap, Run } from "../types";
+import type { Bootstrap, Run, Thread } from "../types";
 
 export type WorkspacePage = "chat" | "today" | "plan" | "trajectory" | "research" | "schedules" | "memory";
 
@@ -6,8 +6,11 @@ interface WorkspaceSidebarProps {
   activePage: WorkspacePage;
   bootstrap: Bootstrap | null;
   run: Run | null;
+  threads?: Thread[];
+  activeThreadId?: string | null;
   onNavigate: (page: WorkspacePage) => void;
   onNewConversation: () => void;
+  onSelectThread?: (threadId:string)=>void;
   onHumanMode?: (enabled:boolean)=>void;
 }
 
@@ -45,7 +48,7 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-export default function WorkspaceSidebar({ activePage, bootstrap, run, onNavigate, onNewConversation, onHumanMode }: WorkspaceSidebarProps) {
+export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[], activeThreadId=null, onNavigate, onNewConversation, onSelectThread, onHumanMode }: WorkspaceSidebarProps) {
   return (
     <aside className="workspace-sidebar" aria-label="工作区侧栏">
       <div className="sidebar-brand-row">
@@ -77,16 +80,9 @@ export default function WorkspaceSidebar({ activePage, bootstrap, run, onNavigat
         ))}
       </nav>
 
-      <div className="sidebar-section-label">当前会话</div>
-      <div className="sidebar-session-card">
-        {run ? (
-          <>
-            <span className="session-dot" aria-hidden="true" />
-            <div><strong>当前目标</strong><span>{stateLabels[run.state] ?? run.state}</span></div>
-            <code title={run.id}>{run.id.slice(-8)}</code>
-          </>
-        ) : <p>还没有运行中的目标</p>}
-      </div>
+      <div className="sidebar-section-label">会话历史</div>
+      <nav className="sidebar-session-list" aria-label="会话历史">{threads.length?threads.map(thread=><button aria-current={activeThreadId===thread.id?"page":undefined} className={`sidebar-session-item${activeThreadId===thread.id?" active":""}`} key={thread.id} type="button" onClick={()=>onSelectThread?.(thread.id)}><strong>{thread.title}</strong><span>{new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric"}).format(new Date(thread.updated_at))}</span></button>):<p>还没有历史会话</p>}</nav>
+      {run&&<div className="sidebar-session-card"><span className="session-dot" aria-hidden="true"/><div><strong>当前目标</strong><span>{stateLabels[run.state]??run.state}</span></div><code title={run.id}>{run.id.slice(-8)}</code></div>}
 
       <div className="sidebar-spacer" />
       <details className="sidebar-settings">

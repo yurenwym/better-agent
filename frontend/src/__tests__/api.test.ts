@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, deletePlanDocument, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, deletePlanDocument, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -54,6 +54,12 @@ describe("REST client", () => {
 
     expect(result.csrf_token).toBe("csrf");
     expect(fetcher).toHaveBeenCalledWith("/api/bootstrap");
+  });
+
+  it("loads conversation history without mutation headers", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ threads: [] }) });
+    await listThreads(fetcher);
+    expect(fetcher).toHaveBeenCalledWith("/api/threads");
   });
 
   it("deletes a plan with CAS metadata and CSRF protection", async () => {

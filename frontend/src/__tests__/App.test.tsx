@@ -1,9 +1,11 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import StatsBar from "../components/StatsBar";
 import EventStream from "../components/EventStream";
 import ApprovalCard from "../components/ApprovalCard";
+import WorkspaceSidebar from "../components/WorkspaceSidebar";
+import type { Thread } from "../types";
 
 afterEach(() => { cleanup(); window.history.pushState({}, "", "/"); });
 
@@ -71,6 +73,20 @@ describe("personal agent workspace", () => {
     expect(main.querySelector(".workspace-page-today")?.className).toContain("workspace-page-fluid");
     expect(main.querySelector(".today-list")).toBeTruthy();
     expect(main.querySelector(".today-detail")).toBeTruthy();
+  });
+
+  it("keeps multiple conversation entries and switches the active thread", () => {
+    const threads = [
+      { id: "thread-2", title: "广西旅行", version: 1, active_turn_id: null, next_event_seq: 2, created_at: "2026-08-24T02:00:00Z", updated_at: "2026-08-24T02:00:00Z" },
+      { id: "thread-1", title: "骑行计划", version: 1, active_turn_id: null, next_event_seq: 2, created_at: "2026-08-24T01:00:00Z", updated_at: "2026-08-24T01:00:00Z" },
+    ] satisfies Thread[];
+    const onSelectThread = vi.fn();
+    render(<WorkspaceSidebar activePage="chat" activeThreadId="thread-2" bootstrap={null} run={null} threads={threads} onNavigate={()=>undefined} onNewConversation={()=>undefined} onSelectThread={onSelectThread}/>);
+
+    expect(screen.getByRole("button", { name: /广西旅行/ }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(screen.getByRole("button", { name: /骑行计划/ }));
+    expect(onSelectThread).toHaveBeenCalledWith("thread-1");
+    expect(screen.getByRole("button", { name: /广西旅行/ })).toBeTruthy();
   });
 
   it("exposes a labelled goal message form", () => {

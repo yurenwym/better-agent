@@ -271,6 +271,10 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=422, detail="title must be a string")
         return _thread_json(service.create_thread(title or "新的对话"))
 
+    @app.get("/api/threads")
+    async def list_threads(service=Depends(conversation)) -> dict[str, Any]:
+        return {"threads": [_thread_json(thread) for thread in service.threads()]}
+
     @app.get("/api/threads/{thread_id}")
     async def get_thread(thread_id: str, service=Depends(conversation)) -> dict[str, Any]:
         try:

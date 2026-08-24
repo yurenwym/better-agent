@@ -107,6 +107,10 @@ export async function createThread(
   }));
 }
 
+export async function listThreads(fetcher: Fetcher = fetch): Promise<{ threads: Thread[] }> {
+  return json<{ threads: Thread[] }>(await fetcher("/api/threads"));
+}
+
 export interface TurnSubmission {
   thread_id: string;
   turn_id: string;
