@@ -117,6 +117,9 @@ class ToolRegistry:
             if self.approval_service is None:
                 raise ApprovalRequired("WRITE tool requires approval")
             self.approval_service.require_granted(run_id, call.id, call.params)
+        claimed = self._claim_execution(call, run_id, params_hash, spec.risk)
+        if isinstance(claimed, ToolResult):
+            return claimed
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="better-agent-tool")
         future = executor.submit(spec.handler, call.params)
         try:
@@ -174,6 +177,33 @@ class ToolRegistry:
         with self.db.connection() as connection:
             return connection.execute("SELECT * FROM tool_calls WHERE id = ?", (call_id,)).fetchone()
 
+    def _claim_execution(self, call: ToolCall, run_id: str, params_hash: str, risk: ToolRisk) -> ToolResult | None:
+        if self.db is None:
+            return None
+        now = datetime.now().astimezone().isoformat()
+        logical_key = f"{run_id}:{call.id}"
+        reconciliation_required = False
+        with self.db.transaction() as connection:
+            row = connection.execute("SELECT * FROM tool_execution_claims WHERE logical_action_key=?", (logical_key,)).fetchone()
+            if row:
+                if row["run_id"] != run_id or row["tool_name"] != call.name or row["params_hash"] != params_hash:
+                    raise ToolRejected("tool execution binding changed")
+                if row["status"] == "COMPLETED" and row["result_json"]:
+                    return ToolResult(**json.loads(row["result_json"]))
+                if row["status"] == "RUNNING" and risk == ToolRisk.WRITE:
+                    connection.execute("UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',updated_at=? WHERE logical_action_key=?", (now, logical_key))
+                    reconciliation_required = True
+                else:
+                    raise ToolRejected("tool execution already running")
+            else:
+                connection.execute(
+                    "INSERT INTO tool_execution_claims(logical_action_key,run_id,tool_call_id,tool_name,params_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,'RUNNING',?,?)",
+                    (logical_key, run_id, call.id, call.name, params_hash, now, now),
+                )
+        if reconciliation_required:
+            raise ToolRejected("tool execution requires reconciliation")
+        return None
+
     def _record_call(
         self,
         call: ToolCall,
@@ -190,6 +220,10 @@ class ToolRegistry:
                 "INSERT OR REPLACE INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
                 "created_at, completed_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?)",
                 (call.id, run_id, call.name, params_hash, risk.value, json.dumps(result.as_dict()), now, now),
+            )
+            connection.execute(
+                "UPDATE tool_execution_claims SET status=?,result_json=?,error_code=?,updated_at=?,completed_at=? WHERE logical_action_key=?",
+                ("COMPLETED" if result.ok else "FAILED", json.dumps(result.as_dict()), result.error, now, now, f"{run_id}:{call.id}"),
             )
 
 

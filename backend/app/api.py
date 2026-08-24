@@ -10,6 +10,7 @@ from fastapi import Depends, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse, Response, StreamingResponse
 
 from .ask import AskValidationError
+from .agents import AgentTaskConflict
 from .events import export_jsonl
 from .goal_program_compiler import GoalCompilationError
 from .goal_programs import GoalProgramConflict, GoalProgramNotFound
@@ -57,8 +58,11 @@ async def _thread_event_stream(service, thread_id: str, request: Request, after_
                 "SELECT 1 FROM research_jobs WHERE thread_id=? AND status IN ('QUEUED','RUNNING') LIMIT 1",
                 (thread_id,),
             ).fetchone() is not None
+            expert_active = connection.execute(
+                "SELECT 1 FROM agent_runs WHERE thread_id=? AND status IN ('QUEUED','RUNNING','WAITING') LIMIT 1", (thread_id,)
+            ).fetchone() is not None
         if not events and thread.active_turn_id:
-            if service.turn(thread.active_turn_id).status in terminal_states and not research_active:
+            if service.turn(thread.active_turn_id).status in terminal_states and not research_active and not expert_active:
                 return
         if not events:
             yield ": keep-alive\n\n"
@@ -109,6 +113,12 @@ def register_routes(app) -> None:
         value = getattr(service, "goal_reviews", None)
         if value is None:
             raise HTTPException(status_code=503, detail="goal reviews are not configured")
+        return value
+
+    def agent_tasks(request: Request):
+        service = runtime(request)
+        value = getattr(service, "agent_tasks", None)
+        if value is None: raise HTTPException(status_code=503, detail="expert runtime is not configured")
         return value
 
     def idempotency_key(request: Request) -> str:
@@ -348,6 +358,76 @@ def register_routes(app) -> None:
         except KeyError:
             return {"plan": None}
         return {"plan": _plan_document_json(document, service.plan_documents, limit=limit, offset=offset)}
+
+    @app.post("/api/threads/{thread_id}/expert-runs", status_code=202, dependencies=[Depends(mutate)])
+    async def create_expert_run(thread_id: str, payload: dict[str, Any], root=Depends(runtime), service=Depends(agent_tasks)):
+        try: root.conversation.thread(thread_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="thread not found") from exc
+        objective = payload.get("objective"); key = payload.get("idempotency_key")
+        if not isinstance(objective, str) or not objective.strip() or not isinstance(key, str) or not key.strip():
+            raise HTTPException(status_code=422, detail="objective and idempotency_key are required")
+        bundle = root.behavior.active("stable")
+        run = service.create_run("local-user", objective, {"objective":objective,"thread_id":thread_id}, bundle.id, thread_id=thread_id, idempotency_key=key)
+        return _agent_run_json(run)
+
+    @app.get("/api/threads/{thread_id}/expert-runs/latest")
+    async def latest_expert_run(thread_id: str, root=Depends(runtime), service=Depends(agent_tasks)):
+        try:
+            root.conversation.thread(thread_id)
+            return _agent_run_json(service.latest_run_for_thread(thread_id))
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="expert run not found") from exc
+
+    @app.get("/api/agent-runs/{run_id}")
+    async def get_agent_run(run_id: str, service=Depends(agent_tasks)):
+        try: return _agent_run_json(service.get_run(run_id))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+
+    @app.get("/api/agent-runs/{run_id}/tasks")
+    async def get_agent_tasks(run_id: str, service=Depends(agent_tasks)):
+        try: service.get_run(run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+        return {"tasks": [_agent_task_json(item) for item in service.tasks(run_id)]}
+
+    @app.get("/api/agent-runs/{run_id}/artifacts")
+    async def get_agent_artifacts(run_id: str, service=Depends(agent_tasks)):
+        try:
+            service.get_run(run_id)
+            tasks = service.tasks(run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+        return {"artifacts":[service.artifact(item["result_artifact_id"]) for item in tasks if item.get("result_artifact_id")]}
+
+    @app.post("/api/agent-runs/{run_id}/cancel", dependencies=[Depends(mutate)])
+    async def cancel_agent_run(run_id: str, payload: dict[str, Any], service=Depends(agent_tasks)):
+        try: return _agent_run_json(service.cancel_run(run_id, str(payload.get("reason") or "user cancelled")))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+        except AgentTaskConflict as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get("/api/agent-runs/{run_id}/events")
+    async def get_agent_events(run_id: str, after_seq: int = 0, service=Depends(agent_tasks)):
+        try: service.get_run(run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+        return {"events": service.events(run_id, after_seq)}
+
+    @app.get("/api/agent-runs/{run_id}/events/stream")
+    async def agent_event_stream(run_id: str, request: Request, follow: bool = True, service=Depends(agent_tasks)):
+        try: service.get_run(run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
+        raw = request.headers.get("last-event-id") or request.query_params.get("after_seq", "0")
+        try: after_seq = int(raw or 0)
+        except ValueError: after_seq = 0
+        async def stream():
+            cursor = after_seq
+            while True:
+                events = service.events(run_id, cursor)
+                for event in events:
+                    cursor = event["seq"]
+                    yield f"id: {cursor}\nevent: expert\ndata: {json.dumps(event,ensure_ascii=False)}\n\n"
+                if not follow or (not events and service.get_run(run_id)["status"] in {"SUCCEEDED","FAILED","CANCELLED"}): return
+                if await request.is_disconnected(): return
+                if not events: yield ": keep-alive\n\n"
+                await asyncio.sleep(.05)
+        return StreamingResponse(stream(), media_type="text/event-stream", headers={"Cache-Control":"no-cache","X-Accel-Buffering":"no"})
 
     @app.get("/api/plans")
     async def list_plan_documents(service=Depends(runtime)) -> dict[str, Any]:
@@ -1029,6 +1109,83 @@ def register_routes(app) -> None:
     async def rollback_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         return _memory_json(service.memory.rollback(memory_id, int(payload["version"])))
 
+    def evolution(request: Request):
+        service = getattr(runtime(request), "evolution", None)
+        if service is None:
+            raise HTTPException(status_code=503, detail="evolution service is not configured")
+        return service
+
+    @app.post("/api/evolution/experiences", status_code=201, dependencies=[Depends(mutate)])
+    async def record_evolution_experience(payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.record_experience(
+            task_type=_required_text(payload, "task_type"), outcome=_required_text(payload, "outcome"),
+            lineage_group_hash=_required_text(payload, "lineage_group_hash"), source_content_hash=_required_text(payload, "source_content_hash"),
+            runtime_bundle_id=_required_text(payload, "runtime_bundle_id"), dataset_partition=_required_text(payload, "dataset_partition"),
+            idempotency_key=idempotency_key(request),
+        ))
+
+    @app.post("/api/evolution/candidates", status_code=201, dependencies=[Depends(mutate)])
+    async def create_evolution_candidate(payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.propose_candidate(
+            candidate_type=_required_text(payload, "candidate_type"), experience_ids=payload.get("experience_ids"),
+            base_bundle_id=_required_text(payload, "base_bundle_id"), target_bundle_id=_required_text(payload, "target_bundle_id"),
+            proposed_content=payload.get("proposed_content"), permission_diff=payload.get("permission_diff"),
+            reason=_required_text(payload, "reason"), idempotency_key=idempotency_key(request),
+        ))
+
+    @app.get("/api/evolution/candidates")
+    async def list_evolution_candidates(service=Depends(evolution)):
+        return {"candidates": service.list_candidates()}
+
+    @app.get("/api/evolution/candidates/{candidate_id}")
+    async def get_evolution_candidate(candidate_id: str, service=Depends(evolution)):
+        return _evolution_call(lambda: service.get_candidate(candidate_id))
+
+    @app.post("/api/evolution/candidates/{candidate_id}/evaluate", dependencies=[Depends(mutate)])
+    async def evaluate_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        try:
+            return await asyncio.to_thread(service.evaluate_builtin, candidate_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request))
+        except (EvolutionConflict, EvolutionGateError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/evolution/candidates/{candidate_id}/approve", dependencies=[Depends(mutate)])
+    async def approve_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.approve_builtin(candidate_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/evolution/candidates/{candidate_id}/reject", dependencies=[Depends(mutate)])
+    async def reject_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.reject(
+            candidate_id, expected_version=_required_int(payload, "expected_version"), reason=str(payload.get("reason") or "user rejected"),
+            actor="user", idempotency_key=idempotency_key(request),
+        ))
+
+    @app.post("/api/evolution/candidates/{candidate_id}/start-canary", dependencies=[Depends(mutate)])
+    async def start_evolution_canary(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.start_canary_builtin(candidate_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/evolution/candidates/{candidate_id}/promote", dependencies=[Depends(mutate)])
+    async def promote_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.promote(
+            candidate_id, expected_version=_required_int(payload, "expected_version"), idempotency_key=idempotency_key(request),
+        ))
+
+    @app.post("/api/evolution/candidates/{candidate_id}/rollback", dependencies=[Depends(mutate)])
+    async def rollback_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.rollback(
+            candidate_id, expected_version=_required_int(payload, "expected_version"), reason=str(payload.get("reason") or "user rollback"),
+            idempotency_key=idempotency_key(request),
+        ))
+
+    @app.get("/api/evolution/bundles")
+    async def list_evolution_bundles(service=Depends(evolution)):
+        return {"bundles": service.list_bundles()}
+
+    @app.get("/api/evolution/history")
+    async def list_evolution_history(after_id: int = 0, service=Depends(evolution)):
+        return {"events": service.history(after_id)}
+
 
 def _run_json(run, service) -> dict[str, Any]:
     return {
@@ -1047,6 +1204,21 @@ def _run_json(run, service) -> dict[str, Any]:
         "source_plan_document_version_id": run.source_plan_document_version_id,
         "source_plan_content_hash": run.source_plan_content_hash,
     }
+
+
+def _agent_run_json(run: dict[str, Any]) -> dict[str, Any]:
+    return {key: run.get(key) for key in (
+        "id","owner_id","thread_id","objective","mode","status","context_snapshot_id","runtime_bundle_id",
+        "coordinator_task_id","budget_units","reserved_budget_units","version","cancel_requested_at","created_at","updated_at","finished_at",
+    )}
+
+
+def _agent_task_json(task: dict[str, Any]) -> dict[str, Any]:
+    return {key: task.get(key) for key in (
+        "id","agent_run_id","root_task_id","parent_task_id","child_key","role","objective","output_schema","status","priority",
+        "join_policy","attempts","max_attempts","lease_epoch","budget_units","result_artifact_id","error_code","cancel_requested_at",
+        "cancel_reason","version","created_at","updated_at","finished_at",
+    )}
 
 
 def _goal_call(callback):
@@ -1369,3 +1541,16 @@ def _event_json(event) -> dict[str, Any]:
         "correlation": event.correlation,
         "data": event.data,
     }
+
+
+def _evolution_call(callback):
+    from .evolution import EvolutionConflict
+
+    try:
+        return callback()
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="evolution resource not found") from exc
+    except EvolutionConflict as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc

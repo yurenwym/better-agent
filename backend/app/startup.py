@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from pathlib import Path
 
 from .config import load_llm_ap, load_model_profile_from_env
@@ -16,10 +17,26 @@ from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
 from .settings import SettingsService
 from .notifications import NotificationService
+from .agents import AgentTaskService, LiveExpertModel, ManagedAgentWorker
+from .behavior import BehaviorBundleService
+from .evolution import EvolutionService
 
 
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8000
+
+
+def _code_version() -> str:
+    configured = os.getenv("BETTER_AGENT_CODE_VERSION")
+    if configured:
+        return configured
+    try:
+        return subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=Path(__file__).parents[2], capture_output=True,
+            check=True, text=True, timeout=2,
+        ).stdout.strip() or "local"
+    except (OSError, subprocess.SubprocessError):
+        return "local"
 
 
 def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, llm_ap_path: str | Path | None = None) -> AgentRuntime:
@@ -77,4 +94,22 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.notifications = NotificationService(db)
     runtime.research.notifications = runtime.notifications
     runtime.plan_documents.recover_pending_intents()
+    runtime.behavior = BehaviorBundleService(db)
+    model_manifest = configured_profile.public_view() if configured_profile else {"configured": False}
+    model_manifest.pop("api_key_configured", None)
+    skill_manifest = {item.name: __import__("hashlib").sha256(item.content.encode("utf-8")).hexdigest() for item in runtime.skills.list()}
+    bundle = runtime.behavior.ensure({
+        "code": _code_version(),
+        "model": model_manifest,
+        "skills": skill_manifest,
+        "policy": "personal-agent-v1",
+        "prompts": "live-model-v1",
+        "tools": __import__("hashlib").sha256(__import__("json").dumps(tools.describe(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest(),
+        "context": {"renderer": "context-v1", "tokenizer": "estimate-v1"},
+    })
+    try: runtime.behavior.active("stable")
+    except KeyError: runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
+    runtime.evolution = EvolutionService(db, runtime.behavior)
+    runtime.agent_tasks = AgentTaskService(db, thread_events=runtime.conversation.events, evolution=runtime.evolution)
+    runtime.agent_worker = ManagedAgentWorker(runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None)
     return runtime

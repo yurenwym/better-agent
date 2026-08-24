@@ -550,11 +550,166 @@ ALTER TABLE goal_programs ADD COLUMN completion_summary TEXT;
 ALTER TABLE goal_programs ADD COLUMN completion_episode_id TEXT;
 """
 
+MIGRATION_20260824_AGENT_EVOLUTION = r"""
+CREATE TABLE IF NOT EXISTS runtime_bundles (
+ id TEXT PRIMARY KEY, bundle_hash TEXT NOT NULL UNIQUE, manifest_json TEXT NOT NULL, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_channels (
+ name TEXT PRIMARY KEY, bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), version INTEGER NOT NULL DEFAULT 0,
+ updated_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS runtime_channel_events (
+ id TEXT PRIMARY KEY, channel_name TEXT NOT NULL, from_bundle_id TEXT, to_bundle_id TEXT NOT NULL,
+ idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS agent_context_snapshots (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, content_json TEXT NOT NULL, content_hash TEXT NOT NULL,
+ runtime_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), created_at TEXT NOT NULL,
+ UNIQUE(owner_id,content_hash,runtime_bundle_id)
+);
+CREATE TABLE IF NOT EXISTS agent_runs (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, thread_id TEXT, objective TEXT NOT NULL,
+ mode TEXT NOT NULL CHECK(mode IN ('single','expert')), status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','WAITING','SUCCEEDED','FAILED','CANCELLED')),
+ context_snapshot_id TEXT NOT NULL REFERENCES agent_context_snapshots(id), runtime_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+ coordinator_task_id TEXT, next_event_seq INTEGER NOT NULL DEFAULT 1,
+ budget_units INTEGER NOT NULL DEFAULT 0 CHECK(budget_units>=0), reserved_budget_units INTEGER NOT NULL DEFAULT 0 CHECK(reserved_budget_units>=0),
+ idempotency_key TEXT NOT NULL UNIQUE, version INTEGER NOT NULL DEFAULT 0, cancel_requested_at TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT
+);
+CREATE TABLE IF NOT EXISTS agent_tasks (
+ id TEXT PRIMARY KEY, agent_run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE,
+ root_task_id TEXT NOT NULL, parent_task_id TEXT REFERENCES agent_tasks(id), child_key TEXT,
+ role TEXT NOT NULL, objective TEXT NOT NULL, context_snapshot_id TEXT NOT NULL REFERENCES agent_context_snapshots(id),
+ output_schema TEXT NOT NULL DEFAULT 'artifact.v1', status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','WAITING_CHILDREN','SUCCEEDED','FAILED','CANCELLED')),
+ priority INTEGER NOT NULL DEFAULT 0, join_policy TEXT CHECK(join_policy IN ('ALL_SUCCESS','ALL_DONE')), children_closed_at TEXT,
+ attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 2,
+ lease_owner TEXT, lease_epoch INTEGER NOT NULL DEFAULT 0, lease_until TEXT, available_at TEXT NOT NULL,
+ budget_units INTEGER NOT NULL DEFAULT 0 CHECK(budget_units>=0), result_artifact_id TEXT, error_code TEXT,
+ cancel_requested_at TEXT, cancel_reason TEXT, version INTEGER NOT NULL DEFAULT 0,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+ UNIQUE(parent_task_id,child_key)
+);
+CREATE INDEX IF NOT EXISTS idx_agent_task_claim ON agent_tasks(status,available_at,lease_until,priority,created_at);
+CREATE TABLE IF NOT EXISTS agent_task_attempts (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+ attempt_no INTEGER NOT NULL, lease_owner TEXT NOT NULL, lease_epoch INTEGER NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('RUNNING','SUCCEEDED','FAILED','LEASE_LOST','CANCELLED')),
+ started_at TEXT NOT NULL, heartbeat_at TEXT, finished_at TEXT, error_json TEXT, UNIQUE(task_id,attempt_no)
+);
+CREATE TABLE IF NOT EXISTS agent_task_checkpoints (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+ attempt_no INTEGER NOT NULL, lease_epoch INTEGER NOT NULL, payload_json TEXT NOT NULL, payload_hash TEXT NOT NULL,
+ created_at TEXT NOT NULL, UNIQUE(task_id,attempt_no,payload_hash)
+);
+CREATE TABLE IF NOT EXISTS agent_artifacts (
+ id TEXT PRIMARY KEY, task_id TEXT NOT NULL REFERENCES agent_tasks(id) ON DELETE CASCADE,
+ attempt_no INTEGER NOT NULL, lease_epoch INTEGER NOT NULL, artifact_type TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1,
+ content_json TEXT NOT NULL, source_refs_json TEXT NOT NULL DEFAULT '[]', content_hash TEXT NOT NULL,
+ redaction_status TEXT NOT NULL DEFAULT 'safe', created_at TEXT NOT NULL, UNIQUE(task_id,attempt_no,artifact_type)
+);
+CREATE TABLE IF NOT EXISTS agent_events (
+ row_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE,
+ agent_run_id TEXT NOT NULL REFERENCES agent_runs(id) ON DELETE CASCADE, seq INTEGER NOT NULL,
+ task_id TEXT, type TEXT NOT NULL, actor TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', occurred_at TEXT NOT NULL,
+ UNIQUE(agent_run_id,seq)
+);
+CREATE TRIGGER IF NOT EXISTS agent_events_append_only_update BEFORE UPDATE ON agent_events
+BEGIN SELECT RAISE(ABORT,'agent events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS agent_events_append_only_delete BEFORE DELETE ON agent_events
+BEGIN SELECT RAISE(ABORT,'agent events are append-only'); END;
+CREATE TABLE IF NOT EXISTS tool_execution_claims (
+ logical_action_key TEXT PRIMARY KEY, run_id TEXT NOT NULL, task_id TEXT, agent_id TEXT,
+ tool_call_id TEXT NOT NULL, tool_name TEXT NOT NULL, params_hash TEXT NOT NULL, target_hash TEXT,
+ skill_digest TEXT, policy_version TEXT,
+ status TEXT NOT NULL CHECK(status IN ('RUNNING','COMPLETED','FAILED','RECONCILIATION_REQUIRED')),
+ lease_epoch INTEGER NOT NULL DEFAULT 1, result_json TEXT, error_code TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,
+ UNIQUE(run_id,tool_call_id)
+);
+"""
+
+MIGRATION_20260824_CONTROLLED_EVOLUTION = r"""
+CREATE TABLE evolution_experiences (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, task_type TEXT NOT NULL, outcome TEXT NOT NULL,
+ lineage_group_hash TEXT NOT NULL, source_content_hash TEXT NOT NULL,
+ runtime_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+ dataset_partition TEXT NOT NULL CHECK(dataset_partition IN ('DISCOVERY','DEV','HOLDOUT','SAFETY')),
+ request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+ UNIQUE(owner_id,lineage_group_hash)
+);
+CREATE TABLE evolution_candidates (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+ candidate_type TEXT NOT NULL CHECK(candidate_type IN ('memory','skill','policy','prompt','code')),
+ experience_ids_json TEXT NOT NULL, base_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+ target_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), target_bundle_digest TEXT NOT NULL,
+ proposed_content_json TEXT NOT NULL, proposed_digest TEXT NOT NULL,
+ permission_diff_json TEXT NOT NULL, permission_diff_digest TEXT NOT NULL, reason TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('READY_FOR_EVAL','EVALUATED','APPROVED','CANARY','PROMOTED','REJECTED','ROLLED_BACK')),
+ version INTEGER NOT NULL DEFAULT 0, current_evaluation_id TEXT, approval_id TEXT, deployment_id TEXT,
+ request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TRIGGER evolution_candidates_frozen BEFORE UPDATE ON evolution_candidates
+WHEN (
+ OLD.owner_id <> NEW.owner_id OR OLD.candidate_type <> NEW.candidate_type OR
+ OLD.experience_ids_json <> NEW.experience_ids_json OR OLD.base_bundle_id <> NEW.base_bundle_id OR
+ OLD.target_bundle_id <> NEW.target_bundle_id OR OLD.target_bundle_digest <> NEW.target_bundle_digest OR
+ OLD.proposed_content_json <> NEW.proposed_content_json OR OLD.proposed_digest <> NEW.proposed_digest OR
+ OLD.permission_diff_json <> NEW.permission_diff_json OR OLD.permission_diff_digest <> NEW.permission_diff_digest OR
+ OLD.reason <> NEW.reason
+)
+BEGIN SELECT RAISE(ABORT,'evolution candidate is frozen'); END;
+CREATE TABLE evolution_evaluations (
+ id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES evolution_candidates(id),
+ baseline_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), candidate_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+ eval_set_digest TEXT NOT NULL, evaluator_digest TEXT NOT NULL,
+ deterministic_pass INTEGER NOT NULL CHECK(deterministic_pass IN (0,1)), checks_json TEXT NOT NULL,
+ metrics_json TEXT NOT NULL, report_digest TEXT NOT NULL UNIQUE, status TEXT NOT NULL CHECK(status IN ('COMPLETED')),
+ request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, finished_at TEXT NOT NULL
+);
+CREATE TABLE evolution_decisions (
+ id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES evolution_candidates(id),
+ evaluation_id TEXT REFERENCES evolution_evaluations(id), decision TEXT NOT NULL CHECK(decision IN ('APPROVE','REJECT','PROMOTE','ROLLBACK')),
+ from_bundle_id TEXT, to_bundle_id TEXT, actor TEXT NOT NULL, reason TEXT NOT NULL DEFAULT '',
+ candidate_digest TEXT NOT NULL, evaluation_report_digest TEXT NOT NULL,
+ permission_diff_digest TEXT NOT NULL, target_bundle_digest TEXT NOT NULL,
+ expires_at TEXT, request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+);
+CREATE TABLE canary_deployments (
+ id TEXT PRIMARY KEY, candidate_id TEXT NOT NULL REFERENCES evolution_candidates(id),
+ approval_id TEXT NOT NULL REFERENCES evolution_decisions(id),
+ champion_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), challenger_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+ allocation_percent INTEGER NOT NULL CHECK(allocation_percent BETWEEN 1 AND 100), assignment_unit TEXT NOT NULL,
+ salt_digest TEXT NOT NULL, gate_policy_version TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('ACTIVE','PROMOTED','ROLLED_BACK','STOPPED')),
+ request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+);
+CREATE TABLE canary_exposures (
+ deployment_id TEXT NOT NULL REFERENCES canary_deployments(id), run_id TEXT NOT NULL,
+ assignment_hash TEXT NOT NULL, cohort TEXT NOT NULL CHECK(cohort IN ('champion','challenger')),
+ bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), success INTEGER NOT NULL CHECK(success IN (0,1)),
+ safety_pass INTEGER NOT NULL CHECK(safety_pass IN (0,1)), request_digest TEXT NOT NULL,
+ idempotency_key TEXT NOT NULL UNIQUE, exposed_at TEXT NOT NULL, PRIMARY KEY(deployment_id,run_id)
+);
+CREATE TABLE evolution_events (
+ row_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE,
+ candidate_id TEXT, type TEXT NOT NULL, actor TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}',
+ idempotency_key TEXT NOT NULL UNIQUE, occurred_at TEXT NOT NULL
+);
+CREATE TRIGGER evolution_events_append_only_update BEFORE UPDATE ON evolution_events
+BEGIN SELECT RAISE(ABORT,'evolution events are append-only'); END;
+CREATE TRIGGER evolution_events_append_only_delete BEFORE DELETE ON evolution_events
+BEGIN SELECT RAISE(ABORT,'evolution events are append-only'); END;
+CREATE INDEX idx_evolution_candidates_owner_status ON evolution_candidates(owner_id,status,created_at);
+CREATE INDEX idx_evolution_events_candidate ON evolution_events(candidate_id,row_id);
+"""
+
 MIGRATIONS = (
     (1, MIGRATION_20260823),
     (2, MIGRATION_20260824_GOAL_PROGRAMS),
     (3, MIGRATION_20260824_GOAL_REVIEWS),
     (4, MIGRATION_20260824_GOAL_COMPLETION),
+    (5, MIGRATION_20260824_AGENT_EVOLUTION),
+    (6, MIGRATION_20260824_CONTROLLED_EVOLUTION),
 )
 
 
