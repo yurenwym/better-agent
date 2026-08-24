@@ -160,6 +160,19 @@ class AgentRuntime:
             route_model=conversation_model or model,
         )
         self.plan_documents = self.conversation.plan_documents
+        from .goal_program_compiler import FixedGoalProgramCompiler, GoalProgramCompiler
+        from .goal_programs import GoalProgramService
+
+        goal_compiler = GoalProgramCompiler(model.gateway) if hasattr(model, "gateway") else FixedGoalProgramCompiler()
+        self.goal_programs = GoalProgramService(
+            db, goal_compiler, plan_documents=self.plan_documents, conversation=self.conversation
+        )
+        from .goal_adjustments import GoalAdjustmentService
+        self.goal_adjustments = GoalAdjustmentService(self.goal_programs, goal_compiler, self.plan_documents)
+        from .goal_reviews import GoalReviewService, ManagedGoalReviewWorker
+        self.goal_reviews = GoalReviewService(self.goal_programs, goal_compiler, self.goal_adjustments)
+        self.goal_programs.reviews = self.goal_reviews
+        self.goal_review_worker = ManagedGoalReviewWorker(self.goal_reviews)
         self.turn_worker = ManagedTurnWorker(self.conversation)
         self.research = None
         self.research_worker = None

@@ -14,6 +14,8 @@ const api = vi.hoisted(() => ({
   restorePlanDocument: vi.fn(),
   syncPlanFile: vi.fn(),
   retryPlanProjection: vi.fn(),
+  previewGoalProgram: vi.fn(),
+  activateGoalProgram: vi.fn(),
 }));
 
 vi.mock("../api", () => ({ ...api, ApiError: class ApiError extends Error { status = 409; payload: unknown; constructor(message: string, status: number, payload: unknown) { super(message); this.status = status; this.payload = payload; } } }));
@@ -73,6 +75,8 @@ describe("PlanPage document editor", () => {
     api.restorePlanDocument.mockResolvedValue(current);
     api.syncPlanFile.mockResolvedValue(current);
     api.retryPlanProjection.mockResolvedValue(document);
+    api.previewGoalProgram.mockResolvedValue(null);
+    api.activateGoalProgram.mockResolvedValue(null);
     api.getPlanVersion.mockResolvedValue({ ...current, version: 1, id: "version-1", markdown: "# Travel plan\n\n## Day 1\nOriginal" });
   });
 

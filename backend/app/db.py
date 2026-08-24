@@ -455,7 +455,100 @@ CREATE TABLE IF NOT EXISTS app_settings (
 );
 """
 
-MIGRATIONS = ((1, MIGRATION_20260823),)
+MIGRATION_20260824_GOAL_PROGRAMS = r"""
+CREATE TABLE IF NOT EXISTS goal_programs (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+ source_thread_id TEXT NOT NULL REFERENCES threads(id),
+ source_plan_document_id TEXT NOT NULL REFERENCES plan_documents(id),
+ source_plan_document_version_id TEXT NOT NULL REFERENCES plan_document_versions(id),
+ source_plan_content_hash TEXT NOT NULL,
+ objective_title TEXT NOT NULL DEFAULT '', objective_summary TEXT NOT NULL DEFAULT '',
+ status TEXT NOT NULL CHECK(status IN ('DRAFT','ACTIVE','PAUSED','COMPLETED','CANCELLED')),
+ compile_status TEXT NOT NULL CHECK(compile_status IN ('COMPILING','READY','FAILED')),
+ compile_error_code TEXT, timezone TEXT NOT NULL, start_date TEXT NOT NULL, end_date TEXT NOT NULL,
+ daily_minutes INTEGER NOT NULL CHECK(daily_minutes BETWEEN 5 AND 1440),
+ current_program_version_id TEXT, version INTEGER NOT NULL DEFAULT 0,
+ next_event_seq INTEGER NOT NULL DEFAULT 1,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT, cancelled_at TEXT, deleted_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_goal_programs_owner_status ON goal_programs(owner_id,status,deleted_at,updated_at);
+CREATE TABLE IF NOT EXISTS goal_program_versions (
+ id TEXT PRIMARY KEY, program_id TEXT NOT NULL REFERENCES goal_programs(id), version INTEGER NOT NULL,
+ base_version_id TEXT REFERENCES goal_program_versions(id),
+ source_plan_document_version_id TEXT NOT NULL REFERENCES plan_document_versions(id),
+ structure_json TEXT NOT NULL, change_summary TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL, created_at TEXT NOT NULL,
+ UNIQUE(program_id,version)
+);
+CREATE TABLE IF NOT EXISTS goal_actions (
+ id TEXT PRIMARY KEY, program_id TEXT NOT NULL REFERENCES goal_programs(id),
+ program_version_id TEXT NOT NULL REFERENCES goal_program_versions(id), logical_key TEXT NOT NULL,
+ scheduled_date TEXT NOT NULL, position INTEGER NOT NULL, title TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+ estimated_minutes INTEGER NOT NULL CHECK(estimated_minutes BETWEEN 5 AND 180), completion_criteria TEXT NOT NULL,
+ required INTEGER NOT NULL CHECK(required IN (0,1)),
+ status TEXT NOT NULL CHECK(status IN ('SCHEDULED','COMPLETED','SKIPPED','DEFERRED','CANCELLED')),
+ version INTEGER NOT NULL DEFAULT 0, completed_at TEXT, skipped_at TEXT, deferred_at TEXT, cancelled_at TEXT,
+ deferred_from_action_id TEXT REFERENCES goal_actions(id), cancel_reason TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+ UNIQUE(program_id,program_version_id,logical_key), UNIQUE(program_id,program_version_id,scheduled_date,position)
+);
+CREATE INDEX IF NOT EXISTS idx_goal_actions_today ON goal_actions(program_id,status,scheduled_date,position);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_goal_action_deferred_from ON goal_actions(deferred_from_action_id) WHERE deferred_from_action_id IS NOT NULL;
+CREATE TABLE IF NOT EXISTS goal_action_feedback (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, action_id TEXT NOT NULL REFERENCES goal_actions(id), kind TEXT NOT NULL,
+ actual_minutes INTEGER, difficulty INTEGER, reason_code TEXT, note TEXT, sensitivity TEXT NOT NULL DEFAULT 'normal',
+ idempotency_key TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(owner_id,idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS goal_command_receipts (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL,
+ operation TEXT NOT NULL, idempotency_key TEXT NOT NULL, request_hash TEXT NOT NULL, response_json TEXT NOT NULL,
+ created_at TEXT NOT NULL, UNIQUE(owner_id,idempotency_key)
+);
+CREATE TABLE IF NOT EXISTS goal_program_events (
+ row_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE,
+ program_id TEXT NOT NULL REFERENCES goal_programs(id), seq INTEGER NOT NULL, action_id TEXT REFERENCES goal_actions(id),
+ type TEXT NOT NULL, actor TEXT NOT NULL, schema_version INTEGER NOT NULL DEFAULT 1,
+ occurred_at TEXT NOT NULL, data_json TEXT NOT NULL DEFAULT '{}', UNIQUE(program_id,seq)
+);
+CREATE TRIGGER IF NOT EXISTS goal_program_events_append_only_update BEFORE UPDATE ON goal_program_events
+BEGIN SELECT RAISE(ABORT,'goal program events are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS goal_program_events_append_only_delete BEFORE DELETE ON goal_program_events
+BEGIN SELECT RAISE(ABORT,'goal program events are append-only'); END;
+CREATE TABLE IF NOT EXISTS goal_adjustment_proposals (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, program_id TEXT NOT NULL REFERENCES goal_programs(id),
+ base_program_version_id TEXT NOT NULL REFERENCES goal_program_versions(id),
+ expected_plan_document_version_id TEXT NOT NULL REFERENCES plan_document_versions(id), expected_plan_content_hash TEXT NOT NULL,
+ affected_actions_json TEXT NOT NULL, candidate_structure_json TEXT NOT NULL, diff_json TEXT NOT NULL, reason TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('PENDING','ACCEPTED','REJECTED','STALE')), version INTEGER NOT NULL DEFAULT 0,
+ accepted_program_version_id TEXT REFERENCES goal_program_versions(id),
+ plan_sync_status TEXT, plan_sync_version_id TEXT REFERENCES plan_document_versions(id),
+ created_at TEXT NOT NULL, decided_at TEXT, updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_goal_adjustments_program ON goal_adjustment_proposals(program_id,status,created_at);
+"""
+
+MIGRATION_20260824_GOAL_REVIEWS = r"""
+CREATE TABLE IF NOT EXISTS goal_daily_reviews (
+ id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, program_id TEXT NOT NULL REFERENCES goal_programs(id), local_date TEXT NOT NULL,
+ status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','COMPLETED','FAILED')), attempts INTEGER NOT NULL DEFAULT 0,
+ lease_owner TEXT, lease_until TEXT, source_hash TEXT NOT NULL, signals_json TEXT NOT NULL DEFAULT '[]',
+ summary TEXT, encouragement TEXT, needs_adjustment INTEGER, adjustment_reason TEXT,
+ proposal_id TEXT REFERENCES goal_adjustment_proposals(id), error_code TEXT,
+ created_at TEXT NOT NULL, updated_at TEXT NOT NULL, completed_at TEXT,
+ UNIQUE(owner_id,program_id,local_date)
+);
+CREATE INDEX IF NOT EXISTS idx_goal_daily_reviews_queue ON goal_daily_reviews(status,lease_until,created_at);
+CREATE TABLE IF NOT EXISTS goal_review_action_snapshots (
+ review_id TEXT NOT NULL REFERENCES goal_daily_reviews(id) ON DELETE CASCADE,
+ action_id TEXT NOT NULL REFERENCES goal_actions(id), action_version INTEGER NOT NULL, status TEXT NOT NULL,
+ title TEXT NOT NULL, estimated_minutes INTEGER NOT NULL, actual_minutes INTEGER, difficulty INTEGER,
+ PRIMARY KEY(review_id,action_id)
+);
+"""
+
+MIGRATIONS = (
+    (1, MIGRATION_20260823),
+    (2, MIGRATION_20260824_GOAL_PROGRAMS),
+    (3, MIGRATION_20260824_GOAL_REVIEWS),
+)
 
 
 class Database:
@@ -585,6 +678,8 @@ class Database:
                 connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_claim_owner TEXT")
             if "direction_projection_lease_until" not in turn_columns:
                 connection.execute("ALTER TABLE turns ADD COLUMN direction_projection_lease_until TEXT")
+            if "goal_action_id" not in turn_columns:
+                connection.execute("ALTER TABLE turns ADD COLUMN goal_action_id TEXT")
             message_columns = {
                 row["name"] for row in connection.execute("PRAGMA table_info(thread_messages)").fetchall()
             }

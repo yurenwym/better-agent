@@ -25,6 +25,12 @@ import type {
   ResearchJob,
   ResearchSchedule,
   NotificationChannel,
+  GoalProgram,
+  GoalDailyReview,
+  TodayResponse,
+  GoalAdjustmentProposal,
+  GoalAction,
+  TodayProgramGroup,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -79,6 +85,10 @@ function mutationHeaders(csrfToken: string): HeadersInit {
 
 export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap> {
   return json<Bootstrap>(await fetcher("/api/bootstrap"));
+}
+
+function goalMutationHeaders(csrfToken: string, idempotencyKey: string): HeadersInit {
+  return { ...mutationHeaders(csrfToken), "Idempotency-Key": idempotencyKey };
 }
 
 export async function getSkills(fetcher: Fetcher = fetch): Promise<{ skills: SkillDefinition[] }> {
@@ -207,6 +217,29 @@ export async function retryPlanProjection(planDocumentId: string, csrfToken: str
     method: "POST", headers: mutationHeaders(csrfToken), body: "{}",
   }));
 }
+
+export async function previewGoalProgram(planDocumentId: string, payload: { start_date: string; requested_end_date?: string; timezone: string; daily_minutes: number }, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
+  return planJson(await fetcher(`/api/plans/${planDocumentId}/program-preview`, { method:"POST", headers:goalMutationHeaders(csrf,key), body:JSON.stringify(payload) }));
+}
+export async function activateGoalProgram(programId: string, expectedVersion: number, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
+  return planJson(await fetcher(`/api/programs/${programId}/activate`, { method:"POST", headers:goalMutationHeaders(csrf,key), body:JSON.stringify({expected_version:expectedVersion}) }));
+}
+export async function getGoalProgram(programId: string, fetcher: Fetcher = fetch): Promise<GoalProgram> { return planJson(await fetcher(`/api/programs/${programId}`)); }
+export async function getGoalAction(actionId:string,fetcher:Fetcher=fetch):Promise<{action:GoalAction;program:TodayProgramGroup["program"]}>{return planJson(await fetcher(`/api/actions/${actionId}`));}
+export async function getToday(date?: string, fetcher: Fetcher = fetch): Promise<TodayResponse> { return planJson(await fetcher(`/api/today${date ? `?date=${encodeURIComponent(date)}` : ""}`)); }
+export async function getGoalReview(programId:string,localDate:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview|null>{const response=await fetcher(`/api/programs/${programId}/reviews/${localDate}`);if(response.status===204)return null;return planJson(response);}
+export async function mutateGoalAction(actionId: string, operation: "complete"|"skip"|"defer"|"feedback", payload:Record<string,unknown>, key:string, csrf:string, fetcher:Fetcher=fetch):Promise<unknown>{
+  return planJson(await fetcher(`/api/actions/${actionId}/${operation}`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify(payload)}));
+}
+export async function transitionGoalProgram(programId:string,operation:"pause"|"resume"|"complete"|"cancel",expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalProgram>{
+  return planJson(await fetcher(`/api/programs/${programId}/${operation}`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({expected_version:expectedVersion})}));
+}
+export async function requestGoalActionHelp(actionId:string,content:string,expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<TurnSubmission & {action_id:string}>{
+  return planJson(await fetcher(`/api/actions/${actionId}/request-help`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({content,expected_version:expectedVersion})}));
+}
+export async function proposeGoalAdjustment(programId:string,reason:string,expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalAdjustmentProposal>{return planJson(await fetcher(`/api/programs/${programId}/adjustments`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({reason,expected_version:expectedVersion})}));}
+export async function decideGoalAdjustment(proposalId:string,decision:"accept"|"reject",expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<{proposal:GoalAdjustmentProposal;program:GoalProgram}|GoalAdjustmentProposal>{return planJson(await fetcher(`/api/adjustments/${proposalId}/${decision}`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({expected_version:expectedVersion})}));}
+export async function syncGoalAdjustment(proposalId:string,expectedVersion:number,key:string,csrf:string,rebaseToCurrent=false,fetcher:Fetcher=fetch):Promise<{proposal:GoalAdjustmentProposal;plan_document_version_id:string}>{return planJson(await fetcher(`/api/adjustments/${proposalId}/sync-plan-document`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({expected_version:expectedVersion,rebase_to_current:rebaseToCurrent})}));}
 
 export async function getThreadMessages(threadId: string, fetcher: Fetcher = fetch): Promise<{ messages: ThreadMessage[] }> {
   return json<{ messages: ThreadMessage[] }>(await fetcher(`/api/threads/${threadId}/messages`));

@@ -8,9 +8,11 @@ import TrajectoryPage from "./pages/TrajectoryPage";
 import MemoryPage from "./pages/MemoryPage";
 import ResearchPage from "./pages/ResearchPage";
 import SchedulesPage from "./pages/SchedulesPage";
+import TodayPage from "./pages/TodayPage";
 
 const headings: Record<WorkspacePage, string> = {
   chat: "目标对话",
+  today: "今天的行动",
   plan: "计划版本",
   trajectory: "运行轨迹",
   research: "深度研究",
@@ -32,7 +34,7 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(/^\/plans\//.test(path))return "plan";if(path==="/research")return "research";if(path==="/schedules")return "schedules";return "chat"; }
+function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(/^\/plans\//.test(path))return "plan";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";return "chat"; }
 export default function App() {
   const [page, setPage] = useState<WorkspacePage>(pageFromPath);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
@@ -61,7 +63,7 @@ export default function App() {
         activePage={page}
         bootstrap={bootstrap}
         run={run}
-        onNavigate={setPage}
+        onNavigate={(next)=>{setPage(next);if(next==="today")window.history.pushState({},"","/today");}}
         onNewConversation={() => { setRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
         onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
       />
@@ -89,6 +91,7 @@ export default function App() {
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={setThreadId} onRun={setRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
+          {page === "today" && <TodayPage csrfToken={csrfToken} onHelp={(nextThreadId)=>{setThreadId(nextThreadId);setPage("chat");window.history.pushState({},"","/");}} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("chat"); window.history.pushState({}, "", "/"); }} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}

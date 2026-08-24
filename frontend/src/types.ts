@@ -82,6 +82,7 @@ export interface Turn {
   artifact_kind?: string | null;
   artifact_operation?: string | null;
   artifact_title?: string | null;
+  goal_action_id?: string | null;
   version: number;
   skill_names: string[];
   materialized_goal_id: string | null;
@@ -235,6 +236,61 @@ export interface PlanDocumentSummary {
   file_status: "pending" | "ready" | "conflict" | "failed" | "deleted" | string;
   created_at: string;
   updated_at: string;
+}
+
+export type GoalProgramStatus = "DRAFT" | "ACTIVE" | "PAUSED" | "COMPLETED" | "CANCELLED";
+export type GoalActionStatus = "SCHEDULED" | "COMPLETED" | "SKIPPED" | "DEFERRED" | "CANCELLED";
+
+export interface GoalAction {
+  id: string; program_id: string; program_version_id: string; logical_key: string;
+  scheduled_date: string; position: number; title: string; description: string;
+  estimated_minutes: number; completion_criteria: string; required: boolean;
+  status: GoalActionStatus; version: number; completed_at: string | null; skipped_at: string | null;
+  deferred_at: string | null; cancelled_at: string | null; deferred_from_action_id: string | null; cancel_reason: string | null;
+}
+
+export interface GoalProgress {
+  required_completed: number; required_total: number; completion_rate: number;
+  completion_ready: boolean; optional_completed: number;
+}
+
+export interface ProgramStructure {
+  objective_title: string; objective_summary: string; start_date: string; end_date: string;
+  assumptions: string[];
+  milestones: Array<{ logical_key: string; title: string; target_date: string }>;
+  actions: Array<Omit<GoalAction, "id" | "program_id" | "program_version_id" | "status" | "version" | "completed_at" | "skipped_at" | "deferred_at" | "cancelled_at" | "deferred_from_action_id" | "cancel_reason">>;
+}
+
+export interface GoalProgram {
+  id: string; objective_title: string; objective_summary: string; status: GoalProgramStatus;
+  compile_status: "COMPILING" | "READY" | "FAILED"; compile_error_code: string | null;
+  timezone: string; start_date: string; end_date: string; daily_minutes: number; version: number;
+  source_thread_id: string; source_plan_document_id: string; source_plan_document_version_id: string;
+  source_plan_content_hash: string; current_program_version_id: string | null;
+  structure: ProgramStructure | null; actions: GoalAction[]; progress: GoalProgress; next_event_seq: number; deleted_at: string | null;
+}
+
+export interface TodayProgramGroup {
+  program: Pick<GoalProgram, "id" | "objective_title" | "objective_summary" | "status" | "timezone" | "start_date" | "end_date" | "version">;
+  local_date: string; day_number: number; today: GoalAction[]; overdue: GoalAction[];
+  today_estimated_minutes: number; progress: GoalProgress; review: GoalDailyReview | null;
+}
+
+export interface TodayResponse { date: string | null; programs: TodayProgramGroup[]; }
+
+export interface GoalAdjustmentProposal {
+  id:string; program_id:string; base_program_version_id:string; expected_plan_document_version_id:string;
+  expected_plan_content_hash:string; candidate:ProgramStructure;
+  diff:{added:ProgramStructure["actions"];removed:ProgramStructure["actions"];changed:Array<{logical_key:string;fields:Record<string,{before:unknown;after:unknown}>}>};
+  reason:string; status:"PENDING"|"ACCEPTED"|"REJECTED"|"STALE"; version:number;
+  accepted_program_version_id:string|null; plan_sync_status:string|null; plan_sync_version_id:string|null;
+  created_at:string; decided_at:string|null;
+}
+
+export interface GoalDailyReview {
+  id:string;program_id:string;local_date:string;status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED";
+  signals:string[];summary:string|null;encouragement:string|null;needs_adjustment:boolean|null;
+  adjustment_reason:string|null;proposal:GoalAdjustmentProposal|null;error_code:string|null;
 }
 
 export interface ThreadPlanResponse {

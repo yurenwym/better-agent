@@ -15,6 +15,7 @@ const api = vi.hoisted(() => ({
   selectDirection: vi.fn(),
   getSkills: vi.fn(),
   getResearchJobs: vi.fn().mockResolvedValue({ jobs: [] }),
+  getGoalAction: vi.fn(),
   cancelResearch: vi.fn(),
   getRun: vi.fn(),
   sendMessage: vi.fn(),
@@ -61,6 +62,7 @@ describe("ChatPage streaming bootstrap", () => {
     api.subscribeToThreadEvents.mockReturnValue(() => undefined);
     api.getSkills.mockResolvedValue({ skills: [{ name: "reflection", title: "执行复盘", description: "从结果中提炼记忆。", enabled: true }] });
     api.getRun.mockResolvedValue(initialRun);
+    api.getGoalAction.mockResolvedValue({action:{scheduled_date:"2026-09-01",title:"完成一道题"},program:{objective_title:"一周力扣"}});
     api.sendMessage.mockResolvedValue({ ...initialRun, state: "AWAITING_APPROVAL", version: 1 });
     api.getEvents.mockResolvedValue({ events: [] });
     api.getMessages.mockResolvedValue({ messages: [] });
@@ -162,6 +164,17 @@ describe("ChatPage streaming bootstrap", () => {
     await waitFor(() => expect(screen.getByRole("complementary", { name: "当前对话轨迹" })).toBeTruthy());
     const rail = screen.getByRole("complementary", { name: "当前对话轨迹" });
     expect(rail.querySelector(".activity-list")?.textContent).toContain("本轮对话完成");
+  });
+
+  it("shows a dismissible context banner for an action-linked turn", async () => {
+    api.getThread.mockResolvedValue({
+      id:"thread-1",title:"Chat",version:1,active_turn_id:"turn-1",next_event_seq:2,
+      turns:[{id:"turn-1",thread_id:"thread-1",client_turn_id:"goal-help",parent_turn_id:null,status:"ACCEPTED",policy:null,content_shape:null,reason_code:null,goal_action_id:"action-12345678",version:0,skill_names:[],materialized_goal_id:null,materialized_run_id:null,direction_action:null,direction_idempotency_key:null,created_at:"2026-08-19T00:00:00Z",updated_at:"2026-08-19T00:00:00Z"}],
+    });
+    render(<ChatPage csrfToken="csrf" run={null} threadId="thread-1" onRun={vi.fn()} onOpenTrajectory={vi.fn()} onOpenPlan={vi.fn()}/>);
+    expect(await screen.findByRole("complementary",{name:"当前行动上下文"})).toBeTruthy();
+    fireEvent.click(screen.getByRole("button",{name:"关闭行动上下文"}));
+    expect(screen.queryByRole("complementary",{name:"当前行动上下文"})).toBeNull();
   });
 
   it("shows the document title and fixed version before execution confirmation", async () => {

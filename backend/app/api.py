@@ -11,6 +11,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response, Streami
 
 from .ask import AskValidationError
 from .events import export_jsonl
+from .goal_program_compiler import GoalCompilationError
+from .goal_programs import GoalProgramConflict, GoalProgramNotFound
 from .plan_documents import PlanDocumentConflict, PlanDocumentValidationError
 
 
@@ -89,6 +91,32 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=503, detail="conversation runtime is not configured")
         return value
 
+    def goal_programs(request: Request):
+        service = runtime(request)
+        value = getattr(service, "goal_programs", None)
+        if value is None:
+            raise HTTPException(status_code=503, detail="goal programs are not configured")
+        return value
+
+    def goal_adjustments(request: Request):
+        service = runtime(request)
+        value = getattr(service, "goal_adjustments", None)
+        if value is None: raise HTTPException(status_code=503, detail="goal adjustments are not configured")
+        return value
+
+    def goal_reviews(request: Request):
+        service = runtime(request)
+        value = getattr(service, "goal_reviews", None)
+        if value is None:
+            raise HTTPException(status_code=503, detail="goal reviews are not configured")
+        return value
+
+    def idempotency_key(request: Request) -> str:
+        key = request.headers.get("idempotency-key", "")
+        if not key.strip():
+            raise HTTPException(status_code=422, detail="Idempotency-Key header is required")
+        return key
+
     @app.get("/api/bootstrap")
     async def bootstrap(request: Request) -> dict[str, Any]:
         config = request.app.state.config
@@ -105,6 +133,127 @@ def register_routes(app) -> None:
     async def get_settings(service=Depends(runtime)) -> dict[str, Any]:
         settings = getattr(service, "settings", None)
         return {"human_mode": settings.get().human_mode if settings else False}
+
+    @app.post("/api/plans/{plan_document_id}/program-preview", dependencies=[Depends(mutate)], response_model=None)
+    async def preview_goal_program(
+        plan_document_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)
+    ) -> dict[str, Any] | JSONResponse:
+        try:
+            return await service.preview(
+                plan_document_id,
+                start_date=_required_text(payload, "start_date"),
+                timezone_name=_required_text(payload, "timezone"),
+                daily_minutes=_required_int(payload, "daily_minutes"),
+                requested_end_date=payload.get("requested_end_date"),
+                idempotency_key=idempotency_key(request),
+            )
+        except GoalProgramNotFound as exc:
+            raise HTTPException(status_code=404, detail="plan not found") from exc
+        except GoalProgramConflict as exc:
+            return _goal_conflict(exc)
+        except GoalCompilationError as exc:
+            raise HTTPException(status_code=503 if exc.temporary else 422, detail={"reason_code": exc.code}) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/programs/{program_id}/compile-retry", dependencies=[Depends(mutate)], response_model=None)
+    async def retry_goal_compile(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        try:
+            return await service.retry_compile(program_id, expected_version=_required_int(payload, "expected_version"), idempotency_key=idempotency_key(request))
+        except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="program not found") from exc
+        except GoalProgramConflict as exc: return _goal_conflict(exc)
+        except GoalCompilationError as exc: raise HTTPException(status_code=503 if exc.temporary else 422, detail={"reason_code": exc.code}) from exc
+        except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/programs/{program_id}/activate", dependencies=[Depends(mutate)], response_model=None)
+    async def activate_goal_program(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        return _goal_call(lambda: service.activate(program_id, expected_version=_required_int(payload, "expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.get("/api/programs")
+    async def list_goal_programs(service=Depends(goal_programs)) -> dict[str, Any]:
+        return {"programs": service.list()}
+
+    @app.get("/api/programs/{program_id}")
+    async def get_goal_program(program_id: str, service=Depends(goal_programs)) -> dict[str, Any]:
+        try: return service.get(program_id)
+        except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="program not found") from exc
+
+    @app.get("/api/today")
+    async def get_today(date: str | None = None, service=Depends(goal_programs)) -> dict[str, Any]:
+        try: return service.today(explicit_date=date)
+        except ValueError as exc: raise HTTPException(status_code=422, detail="date must be YYYY-MM-DD") from exc
+
+    @app.get("/api/programs/{program_id}/reviews/{local_date}")
+    async def get_goal_review(program_id: str, local_date: str, service=Depends(goal_reviews)):
+        try:
+            return service.for_program_date(program_id, local_date) or Response(status_code=204)
+        except GoalProgramNotFound as exc:
+            raise HTTPException(status_code=404, detail="program not found") from exc
+
+    @app.get("/api/actions/{action_id}")
+    async def get_goal_action(action_id: str, service=Depends(goal_programs)):
+        try: return service.get_action_context(action_id)
+        except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="action not found") from exc
+
+    @app.post("/api/actions/{action_id}/complete", dependencies=[Depends(mutate)], response_model=None)
+    async def complete_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        return _goal_call(lambda: service.complete_action(action_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/actions/{action_id}/skip", dependencies=[Depends(mutate)], response_model=None)
+    async def skip_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        return _goal_call(lambda: service.skip_action(action_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/actions/{action_id}/defer", dependencies=[Depends(mutate)], response_model=None)
+    async def defer_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        return _goal_call(lambda: service.defer_action(action_id, expected_version=_required_int(payload,"expected_version"), scheduled_date=_required_text(payload,"scheduled_date"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/actions/{action_id}/feedback", dependencies=[Depends(mutate)], response_model=None)
+    async def add_goal_feedback(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        expected_version = _required_int(payload, "expected_version")
+        return _goal_call(lambda: service.feedback(action_id, {key:value for key,value in payload.items() if key != "expected_version"}, expected_version=expected_version, idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/actions/{action_id}/request-help", status_code=202, dependencies=[Depends(mutate)], response_model=None)
+    async def request_goal_help(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        try:
+            return service.request_help(
+                action_id, content=_required_text(payload, "content"),
+                expected_version=_required_int(payload, "expected_version"),
+                idempotency_key=idempotency_key(request), client_turn_id=payload.get("client_turn_id"),
+            )
+        except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="action not found") from exc
+        except GoalProgramConflict as exc: return _goal_conflict(exc)
+        except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    for operation in ("pause", "resume", "complete", "cancel"):
+        async def lifecycle(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs), operation=operation):
+            return _goal_call(lambda: service.transition(program_id, operation, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+        app.add_api_route(f"/api/programs/{{program_id}}/{operation}", lifecycle, methods=["POST"], dependencies=[Depends(mutate)], response_model=None)
+
+    @app.delete("/api/programs/{program_id}", dependencies=[Depends(mutate)], response_model=None)
+    async def tombstone_goal_program(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        return _goal_call(lambda: service.tombstone(program_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+
+    @app.post("/api/programs/{program_id}/adjustments", dependencies=[Depends(mutate)], response_model=None)
+    async def propose_goal_adjustment(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_adjustments)):
+        try:return await service.propose(program_id,reason=_required_text(payload,"reason"),expected_version=_required_int(payload,"expected_version"),idempotency_key=idempotency_key(request))
+        except GoalProgramNotFound as exc:raise HTTPException(status_code=404,detail="program not found") from exc
+        except GoalProgramConflict as exc:return _goal_conflict(exc)
+        except GoalCompilationError as exc:raise HTTPException(status_code=503 if exc.temporary else 422,detail={"reason_code":exc.code}) from exc
+        except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+
+    @app.get("/api/adjustments/{proposal_id}")
+    async def get_goal_adjustment(proposal_id: str, service=Depends(goal_adjustments)):
+        try:return service.get(proposal_id)
+        except GoalProgramNotFound as exc:raise HTTPException(status_code=404,detail="adjustment not found") from exc
+
+    for decision in ("accept","reject"):
+        async def decide_adjustment(proposal_id: str,payload:dict[str,Any],request:Request,service=Depends(goal_adjustments),decision=decision):
+            return _goal_call(lambda:getattr(service,decision)(proposal_id,expected_version=_required_int(payload,"expected_version"),idempotency_key=idempotency_key(request)))
+        app.add_api_route(f"/api/adjustments/{{proposal_id}}/{decision}",decide_adjustment,methods=["POST"],dependencies=[Depends(mutate)],response_model=None)
+
+    @app.post("/api/adjustments/{proposal_id}/sync-plan-document",dependencies=[Depends(mutate)],response_model=None)
+    async def sync_goal_adjustment(proposal_id:str,payload:dict[str,Any],request:Request,service=Depends(goal_adjustments)):
+        return _goal_call(lambda:service.sync_plan_document(proposal_id,expected_version=_required_int(payload,"expected_version"),rebase_to_current=payload.get("rebase_to_current",False) is True,idempotency_key=idempotency_key(request)))
 
     @app.put("/api/settings/human-mode", dependencies=[Depends(mutate)])
     async def set_human_mode(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
@@ -886,6 +1035,21 @@ def _run_json(run, service) -> dict[str, Any]:
     }
 
 
+def _goal_call(callback):
+    try:
+        return callback()
+    except GoalProgramNotFound as exc:
+        raise HTTPException(status_code=404, detail="goal resource not found") from exc
+    except GoalProgramConflict as exc:
+        return _goal_conflict(exc)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _goal_conflict(exc: GoalProgramConflict) -> JSONResponse:
+    return JSONResponse(status_code=409, content={"detail": str(exc), "current": exc.current})
+
+
 def _thread_json(thread) -> dict[str, Any]:
     return {
         "id": thread.id,
@@ -911,6 +1075,7 @@ def _turn_json(turn) -> dict[str, Any]:
         "artifact_kind": turn.artifact_kind,
         "artifact_operation": turn.artifact_operation,
         "artifact_title": turn.artifact_title,
+        "goal_action_id": turn.goal_action_id,
         "version": turn.version,
         "skill_names": list(turn.skill_names),
         "materialized_goal_id": turn.materialized_goal_id,
@@ -1087,6 +1252,13 @@ def _required_int(payload: dict[str, Any], key: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
         raise ValueError(f"{key} must be an integer")
     return value
+
+
+def _required_text(payload: dict[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(status_code=422, detail=f"{key} is required")
+    return value.strip()
 
 
 def _thread_event_json(event) -> dict[str, Any]:

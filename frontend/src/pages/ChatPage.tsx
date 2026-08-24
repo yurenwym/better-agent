@@ -21,12 +21,13 @@ import {
   sendMessage,
   submitTurn,
   getResearchJobs,
+  getGoalAction,
   cancelResearch,
   retryResearch,
 } from "../api";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AskAnswer, ResearchJob, Run, SkillDefinition, ThreadEvent } from "../types";
+import type { AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -106,6 +107,8 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [researchJobs, setResearchJobs] = useState<ResearchJob[]>([]);
+  const [goalContextVisible,setGoalContextVisible]=useState(true);
+  const [goalContext,setGoalContext]=useState<{action:GoalAction;program:TodayProgramGroup["program"]}|null>(null);
   const conversationId = threadId ?? localThreadId;
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
   const onMaterialized = useCallback((runId: string) => {
@@ -320,10 +323,13 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     ]
     : telemetry.messages;
   const planReference = latestPlanReference(threadTelemetry.events);
+  const goalActionId=activeTurn?.goal_action_id;
+  useEffect(()=>{setGoalContextVisible(true);if(!goalActionId){setGoalContext(null);return;}void getGoalAction(goalActionId).then(setGoalContext).catch(()=>setGoalContext(null));},[goalActionId]);
 
   return (
     <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
+        {goalActionId&&goalContextVisible&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setGoalContextVisible(false)}>关闭</button></aside>}
         <ConversationThread
           messages={messages}
           busy={busy || actionBusy || telemetry.loading || threadTelemetry.loading || threadBusy}
