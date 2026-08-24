@@ -31,6 +31,11 @@ const api = vi.hoisted(() => ({
   grantApproval: vi.fn(),
   rejectApproval: vi.fn(),
   resumeRun: vi.fn(),
+  createExpertRun: vi.fn(),
+  getAgentRun: vi.fn(),
+  getAgentTasks: vi.fn(),
+  getAgentArtifacts: vi.fn(),
+  cancelAgentRun: vi.fn(),
 }));
 
 vi.mock("../api", () => api);
@@ -68,6 +73,23 @@ describe("ChatPage streaming bootstrap", () => {
     api.getMessages.mockResolvedValue({ messages: [] });
     api.getStats.mockResolvedValue({ run_id: "run-1" });
     api.subscribeToEvents.mockReturnValue(() => undefined);
+    api.createExpertRun.mockResolvedValue({ id: "agent-run-1", thread_id: "thread-1", objective: "深入比较", mode: "expert", status: "QUEUED", runtime_bundle_id: "bundle-1", budget_units: 16, reserved_budget_units: 0, version: 0, cancel_requested_at: null, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:00Z", finished_at: null });
+    api.getAgentRun.mockImplementation(async () => api.createExpertRun.mock.results.at(-1)?.value);
+    api.getAgentTasks.mockResolvedValue({ tasks: [] });
+    api.getAgentArtifacts.mockResolvedValue({ artifacts: [] });
+  });
+
+  it("explicitly starts an expert run when deep processing is enabled", async () => {
+    render(
+      <ChatPage csrfToken="csrf" run={null} onThread={vi.fn()} onRun={vi.fn()} onOpenTrajectory={vi.fn()} onOpenPlan={vi.fn()} />,
+    );
+
+    fireEvent.click(screen.getByRole("switch", { name: "深入处理" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "深入比较" } });
+    fireEvent.click(screen.getByRole("button", { name: "启动专家协同" }));
+
+    await waitFor(() => expect(api.createExpertRun).toHaveBeenCalledWith("thread-1", "深入比较", expect.any(String), "csrf"));
+    expect(api.submitTurn).not.toHaveBeenCalled();
   });
 
   it("mounts the new run before sending its first message", async () => {

@@ -179,7 +179,8 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
 }
 
 export function shouldRefreshThreadMessages(event: ThreadEvent): boolean {
-  return event.type === "ask.answered" || event.type === "turn.accepted" || event.type === "research.queued";
+  return event.type === "ask.answered" || event.type === "turn.accepted" || event.type === "research.queued"
+    || event.type === "expert.run.queued" || event.type === "expert.run.completed";
 }
 
 export interface ThreadTelemetry {

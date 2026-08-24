@@ -135,6 +135,7 @@ describe("thread telemetry reconciliation", () => {
   it("refreshes messages when an ask answer activates a continuation turn", () => {
     expect(shouldRefreshThreadMessages(askEvent("ask.answered", { ask_id: ask.id }))).toBe(true);
     expect(shouldRefreshThreadMessages(askEvent("turn.accepted", { message_id: "answer-message" }))).toBe(true);
+    expect(shouldRefreshThreadMessages(askEvent("expert.run.completed", { message_id: "expert-message" }))).toBe(true);
     expect(shouldRefreshThreadMessages(askEvent("message.delta", { message_id: "answer-message" }))).toBe(false);
   });
 });

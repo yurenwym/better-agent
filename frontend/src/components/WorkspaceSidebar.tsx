@@ -1,6 +1,6 @@
 import type { Bootstrap, Run, Thread } from "../types";
 
-export type WorkspacePage = "chat" | "today" | "plan" | "trajectory" | "research" | "schedules" | "memory";
+export type WorkspacePage = "chat" | "today" | "plan" | "trajectory" | "research" | "schedules" | "memory" | "growth";
 
 interface WorkspaceSidebarProps {
   activePage: WorkspacePage;
@@ -15,7 +15,7 @@ interface WorkspaceSidebarProps {
   onHumanMode?: (enabled:boolean)=>void;
 }
 
-const navItems: Array<{ id: WorkspacePage; label: string; glyph: "chat" | "plan" | "trace" | "memory" }> = [
+const navItems: Array<{ id: WorkspacePage; label: string; glyph: "chat" | "plan" | "trace" | "memory" | "growth" }> = [
   { id: "chat", label: "对话", glyph: "chat" },
   { id: "today", label: "Today", glyph: "plan" },
   { id: "plan", label: "计划", glyph: "plan" },
@@ -23,6 +23,7 @@ const navItems: Array<{ id: WorkspacePage; label: string; glyph: "chat" | "plan"
   { id: "research", label: "研究", glyph: "trace" },
   { id: "schedules", label: "定时", glyph: "plan" },
   { id: "memory", label: "记忆", glyph: "memory" },
+  { id: "growth", label: "成长", glyph: "growth" },
 ];
 
 function NavGlyph({ name }: { name: typeof navItems[number]["glyph"] }) {
@@ -31,6 +32,7 @@ function NavGlyph({ name }: { name: typeof navItems[number]["glyph"] }) {
     plan: "M6 4h12M6 9h12M6 14h7M4 4h.01M4 9h.01M4 14h.01",
     trace: "M5 4v16M5 7h10a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h10",
     memory: "M5 5.5A2.5 2.5 0 0 1 7.5 3h9A2.5 2.5 0 0 1 19 5.5V19l-3.5-2-4 2-3.5-2L5 19V5.5Z",
+    growth: "M12 21V10m0 0c0-4-3-6-7-6 0 4 3 6 7 6Zm0 4c0-3 2.5-5 6-5 0 3-2.5 5-6 5Z",
   };
   return <svg aria-hidden="true" className="nav-glyph" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d={paths[name]} /></svg>;
 }

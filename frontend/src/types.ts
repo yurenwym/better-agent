@@ -343,6 +343,101 @@ export interface MemoryRecord {
   evidence_event_ids: string[];
   path: string;
 }
+
+export type AgentRunStatus = "QUEUED" | "RUNNING" | "WAITING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+export type AgentTaskStatus = "QUEUED" | "RUNNING" | "WAITING_CHILDREN" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+
+export interface AgentRun {
+  id: string;
+  thread_id: string | null;
+  objective: string;
+  mode: "single" | "expert";
+  status: AgentRunStatus;
+  runtime_bundle_id: string;
+  budget_units: number;
+  reserved_budget_units: number;
+  version: number;
+  cancel_requested_at: string | null;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+export interface AgentTask {
+  id: string;
+  agent_run_id: string;
+  root_task_id: string;
+  parent_task_id: string | null;
+  child_key: string | null;
+  role: string;
+  objective: string;
+  output_schema: string;
+  status: AgentTaskStatus;
+  priority: number;
+  join_policy: "ALL_SUCCESS" | "ALL_DONE" | null;
+  attempts: number;
+  max_attempts: number;
+  lease_epoch: number;
+  budget_units: number;
+  result_artifact_id: string | null;
+  error_code: string | null;
+  cancel_requested_at: string | null;
+  cancel_reason: string | null;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  finished_at: string | null;
+}
+
+export interface AgentArtifact {
+  id: string;
+  task_id: string;
+  artifact_type: string;
+  content: Record<string, unknown>;
+  source_refs: unknown[];
+  created_at: string;
+}
+
+export interface AgentEvent {
+  event_id: string;
+  agent_run_id: string;
+  seq: number;
+  task_id: string | null;
+  type: string;
+  actor: string;
+  data: Record<string, unknown>;
+  occurred_at: string;
+}
+
+export type EvolutionCandidateStatus =
+  | "DRAFT" | "READY_FOR_EVAL" | "EVALUATING" | "EVALUATED" | "PENDING_APPROVAL"
+  | "APPROVED" | "CANARY" | "PROMOTED" | "FAILED" | "REJECTED" | "ROLLED_BACK";
+
+export interface EvolutionCandidate {
+  id: string;
+  kind: "memory" | "skill" | "policy" | "prompt" | "code";
+  title: string;
+  summary: string;
+  status: EvolutionCandidateStatus;
+  version: number;
+  risk_level: "low" | "medium" | "high" | string;
+  evidence_count: number;
+  evidence_refs?: string[];
+  diff?: Array<{ label: string; before?: string; after?: string }>;
+  evaluation: null | {
+    id?: string;
+    report_digest?: string;
+    status: string;
+    deterministic_pass: boolean | null;
+    score_delta?: number | null;
+    regressions: string[];
+  };
+  permission_diff: { added: string[]; removed: string[]; unchanged?: string[] };
+  canary: null | { allocation?: number; sample_size?: number; status?: string };
+  approval_id?: string | null;
+  created_at: string;
+  updated_at: string;
+}
 export interface MemoryEntry {id:string;kind:"preference"|"constraint"|"fact"|"decision"|"lesson";scope_type:"user"|"project";scope_id:string;status:"ACTIVE"|"ARCHIVED"|"PURGED";content:string;revision_id:string;revision_no:number;pinned:boolean;importance:number;sensitivity:string;created_at:string;updated_at:string;}
 export interface MemoryProposal {id:string;operation:string;target_entry_id:string|null;base_revision_id:string|null;kind:string;scope_type:string;scope_id:string;content:string;confidence:number;status:string;accepted_revision_id:string|null;reason:string;created_at:string;}
 export interface MemoryEpisode {id:string;thread_id:string;project_id:string|null;start_message_seq:number;end_message_seq:number;summary:string;sensitivity:string;retrieval_policy:string;status:string;created_at:string;}

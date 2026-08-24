@@ -1,19 +1,53 @@
 import EventStream from "../components/EventStream";
 import StatsBar from "../components/StatsBar";
+import { useEffect, useState } from "react";
+import { cancelAgentRun, getAgentArtifacts, getAgentEvents, getAgentRun, getAgentTasks } from "../api";
+import ExpertRunCard from "../components/ExpertRunCard";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
-import type { Run } from "../types";
+import type { AgentArtifact, AgentEvent, AgentRun, AgentTask, Run } from "../types";
 
 interface TrajectoryPageProps {
   run: Run | null;
   threadId?: string | null;
+  expertRun?: AgentRun | null;
+  csrfToken?: string;
+  onExpertRun?: (run: AgentRun) => void;
 }
 
-export default function TrajectoryPage({ run, threadId = null }: TrajectoryPageProps) {
+const expertMilestones: Record<string, string> = {
+  "agent.run.created": "专家协同已创建", "agent.task.created": "专家子任务已分派", "agent.task.started": "专家开始处理",
+  "agent.artifact.committed": "专家成果已提交", "agent.join.ready": "专家结果已汇合", "agent.task.failed": "专家任务未完成",
+  "agent.task.cancelled": "专家任务已取消", "agent.run.completed": "专家协同已完成",
+};
+
+export default function TrajectoryPage({ run, threadId = null, expertRun = null, csrfToken = "", onExpertRun }: TrajectoryPageProps) {
   const telemetry = useRunTelemetry(run?.id ?? null);
   const threadTelemetry = useThreadTelemetry(run ? null : threadId);
+  const [expertTasks, setExpertTasks] = useState<AgentTask[]>([]);
+  const [expertArtifacts, setExpertArtifacts] = useState<AgentArtifact[]>([]);
+  const [expertEvents, setExpertEvents] = useState<AgentEvent[]>([]);
+  const [expertBusy, setExpertBusy] = useState(false);
+  useEffect(() => {
+    if (!expertRun) { setExpertTasks([]); setExpertArtifacts([]); setExpertEvents([]); return; }
+    let active = true;
+    const refresh = () => Promise.all([getAgentRun(expertRun.id), getAgentTasks(expertRun.id), getAgentArtifacts(expertRun.id), getAgentEvents(expertRun.id)])
+      .then(([nextRun, tasks, artifacts, events]) => {
+        if (!active) return;
+        onExpertRun?.(nextRun); setExpertTasks(tasks.tasks); setExpertArtifacts(artifacts.artifacts); setExpertEvents(events.events);
+      }).catch(() => undefined);
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [expertRun?.id, onExpertRun]);
+  async function cancelExpert() {
+    if (!expertRun) return;
+    setExpertBusy(true);
+    try { onExpertRun?.(await cancelAgentRun(expertRun.id, csrfToken)); }
+    finally { setExpertBusy(false); }
+  }
 
-  if (!run && !threadId) {
+  if (!run && !threadId && !expertRun) {
     return (
       <section className="empty-panel">
         <span className="eyebrow">TRACE / OBSERVE</span>
@@ -44,6 +78,7 @@ export default function TrajectoryPage({ run, threadId = null }: TrajectoryPageP
           <div className="stat-cell"><span className="stat-label">已记录事件</span><strong className="stat-value">{threadTelemetry.events.length}</strong></div>
         </section>
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
+        {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">EXPERT MILESTONES</span><h3>专家协同里程碑</h3><p>仅展示任务事实和已提交成果，不展示模型内部推理。</p></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
         <EventStream events={[]} threadEvents={threadTelemetry.events} mode="thread" loading={threadTelemetry.loading} />
       </div>
     );
@@ -60,6 +95,7 @@ export default function TrajectoryPage({ run, threadId = null }: TrajectoryPageP
         <a className="button button-secondary" href={`/api/runs/${run.id}/export?mode=redacted`}>导出脱敏 JSONL</a>
       </section>
       <StatsBar stats={telemetry.stats} run={run} />
+      {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">EXPERT MILESTONES</span><h3>专家协同里程碑</h3></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
       {telemetry.error && <p className="error-message" role="alert">{telemetry.error}</p>}
       <EventStream events={telemetry.events} />
     </div>

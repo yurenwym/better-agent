@@ -31,6 +31,11 @@ import type {
   GoalAdjustmentProposal,
   GoalAction,
   TodayProgramGroup,
+  AgentArtifact,
+  AgentEvent,
+  AgentRun,
+  AgentTask,
+  EvolutionCandidate,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -148,6 +153,105 @@ export async function getThread(threadId: string, fetcher: Fetcher = fetch): Pro
 export async function getThreadPlan(threadId: string, fetcher: Fetcher = fetch): Promise<ThreadPlanResponse> {
   return planJson<ThreadPlanResponse>(await fetcher(`/api/threads/${threadId}/plan`));
 }
+
+export async function createExpertRun(threadId: string, objective: string, idempotencyKey: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<AgentRun> {
+  return json<AgentRun>(await fetcher(`/api/threads/${threadId}/expert-runs`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify({ objective, idempotency_key: idempotencyKey }),
+  }));
+}
+
+export async function getAgentRun(runId: string, fetcher: Fetcher = fetch): Promise<AgentRun> {
+  return json<AgentRun>(await fetcher(`/api/agent-runs/${runId}`));
+}
+
+export async function getLatestExpertRun(threadId: string, fetcher: Fetcher = fetch): Promise<AgentRun | null> {
+  const response = await fetcher(`/api/threads/${threadId}/expert-runs/latest`);
+  if (response.status === 404) return null;
+  return json<AgentRun>(response);
+}
+
+export async function getAgentTasks(runId: string, fetcher: Fetcher = fetch): Promise<{ tasks: AgentTask[] }> {
+  return json<{ tasks: AgentTask[] }>(await fetcher(`/api/agent-runs/${runId}/tasks`));
+}
+
+export async function getAgentArtifacts(runId: string, fetcher: Fetcher = fetch): Promise<{ artifacts: AgentArtifact[] }> {
+  return json<{ artifacts: AgentArtifact[] }>(await fetcher(`/api/agent-runs/${runId}/artifacts`));
+}
+
+export async function getAgentEvents(runId: string, afterSeq = 0, fetcher: Fetcher = fetch): Promise<{ events: AgentEvent[] }> {
+  return json<{ events: AgentEvent[] }>(await fetcher(`/api/agent-runs/${runId}/events?after_seq=${afterSeq}`));
+}
+
+export async function cancelAgentRun(runId: string, csrfToken: string, fetcher: Fetcher = fetch): Promise<AgentRun> {
+  return json<AgentRun>(await fetcher(`/api/agent-runs/${runId}/cancel`, {
+    method: "POST", headers: mutationHeaders(csrfToken), body: JSON.stringify({ reason: "用户取消" }),
+  }));
+}
+
+export async function listEvolutionCandidates(fetcher: Fetcher = fetch): Promise<{ candidates: EvolutionCandidate[] }> {
+  const result = await json<{ candidates: Array<Record<string, unknown>> }>(await fetcher("/api/evolution/candidates"));
+  return { candidates: result.candidates.map(evolutionCandidate) };
+}
+
+function stringList(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []; }
+
+function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
+  const permission = raw.permission_diff && typeof raw.permission_diff === "object" ? raw.permission_diff as Record<string, unknown> : {};
+  const evaluation = raw.evaluation && typeof raw.evaluation === "object" ? raw.evaluation as Record<string, unknown> : null;
+  const kind = String(raw.kind ?? raw.candidate_type ?? "policy") as EvolutionCandidate["kind"];
+  return {
+    id: String(raw.id), kind,
+    title: String(raw.title ?? `${{ memory: "记忆", skill: "技能", policy: "策略", prompt: "提示词", code: "代码" }[kind] ?? "能力"}候选`),
+    summary: String(raw.summary ?? raw.reason ?? "等待查看候选详情"),
+    status: String(raw.status ?? "DRAFT") as EvolutionCandidate["status"],
+    version: Number(raw.version ?? 0), risk_level: String(raw.risk_level ?? (kind === "code" ? "high" : "medium")),
+    evidence_count: Number(raw.evidence_count ?? (Array.isArray(raw.experience_ids) ? raw.experience_ids.length : 0)),
+    evidence_refs: stringList(raw.evidence_refs ?? raw.experience_ids),
+    evaluation: evaluation ? {
+      id: typeof evaluation.id === "string" ? evaluation.id : undefined,
+      report_digest: typeof evaluation.report_digest === "string" ? evaluation.report_digest : undefined,
+      status: String(evaluation.status ?? "COMPLETED"),
+      deterministic_pass: typeof evaluation.deterministic_pass === "boolean" ? evaluation.deterministic_pass : null,
+      score_delta: typeof evaluation.score_delta === "number" ? evaluation.score_delta
+        : evaluation.metrics && typeof evaluation.metrics === "object" && typeof (evaluation.metrics as Record<string, unknown>).score_delta === "number"
+          ? (evaluation.metrics as Record<string, number>).score_delta : null,
+      regressions: stringList(evaluation.regressions).length ? stringList(evaluation.regressions)
+        : evaluation.checks && typeof evaluation.checks === "object"
+          ? Object.entries(evaluation.checks as Record<string, unknown>).filter(([, passed]) => passed !== true).map(([name]) => name)
+          : [],
+    } : null,
+    permission_diff: { added: stringList(permission.added), removed: stringList(permission.removed), unchanged: stringList(permission.unchanged) },
+    canary: raw.canary && typeof raw.canary === "object" ? raw.canary as EvolutionCandidate["canary"] : null,
+    approval_id: typeof raw.approval_id === "string" ? raw.approval_id : null,
+    created_at: String(raw.created_at ?? ""), updated_at: String(raw.updated_at ?? raw.created_at ?? ""),
+  };
+}
+
+export async function getEvolutionCandidate(candidateId: string, fetcher: Fetcher = fetch): Promise<EvolutionCandidate> {
+  return evolutionCandidate(await json<Record<string, unknown>>(await fetcher(`/api/evolution/candidates/${candidateId}`)));
+}
+
+async function evolve(candidateId: string, operation: "evaluate" | "approve" | "reject" | "start-canary" | "promote" | "rollback", expectedVersion: number, csrfToken: string, fetcher: Fetcher): Promise<unknown> {
+  const idempotencyKey = clientRequestId();
+  return json<unknown>(await fetcher(`/api/evolution/candidates/${candidateId}/${operation}`, {
+    method: "POST",
+    headers: goalMutationHeaders(csrfToken, idempotencyKey),
+    body: JSON.stringify({ expected_version: expectedVersion, actor: "local-user" }),
+  }));
+}
+
+function clientRequestId(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `request-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+export const evaluateEvolutionCandidate = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "evaluate", version, csrf, fetcher);
+export const approveEvolutionCandidate = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "approve", version, csrf, fetcher);
+export const rejectEvolutionCandidate = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "reject", version, csrf, fetcher);
+export const startEvolutionCanary = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "start-canary", version, csrf, fetcher);
+export const promoteEvolutionCandidate = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "promote", version, csrf, fetcher);
+export const rollbackEvolutionCandidate = (id: string, version: number, csrf: string, fetcher: Fetcher = fetch) => evolve(id, "rollback", version, csrf, fetcher);
 
 export async function listPlanDocuments(fetcher: Fetcher = fetch): Promise<{ plans: PlanDocumentSummary[] }> {
   return planJson<{ plans: PlanDocumentSummary[] }>(await fetcher("/api/plans"));

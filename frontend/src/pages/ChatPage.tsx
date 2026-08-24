@@ -24,10 +24,16 @@ import {
   getGoalAction,
   cancelResearch,
   retryResearch,
+  createExpertRun,
+  getAgentRun,
+  getAgentTasks,
+  getAgentArtifacts,
+  cancelAgentRun,
 } from "../api";
+import ExpertRunCard from "../components/ExpertRunCard";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup } from "../types";
+import type { AgentArtifact, AgentRun, AgentTask, AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup } from "../types";
 
 interface ChatPageProps {
   csrfToken: string;
@@ -37,6 +43,7 @@ interface ChatPageProps {
   onRun: (run: Run) => void;
   onOpenTrajectory: () => void;
   onOpenPlan: (planDocumentId?: string) => void;
+  onExpertRun?: (run: AgentRun | null) => void;
 }
 
 function isReactBudgetBlocked(run: Run): boolean {
@@ -96,7 +103,7 @@ export function latestPlanReference(events: ThreadEvent[]): PlanReference | null
 const turnBusyStates = new Set(["ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING"]);
 const pendingAskConflictText = "当前对话正在等待你的回答，请先回答上方问题；如果想开始新的目标，请先停止询问。";
 
-export default function ChatPage({ csrfToken, run, threadId = null, onThread, onRun, onOpenTrajectory, onOpenPlan }: ChatPageProps) {
+export default function ChatPage({ csrfToken, run, threadId = null, onThread, onRun, onOpenTrajectory, onOpenPlan, onExpertRun }: ChatPageProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
@@ -109,6 +116,11 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [researchJobs, setResearchJobs] = useState<ResearchJob[]>([]);
   const [goalContextVisible,setGoalContextVisible]=useState(true);
   const [goalContext,setGoalContext]=useState<{action:GoalAction;program:TodayProgramGroup["program"]}|null>(null);
+  const [deepProcessing, setDeepProcessing] = useState(false);
+  const [expertRun, setExpertRun] = useState<AgentRun | null>(null);
+  const [expertTasks, setExpertTasks] = useState<AgentTask[]>([]);
+  const [expertArtifacts, setExpertArtifacts] = useState<AgentArtifact[]>([]);
+  const [expertBusy, setExpertBusy] = useState(false);
   const conversationId = threadId ?? localThreadId;
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
   const onMaterialized = useCallback((runId: string) => {
@@ -137,6 +149,23 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     if (!run) setSelectedSkills([]);
     else if (run.skill_names && run.skill_names.length > 0) setSelectedSkills(run.skill_names);
   }, [run?.id]);
+
+  useEffect(() => {
+    if (!expertRun || ["SUCCEEDED", "FAILED", "CANCELLED"].includes(expertRun.status)) return;
+    let active = true;
+    const refresh = async () => {
+      try {
+        const [nextRun, taskResult, artifactResult] = await Promise.all([
+          getAgentRun(expertRun.id), getAgentTasks(expertRun.id), getAgentArtifacts(expertRun.id),
+        ]);
+        if (!active) return;
+        setExpertRun(nextRun); setExpertTasks(taskResult.tasks); setExpertArtifacts(artifactResult.artifacts); onExpertRun?.(nextRun);
+      } catch { /* the card keeps its last confirmed state and the next poll retries */ }
+    };
+    void refresh();
+    const timer = window.setInterval(() => void refresh(), 1500);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [expertRun?.id, expertRun?.status, onExpertRun]);
 
   function toggleSkill(name: string) {
     setSelectedSkills((current) => current.includes(name)
@@ -191,6 +220,32 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     } finally {
       setBusy(false);
     }
+  }
+
+  async function submitConversation(content: string): Promise<boolean> {
+    if (!deepProcessing) return submitContent(content);
+    clearError(); setExpertBusy(true);
+    try {
+      const firstLine = content.split(/\r?\n/)[0].trim();
+      let id = conversationId;
+      if (!id) {
+        const created = await createThread({ title: firstLine.slice(0, 80) || "专家协同" }, csrfToken);
+        id = created.id; setLocalThreadId(id); onThread?.(id);
+      }
+      const created = await createExpertRun(id, content, clientTurnId(), csrfToken);
+      setExpertRun(created); setExpertTasks([]); setExpertArtifacts([]); onExpertRun?.(created);
+      return true;
+    } catch (caught) {
+      showOperationError(caught, "专家任务启动失败，请稍后重试"); return false;
+    } finally { setExpertBusy(false); }
+  }
+
+  async function cancelExpert() {
+    if (!expertRun) return;
+    setExpertBusy(true); setError("");
+    try { const cancelled = await cancelAgentRun(expertRun.id, csrfToken); setExpertRun(cancelled); onExpertRun?.(cancelled); }
+    catch (caught) { showOperationError(caught, "取消专家任务失败"); }
+    finally { setExpertBusy(false); }
   }
 
   async function runAction(action: () => Promise<Run>) {
@@ -330,6 +385,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
         {goalActionId&&goalContextVisible&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setGoalContextVisible(false)}>关闭</button></aside>}
+        <div className={deepProcessing ? "conversation-with-expert-mode expert-mode-active" : "conversation-with-expert-mode"}>
         <ConversationThread
           messages={messages}
           busy={busy || actionBusy || telemetry.loading || threadTelemetry.loading || threadBusy}
@@ -352,8 +408,14 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
           decision={decision}
-          onSubmit={submitContent}
+          onSubmit={submitConversation}
         />
+        <div className="expert-mode-control">
+          <label className="expert-mode-switch"><input aria-label="深入处理" checked={deepProcessing} disabled={expertBusy} role="switch" type="checkbox" onChange={(event) => setDeepProcessing(event.target.checked)} /><span aria-hidden="true" /><div><strong>深入处理</strong><small>交给多个专家并行分析，再汇总结论</small></div></label>
+          {deepProcessing && <button className="button button-primary expert-submit" disabled={expertBusy} type="button" onClick={(event) => { const form = event.currentTarget.closest(".conversation-with-expert-mode")?.querySelector("form"); form?.requestSubmit(); }}>{expertBusy ? "正在启动…" : "启动专家协同"}</button>}
+        </div>
+        </div>
+        {expertRun && <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} />}
 
         {run && run.pending_approvals.length > 0 && (
           <section className="approval-stack" aria-label="待审批操作">
