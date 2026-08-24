@@ -254,6 +254,7 @@ export async function getThreadEvents(threadId: string, afterSeq = 0, fetcher: F
 }
 
 export async function getResearchJobs(threadId?: string, fetcher: Fetcher = fetch): Promise<{jobs:ResearchJob[]}> { return json(await fetcher(`/api/research/jobs${threadId ? `?thread_id=${encodeURIComponent(threadId)}` : ""}`)); }
+export async function createResearch(threadId:string,payload:{topic:string;client_request_id:string;source_scopes:string[]},csrf:string,fetcher:Fetcher=fetch):Promise<{job_id:string;status:string;event_cursor:number}>{return json(await fetcher(`/api/threads/${threadId}/research`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
 export async function getResearchJob(id:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}`));}
 export async function cancelResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchJob>{return json(await fetcher(`/api/research/jobs/${id}/cancel`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
 export async function deleteResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/research/jobs/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除研究失败");}

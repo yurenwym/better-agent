@@ -3,6 +3,8 @@ import { beforeEach, expect, it, vi } from "vitest";
 import ResearchPage from "../pages/ResearchPage";
 
 const api = vi.hoisted(() => ({
+  createResearch: vi.fn(),
+  createThread: vi.fn(),
   deleteResearch: vi.fn(),
   getResearchJobs: vi.fn(),
   getResearchReport: vi.fn(),
@@ -16,7 +18,20 @@ beforeEach(() => {
   api.getResearchJobs.mockResolvedValue({ jobs: [job] });
   api.getResearchReport.mockResolvedValue({ job_id:job.id,title:job.title,markdown:"# SQLite WAL 研究" });
   api.deleteResearch.mockResolvedValue(undefined);
+  api.createThread.mockResolvedValue({id:"thread-new",title:"研究",version:0,active_turn_id:null,next_event_seq:1,turns:[]});
+  api.createResearch.mockResolvedValue({job_id:"research-new",status:"QUEUED",event_cursor:1});
   vi.spyOn(window, "confirm").mockReturnValue(true);
+});
+
+it("starts an independent deep research job from a topic",async()=>{
+  const queuedJob={...job,id:"research-new",thread_id:"thread-new",source_turn_id:"turn-new",topic:"调研 AI Agent 开发岗位",title:null,status:"QUEUED" as const,phase:"queued",attempts:0,source_count:0,evidence_count:0,assistant_message_id:null};
+  api.getResearchJobs.mockResolvedValueOnce({jobs:[]}).mockResolvedValueOnce({jobs:[queuedJob]});
+  render(<ResearchPage csrfToken="csrf"/>);
+  fireEvent.change(await screen.findByLabelText("研究主题"),{target:{value:"调研 AI Agent 开发岗位"}});
+  fireEvent.click(screen.getByRole("button",{name:"开始研究"}));
+  await waitFor(()=>expect(api.createThread).toHaveBeenCalledWith({title:"调研 AI Agent 开发岗位"},"csrf"));
+  expect(api.createResearch).toHaveBeenCalledWith("thread-new",expect.objectContaining({topic:"调研 AI Agent 开发岗位",source_scopes:["web"]}),"csrf");
+  expect(await screen.findByLabelText("深度研究进度")).toBeTruthy();
 });
 
 it("opens a report and deletes it after confirmation", async () => {
