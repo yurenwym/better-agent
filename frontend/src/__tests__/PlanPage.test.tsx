@@ -180,11 +180,13 @@ describe("PlanPage document editor", () => {
 
   it("deletes the current plan with its CAS head and returns to the plan library", async () => {
     const onDeleted = vi.fn();
-    vi.spyOn(window, "confirm").mockReturnValue(true);
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onDeleted={onDeleted} />);
 
-    await screen.findByRole("button", { name: "Delete plan" });
-    fireEvent.click(screen.getByRole("button", { name: "Delete plan" }));
+    await screen.findByRole("button", { name: "删除计划" });
+    fireEvent.click(screen.getByRole("button", { name: "删除计划" }));
+    expect(api.deletePlanDocument).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "删除计划？" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "确认删除" }));
 
     await waitFor(() => expect(api.deletePlanDocument).toHaveBeenCalledWith(
       "plan-1",

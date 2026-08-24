@@ -20,7 +20,6 @@ beforeEach(() => {
   api.deleteResearch.mockResolvedValue(undefined);
   api.createThread.mockResolvedValue({id:"thread-new",title:"研究",version:0,active_turn_id:null,next_event_seq:1,turns:[]});
   api.createResearch.mockResolvedValue({job_id:"research-new",status:"QUEUED",event_cursor:1});
-  vi.spyOn(window, "confirm").mockReturnValue(true);
 });
 
 it("starts an independent deep research job from a topic",async()=>{
@@ -39,7 +38,9 @@ it("opens a report and deletes it after confirmation", async () => {
   fireEvent.click(await screen.findByRole("button", { name:/SQLite WAL 研究/ }));
   expect(await screen.findByRole("heading", { name:"SQLite WAL 研究" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name:"删除研究" }));
+  expect(api.deleteResearch).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog", { name:"删除研究？" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name:"确认删除" }));
   await waitFor(() => expect(api.deleteResearch).toHaveBeenCalledWith(job.id,"csrf"));
-  expect(window.confirm).toHaveBeenCalled();
   expect(screen.queryByRole("button", { name:/SQLite WAL 研究/ })).toBeNull();
 });
