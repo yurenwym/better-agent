@@ -18,7 +18,7 @@ class TavilySearchRetriever:
     async def retrieve(self,query:str,request:ResearchRequest)->list[Source]:
         if "web" not in request.source_scopes:return []
         async with httpx.AsyncClient(timeout=self.timeout,transport=self.transport,headers={"Authorization":f"Bearer {self._api_key}","User-Agent":"BetterAgent/1.0 local research"}) as client:
-            response=await client.post(self.endpoint,json={"query":query,"search_depth":"basic","max_results":5,"include_raw_content":True})
+            response=await client.post(self.endpoint,json={"query":query,"search_depth":"advanced","max_results":5,"include_raw_content":True})
             response.raise_for_status();payload=response.json()
         async def one(item):
             try:

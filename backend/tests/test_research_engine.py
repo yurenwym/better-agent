@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
-from app.research.engine import InsufficientEvidence, ResearchCancelled, ResearchEngine, UnknownCitation
+from app.research.engine import InsufficientEvidence, ResearchCancelled, ResearchEngine, TopicCoverageError, UnknownCitation
 from app.research.models import Evidence, ResearchLimits, ResearchPlan, ResearchRequest, Source
 from app.research.retriever import filter_sources, validate_public_url
+from app.research.live import LiveResearchModel, relevant_excerpt
 
 
 class FakeModel:
@@ -37,6 +39,9 @@ class FakeModel:
     async def summarize(self, sections: list[str]):
         return "证据支持主要结论。", ("主要事实已由来源支持",)
 
+    async def audit(self, topic: str, plan: ResearchPlan, report: str):
+        return True, ()
+
 
 class FakeRetriever:
     async def retrieve(self, query: str, request: ResearchRequest):
@@ -57,6 +62,17 @@ async def test_engine_fallback_reflects_once_and_emits_cited_report() -> None:
 
 
 @pytest.mark.asyncio
+async def test_engine_skips_reflection_when_source_budget_is_full() -> None:
+    model = FakeModel()
+    events = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
+        ResearchRequest("full-sources", "AI Agent 秋招", ("web",), ResearchLimits(max_sources=1))
+    )]
+
+    assert model.reflections == 0
+    assert any(event.type == "report" for event in events)
+
+
+@pytest.mark.asyncio
 async def test_zero_evidence_and_unknown_citation_cannot_finalize() -> None:
     class Empty(FakeModel):
         async def distill(self, *args): return []
@@ -65,6 +81,33 @@ async def test_zero_evidence_and_unknown_citation_cannot_finalize() -> None:
         _ = [event async for event in ResearchEngine(Empty(), FakeRetriever()).run_research(ResearchRequest("j", "x", ("web",), ResearchLimits()))]
     with pytest.raises(UnknownCitation):
         _ = [event async for event in ResearchEngine(FakeModel(bad_citation=True), FakeRetriever()).run_research(ResearchRequest("j2", "x", ("web",), ResearchLimits(reflection_rounds=0)))]
+
+
+@pytest.mark.asyncio
+async def test_missing_planned_sections_cannot_be_published_as_completed() -> None:
+    class Partial(FakeModel):
+        async def plan(self, topic: str, limits: ResearchLimits):
+            return ResearchPlan(topic, ("在招公司", "岗位要求", "投递渠道"), (topic,))
+
+        async def curate(self, plan: ResearchPlan, evidence: list[Evidence]):
+            return [("在招公司", "公司清单", tuple(item.id for item in evidence))]
+
+    with pytest.raises(TopicCoverageError, match="missing planned sections"):
+        _ = [event async for event in ResearchEngine(Partial(), FakeRetriever()).run_research(
+            ResearchRequest("coverage-sections", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+
+
+@pytest.mark.asyncio
+async def test_failed_topic_audit_cannot_be_published_as_completed() -> None:
+    class OffTopic(FakeModel):
+        async def audit(self, topic: str, plan: ResearchPlan, report: str):
+            return False, ("投递渠道",)
+
+    with pytest.raises(TopicCoverageError, match="投递渠道"):
+        _ = [event async for event in ResearchEngine(OffTopic(), FakeRetriever()).run_research(
+            ResearchRequest("coverage-audit", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
 
 
 @pytest.mark.asyncio
@@ -135,6 +178,170 @@ def test_merge_sources_never_exceeds_the_research_limit() -> None:
     new = [Source("new", 0, "web", "https://new.example/item", None, "New", "body" * 100, None, "n", .9)]
     request = ResearchRequest("j", "x", ("web",), ResearchLimits(max_sources=2))
     assert len(ResearchEngine._merge_sources(existing, new, request)) == 2
+
+
+def test_merge_sources_reserves_one_result_per_search_intent() -> None:
+    sources = [
+        Source("company", 0, "web", "https://company.example/job", None, "Company", "body" * 100, None, "n", .6, metadata={"query_index": 0}),
+        Source("requirements", 0, "web", "https://requirements.example/jd", None, "Requirements", "body" * 100, None, "n", .5, metadata={"query_index": 1}),
+        Source("channel", 0, "web", "https://channel.example/apply", None, "Channel", "body" * 100, None, "n", .4, metadata={"query_index": 2}),
+        Source("generic", 0, "web", "https://generic.example/trend", None, "Generic", "body" * 100, None, "n", .99, metadata={"query_index": 0}),
+    ]
+    request = ResearchRequest("balanced", "AI Agent 秋招", ("web",), ResearchLimits(max_sources=3))
+    result = ResearchEngine._merge_sources([], sources, request)
+    assert {item.id for item in result} == {"generic", "requirements", "channel"}
+
+
+def test_relevant_excerpt_prefers_topic_paragraphs_and_bounds_model_input() -> None:
+    noise = "网站导航与无关广告。" * 1000
+    requirements = "岗位要求：熟悉 Python、LLM 应用开发和 Agent 工作流。"
+    channel = "投递渠道：请通过公司招聘官网提交简历。"
+    source = Source("s", 1, "web", "https://example.com/job", None, "AI Agent 招聘", f"{noise}\n\n{requirements}\n\n{channel}\n\n{noise}", None, "n", .8, metadata={"query": "AI Agent 岗位要求 投递渠道"})
+
+    excerpt = relevant_excerpt(source, "AI Agent 秋招", ("在招公司", "岗位要求", "投递渠道"), max_chars=1200)
+
+    assert requirements in excerpt and channel in excerpt
+    assert len(excerpt) <= 1200
+
+
+def test_live_research_fallback_distill_only_extracts_relevant_source_text() -> None:
+    source = Source(
+        "fallback-source", 1, "web", "https://example.com/job", None, "Example AI 招聘",
+        "网站导航。\n\n在招公司：示例科技正在招聘 AI Agent 开发工程师。"
+        "岗位要求：熟悉 Python、RAG 与 Agent 工作流。"
+        "投递渠道：通过公司招聘官网提交简历。\n\n无关广告。",
+        None, "n", .8, metadata={"query": "AI Agent 在招公司 岗位要求 投递渠道"},
+    )
+
+    evidence = LiveResearchModel.fallback_distill(
+        source, "AI Agent 秋招", ("在招公司", "岗位要求", "投递渠道")
+    )
+
+    assert evidence
+    assert all(item.source_id == source.id for item in evidence)
+    assert all(item.text in source.content for item in evidence)
+    assert any("投递渠道" in item.text for item in evidence)
+
+
+@pytest.mark.asyncio
+async def test_live_research_json_calls_bound_model_output() -> None:
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request):
+            self.requests.append(request)
+            return SimpleNamespace(message='{"evidence": []}')
+
+    gateway = Gateway()
+    model = LiveResearchModel(gateway)
+    source = Source("s", 1, "web", "https://example.com", None, "Job", "AI Agent job requirements " * 100, None, "n", .8)
+
+    await model.distill(source, "AI Agent 秋招", ("岗位要求",))
+
+    assert gateway.requests[0].max_tokens == 1200
+
+
+@pytest.mark.asyncio
+async def test_live_research_write_normalizes_shorthand_source_markers() -> None:
+    class Gateway:
+        async def complete(self, request):
+            return SimpleNamespace(message="岗位事实 [[source_exacthash]]")
+
+    evidence = Evidence("e", "source_exacthash", "岗位事实", None, .9)
+    body, _ = await LiveResearchModel(Gateway()).write("岗位要求", "要求", [evidence], "")
+
+    assert "[[source:source_exacthash]]" in body
+    assert "[[source_exacthash]]" not in body
+
+
+@pytest.mark.asyncio
+async def test_audit_timeout_can_only_fallback_for_fully_cited_planned_sections() -> None:
+    class AuditTimeout(FakeModel):
+        async def plan(self, topic, limits):
+            return ResearchPlan(topic, ("在招公司", "岗位要求", "投递渠道"), (topic,))
+
+        async def audit(self, topic, plan, report):
+            raise TimeoutError
+
+    events = [event async for event in ResearchEngine(AuditTimeout(), FakeRetriever()).run_research(
+        ResearchRequest("audit-timeout", "调研 AI Agent 秋招：在招公司、岗位要求与投递渠道", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+
+    assert any(event.type == "report" for event in events)
+
+
+def test_deterministic_topic_audit_rejects_an_uncited_section() -> None:
+    plan = ResearchPlan("x", ("在招公司", "岗位要求", "投递渠道"), ("x",))
+    sections = [
+        SimpleNamespace(heading="在招公司"),
+        SimpleNamespace(heading="岗位要求"),
+        SimpleNamespace(heading="投递渠道"),
+    ]
+    source = Source("source_x", 1, "web", "https://example.com", None, "x", "body", None, "n", .8)
+
+    assert not ResearchEngine._deterministic_topic_audit(
+        "调研：在招公司、岗位要求与投递渠道",
+        plan,
+        sections,
+        ["[[source:source_x]]", "没有引用", "[[source:source_x]]"],
+        [source],
+    )
+
+
+def test_fallback_curation_assigns_evidence_to_the_matching_section() -> None:
+    company = Evidence("company", "s1", "在招公司：示例科技正在招聘 AI Agent 工程师。", None, .8)
+    requirement = Evidence("requirement", "s2", "岗位要求：熟悉 Python 与 RAG。", None, .8)
+    channel = Evidence("channel", "s3", "投递渠道：通过公司招聘官网提交简历。", None, .8)
+    plan = ResearchPlan("x", ("在招公司", "岗位要求", "投递渠道"), ("x",))
+
+    sections = ResearchEngine._fallback_curated_sections(plan, [company, requirement, channel])
+
+    assert sections[0][2] == (company.id,)
+    assert sections[1][2] == (requirement.id,)
+    assert sections[2][2] == (channel.id,)
+
+
+@pytest.mark.asyncio
+async def test_distill_skips_a_source_that_exceeds_its_time_budget() -> None:
+    class Slow(FakeModel):
+        async def distill(self, source, topic, sections):
+            await asyncio.sleep(1)
+
+    engine = ResearchEngine(Slow(), FakeRetriever())
+    engine.DISTILL_TIMEOUT_SECONDS = .01
+    source = Source("slow", 1, "web", "https://example.com", None, "Slow", "body" * 100, None, "n", .8)
+    request = ResearchRequest("bounded", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+
+    assert await engine._distill([source], request, ResearchPlan("x", ("岗位要求",), ("x",))) == []
+
+
+@pytest.mark.asyncio
+async def test_curate_timeout_falls_back_to_all_planned_sections() -> None:
+    class SlowCurate(FakeModel):
+        async def curate(self, plan, evidence):
+            await asyncio.sleep(1)
+
+    engine = ResearchEngine(SlowCurate(), FakeRetriever())
+    engine.MODEL_STAGE_TIMEOUT_SECONDS = .01
+    events = [event async for event in engine.run_research(
+        ResearchRequest("curate-timeout", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+
+    assert len([event for event in events if event.type == "section"]) == 2
+
+
+def test_fallback_plan_turns_explicit_deliverables_into_sections() -> None:
+    plan = ResearchEngine._fallback_plan(
+        "调研 AI Agent 开发岗秋招：在招公司、岗位要求与投递渠道",
+        max_sections=6,
+        max_queries=12,
+    )
+
+    assert plan.sections[:3] == ("在招公司", "岗位要求", "投递渠道")
+    assert all(any(section in query for query in plan.queries) for section in plan.sections)
+    assert any("官方 原始来源" in query for query in plan.queries)
+    assert any("2026" in query for query in plan.queries)
 
 
 @pytest.mark.asyncio

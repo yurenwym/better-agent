@@ -19,3 +19,8 @@ it("explains a failed research job and offers recovery", () => {
   fireEvent.click(screen.getByRole("button", { name: "重新研究" }));
   expect(retry).toHaveBeenCalled();
 });
+
+it("explains when an incomplete report is blocked before publishing", () => {
+  render(<ResearchProgressCard job={{ id:"r2",thread_id:"t",source_turn_id:"x",schedule_id:null,retry_of_job_id:null,trigger_kind:"manual",topic:"AI Agent 秋招",source_scopes:["web"],status:"FAILED",phase:"failed",attempts:1,cancel_requested_at:null,created_at:"n",updated_at:"n",title:null,source_count:20,evidence_count:36,assistant_message_id:"m",failure_reason_code:"topiccoverageerror" }} />);
+  expect(screen.getByText(/未完整回答研究题目/)).toBeTruthy();
+});

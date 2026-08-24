@@ -1,7 +1,7 @@
 import type { ResearchJob } from "../types";
 
 const labels: Record<string, string> = { queued:"等待开始",planning:"正在规划",retrieving:"正在检索来源",distilling:"正在提炼证据",reflecting:"正在检查缺口",curating:"正在整理大纲",writing:"正在撰写报告",summarizing:"正在生成摘要",finalizing:"正在校验引用",completed:"研究完成",failed:"研究失败",cancelled:"已取消" };
-const failureMessages: Record<string, string> = { unknowncitation:"报告的引用校验未通过，已有检索结果不会作为错误报告发布。",insufficientevidence:"目前找到的有效证据不足，暂时无法生成可靠报告。",max_attempts_exhausted:"研究多次执行仍未完成，请稍后重新研究。",timeout:"研究服务响应超时，请重新研究。",rate_limit:"研究服务当前请求较多，请稍后重新研究。",server:"研究服务暂时不可用，请稍后重新研究。" };
+const failureMessages: Record<string, string> = { unknowncitation:"报告的引用校验未通过，已有检索结果不会作为错误报告发布。",insufficientevidence:"目前找到的有效证据不足，暂时无法生成可靠报告。",topiccoverageerror:"报告未完整回答研究题目，系统已阻止发布这份不完整结果。请重新研究。",max_attempts_exhausted:"研究多次执行仍未完成，请稍后重新研究。",timeout:"研究服务响应超时，请重新研究。",rate_limit:"研究服务当前请求较多，请稍后重新研究。",server:"研究服务暂时不可用，请稍后重新研究。" };
 
 export default function ResearchProgressCard({ job, onCancel, onRetry, onOpen, onDelete, deleteBusy = false }: { job: ResearchJob; onCancel?:()=>void; onRetry?:()=>void; onOpen?:()=>void; onDelete?:()=>void; deleteBusy?:boolean }) {
   const active = job.status === "QUEUED" || job.status === "RUNNING";
