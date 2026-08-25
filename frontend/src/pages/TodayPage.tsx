@@ -13,16 +13,23 @@ function key(prefix:string){ return `${prefix}-${crypto.randomUUID()}`; }
 function message(error:unknown){ return error instanceof ApiError && error.status===409 ? "内容已在别处更新，已刷新最新状态。" : error instanceof Error ? error.message : "操作失败，请重试。"; }
 function compactDate(value:string){return new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric",weekday:"short"}).format(new Date(`${value}T00:00:00`));}
 function planDays(program:GoalProgram){
-  const statusByKey=new Map(program.actions.map(action=>[action.logical_key,action.status]));
+  const actionByKey=new Map<string,GoalAction>();
+  for(const action of program.actions){
+    const current=actionByKey.get(action.logical_key);
+    if(!current||action.program_version_id===program.current_program_version_id)actionByKey.set(action.logical_key,action);
+  }
   const source=program.structure?.actions??program.actions;
   const dates=[...new Set(source.map(action=>action.scheduled_date))].sort();
   return dates.map((scheduledDate,index)=>({
     scheduledDate,dayNumber:index+1,
-    actions:source.filter(action=>action.scheduled_date===scheduledDate).sort((left,right)=>left.position-right.position).map(action=>({...action,status:statusByKey.get(action.logical_key)??"SCHEDULED"})),
+    actions:source.filter(action=>action.scheduled_date===scheduledDate).sort((left,right)=>left.position-right.position).map(action=>{
+      const liveAction=actionByKey.get(action.logical_key);
+      return {...action,status:liveAction?.status??"SCHEDULED",liveAction};
+    }),
   }));
 }
 const actionStatusLabel:Record<string,string>={SCHEDULED:"待完成",COMPLETED:"已完成",SKIPPED:"已跳过",DEFERRED:"已延期",CANCELLED:"已取消"};
-function ProgramDayPlan({program,localDate}:{program:GoalProgram;localDate?:string}){const days=planDays(program);if(!days.length)return null;return <section className="program-day-plan" aria-label="完整执行日程"><header><div><span className="eyebrow">FULL SCHEDULE</span><h4>每天要做什么</h4><p>这里展示当前版本的完整安排；计划调整后会同步更新。</p></div><strong>{days.length} 天</strong></header><div className="program-day-list">{days.map(day=><details key={day.scheduledDate} open={day.scheduledDate===localDate}><summary><span><strong>第 {day.dayNumber} 天</strong><small>{compactDate(day.scheduledDate)}</small></span><span>{day.actions.length} 项 · {day.actions.reduce((total,action)=>total+action.estimated_minutes,0)} 分钟</span></summary><ol>{day.actions.map(action=><li className={`plan-action-${String(action.status).toLowerCase()}`} key={action.logical_key}><span aria-hidden="true"/><div><strong>{action.title}</strong><small>{action.required?"必做":"可选"} · {action.estimated_minutes} 分钟</small></div><em>{actionStatusLabel[action.status]??action.status}</em></li>)}</ol></details>)}</div></section>}
+function ProgramDayPlan({program,localDate,busyId,onComplete}:{program:GoalProgram;localDate?:string;busyId:string|null;onComplete:(action:GoalAction)=>void}){const days=planDays(program);if(!days.length)return null;return <section className="program-day-plan" aria-label="完整执行日程"><header><div><span className="eyebrow">FULL SCHEDULE</span><h4>每天要做什么</h4><p>勾选待完成事项即可更新进度；计划调整后会同步更新。</p></div><strong>{days.length} 天</strong></header><div className="program-day-list">{days.map(day=><details key={day.scheduledDate} open={day.scheduledDate===localDate}><summary><span><strong>第 {day.dayNumber} 天</strong><small>{compactDate(day.scheduledDate)}</small></span><span>{day.actions.length} 项 · {day.actions.reduce((total,action)=>total+action.estimated_minutes,0)} 分钟</span></summary><ol>{day.actions.map(action=>{const label=actionStatusLabel[action.status]??action.status;const canComplete=program.status==="ACTIVE"&&action.status==="SCHEDULED"&&Boolean(action.liveAction);return <li aria-busy={busyId===action.liveAction?.id} className={`plan-action-${String(action.status).toLowerCase()}`} key={action.logical_key}><label className="program-action-toggle"><input aria-label={canComplete?`标记完成：${action.title}`:`${label}：${action.title}`} checked={action.status==="COMPLETED"} className="program-action-check" disabled={!canComplete||busyId!==null} type="checkbox" onChange={()=>{if(canComplete&&action.liveAction)onComplete(action.liveAction)}}/></label><div><strong>{action.title}</strong><small>{action.required?"必做":"可选"} · {action.estimated_minutes} 分钟</small></div><em>{busyId===action.liveAction?.id?"更新中…":label}</em></li>})}</ol></details>)}</div></section>}
 
 export default function TodayPage({ csrfToken, onHelp }: Props) {
   const [data,setData]=useState<TodayResponse|null>(null); const [busy,setBusy]=useState<string|null>(null); const [error,setError]=useState("");
@@ -70,12 +77,12 @@ export default function TodayPage({ csrfToken, onHelp }: Props) {
       {selected&&(()=>{const group=selected;return <>
       {group.overdue.length>0&&<div className="today-action-section"><h4>此前逾期</h4>{group.overdue.map(action=><DailyActionCard action={action} busy={busy===action.id} overdue key={action.id} onComplete={feedback=>void complete(action,feedback)} onSkip={()=>void mutate(action,"skip")} onDefer={scheduled_date=>void mutate(action,"defer",{scheduled_date})} onFeedback={difficulty=>void mutate(action,"feedback",{kind:"difficulty",difficulty})} onHelp={onHelp?()=>void help(action):undefined}/>)}</div>}
       <div className="today-action-section"><h4>今天</h4>{group.today.length?<>{group.today.map(action=><DailyActionCard action={action} busy={busy===action.id} key={action.id} onComplete={feedback=>void complete(action,feedback)} onSkip={()=>void mutate(action,"skip")} onDefer={scheduled_date=>void mutate(action,"defer",{scheduled_date})} onFeedback={difficulty=>void mutate(action,"feedback",{kind:"difficulty",difficulty})} onHelp={onHelp?()=>void help(action):undefined}/>)}</>:<div className="today-complete-state"><strong>今天的行动已处理完</strong><p>执行记录已保存。下面可以查看完整安排和今天的复盘。</p></div>}</div>
-      <ProgramDayPlan program={selectedProgram} localDate={group.local_date}/>
+      <ProgramDayPlan program={selectedProgram} localDate={group.local_date} busyId={busy} onComplete={action=>void complete(action,{})}/>
       {group.review&&<DailyReviewCard review={group.review}/>}
       {adjusting===group.program.id&&!proposal&&<form className="adjustment-form" onSubmit={event=>{event.preventDefault();void propose(group.program.id,group.program.version)}}><label>为什么要调整？<textarea required maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label><button className="button button-primary" disabled={busy!==null||!reason.trim()} type="submit">生成调整预览</button></form>}
       {(proposal?.program_id===group.program.id||group.review?.proposal)&&(()=>{const target=proposal?.program_id===group.program.id?proposal:group.review!.proposal!;return <AdjustmentProposalCard proposal={target} busy={busy===target.id} onAccept={()=>void decide("accept",target)} onReject={()=>void decide("reject",target)} onSync={()=>void sync(false,target)} onRebaseSync={()=>void sync(true,target)}/>})()}
       </>})()}
-      {!selected&&<ProgramDayPlan program={selectedProgram}/>}
+      {!selected&&<ProgramDayPlan program={selectedProgram} busyId={busy} onComplete={action=>void complete(action,{})}/>}
     </section>:<div className="today-empty-detail"><span aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M6 4h12v16H6z"/><path d="M9 9h6M9 13h6"/></svg></span><h3>选择一个目标</h3><p>从左侧打开目标，查看今天的行动、进度和每日复盘。</p></div>}
     </section>
     <ConfirmDialog open={Boolean(confirm)} title={confirm?.operation==="complete"?"确认完成目标？":confirm?.operation==="cancel"?"取消这个目标？":"删除执行记录？"} description={confirm?.operation==="complete"?"确认后目标将进入已完成状态，并生成一条有限的执行总结保存到记忆。":confirm?.operation==="cancel"?"未来未执行行动将取消，已发生的行动历史会保留。":"删除后将从执行项目列表隐藏，计划文档不会被删除。"} confirmLabel={confirm?.operation==="complete"?"确认完成":confirm?.operation==="cancel"?"确认取消":"确认删除"} busy={busy!==null} onCancel={()=>setConfirm(null)} onConfirm={()=>{if(!confirm)return;if(confirm.operation==="delete")void remove(confirm.program);else void transition(confirm.program,confirm.operation)}}/>

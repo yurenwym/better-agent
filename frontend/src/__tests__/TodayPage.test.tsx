@@ -30,6 +30,24 @@ describe("TodayPage",()=>{
     expect(screen.getByText("第 2 天")).toBeTruthy();
     expect(screen.getByText("下一步：完成一道题")).toBeTruthy();
   });
+  it("completes a scheduled action from the full day-by-day plan",async()=>{
+    const tomorrow={...action,id:"action-2",logical_key:"d2",scheduled_date:"2026-09-02",position:2,title:"复盘错题",estimated_minutes:30};
+    api.listGoalPrograms.mockResolvedValue({programs:[{...program,actions:[action,tomorrow]}]});
+    api.mutateGoalAction.mockResolvedValue({action:{...tomorrow,status:"COMPLETED",version:1}});
+    render(<TodayPage csrfToken="csrf"/>);
+    const checkbox=await screen.findByRole("checkbox",{name:"标记完成：复盘错题"}) as HTMLInputElement;
+    expect(checkbox.checked).toBe(false);
+    fireEvent.click(checkbox);
+    await waitFor(()=>expect(api.mutateGoalAction).toHaveBeenCalledWith("action-2","complete",expect.objectContaining({expected_version:0}),expect.any(String),"csrf"));
+  });
+  it("keeps terminal actions checked or disabled in the full schedule",async()=>{
+    const completed={...action,status:"COMPLETED"};
+    const skipped={...action,id:"action-2",logical_key:"d2",title:"复盘错题",status:"SKIPPED"};
+    api.listGoalPrograms.mockResolvedValue({programs:[{...program,actions:[completed,skipped]}]});
+    render(<TodayPage csrfToken="csrf"/>);
+    expect((await screen.findByRole("checkbox",{name:"已完成：完成一道题"}) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole("checkbox",{name:"已跳过：复盘错题"}) as HTMLInputElement).disabled).toBe(true);
+  });
   it("saves optional completion feedback after the completed action version",async()=>{
     api.mutateGoalAction.mockResolvedValueOnce({action:{...action,status:"COMPLETED",version:1}}).mockResolvedValueOnce({});
     render(<TodayPage csrfToken="csrf"/>);
