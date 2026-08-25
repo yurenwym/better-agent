@@ -58,17 +58,23 @@ class EvolutionService:
     def record_experience(
         self, *, task_type: str, outcome: str, lineage_group_hash: str, source_content_hash: str,
         runtime_bundle_id: str, dataset_partition: str, idempotency_key: str, owner_id: str = OWNER_ID,
+        source_kind: str = "manual", source_id: str = "", source_event_id: str = "",
+        signal_type: str = "manual", severity: str = "info", evidence: dict[str, Any] | None = None,
+        failure_tags: list[str] | None = None, observed_at: str | None = None,
     ) -> dict[str, Any]:
         partition = dataset_partition.upper()
         if partition not in {"DISCOVERY", "DEV", "HOLDOUT", "SAFETY"}:
             raise ValueError("invalid dataset_partition")
+        now = _now()
         payload = {
             "owner_id": owner_id, "task_type": task_type, "outcome": outcome,
             "lineage_group_hash": lineage_group_hash, "source_content_hash": source_content_hash,
             "runtime_bundle_id": runtime_bundle_id, "dataset_partition": partition,
+            "source_kind": source_kind, "source_id": source_id, "source_event_id": source_event_id,
+            "signal_type": signal_type, "severity": severity, "evidence": evidence or {},
+            "failure_tags": sorted(set(failure_tags or [])), "observed_at": observed_at or "",
         }
         request_digest = _digest(payload)
-        now = _now()
         with self.db.transaction() as connection:
             cached = self._cached(connection, "evolution_experiences", idempotency_key, request_digest)
             if cached is not None:
@@ -84,9 +90,10 @@ class EvolutionService:
             experience_id = f"experience_{uuid.uuid4().hex}"
             connection.execute(
                 "INSERT INTO evolution_experiences(id,owner_id,task_type,outcome,lineage_group_hash,source_content_hash,"
-                "runtime_bundle_id,dataset_partition,request_digest,idempotency_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "runtime_bundle_id,dataset_partition,request_digest,idempotency_key,created_at,source_kind,source_id,source_event_id,signal_type,severity,evidence_json,failure_tags_json,observed_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (experience_id, owner_id, task_type, outcome, lineage_group_hash, source_content_hash,
-                 runtime_bundle_id, partition, request_digest, idempotency_key, now),
+                 runtime_bundle_id, partition, request_digest, idempotency_key, now, source_kind, source_id,
+                 source_event_id, signal_type, severity, _json(evidence or {}), _json(sorted(set(failure_tags or []))), observed_at or now),
             )
             self._event(connection, None, "evolution.experience.recorded", "observer", {"experience_id": experience_id}, f"experience:{idempotency_key}")
             return self._experience(connection.execute("SELECT * FROM evolution_experiences WHERE id=?", (experience_id,)).fetchone())
@@ -552,6 +559,11 @@ class EvolutionService:
             rows = connection.execute("SELECT * FROM evolution_candidates WHERE owner_id=? ORDER BY created_at,id", (owner_id,)).fetchall()
             return [self._candidate_row(connection, row["id"], owner_id) for row in rows]
 
+    def list_experiences(self, owner_id: str = OWNER_ID) -> list[dict[str, Any]]:
+        with self.db.connection() as connection:
+            rows = connection.execute("SELECT * FROM evolution_experiences WHERE owner_id=? ORDER BY created_at,id", (owner_id,)).fetchall()
+        return [self._experience(row) for row in rows]
+
     def list_bundles(self) -> list[dict[str, Any]]:
         with self.db.connection() as connection:
             rows = connection.execute(
@@ -643,7 +655,10 @@ class EvolutionService:
 
     @staticmethod
     def _experience(row: Any) -> dict[str, Any]:
-        return dict(row)
+        result = dict(row)
+        result["evidence"] = json.loads(result.pop("evidence_json", "{}") or "{}")
+        result["failure_tags"] = json.loads(result.pop("failure_tags_json", "[]") or "[]")
+        return result
 
     @staticmethod
     def _candidate(row: Any) -> dict[str, Any]:

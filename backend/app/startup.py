@@ -20,6 +20,7 @@ from .notifications import NotificationService
 from .agents import AgentTaskService, LiveExpertModel, ManagedAgentWorker
 from .behavior import BehaviorBundleService
 from .evolution import EvolutionService
+from .experience_observer import ExperienceObserver
 from .conversation import UnavailableConversationModel
 
 
@@ -111,6 +112,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     try: runtime.behavior.active("stable")
     except KeyError: runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
     runtime.evolution = EvolutionService(db, runtime.behavior)
+    runtime.observer = ExperienceObserver(db, runtime.events, runtime.evolution, thread_events=runtime.conversation.events)
     runtime.agent_tasks = AgentTaskService(db, thread_events=runtime.conversation.events, evolution=runtime.evolution)
     runtime.agent_worker = ManagedAgentWorker(runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None)
     return runtime

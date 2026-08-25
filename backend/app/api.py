@@ -1164,6 +1164,17 @@ def register_routes(app) -> None:
     async def list_evolution_candidates(service=Depends(evolution)):
         return {"candidates": service.list_candidates()}
 
+    @app.get("/api/evolution/experiences")
+    async def list_evolution_experiences(service=Depends(evolution)):
+        return {"experiences": service.list_experiences()}
+
+    @app.post("/api/evolution/experiences/observe", dependencies=[Depends(mutate)])
+    async def observe_evolution_experiences(request: Request):
+        observer = getattr(runtime(request), "observer", None)
+        if observer is None:
+            raise HTTPException(status_code=503, detail="experience observer is not configured")
+        return observer.observe()
+
     @app.get("/api/evolution/candidates/{candidate_id}")
     async def get_evolution_candidate(candidate_id: str, service=Depends(evolution)):
         return _evolution_call(lambda: service.get_candidate(candidate_id))

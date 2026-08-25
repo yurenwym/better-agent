@@ -710,6 +710,22 @@ MIGRATIONS = (
     (4, MIGRATION_20260824_GOAL_COMPLETION),
     (5, MIGRATION_20260824_AGENT_EVOLUTION),
     (6, MIGRATION_20260824_CONTROLLED_EVOLUTION),
+    (7, r"""
+    ALTER TABLE evolution_experiences ADD COLUMN source_kind TEXT NOT NULL DEFAULT 'manual';
+    ALTER TABLE evolution_experiences ADD COLUMN source_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_experiences ADD COLUMN source_event_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_experiences ADD COLUMN signal_type TEXT NOT NULL DEFAULT 'manual';
+    ALTER TABLE evolution_experiences ADD COLUMN severity TEXT NOT NULL DEFAULT 'info';
+    ALTER TABLE evolution_experiences ADD COLUMN evidence_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE evolution_experiences ADD COLUMN failure_tags_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE evolution_experiences ADD COLUMN observed_at TEXT NOT NULL DEFAULT '';
+    CREATE UNIQUE INDEX uq_experience_observation ON evolution_experiences(owner_id,source_kind,source_event_id,signal_type) WHERE source_event_id <> '';
+    CREATE INDEX idx_experience_observer_source ON evolution_experiences(owner_id,source_kind,source_id,created_at);
+    CREATE TABLE evolution_observer_offsets (
+      stream_kind TEXT NOT NULL, owner_id TEXT NOT NULL, last_row_id INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL, PRIMARY KEY(stream_kind,owner_id)
+    );
+    """),
 )
 
 
