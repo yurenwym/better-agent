@@ -1,4 +1,5 @@
 from fastapi.testclient import TestClient
+import pytest
 
 
 def test_start_script_uses_windows_npm_command(monkeypatch) -> None:
@@ -64,6 +65,25 @@ def test_runtime_uses_one_configured_profile_without_cross_vendor_fallback(tmp_p
     runtime = build_runtime(tmp_path)
 
     assert isinstance(runtime.model, LiveRuntimeModel)
+
+
+@pytest.mark.asyncio
+async def test_runtime_without_model_fails_visibly_instead_of_echoing_user_input(tmp_path, monkeypatch) -> None:
+    from app.startup import build_runtime
+
+    for name in ("LLM_AP_PATH", "AGENT_MODEL_BASE_URL", "AGENT_MODEL_ID", "AGENT_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    runtime = build_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("模型配置检查")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-no-model", "怎么速成高等数学", [])
+
+    await runtime.turn_worker.run_once()
+
+    assistant = [message for message in runtime.conversation.messages(thread.id) if message.role == "assistant"]
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    assert len(assistant) == 1
+    assert "模型尚未配置" in assistant[0].content
+    assert assistant[0].content != "怎么速成高等数学"
 
 
 def test_runtime_explicitly_selects_tavily_without_search_fallback(tmp_path,monkeypatch)->None:

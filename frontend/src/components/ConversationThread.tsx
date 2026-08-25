@@ -43,6 +43,13 @@ interface ConversationThreadProps {
   onSubmit: (content: string) => Promise<boolean | void> | boolean | void;
 }
 
+const STARTER_PROMPTS = [
+  "帮我制定一个可执行的学习计划",
+  "帮我把一个长期目标拆成今天能做的行动",
+  "分析我现在遇到的问题，并给出下一步建议",
+  "规划一次旅行，并列出预算和注意事项",
+];
+
 function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
@@ -89,6 +96,14 @@ export default function ConversationThread({ messages, busy = false, title = "�
             <span className="conversation-empty-mark" aria-hidden="true">BA</span>
             <h3>你想实现什么？</h3>
             <p>描述你想达成的结果、边界和优先级，模型会据此开始澄清和规划。</p>
+            <div className="conversation-starters" aria-label="示例问题">
+              <span>你可以这样问</span>
+              <div>
+                {STARTER_PROMPTS.map((prompt) => (
+                  <button key={prompt} type="button" onClick={() => setDraft(prompt)}>{prompt}</button>
+                ))}
+              </div>
+            </div>
           </div>
         )}
         {messages.map((message) => {

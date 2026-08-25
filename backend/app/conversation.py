@@ -40,6 +40,13 @@ class TurnJobLeaseLost(RuntimeError):
     preserve_partial = False
 
 
+class ModelNotConfiguredError(RuntimeError):
+    """The local app started without a live conversation model."""
+
+    preserve_partial = False
+    public_message = "模型尚未配置，暂时无法回答。请先在设置中连接模型后重试。"
+
+
 @dataclass(frozen=True)
 class RouteArtifact:
     kind: str
@@ -262,6 +269,11 @@ class _FallbackConversationModel:
                 + content
             )
         return None
+
+
+class UnavailableConversationModel:
+    async def route_and_respond(self, **_kwargs) -> Any:
+        raise ModelNotConfiguredError("conversation model is not configured")
 
 
 @dataclass(frozen=True)
@@ -1314,7 +1326,7 @@ class ManagedTurnWorker:
                     turn,
                     message_id,
                     generation,
-                    str(exc),
+                    exc,
                     preserve_partial=bool(getattr(exc, "preserve_partial", True)),
                 )
         finally:
@@ -1759,11 +1771,13 @@ class ManagedTurnWorker:
         turn: TurnSnapshot,
         message_id: str | None,
         generation: int,
-        error: str,
+        error: Exception | str,
         *,
         preserve_partial: bool = True,
     ) -> None:
         now = _now()
+        error_text = str(error)
+        failure_message = str(getattr(error, "public_message", SAFE_FAILURE_MESSAGE))
         with self.db.transaction() as connection:
             self._require_job_owner(connection, turn.id)
             readable = None
@@ -1814,7 +1828,7 @@ class ManagedTurnWorker:
                     connection.execute(
                         "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
                         "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, ?)",
-                        (message_id, turn.thread_id, turn.id, SAFE_FAILURE_MESSAGE, generation, len(SAFE_FAILURE_MESSAGE), now),
+                        (message_id, turn.thread_id, turn.id, failure_message, generation, len(failure_message), now),
                     )
                     self.conversation.events.append(
                         turn.thread_id, turn.id, "message.started", "worker",
@@ -1822,14 +1836,14 @@ class ManagedTurnWorker:
                     )
                 connection.execute(
                     "UPDATE thread_messages SET content = ?, content_length = ?, status = 'ready', completed_at = ? WHERE id = ?",
-                    (SAFE_FAILURE_MESSAGE, len(SAFE_FAILURE_MESSAGE), now, message_id),
+                    (failure_message, len(failure_message), now, message_id),
                 )
                 self.conversation.events.append(
                     turn.thread_id, turn.id, "message.snapshot", "worker",
                     {
                         "message_id": message_id,
                         "generation": generation,
-                        "content": SAFE_FAILURE_MESSAGE,
+                        "content": failure_message,
                         "status": "ready",
                     },
                     connection=connection, occurred_at=now,
@@ -1849,7 +1863,7 @@ class ManagedTurnWorker:
             )
             connection.execute(
                 "UPDATE turn_jobs SET status = 'FAILED', last_error_json = ?, lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (json.dumps({"error": error[:240]}, ensure_ascii=False), now, turn.id),
+                (json.dumps({"error": error_text[:240]}, ensure_ascii=False), now, turn.id),
             )
 
     def _interrupt_message(self, turn: TurnSnapshot, message_id: str, generation: int, reason: str) -> None:

@@ -20,6 +20,7 @@ from .notifications import NotificationService
 from .agents import AgentTaskService, LiveExpertModel, ManagedAgentWorker
 from .behavior import BehaviorBundleService
 from .evolution import EvolutionService
+from .conversation import UnavailableConversationModel
 
 
 DEFAULT_HOST = "127.0.0.1"
@@ -54,7 +55,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     gateway = ModelGateway(configured_profile) if configured_profile else None
     settings = SettingsService(db)
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
-    conversation_model = LiveConversationModel(gateway, settings) if gateway else None
+    conversation_model = LiveConversationModel(gateway, settings) if gateway else UnavailableConversationModel()
     runtime = AgentRuntime(
         db=db,
         events=events,

@@ -65,6 +65,16 @@ describe("conversation workspace", () => {
     expect(screen.queryByText("把下一步交给对话")).toBeNull();
     expect(screen.getByRole("heading", { name: "你想实现什么？" }).closest(".conversation-empty")).toBeTruthy();
     expect(document.querySelector(".conversation-thread-empty")).toBeTruthy();
+    expect(screen.getByText("你可以这样问")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^帮我|^分析|^规划/ })).toHaveLength(4);
+  });
+
+  it("puts a suggested question into the composer", () => {
+    render(<ConversationThread messages={[]} busy={false} onSubmit={() => undefined} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "帮我制定一个可执行的学习计划" }));
+
+    expect((screen.getByRole("textbox", { name: "输入消息" }) as HTMLTextAreaElement).value).toBe("帮我制定一个可执行的学习计划");
   });
 
   it("shows the assistant result without exposing raw model JSON", () => {
