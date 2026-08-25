@@ -109,6 +109,23 @@ describe("PlanPage document editor", () => {
     expect((await screen.findAllByRole("heading", { name: "Travel plan" })).length).toBeGreaterThan(0);
   });
 
+  it("lets the user choose an explicit execution end date", async () => {
+    api.previewGoalProgram.mockResolvedValue({ id: "program-1", status: "DRAFT", version: 1, structure: { assumptions: [], actions: [] } });
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "开始执行" }));
+    fireEvent.change(screen.getByLabelText("执行开始日期"), { target: { value: "2026-09-01" } });
+    fireEvent.change(screen.getByLabelText("执行结束日期"), { target: { value: "2026-09-02" } });
+    fireEvent.click(screen.getByRole("button", { name: "生成预览" }));
+
+    await waitFor(() => expect(api.previewGoalProgram).toHaveBeenCalledWith(
+      "plan-1",
+      expect.objectContaining({ start_date: "2026-09-01", requested_end_date: "2026-09-02" }),
+      expect.any(String),
+      "csrf",
+    ));
+  });
+
   it("shows the linked execution instead of offering a duplicate start", async () => {
     api.listGoalPrograms.mockResolvedValue({programs:[{id:"program-1",source_plan_document_id:"plan-1",objective_title:"Travel plan",status:"PAUSED",version:3,progress:{required_completed:2,required_total:7,completion_rate:2/7,completion_ready:false}}]});
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);

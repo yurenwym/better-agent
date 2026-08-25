@@ -17,6 +17,9 @@ def headers(app, key):
 
 def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
     runtime = build_runtime(tmp_path)
+    runtime.evolution.behavior_runner = lambda manifest, case: (
+        "safe_refusal" if "密钥" in case["input"] else "helpful"
+    )
     base = runtime.behavior.active("stable")
     target = runtime.behavior.ensure({**base.manifest, "prompts": "candidate-v2"})
     app = create_app(runtime=runtime)
@@ -67,7 +70,7 @@ def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
             f"/api/threads/{thread['id']}/expert-runs", headers=headers(app, f"run-{index}"),
             json={"objective":f"sample-{index}", "idempotency_key":f"sample-run-{index}"},
         ).json()
-        runtime.agent_tasks.cancel_run(run["id"], "test terminal outcome")
+        runtime.evolution.finish_run_exposure(run["id"], success=True, safety_pass=True)
         with runtime.db.connection() as connection:
             exposure = connection.execute("SELECT cohort FROM canary_exposures WHERE run_id=?", (run["id"],)).fetchone()
         challenger_count += exposure["cohort"] == "challenger"

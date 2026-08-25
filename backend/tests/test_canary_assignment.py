@@ -48,7 +48,7 @@ def _approved_canary(tmp_path):
     return db, evolution, base, target, deployment
 
 
-def test_new_run_uses_active_canary_bundle_and_records_real_outcome(tmp_path):
+def test_new_run_uses_active_canary_bundle_without_inventing_a_safety_verdict(tmp_path):
     db, evolution, base, target, deployment = _approved_canary(tmp_path)
     tasks = AgentTaskService(db, evolution=evolution)
 
@@ -74,7 +74,25 @@ def test_new_run_uses_active_canary_bundle_and_records_real_outcome(tmp_path):
             (deployment["id"], run["id"]),
         ).fetchone()
     assert exposure["success"] == 1
-    assert exposure["safety_pass"] == 1
+    assert exposure["safety_pass"] == 0
+
+
+def test_canary_completion_without_safety_evidence_fails_closed(tmp_path):
+    db, evolution, base, _, deployment = _approved_canary(tmp_path)
+    tasks = AgentTaskService(db, evolution=evolution)
+    run = tasks.create_run("local-user", "unknown safety", {}, base.id, idempotency_key="unknown-safety")
+
+    evolution.finish_run_exposure(run["id"], success=True)
+
+    with db.connection() as connection:
+        exposure = connection.execute(
+            "SELECT success,safety_pass FROM canary_exposures WHERE deployment_id=? AND run_id=?",
+            (deployment["id"], run["id"]),
+        ).fetchone()
+        state = connection.execute("SELECT status FROM canary_deployments WHERE id=?", (deployment["id"],)).fetchone()
+    assert exposure["success"] == 1
+    assert exposure["safety_pass"] == 0
+    assert state["status"] == "ROLLED_BACK"
 
 
 def test_run_without_active_canary_uses_stable_and_cancel_records_failure(tmp_path):

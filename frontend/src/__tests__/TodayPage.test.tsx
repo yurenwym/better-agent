@@ -48,6 +48,14 @@ describe("TodayPage",()=>{
     expect((await screen.findByRole("checkbox",{name:"已完成：完成一道题"}) as HTMLInputElement).checked).toBe(true);
     expect((screen.getByRole("checkbox",{name:"已跳过：复盘错题"}) as HTMLInputElement).disabled).toBe(true);
   });
+  it("shows the replacement action after an item is deferred",async()=>{
+    const deferred={...action,status:"DEFERRED",version:1};
+    const replacement={...action,id:"action-2",logical_key:"d1-defer-2",scheduled_date:"2026-09-02",position:2,title:"完成一道题",deferred_from_action_id:"action-1"};
+    api.listGoalPrograms.mockResolvedValue({programs:[{...program,structure:{objective_title:"一周力扣",objective_summary:"每天一道",start_date:"2026-09-01",end_date:"2026-09-07",assumptions:[],milestones:[],actions:[action]},actions:[deferred,replacement]}]});
+    render(<TodayPage csrfToken="csrf"/>);
+    expect(await screen.findByRole("checkbox",{name:"标记完成：完成一道题"})).toBeTruthy();
+    expect(screen.getByText("第 2 天")).toBeTruthy();
+  });
   it("saves optional completion feedback after the completed action version",async()=>{
     api.mutateGoalAction.mockResolvedValueOnce({action:{...action,status:"COMPLETED",version:1}}).mockResolvedValueOnce({});
     render(<TodayPage csrfToken="csrf"/>);

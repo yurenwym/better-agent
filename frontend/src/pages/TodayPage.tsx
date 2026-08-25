@@ -13,12 +13,15 @@ function key(prefix:string){ return `${prefix}-${crypto.randomUUID()}`; }
 function message(error:unknown){ return error instanceof ApiError && error.status===409 ? "内容已在别处更新，已刷新最新状态。" : error instanceof Error ? error.message : "操作失败，请重试。"; }
 function compactDate(value:string){return new Intl.DateTimeFormat("zh-CN",{month:"numeric",day:"numeric",weekday:"short"}).format(new Date(`${value}T00:00:00`));}
 function planDays(program:GoalProgram){
+  const currentActions=program.actions.filter(action=>action.program_version_id===program.current_program_version_id);
   const actionByKey=new Map<string,GoalAction>();
   for(const action of program.actions){
     const current=actionByKey.get(action.logical_key);
     if(!current||action.program_version_id===program.current_program_version_id)actionByKey.set(action.logical_key,action);
   }
-  const source=program.structure?.actions??program.actions;
+  const source=program.structure?.actions
+    ? [...program.structure.actions,...currentActions.filter(action=>action.deferred_from_action_id&&action.status!=="CANCELLED")]
+    : currentActions;
   const dates=[...new Set(source.map(action=>action.scheduled_date))].sort();
   return dates.map((scheduledDate,index)=>({
     scheduledDate,dayNumber:index+1,

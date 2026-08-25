@@ -70,9 +70,8 @@ def test_worker_without_model_fails_children_without_faking_results(tmp_path):
     assert asyncio.run(worker.run_once()) is True
     for _ in range(3): assert asyncio.run(worker.run_once()) is True
     assert asyncio.run(worker.run_once()) is True
-    assert service.get_run(run["id"])["status"] == "SUCCEEDED"
-    result = service.artifact(service.get_task(run["coordinator_task_id"])["result_artifact_id"])["content"]
-    assert result["experts"] == [] and result["incomplete"] is True
+    assert service.get_run(run["id"])["status"] == "FAILED"
+    assert service.get_task(run["coordinator_task_id"])["result_artifact_id"] is None
 
 
 def test_managed_worker_executes_read_only_experts_concurrently(tmp_path):

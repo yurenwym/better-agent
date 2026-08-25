@@ -531,6 +531,11 @@ class ManagedAgentWorker:
         for child in sorted(children, key=lambda item: (item["child_key"], item["id"])):
             if child["status"] == "SUCCEEDED" and child["result_artifact_id"]:
                 experts.append({"role":child["role"], "result":self.service.artifact(child["result_artifact_id"])["content"]})
+        if not experts:
+            self.service.fail(
+                task["id"], self.owner, task["lease_epoch"], "ALL_EXPERTS_FAILED", retryable=False,
+            )
+            return
         result = {
             "summary": "综合多个专家结果。" if experts else "专家任务未能生成可用结果。",
             "experts": experts,

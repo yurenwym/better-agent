@@ -6,13 +6,14 @@ import path from "node:path";
 const e2eDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-"));
 process.env.BETTER_AGENT_E2E_DATA_ROOT = e2eDataRoot;
 const port = process.env.BETTER_AGENT_E2E_PORT ?? "61129";
+const executablePath = process.env.BETTER_AGENT_E2E_BROWSER;
 
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
-  use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure", screenshot: "only-on-failure", ...devices["Desktop Chrome"] },
+  use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure", screenshot: "only-on-failure", ...devices["Desktop Chrome"], ...(executablePath ? { launchOptions: { executablePath } } : {}) },
   webServer: {
     command: "python scripts/e2e_server.py",
     cwd: "..",

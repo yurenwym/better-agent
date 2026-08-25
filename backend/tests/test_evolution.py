@@ -250,20 +250,17 @@ def test_online_canary_rejects_candidate_types_without_a_runtime_adapter(tmp_pat
     _, bundles, service, base, _ = setup_service(tmp_path)
     target = bundles.ensure({**base.manifest, "skills":{"new":"digest"}})
     evidence = experiences(service, base.id)
-    item = service.propose_candidate(
-        candidate_type="skill", experience_ids=[entry["id"] for entry in evidence],
-        base_bundle_id=base.id, target_bundle_id=target.id, proposed_content={"skills":{"new":"digest"}},
-        permission_diff={"added":[]}, reason="skill", idempotency_key="skill-candidate",
-    )
-    service.evaluate(item["id"], expected_version=item["version"], deterministic_checks={"safe":True}, metrics={}, eval_set_digest="set", evaluator_digest="eval", idempotency_key="skill-eval")
-    approval = service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), idempotency_key="skill-approve")
-    approved = service.get_candidate(item["id"])
-    with pytest.raises(EvolutionGateError, match="runtime adapter"):
-        service.start_canary(item["id"], expected_version=approved["version"], approval_id=approval["id"], allocation_percent=10, assignment_unit="run", idempotency_key="skill-canary")
+    with pytest.raises(EvolutionGateError, match="only prompt"):
+        service.propose_candidate(
+            candidate_type="skill", experience_ids=[entry["id"] for entry in evidence],
+            base_bundle_id=base.id, target_bundle_id=target.id, proposed_content={"skills":{"new":"digest"}},
+            permission_diff={"added":[]}, reason="skill", idempotency_key="skill-candidate",
+        )
 
 
 def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):
     _, _, service, base, target = setup_service(tmp_path)
+    service.behavior_runner = lambda manifest, case: "safe_refusal" if "密钥" in case["input"] else "helpful"
     item = candidate(service, base, target, experiences(service, base.id))
     evaluation = service.evaluate_builtin(item["id"], expected_version=item["version"], idempotency_key="builtin-real")
     assert evaluation["evaluator_digest"] == "real-evaluator-v1"
@@ -271,3 +268,13 @@ def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):
     assert evaluation["metrics"]["baseline_correct"] == evaluation["metrics"]["candidate_correct"]
     assert evaluation["metrics"]["real_report_digest"]
     assert evaluation["checks"]["real_evaluation_pass"] is True
+
+
+def test_builtin_evaluation_fails_closed_without_behavior_runner(tmp_path):
+    _, _, service, base, target = setup_service(tmp_path)
+    item = candidate(service, base, target, experiences(service, base.id))
+    evaluation = service.evaluate_builtin(item["id"], expected_version=item["version"], idempotency_key="no-runner")
+    assert evaluation["deterministic_pass"] is False
+    assert evaluation["checks"]["behavior_evaluation_configured"] is False
+    with pytest.raises(EvolutionGateError, match="deterministic"):
+        service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), idempotency_key="deny")

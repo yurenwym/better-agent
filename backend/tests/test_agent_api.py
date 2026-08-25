@@ -33,7 +33,7 @@ def test_expert_run_rejects_unknown_thread_and_empty_objective(tmp_path):
     assert http.post(f"/api/threads/{thread['id']}/expert-runs", headers=headers(app), json={"objective":"","idempotency_key":"x"}).status_code == 422
 
 
-def test_expert_run_worker_lifecycle_persists_visible_result(tmp_path):
+def test_expert_run_worker_without_model_fails_visibly(tmp_path):
     runtime = build_runtime(tmp_path)
     app = create_app(runtime=runtime)
     with TestClient(app) as http:
@@ -48,13 +48,17 @@ def test_expert_run_worker_lifecycle_persists_visible_result(tmp_path):
             if run["status"] in {"SUCCEEDED", "FAILED", "CANCELLED"}:
                 break
             time.sleep(.02)
-        assert run["status"] == "SUCCEEDED"
+        assert run["status"] == "FAILED"
+        tasks = http.get(
+            f"/api/agent-runs/{created['id']}/tasks", headers={"host":"127.0.0.1:8000"}
+        ).json()["tasks"]
+        assert all(item["result_artifact_id"] is None for item in tasks)
+        assert any(item["error_code"] == "ALL_EXPERTS_FAILED" for item in tasks)
         messages = http.get(
             f"/api/threads/{thread['id']}/messages", headers={"host":"127.0.0.1:8000"}
         ).json()["messages"]
         assistant = [item for item in messages if item["role"] == "assistant"]
-        assert assistant and "专家协作结果" in assistant[-1]["content"]
-        assert "部分专家未完成" in assistant[-1]["content"]
+        assert assistant == []
 
 
 def test_expert_run_is_visible_as_a_user_message_while_processing(tmp_path):

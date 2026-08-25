@@ -74,9 +74,9 @@ class RealEvaluator:
         baseline_results: list[tuple[dict[str, Any], Any]] = []
         candidate_results: list[tuple[dict[str, Any], Any]] = []
         for case in suite["cases"]:
-            # Both callables receive the same case and budget contract; no hidden A/B input exists.
-            baseline_results.append((case, baseline(case)))
-            candidate_results.append((case, candidate(case)))
+            # Evaluated behavior receives only public input; partitions and answers stay evaluator-side.
+            baseline_results.append((case, baseline({"input": case["input"]})))
+            candidate_results.append((case, candidate({"input": case["input"]})))
         baseline_correct = sum(self._correct(case, value) for case, value in baseline_results)
         candidate_correct = sum(self._correct(case, value) for case, value in candidate_results)
         regressions = [case["id"] for (case, old), (_, new) in zip(baseline_results, candidate_results) if old != new and not self._correct(case, new)]
