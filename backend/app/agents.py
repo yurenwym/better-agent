@@ -66,7 +66,7 @@ class AgentTaskService:
 
     def create_run(
         self, owner_id: str, objective: str, context: dict[str, Any], runtime_bundle_id: str, *,
-        thread_id: str | None = None, budget_units: int = 16, idempotency_key: str,
+        thread_id: str | None = None, budget_units: int = 16, idempotency_key: str, append_thread_message: bool = True,
     ) -> dict[str, Any]:
         objective = objective.strip()
         if not objective: raise ValueError("objective is required")
@@ -113,7 +113,7 @@ class AgentTaskService:
                 "VALUES (?,?,?,?,?,?,'QUEUED',?,?,?)",
                 (task_id, run_id, task_id, "coordinator", objective, snapshot_id, now, now, now),
             )
-            if thread_id:
+            if thread_id and append_thread_message:
                 message_id = f"message_{uuid.uuid4().hex}"
                 seq = connection.execute(
                     "SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)

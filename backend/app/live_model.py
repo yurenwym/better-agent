@@ -374,8 +374,8 @@ class LiveConversationModel:
             "role": "system",
             "content": (
                 "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
-                "Use V1 for answer-only compatibility, V2 for saved documents, and V3 for explicit deep research. "
-                "The header policy is answer|propose_execution|clarify|start_research. "
+                "Use V1 for answer-only compatibility, V2 for saved documents, V3 for explicit deep research, and V4 for bounded expert collaboration. "
+                "The header policy is answer|propose_execution|clarify|start_research|start_expert. "
                 "Only when the user explicitly asks for deep research, investigation, or a sourced report, return exactly "
                 "v=3, policy=start_research, content_shape=research, reason_code=explicit_deep_research, and research={topic,scope:web}; no visible body or artifact. "
                 "For an explicit request to create, save, or modify a plan document, use v=2 with exactly one artifact "
@@ -390,6 +390,7 @@ class LiveConversationModel:
                 "This saving rule takes precedence over the personalized-plan question rule below. "
                 "For a new plan document, when no complete plan body exists in the conversation, follow the personalized-plan question rule; after ask_user answers, if the original request explicitly asks to create the plan document, return v=2 with the artifact. "
                 "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
+                "Use start_expert only when at least two independent perspectives materially improve a complex comparison or decision; return exactly v=4 with expert={objective,roles}, roles chosen only from researcher,planner,critic, and no visible body. "
                 "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
                 "You decide which relevant personal context is missing from the current request and history. "
                 "For a personalized, long-term, or goal-driven plan, you must call ask_user before drafting when the relevant personal context is not already provided. "

@@ -62,12 +62,14 @@ class RouteDecision:
     artifact: RouteArtifact | None = None
     research_topic: str | None = None
     research_scope: str | None = None
+    expert_objective: str | None = None
+    expert_roles: tuple[str, ...] = ()
 
 
 class ControlHeadDecoder:
     """Decode one bounded JSON control line without exposing it as Markdown."""
 
-    _policies = {"answer", "propose_execution", "clarify", "start_research"}
+    _policies = {"answer", "propose_execution", "clarify", "start_research", "start_expert"}
 
     def __init__(self, max_header_bytes: int = 1024) -> None:
         self.max_header_bytes = max_header_bytes
@@ -96,7 +98,7 @@ class ControlHeadDecoder:
         if (
             not isinstance(payload, dict)
             or type(payload.get("v")) is not int
-            or payload.get("v") not in {1, 2, 3}
+            or payload.get("v") not in {1, 2, 3, 4}
         ):
             raise RouteProtocolError("conversation control header version is invalid")
         version = payload["v"]
@@ -105,6 +107,8 @@ class ControlHeadDecoder:
             allowed_fields.add("artifact")
         if version == 3:
             allowed_fields.add("research")
+        if version == 4:
+            allowed_fields.add("expert")
         if set(payload) - allowed_fields:
             raise RouteProtocolError("conversation control header has unknown fields")
         policy = payload.get("policy")
@@ -136,6 +140,8 @@ class ControlHeadDecoder:
                 raise RouteProtocolError("artifact title is invalid") from exc
             artifact = RouteArtifact(kind, operation, title)
         research_topic = research_scope = None
+        expert_objective = None
+        expert_roles: tuple[str, ...] = ()
         research = payload.get("research")
         if policy == "start_research":
             if version != 3 or artifact is not None or not isinstance(research, dict) or set(research) != {"topic", "scope"}:
@@ -145,7 +151,20 @@ class ControlHeadDecoder:
                 raise RouteProtocolError("research control fields are invalid")
         elif research is not None:
             raise RouteProtocolError("research is only allowed with start_research")
-        self.header = RouteDecision(policy, content_shape, reason_code, artifact, research_topic, research_scope)
+        expert = payload.get("expert")
+        if policy == "start_expert":
+            if version != 4 or artifact is not None or research is not None or not isinstance(expert, dict) or set(expert) != {"objective", "roles"}:
+                raise RouteProtocolError("expert control fields are invalid")
+            expert_objective = expert.get("objective")
+            roles = expert.get("roles")
+            if not isinstance(expert_objective, str) or not expert_objective.strip() or len(expert_objective) > 2000:
+                raise RouteProtocolError("expert objective is invalid")
+            if not isinstance(roles, list) or not roles or len(roles) > 3 or any(role not in {"researcher", "planner", "critic"} for role in roles):
+                raise RouteProtocolError("expert roles are invalid")
+            expert_roles = tuple(dict.fromkeys(roles))
+        elif expert is not None:
+            raise RouteProtocolError("expert is only allowed with start_expert")
+        self.header = RouteDecision(policy, content_shape, reason_code, artifact, research_topic, research_scope, expert_objective, expert_roles)
         self._buffer = ""
         return remainder
 
@@ -1280,7 +1299,7 @@ class ManagedTurnWorker:
                     body = decoder.feed(value or "")
                 except RouteProtocolError:
                     raise
-                if decoder.header is not None and decoder.header.policy != "start_research" and message_id is None:
+                if decoder.header is not None and decoder.header.policy not in {"start_research", "start_expert"} and message_id is None:
                     message_id = self._start_message(turn, decoder.header, generation)
                 if body:
                     pending += body
@@ -1312,6 +1331,26 @@ class ManagedTurnWorker:
                 if research is None:
                     raise RuntimeError("research is not configured")
                 research.create_from_turn(turn.id, decoder.header.research_topic or user_message.content, (decoder.header.research_scope or "web",))
+                return
+            if decoder.header.policy == "start_expert":
+                if message_id is not None or pending:
+                    raise RouteProtocolError("start_expert cannot include visible body")
+                agent_tasks = getattr(self.conversation.agent_runtime, "agent_tasks", None)
+                if agent_tasks is None:
+                    raise RuntimeError("expert runtime is not configured")
+                agent_tasks.create_run(
+                    "local-user", decoder.header.expert_objective or user_message.content,
+                    {"thread_id": turn.thread_id, "source_turn_id": turn.id, "history": history[-12:]},
+                    self.conversation.agent_runtime.behavior.active("stable").id,
+                    thread_id=turn.thread_id, idempotency_key=f"conversation-expert:{turn.id}", append_thread_message=False,
+                )
+                with self.db.transaction() as connection:
+                    self._require_job_owner(connection, turn.id)
+                    now = _now()
+                    connection.execute("UPDATE turns SET status='COMPLETED',policy='start_expert',content_shape='expert',reason_code=?,version=version+1,updated_at=? WHERE id=?", (decoder.header.reason_code, now, turn.id))
+                    self.conversation.events.append(turn.thread_id, turn.id, "expert.requested", "worker", {"objective": decoder.header.expert_objective, "roles": list(decoder.header.expert_roles)}, connection=connection, occurred_at=now)
+                    self.conversation.events.append(turn.thread_id, turn.id, "turn.completed", "worker", {}, connection=connection, occurred_at=now)
+                    connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn.id))
                 return
             if message_id is None:
                 message_id = self._start_message(turn, decoder.header, generation)

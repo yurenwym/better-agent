@@ -29,6 +29,16 @@ def test_v1_control_head_remains_compatible_without_an_artifact() -> None:
     assert decoder.finish().artifact is None
 
 
+def test_start_expert_control_head_requires_bounded_objective() -> None:
+    from app.conversation import ControlHeadDecoder, RouteProtocolError
+
+    decoder = ControlHeadDecoder()
+    assert decoder.feed('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"complex_compare","expert":{"objective":"比较方案","roles":["planner","critic"]}}\n') == ""
+    assert decoder.finish().expert_objective == "比较方案"
+    with pytest.raises(RouteProtocolError):
+        ControlHeadDecoder().feed('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"x","expert":{"objective":"","roles":[]}}\n')
+
+
 def test_control_head_checks_only_the_header_and_requires_an_integer_version() -> None:
     from app.conversation import ControlHeadDecoder, RouteProtocolError
 

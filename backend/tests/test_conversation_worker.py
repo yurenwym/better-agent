@@ -121,6 +121,28 @@ async def test_worker_streams_markdown_and_finishes_answer_without_agent_rows(tm
 
 
 @pytest.mark.asyncio
+async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_raw_header(tmp_path) -> None:
+    from app.startup import build_runtime
+
+    class ExpertRouteModel:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            on_text_delta('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"complex_compare","expert":{"objective":"比较训练方案","roles":["planner","critic"]}}\n')
+
+    runtime = build_runtime(tmp_path)
+    runtime.conversation.route_model = ExpertRouteModel()
+    thread = runtime.conversation.create_thread("专家路由")
+    accepted = runtime.conversation.accept_turn(thread.id, "client-expert-route", "比较两个训练方案", [])
+
+    await runtime.turn_worker.run_once()
+
+    turn = runtime.conversation.turn(accepted.turn_id)
+    assert turn.status == "COMPLETED"
+    assert turn.policy == "start_expert"
+    assert runtime.agent_tasks.latest_run_for_thread(thread.id)["objective"] == "比较训练方案"
+    assert [message.content for message in runtime.conversation.messages(thread.id)] == ["比较两个训练方案"]
+
+
+@pytest.mark.asyncio
 async def test_propose_execution_waits_for_direction_without_agent_rows(tmp_path) -> None:
     runtime = make_runtime(
         tmp_path,
