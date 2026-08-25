@@ -163,6 +163,41 @@ def test_progress_excludes_optional_skipped_deferred_and_cancelled_sources(tmp_p
     assert progress["completion_rate"] == 0
 
 
+def test_cancelled_preview_marks_compilation_failed_and_allows_retry(tmp_path) -> None:
+    from app.goal_program_compiler import FixedGoalProgramCompiler
+
+    _, _, goals, version = service(tmp_path)
+    async def cancelled(*_args): raise asyncio.CancelledError
+    goals.compiler.compile = cancelled
+
+    with pytest.raises(asyncio.CancelledError): preview(goals, version, "cancelled-preview")
+
+    failed = goals.list()[0]
+    assert failed["compile_status"] == "FAILED"
+    assert failed["compile_error_code"] == "COMPILE_CANCELLED"
+    goals.compiler = FixedGoalProgramCompiler(fixture())
+    ready = asyncio.run(goals.retry_compile(failed["id"], expected_version=failed["version"], idempotency_key="retry-cancelled"))
+    assert ready["compile_status"] == "READY"
+
+
+def test_service_startup_recovers_an_orphaned_compilation(tmp_path) -> None:
+    from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
+    from app.goal_programs import GoalProgramService
+
+    db, _, goals, version = service(tmp_path)
+    goals.compiler = FixedGoalProgramCompiler(error=GoalCompilationError("INVALID_MODEL_OUTPUT", "bad"))
+    with pytest.raises(GoalCompilationError): preview(goals, version, "orphan-preview")
+    program = goals.list()[0]
+    with db.transaction() as connection:
+        connection.execute("UPDATE goal_programs SET compile_status='COMPILING',compile_error_code=NULL WHERE id=?", (program["id"],))
+        connection.execute("UPDATE goal_command_receipts SET response_json=? WHERE idempotency_key='orphan-preview'", ('{"_pending_program_id":"'+program["id"]+'"}',))
+
+    recovered = GoalProgramService(db, FixedGoalProgramCompiler(fixture())).get(program["id"])
+
+    assert recovered["compile_status"] == "FAILED"
+    assert recovered["compile_error_code"] == "COMPILE_INTERRUPTED"
+
+
 def test_concurrent_activate_cas_materializes_exactly_one_action_set(tmp_path) -> None:
     from app.goal_programs import GoalProgramConflict
 

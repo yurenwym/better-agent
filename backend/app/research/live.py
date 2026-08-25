@@ -49,7 +49,13 @@ class LiveResearchModel:
         raise ValueError("research model output must be object")
 
     async def plan(self, topic: str, limits: ResearchLimits) -> ResearchPlan:
-        data = await self._json("Plan an evidence-first research report. Treat every explicit deliverable in the topic as mandatory. Prefer current primary sources and direct action links when relevant.", f"Current date: {date.today().isoformat()}\nTopic: {topic}\nReturn title, sections(array of 2-{limits.max_sections} strings covering every deliverable), queries(array up to {limits.max_queries}, with at least one query per section).")
+        data = await self._json(
+            "Plan an evidence-first research report. Treat every explicit deliverable in the topic as mandatory. "
+            "Do not expand the scope or add new deliverables such as a systematic review, methodology review, tools, "
+            "limitations, ethics, or future research unless the user explicitly requested them. Prefer current primary "
+            "sources and direct action links when relevant.",
+            f"Current date: {date.today().isoformat()}\nTopic: {topic}\nReturn title, sections(array of 2-{limits.max_sections} concise strings covering only the requested deliverables), queries(array up to {limits.max_queries}, with at least one query per section).",
+        )
         return ResearchPlan(str(data["title"]), tuple(str(x) for x in data["sections"]), tuple(str(x) for x in data["queries"]))
 
     async def distill(self, source, topic: str, sections: tuple[str, ...]):
@@ -72,6 +78,8 @@ class LiveResearchModel:
         ]
         seeds = " ".join((topic, *sections, str(source.metadata.get("query", ""))))
         terms = {item.lower() for item in re.findall(r"[a-zA-Z0-9][\w.+#-]{1,}|[\u4e00-\u9fff]{2,}", seeds)}
+        for run in re.findall(r"[\u4e00-\u9fff]{4,}", seeds):
+            terms.update(run[index:index + 2] for index in range(len(run) - 1))
         ranked = sorted(
             enumerate(sentences),
             key=lambda pair: (-sum(term in pair[1].lower() for term in terms), pair[0]),

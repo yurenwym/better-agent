@@ -96,14 +96,23 @@ class ResearchEngine:
                 value = (str(thesis), ids)
                 if key in {self._heading_key(item) for item in plan.sections}: curated[key] = value
                 else: unmatched.append(value)
-        sections = []
-        for index, heading in enumerate(plan.sections, 1):
-            match = next((value for key,value in curated.items() if key == self._heading_key(heading)), None)
-            if match is not None:
-                sections.append(CuratedSection(index, heading, match[0], match[1]))
-            elif index not in request.completed_sections and unmatched:
-                thesis, ids = unmatched.pop(0)
-                sections.append(CuratedSection(index, heading, thesis, ids))
+        def build_sections():
+            result = []
+            extras = list(unmatched)
+            for index, heading in enumerate(plan.sections, 1):
+                match = next((value for key,value in curated.items() if key == self._heading_key(heading)), None)
+                if match is not None:
+                    result.append(CuratedSection(index, heading, match[0], match[1]))
+                elif index not in request.completed_sections and extras:
+                    thesis, ids = extras.pop(0)
+                    result.append(CuratedSection(index, heading, thesis, ids))
+            return result
+        sections = build_sections()
+        if not sections and not request.completed_sections:
+            raw_sections = self._fallback_curated_sections(plan, evidence)
+            curated = {self._heading_key(heading):(str(thesis),tuple(ids)) for heading,thesis,ids in raw_sections}
+            unmatched = []
+            sections = build_sections()
         by_ordinal={item.ordinal:item for item in sections}
         for ordinal,saved in request.completed_sections.items():
             by_ordinal[ordinal]=CuratedSection(ordinal,saved.get("heading",f"Section {ordinal}"),saved.get("summary",""),())
@@ -195,6 +204,9 @@ class ResearchEngine:
                 except Exception:
                     fallback = getattr(self.model, "fallback_distill", None)
                     raw = fallback(source, request.topic, plan.sections) if fallback else []
+                if not raw:
+                    fallback = getattr(self.model, "fallback_distill", None)
+                    raw = fallback(source, request.topic, plan.sections) if fallback else []
                 return [replace(item, source_id=source.id) for item in raw[:6] if 0 <= item.relevance <= 1 and item.relevance >= .25 and item.text.strip()]
         return [item for batch in await asyncio.gather(*(one(source) for source in sources)) for item in batch]
 
@@ -202,6 +214,7 @@ class ResearchEngine:
     def _merge_sources(existing: list[Source], new: list[Source], request: ResearchRequest) -> list[Source]:
         accepted=list(existing[:request.limits.max_sources])
         keys={(item.kind,item.canonical_url or item.locator or item.content_hash) for item in accepted}
+        content_hashes={item.content_hash for item in accepted if item.content_hash}
         ids={item.id for item in accepted};next_ordinal=max((item.ordinal for item in accepted),default=0)+1
         filtered = filter_sources(new,min_chars=request.limits.min_source_chars,max_sources=max(len(new),request.limits.max_sources))
         reserved = {}
@@ -214,8 +227,10 @@ class ResearchEngine:
         for source in ordered:
             if len(accepted)>=request.limits.max_sources:break
             key=(source.kind,source.canonical_url or source.locator or source.content_hash)
-            if source.id in ids or key in keys:continue
-            accepted.append(replace(source,ordinal=next_ordinal));ids.add(source.id);keys.add(key);next_ordinal+=1
+            if source.id in ids or key in keys or (source.content_hash and source.content_hash in content_hashes):continue
+            accepted.append(replace(source,ordinal=next_ordinal));ids.add(source.id);keys.add(key)
+            if source.content_hash:content_hashes.add(source.content_hash)
+            next_ordinal+=1
         return accepted
 
     @staticmethod

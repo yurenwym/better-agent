@@ -32,6 +32,16 @@ class GoalProgramService:
         self.plan_documents = plan_documents
         self.conversation = conversation
         self.reviews = None
+        self._recover_interrupted_compilations()
+
+    def _recover_interrupted_compilations(self) -> None:
+        now = _now()
+        with self.db.transaction() as connection:
+            rows = connection.execute("SELECT id FROM goal_programs WHERE status='DRAFT' AND compile_status='COMPILING'").fetchall()
+            for row in rows:
+                connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code='COMPILE_INTERRUPTED',version=version+1,updated_at=? WHERE id=?", (now, row["id"]))
+                connection.execute("UPDATE goal_command_receipts SET response_json=? WHERE aggregate_type='program' AND aggregate_id=? AND json_extract(response_json,'$._pending_program_id')=?", (_json(self._program_json(connection,row["id"],OWNER_ID)),row["id"],row["id"]))
+                self._event(connection,row["id"],None,"program.compile_failed","system",{"reason_code":"COMPILE_INTERRUPTED"})
 
     async def preview(
         self, plan_document_id: str, *, start_date: str, timezone_name: str,
@@ -106,6 +116,13 @@ class GoalProgramService:
         try:
             structure = await self.compiler.compile(source["markdown_content"], compile_request)
             structure = validate_program_structure(structure, start.isoformat(), end.isoformat(), daily_minutes)
+        except asyncio.CancelledError:
+            with self.db.transaction() as connection:
+                connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code='COMPILE_CANCELLED',version=version+1,updated_at=? WHERE id=?", (_now(), program_id))
+                self._event(connection, program_id, None, "program.compile_failed", "compiler", {"reason_code": "COMPILE_CANCELLED"})
+                response = self._program_json(connection, program_id, owner_id)
+                self._complete_reserved_receipt(connection, owner_id, idempotency_key, request_hash, response)
+            raise
         except GoalCompilationError as exc:
             with self.db.transaction() as connection:
                 connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code=?,version=version+1,updated_at=? WHERE id=?",

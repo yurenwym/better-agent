@@ -99,6 +99,19 @@ async def test_missing_planned_sections_cannot_be_published_as_completed() -> No
 
 
 @pytest.mark.asyncio
+async def test_invalid_model_curation_falls_back_to_all_planned_sections() -> None:
+    class InvalidCuration(FakeModel):
+        async def curate(self, plan: ResearchPlan, evidence: list[Evidence]):
+            return [("unrequested", "wrong", ("missing-evidence",))]
+
+    events = [event async for event in ResearchEngine(InvalidCuration(), FakeRetriever()).run_research(
+        ResearchRequest("curation-fallback", "主动回忆", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+
+    assert len([event for event in events if event.type == "section"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_failed_topic_audit_cannot_be_published_as_completed() -> None:
     class OffTopic(FakeModel):
         async def audit(self, topic: str, plan: ResearchPlan, report: str):
@@ -182,14 +195,25 @@ def test_merge_sources_never_exceeds_the_research_limit() -> None:
 
 def test_merge_sources_reserves_one_result_per_search_intent() -> None:
     sources = [
-        Source("company", 0, "web", "https://company.example/job", None, "Company", "body" * 100, None, "n", .6, metadata={"query_index": 0}),
-        Source("requirements", 0, "web", "https://requirements.example/jd", None, "Requirements", "body" * 100, None, "n", .5, metadata={"query_index": 1}),
-        Source("channel", 0, "web", "https://channel.example/apply", None, "Channel", "body" * 100, None, "n", .4, metadata={"query_index": 2}),
-        Source("generic", 0, "web", "https://generic.example/trend", None, "Generic", "body" * 100, None, "n", .99, metadata={"query_index": 0}),
+        Source("company", 0, "web", "https://company.example/job", None, "Company", "company body" * 100, None, "n", .6, metadata={"query_index": 0}),
+        Source("requirements", 0, "web", "https://requirements.example/jd", None, "Requirements", "requirements body" * 100, None, "n", .5, metadata={"query_index": 1}),
+        Source("channel", 0, "web", "https://channel.example/apply", None, "Channel", "channel body" * 100, None, "n", .4, metadata={"query_index": 2}),
+        Source("generic", 0, "web", "https://generic.example/trend", None, "Generic", "generic body" * 100, None, "n", .99, metadata={"query_index": 0}),
     ]
     request = ResearchRequest("balanced", "AI Agent 秋招", ("web",), ResearchLimits(max_sources=3))
     result = ResearchEngine._merge_sources([], sources, request)
     assert {item.id for item in result} == {"generic", "requirements", "channel"}
+
+
+def test_merge_sources_deduplicates_identical_content_from_different_urls() -> None:
+    sources = [
+        Source("first", 0, "web", "https://first.example/article", None, "First", "same body" * 100, None, "n", .9, "same-hash", {"query_index": 0}),
+        Source("mirror", 0, "web", "https://mirror.example/article", None, "Mirror", "same body" * 100, None, "n", .8, "same-hash", {"query_index": 1}),
+    ]
+
+    result = ResearchEngine._merge_sources([], sources, ResearchRequest("dedupe", "x", ("web",), ResearchLimits()))
+
+    assert [item.id for item in result] == ["first"]
 
 
 def test_relevant_excerpt_prefers_topic_paragraphs_and_bounds_model_input() -> None:
@@ -240,6 +264,22 @@ async def test_live_research_json_calls_bound_model_output() -> None:
     await model.distill(source, "AI Agent 秋招", ("岗位要求",))
 
     assert gateway.requests[0].max_tokens == 1200
+
+
+@pytest.mark.asyncio
+async def test_live_research_plan_prompt_forbids_scope_expansion() -> None:
+    class Gateway:
+        def __init__(self) -> None: self.requests = []
+        async def complete(self, request):
+            self.requests.append(request)
+            return SimpleNamespace(message='{"title":"主动回忆","sections":["为什么有效","如何应用"],"queries":["主动回忆 为什么有效","主动回忆 如何应用"]}')
+
+    gateway = Gateway()
+    await LiveResearchModel(gateway).plan("研究主动回忆为什么有效，以及如何应用", ResearchLimits())
+
+    prompt = gateway.requests[0].messages[0]["content"]
+    assert "Do not expand the scope" in prompt
+    assert "systematic review" in prompt
 
 
 @pytest.mark.asyncio
@@ -314,6 +354,27 @@ async def test_distill_skips_a_source_that_exceeds_its_time_budget() -> None:
     request = ResearchRequest("bounded", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
 
     assert await engine._distill([source], request, ResearchPlan("x", ("岗位要求",), ("x",))) == []
+
+
+@pytest.mark.asyncio
+async def test_distill_uses_relevant_fallback_when_model_returns_no_evidence() -> None:
+    class Empty(FakeModel):
+        async def distill(self, source, topic, sections): return []
+        fallback_distill = staticmethod(LiveResearchModel.fallback_distill)
+
+    source = Source(
+        "fallback-empty", 1, "local_note", None, "learning.md", "主动回忆",
+        "主动回忆有助于长期保持。高等数学复习时应合上资料写出定义与步骤。" * 20,
+        None, "n", .8,
+    )
+    request = ResearchRequest("empty-fallback", "主动回忆 高等数学复习", ("local_note",), ResearchLimits(reflection_rounds=0))
+
+    evidence = await ResearchEngine(Empty(), FakeRetriever())._distill(
+        [source], request, ResearchPlan("主动回忆", ("为什么有效", "如何应用"), ("主动回忆",))
+    )
+
+    assert evidence
+    assert all(item.source_id == source.id for item in evidence)
 
 
 @pytest.mark.asyncio
