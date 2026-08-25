@@ -82,3 +82,59 @@ def test_completed_program_returns_memory_summary_over_http(tmp_path) -> None:
     assert completed.status_code==200
     assert completed.json()["completion_episode_id"].startswith("episode_")
     assert completed.json()["completion_summary"].startswith("已完成目标")
+
+
+def test_failed_review_retry_requires_mutation_headers_and_is_idempotent(tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path)
+    runtime.goal_reviews.queue_delay_seconds = 0
+    draft = client.post(
+        f"/api/plans/{version.plan_document_id}/program-preview",
+        headers=headers(app, "preview"),
+        json={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60},
+    ).json()
+    active = client.post(
+        f"/api/programs/{draft['id']}/activate",
+        headers=headers(app, "activate"),
+        json={"expected_version":draft["version"]},
+    ).json()
+    action = active["actions"][0]
+    client.post(
+        f"/api/actions/{action['id']}/complete",
+        headers=headers(app, "complete"),
+        json={"expected_version":action["version"]},
+    )
+    review = runtime.goal_reviews.claim_next("broken", 30)
+    runtime.goal_reviews.fail(review["id"], "broken", "INVALID_MODEL_OUTPUT")
+    review = runtime.goal_reviews.claim_next("broken", 30)
+    runtime.goal_reviews.fail(review["id"], "broken", "INVALID_MODEL_OUTPUT")
+    with runtime.db.connection() as connection:
+        snapshot_count = connection.execute(
+            "SELECT COUNT(*) FROM goal_review_action_snapshots WHERE review_id=?", (review["id"],)
+        ).fetchone()[0]
+        event_count = connection.execute(
+            "SELECT COUNT(*) FROM goal_program_events WHERE program_id=? AND type='review.retry_queued'", (draft["id"],)
+        ).fetchone()[0]
+
+    missing_key = client.post(f"/api/reviews/{review['id']}/retry", headers=_headers(app))
+    missing_csrf = client.post(
+        f"/api/reviews/{review['id']}/retry",
+        headers={"host":"127.0.0.1:8000","content-type":"application/json","Idempotency-Key":"retry"},
+    )
+    first = client.post(f"/api/reviews/{review['id']}/retry", headers=headers(app, "retry"))
+    claimed = runtime.goal_reviews.claim_next("broken-again", 30)
+    runtime.goal_reviews.fail(claimed["id"], "broken-again", "INVALID_MODEL_OUTPUT")
+    claimed = runtime.goal_reviews.claim_next("broken-again", 30)
+    runtime.goal_reviews.fail(claimed["id"], "broken-again", "INVALID_MODEL_OUTPUT")
+    repeated = client.post(f"/api/reviews/{review['id']}/retry", headers=headers(app, "retry"))
+
+    assert missing_key.status_code == 422
+    assert missing_csrf.status_code == 403
+    assert first.status_code == repeated.status_code == 200
+    assert first.json()["status"] == repeated.json()["status"] == "QUEUED"
+    with runtime.db.connection() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM goal_review_action_snapshots WHERE review_id=?", (review["id"],)
+        ).fetchone()[0] == snapshot_count
+        assert connection.execute(
+            "SELECT COUNT(*) FROM goal_program_events WHERE program_id=? AND type='review.retry_queued'", (draft["id"],)
+        ).fetchone()[0] == event_count + 1

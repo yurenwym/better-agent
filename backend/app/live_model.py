@@ -5,12 +5,19 @@ import hashlib
 import json
 import re
 from contextvars import ContextVar
+from types import SimpleNamespace
 from typing import Any, Callable
 
 from .ask import ASK_TOOL_SCHEMA, AskRequest, AskValidationError, parse_ask_tool_call
 from .conversation import ControlHeadDecoder, RouteProtocolError
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
 from .runtime import ModelDecision, PlanDraft
+
+
+def _is_explicit_research_command(content: str) -> bool:
+    if re.search(r"(?:基于|参考|根据|结合).{0,12}(?:深度|深入)(?:研究|调研)|(?:刚才|之前|已有|上述).{0,8}(?:深度|深入)(?:研究|调研)", content, re.I):
+        return False
+    return bool(re.search(r"(?:请|帮我|开始|进行|开展|启动|做一份?)?\s*(?:深度|深入)(?:研究|调研)|\b(?:start|do|conduct)\s+(?:a\s+)?deep\s+research\b", content, re.I))
 
 
 class LiveRuntimeModel:
@@ -308,7 +315,7 @@ class LiveConversationModel:
 
     async def _classify_explicit_research_request(self, content: str, cancel_event) -> tuple[bool, str]:
         request = ModelRequest(messages=[
-            {"role":"system","content":"Return JSON only: {\"start_research\":true|false,\"topic\":\"...\"}. True only when the user explicitly requests deep research, investigation, comparison with sources, or a sourced report. Ordinary questions, guides, plans, recommendations, and requests that can be answered directly are false. Preserve the requested topic concisely."},
+            {"role":"system","content":"Return JSON only: {\"start_research\":true|false,\"topic\":\"...\"}. True only when the user explicitly requests starting a new deep research, investigation, comparison with sources, or a sourced report. References to existing research, such as 'based on the previous deep research, create a plan', are false. Ordinary questions, guides, plans, recommendations, and requests that can be answered directly are false. Preserve the requested topic concisely."},
             {"role":"user","content":content},
         ],tools=[],temperature=0,max_tokens=200)
         try:
@@ -357,7 +364,7 @@ class LiveConversationModel:
                 body=f"已记住：{item.content}\n\n你可以随时在记忆页面编辑、停用或删除。"
                 if on_text_delta is not None:on_text_delta(header+body)
                 return type("RememberResponse",(),{"message":header+body,"tool_calls":[],"finish_reason":"stop"})()
-        explicit_research=bool(re.search(r"(?:深度|深入)(?:研究|调研)|\bdeep\s+research\b",content,re.I))
+        explicit_research=_is_explicit_research_command(content)
         start_research,research_topic=(True,content.strip()[:2000]) if explicit_research else ((await self._classify_explicit_research_request(content,cancel_event)) if isinstance(self.gateway, ModelGateway) else (False,content))
         if start_research:
             header=json.dumps({"v":3,"policy":"start_research","content_shape":"research","reason_code":"explicit_deep_research","research":{"topic":research_topic,"scope":"web"}},ensure_ascii=False)+"\n"
@@ -485,12 +492,21 @@ class LiveConversationModel:
             force_messages = messages + [{"role": "user", "content": instruction}]
             forced_response, _ = await complete_once(force_messages, tools=[])
             if not _response_has_plan_artifact(forced_response):
-                raise GatewayError("model did not return required plan document artifact", "structure")
+                forced_response = _wrap_confirmed_plan_markdown(forced_response)
+                if on_text_reset is not None: on_text_reset()
+                if on_text_delta is not None: on_text_delta(forced_response.message)
             return forced_response
 
         response, valid = await complete_once(messages, tools=[] if save_existing_plan else None)
         declared_plan_document = _response_declares_plan_document_intent(response)
         plan_document_intent: bool | None = True if save_existing_plan else None
+        if _response_has_plan_artifact(response) and not save_existing_plan:
+            plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
+            if not plan_document_intent:
+                response = _downgrade_unconfirmed_plan_document(response)
+                if on_text_reset is not None: on_text_reset()
+                if on_text_delta is not None: on_text_delta(response.message)
+                return response
         if (save_existing_plan or declared_plan_document) and not _response_has_plan_artifact(response):
             if plan_document_intent is None:
                 plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
@@ -520,6 +536,16 @@ class LiveConversationModel:
                 )
         if valid:
             return response
+
+        if plan_document_intent is None:
+            plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
+        if plan_document_intent:
+            return await force_plan_document(
+                'The intent gate confirmed a saved plan document. Begin with this exact JSON shape on one line: '
+                '{"v":2,"policy":"answer","content_shape":"plan_document","reason_code":"explicit_plan_save",'
+                '"artifact":{"kind":"plan_document","operation":"upsert","title":"PLAN TITLE"}}. '
+                'Replace only PLAN TITLE, then put the complete Markdown plan beginning with # on the next line.'
+            )
 
         if on_text_reset is not None:
             on_text_reset()
@@ -567,6 +593,34 @@ def _response_has_plan_artifact(response: Any) -> bool:
         return decoder.finish().artifact is not None
     except RouteProtocolError:
         return False
+
+
+def _wrap_confirmed_plan_markdown(response: Any) -> Any:
+    from .plan_documents import validate_title
+
+    message=getattr(response,"message",None)
+    if not isinstance(message,str):raise GatewayError("model did not return required plan document artifact","structure")
+    lines=message.splitlines();declaration=lines[0].lower() if lines else ""
+    if not re.search(r"content[_ -]?shape\s*[=:]\s*plan[_ -]?document|artifact.{0,40}plan[_ -]?document",declaration):
+        raise GatewayError("model did not return required plan document artifact","structure")
+    start=next((index for index,line in enumerate(lines[1:],1) if re.match(r"^#\s+\S",line.strip())),None)
+    if start is None:raise GatewayError("model did not return required plan document artifact","structure")
+    body="\n".join(lines[start:]).strip()+"\n";title=validate_title(re.sub(r"^#\s+","",lines[start].strip()).strip())
+    header=json.dumps({"v":2,"policy":"answer","content_shape":"plan_document","reason_code":"explicit_plan_save","artifact":{"kind":"plan_document","operation":"upsert","title":title}},ensure_ascii=False,separators=(",",":"))
+    values=dict(vars(response)) if hasattr(response,"__dict__") else {}
+    values.update(message=header+"\n"+body,tool_calls=getattr(response,"tool_calls",[]) or [])
+    return SimpleNamespace(**values)
+
+
+def _downgrade_unconfirmed_plan_document(response: Any) -> Any:
+    message=getattr(response,"message",None)
+    if not isinstance(message,str):return response
+    _,separator,body=message.partition("\n")
+    if not separator:return response
+    header=json.dumps({"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"},ensure_ascii=False,separators=(",",":"))
+    values=dict(vars(response)) if hasattr(response,"__dict__") else {}
+    values.update(message=header+"\n"+body,tool_calls=getattr(response,"tool_calls",[]) or [])
+    return SimpleNamespace(**values)
 
 
 def _response_declares_plan_document_intent(response: Any) -> bool:

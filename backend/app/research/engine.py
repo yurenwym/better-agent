@@ -297,9 +297,12 @@ class ResearchEngine:
             _, separator, deliverables = normalized.rpartition(":")
         if not separator:
             return ()
+        markers = list(re.finditer(r"(?:分别(?:说明|研究|分析)|重点(?:说明|研究|分析)|包括|涵盖)\s*", deliverables))
+        if markers:
+            deliverables = deliverables[markers[-1].end():]
         return tuple(
             item.strip(" 。.!！?？")
-            for item in re.split(r"[、,，;；]|(?<=[\u4e00-\u9fff])(?:以及|与|和|及)(?=[\u4e00-\u9fff])", deliverables)
+            for item in re.split(r"[、,，;；]\s*(?:以及|与|和|及)?|(?<!以)(?<=\S)(?:以及|与|和|及)(?=\S)", deliverables)
             if item.strip(" 。.!！?？")
         )
 

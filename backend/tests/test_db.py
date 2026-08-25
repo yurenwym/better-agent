@@ -91,6 +91,23 @@ def test_database_migrates_deleted_at_on_an_existing_thread_table(tmp_path) -> N
     assert "deleted_at" in columns
 
 
+def test_database_backfills_null_message_sequences_after_the_existing_max(tmp_path) -> None:
+    from app.db import Database
+
+    path = tmp_path / "message-seq.db"; db = Database(path)
+    with db.transaction() as connection:
+        connection.execute("INSERT INTO threads(id,title,created_at,updated_at) VALUES ('t','T','now','now')")
+        connection.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,version,created_at,updated_at) VALUES ('a','t','a','COMPLETED',0,'1','1')")
+        connection.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,version,created_at,updated_at) VALUES ('b','t','b','FAILED',0,'2','2')")
+        connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,message_seq,created_at) VALUES ('m1','t','a','user','x','ready',2,'1')")
+        connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,message_seq,created_at) VALUES ('m2','t','b','assistant','error','ready',NULL,'2')")
+
+    Database(path)
+
+    with sqlite3.connect(path) as connection:
+        assert connection.execute("SELECT message_seq FROM thread_messages WHERE id='m2'").fetchone()[0] == 3
+
+
 def test_events_are_append_only(tmp_path) -> None:
     from app.db import Database
     from app.events import EventStore

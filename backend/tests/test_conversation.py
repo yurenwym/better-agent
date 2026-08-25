@@ -142,6 +142,8 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
         async def complete(self, request, **kwargs):
             self.calls += 1
             self.requests.append(request)
+            if "on_text_delta" not in kwargs:
+                return SimpleNamespace(message='{"plan_document_request":false}', tool_calls=[])
             response = "provider prose\nnot a control head" if self.calls == 1 else valid
             kwargs["on_text_delta"](response)
             return SimpleNamespace(message=response, tool_calls=[])
@@ -161,7 +163,7 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
     )
 
     assert response.message == valid
-    assert gateway.calls == 2
-    assert "control-header" in gateway.requests[1].messages[-1]["content"]
+    assert gateway.calls == 3
+    assert "control-header" in gateway.requests[2].messages[-1]["content"]
     assert deltas == [valid]
     assert resets == [True]

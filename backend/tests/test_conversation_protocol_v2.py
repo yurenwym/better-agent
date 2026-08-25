@@ -456,6 +456,65 @@ async def test_existing_plan_save_repairs_a_missing_artifact_before_returning() 
 
 
 @pytest.mark.asyncio
+async def test_confirmed_plan_save_wraps_markdown_when_model_writes_a_prose_header() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        def __init__(self) -> None: self.requests = []
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if request.messages[0]["content"].startswith("Return JSON only"):
+                return SimpleNamespace(message='{"plan_document_request":true}', tool_calls=[])
+            message = "schema v=2, policy=answer, content_shape=plan_document\n# Three day plan\n\n## Day 1\nWalk.\n"
+            if kwargs.get("on_text_delta") is not None: kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    chunks=[];resets=[]
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="Generate a three-day plan and save it to the plan page without questions",
+        history=[], skill_names=[], on_text_delta=chunks.append,
+        on_text_reset=lambda: resets.append(True), cancel_event=None,
+    )
+
+    header=json.loads(result.message.splitlines()[0])
+    assert header["artifact"] == {"kind":"plan_document","operation":"upsert","title":"Three day plan"}
+    assert result.message.splitlines()[1] == "# Three day plan"
+    assert "".join(chunks) == result.message
+    assert resets
+
+
+@pytest.mark.asyncio
+async def test_model_cannot_save_a_plan_document_without_explicit_user_authority() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        async def complete(self, request, **kwargs):
+            if request.messages[0]["content"].startswith("Return JSON only"):
+                return SimpleNamespace(message='{"plan_document_request":false}', tool_calls=[])
+            message='{"v":2,"policy":"answer","content_shape":"plan_document","reason_code":"model_choice","artifact":{"kind":"plan_document","operation":"upsert","title":"Trip"}}\n# Trip\n\nDay one.'
+            if kwargs.get("on_text_delta") is not None:kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message,tool_calls=[])
+
+    chunks=[];resets=[]
+    result=await LiveConversationModel(Gateway()).route_and_respond(
+        content="Give me some travel ideas",history=[],skill_names=[],on_text_delta=chunks.append,
+        on_text_reset=lambda:resets.append(True),cancel_event=None,
+    )
+
+    header=json.loads(result.message.splitlines()[0])
+    assert header["v"]==1 and "artifact" not in header
+    assert result.message.endswith("# Trip\n\nDay one.")
+    assert resets==[True]
+    assert chunks[-1]==result.message
+
+
+@pytest.mark.asyncio
 async def test_existing_plan_save_fails_if_repair_still_has_no_artifact() -> None:
     from types import SimpleNamespace
 

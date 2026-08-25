@@ -200,6 +200,12 @@ def register_routes(app) -> None:
         except GoalProgramNotFound as exc:
             raise HTTPException(status_code=404, detail="program not found") from exc
 
+    @app.post("/api/reviews/{review_id}/retry", dependencies=[Depends(mutate)], response_model=None)
+    async def retry_goal_review(review_id: str, request: Request, service=Depends(goal_reviews)):
+        try:return service.retry(review_id, idempotency_key=idempotency_key(request))
+        except GoalProgramNotFound as exc:raise HTTPException(status_code=404,detail="review not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
+
     @app.get("/api/actions/{action_id}")
     async def get_goal_action(action_id: str, service=Depends(goal_programs)):
         try: return service.get_action_context(action_id)

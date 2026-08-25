@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { ApiError, decideGoalAdjustment, deleteGoalProgram, getToday, listGoalPrograms, mutateGoalAction, proposeGoalAdjustment, requestGoalActionHelp, syncGoalAdjustment, transitionGoalProgram } from "../api";
+import { ApiError, decideGoalAdjustment, deleteGoalProgram, getToday, listGoalPrograms, mutateGoalAction, proposeGoalAdjustment, requestGoalActionHelp, retryGoalReview, syncGoalAdjustment, transitionGoalProgram } from "../api";
 import DailyActionCard from "../components/DailyActionCard";
 import AdjustmentProposalCard from "../components/AdjustmentProposalCard";
 import DailyReviewCard from "../components/DailyReviewCard";
@@ -53,6 +53,7 @@ export default function TodayPage({ csrfToken, onHelp }: Props) {
   async function propose(programId:string,version:number){setBusy(programId);setError("");try{setProposal(await proposeGoalAdjustment(programId,reason,version,key("adjust"),csrfToken));}catch(value){setError(message(value));}finally{setBusy(null);}}
   async function decide(decision:"accept"|"reject",target=proposal){if(!target)return;setBusy(target.id);setError("");try{const result=await decideGoalAdjustment(target.id,decision,target.version,key(decision),csrfToken);setProposal("proposal" in result?result.proposal:result);await load();}catch(value){setError(message(value));await load();}finally{setBusy(null);}}
   async function sync(rebaseToCurrent=false,target=proposal){if(!target)return;setBusy(target.id);setError("");try{const result=await syncGoalAdjustment(target.id,target.version,key("sync"),csrfToken,rebaseToCurrent);setProposal(result.proposal);}catch(value){setError(message(value));setProposal({...target,plan_sync_status:"CONFLICT"});}finally{setBusy(null);}}
+  async function retryReview(reviewId:string){setBusy(reviewId);setError("");try{await retryGoalReview(reviewId,key("review-retry"),csrfToken);}catch(value){setError(message(value));}finally{await load();setBusy(null);}}
   if(!data)return <div className="today-page" aria-busy="true"><aside className="today-list"><p role="status">正在加载今天的行动…</p></aside><section className="today-detail" aria-label="行动详情"/></div>;
   const selectedProgram=programs.find(program=>program.id===selectedProgramId)??null;
   const selected=data.programs.find(group=>group.program.id===selectedProgramId)??null;
@@ -78,7 +79,7 @@ export default function TodayPage({ csrfToken, onHelp }: Props) {
       {group.overdue.length>0&&<div className="today-action-section"><h4>此前逾期</h4>{group.overdue.map(action=><DailyActionCard action={action} busy={busy===action.id} overdue key={action.id} onComplete={feedback=>void complete(action,feedback)} onSkip={()=>void mutate(action,"skip")} onDefer={scheduled_date=>void mutate(action,"defer",{scheduled_date})} onFeedback={difficulty=>void mutate(action,"feedback",{kind:"difficulty",difficulty})} onHelp={onHelp?()=>void help(action):undefined}/>)}</div>}
       <div className="today-action-section"><h4>今天</h4>{group.today.length?<>{group.today.map(action=><DailyActionCard action={action} busy={busy===action.id} key={action.id} onComplete={feedback=>void complete(action,feedback)} onSkip={()=>void mutate(action,"skip")} onDefer={scheduled_date=>void mutate(action,"defer",{scheduled_date})} onFeedback={difficulty=>void mutate(action,"feedback",{kind:"difficulty",difficulty})} onHelp={onHelp?()=>void help(action):undefined}/>)}</>:<div className="today-complete-state"><strong>今天的行动已处理完</strong><p>执行记录已保存。下面可以查看完整安排和今天的复盘。</p></div>}</div>
       <ProgramDayPlan program={selectedProgram} localDate={group.local_date} busyId={busy} onComplete={action=>void complete(action,{})}/>
-      {group.review&&<DailyReviewCard review={group.review}/>}
+      {group.review&&<DailyReviewCard review={group.review} busy={busy===group.review.id} onRetry={()=>void retryReview(group.review!.id)}/>}
       {adjusting===group.program.id&&!proposal&&<form className="adjustment-form" onSubmit={event=>{event.preventDefault();void propose(group.program.id,group.program.version)}}><label>为什么要调整？<textarea required maxLength={2000} value={reason} onChange={event=>setReason(event.target.value)}/></label><button className="button button-primary" disabled={busy!==null||!reason.trim()} type="submit">生成调整预览</button></form>}
       {(proposal?.program_id===group.program.id||group.review?.proposal)&&(()=>{const target=proposal?.program_id===group.program.id?proposal:group.review!.proposal!;return <AdjustmentProposalCard proposal={target} busy={busy===target.id} onAccept={()=>void decide("accept",target)} onReject={()=>void decide("reject",target)} onSync={()=>void sync(false,target)} onRebaseSync={()=>void sync(true,target)}/>})()}
       </>})()}

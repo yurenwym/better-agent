@@ -458,3 +458,10 @@ async def test_explicit_sourced_deep_research_routes_without_waiting_for_classif
     decoder=ControlHeadDecoder();decoder.feed("".join(chunks));header=decoder.finish()
     assert header.policy=="start_research" and header.research_scope=="web"
     assert "SQLite WAL" in (header.research_topic or "")
+
+
+def test_research_shortcut_distinguishes_a_new_command_from_prior_research_context() -> None:
+    from app.live_model import _is_explicit_research_command
+
+    assert _is_explicit_research_command("请深度研究 SQLite WAL，并给出带来源的报告")
+    assert not _is_explicit_research_command("基于刚才的深度研究，生成计划并保存到计划中")

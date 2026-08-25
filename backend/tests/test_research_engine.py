@@ -325,6 +325,25 @@ async def test_live_research_json_calls_bound_model_output() -> None:
     await model.distill(source, "AI Agent 秋招", ("岗位要求",))
 
     assert gateway.requests[0].max_tokens == 1200
+    assert "Ignore navigation" in gateway.requests[0].messages[0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_live_research_prompts_prefer_actionable_evidence_and_sections() -> None:
+    class Gateway:
+        def __init__(self) -> None: self.requests = []
+        async def complete(self, request):
+            self.requests.append(request)
+            if "strict JSON" in request.messages[0]["content"]:
+                return SimpleNamespace(message='{"sections": []}')
+            return SimpleNamespace(message="Use a concrete step [[source:source_x]]")
+
+    gateway = Gateway(); model = LiveResearchModel(gateway)
+    await model.curate(ResearchPlan("x", ("Action",), ("x",)), [Evidence("e", "source_x", "Do one concrete step", None, .9)])
+    await model.write("Action", "Make it practical", [Evidence("e", "source_x", "Do one concrete step", None, .9)], "")
+
+    assert "actionable evidence" in gateway.requests[0].messages[0]["content"]
+    assert "Answer the heading directly" in gateway.requests[1].messages[0]["content"]
 
 
 @pytest.mark.asyncio
@@ -464,6 +483,18 @@ def test_fallback_plan_turns_explicit_deliverables_into_sections() -> None:
     assert all(any(section in query for query in plan.queries) for section in plan.sections)
     assert any("官方 原始来源" in query for query in plan.queries)
     assert any("2026" in query for query in plan.queries)
+
+
+def test_explicit_deliverables_ignore_request_preamble_before_list_marker() -> None:
+    topic = "深度研究：如何安全建立晨间运动习惯，分别说明热身、运动强度、恢复和坚持策略。"
+
+    assert ResearchEngine._explicit_deliverables(topic) == ("热身", "运动强度", "恢复", "坚持策略")
+
+
+def test_explicit_deliverables_do_not_split_the_word_yiji() -> None:
+    from app.research.engine import ResearchEngine
+
+    assert ResearchEngine._explicit_deliverables("研究：包括鉴权、审计，以及性能。") == ("鉴权","审计","性能")
 
 
 @pytest.mark.asyncio

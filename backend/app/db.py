@@ -750,9 +750,11 @@ class Database:
             self._add_column(connection, "thread_messages", "presentation TEXT NOT NULL DEFAULT 'standard'")
             self._add_column(connection, "thread_messages", "research_job_id TEXT")
             connection.execute(
-                "UPDATE thread_messages SET message_seq=(SELECT COUNT(*) FROM thread_messages prior "
-                "WHERE prior.thread_id=thread_messages.thread_id AND (prior.created_at < thread_messages.created_at "
-                "OR (prior.created_at=thread_messages.created_at AND prior.id <= thread_messages.id))) WHERE message_seq IS NULL"
+                "WITH ranked AS (SELECT id,thread_id,ROW_NUMBER() OVER (PARTITION BY thread_id ORDER BY created_at,id) offset "
+                "FROM thread_messages WHERE message_seq IS NULL), bases AS (SELECT thread_id,COALESCE(MAX(message_seq),0) base "
+                "FROM thread_messages WHERE message_seq IS NOT NULL GROUP BY thread_id) UPDATE thread_messages SET message_seq="
+                "COALESCE((SELECT base FROM bases WHERE bases.thread_id=thread_messages.thread_id),0)+"
+                "(SELECT offset FROM ranked WHERE ranked.id=thread_messages.id) WHERE message_seq IS NULL"
             )
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_message_seq ON thread_messages(thread_id,message_seq)")
             connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_thread_message_research ON thread_messages(research_job_id) WHERE research_job_id IS NOT NULL")

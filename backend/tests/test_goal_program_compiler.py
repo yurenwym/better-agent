@@ -59,6 +59,15 @@ def test_schema_rejects_more_than_120_actions() -> None:
     assert error.value.code == "ACTION_COUNT"
 
 
+def test_schema_rejects_an_over_budget_day_even_with_assumptions() -> None:
+    from app.goal_program_compiler import GoalCompilationError, validate_program_structure
+
+    value=fixture(days=1,daily_minutes=80);value["assumptions"]=["User accepted the schedule"]
+    with pytest.raises(GoalCompilationError) as error:
+        validate_program_structure(value,value["start_date"],value["end_date"],60)
+    assert error.value.code=="DAILY_BUDGET"
+
+
 def test_compiler_repairs_schema_invalid_json_once() -> None:
     from app.goal_program_compiler import GoalProgramCompiler
 
@@ -87,3 +96,19 @@ def test_compiler_repairs_schema_invalid_json_once() -> None:
     assert len(gateway.requests) == 2
     assert len(result["actions"]) == 7
     assert "UNKNOWN_FIELDS" in gateway.requests[1].messages[-1]["content"]
+    prompt=gateway.requests[0].messages[0]["content"]
+    assert "5 and 180 minutes" in prompt
+    assert "daily minute budget" in prompt
+
+
+def test_adjust_prompt_repeats_the_exact_program_schema() -> None:
+    from app.goal_program_compiler import GoalProgramCompiler
+
+    class Gateway:
+        def __init__(self) -> None: self.requests=[]
+        async def complete(self,request,**kwargs):self.requests.append(request);return SimpleNamespace(message=json.dumps(fixture(),ensure_ascii=False))
+
+    gateway=Gateway();asyncio.run(GoalProgramCompiler(gateway).adjust(fixture(),"reduce future load"))
+    prompt=gateway.requests[0].messages[0]["content"]
+    assert "objective_title, objective_summary, start_date, end_date, assumptions, milestones, actions" in prompt
+    assert "Do not return a current_program or reason wrapper" in prompt

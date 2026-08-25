@@ -351,6 +351,7 @@ export async function deleteGoalProgram(programId:string,expectedVersion:number,
 export async function getGoalAction(actionId:string,fetcher:Fetcher=fetch):Promise<{action:GoalAction;program:TodayProgramGroup["program"]}>{return planJson(await fetcher(`/api/actions/${actionId}`));}
 export async function getToday(date?: string, fetcher: Fetcher = fetch): Promise<TodayResponse> { return planJson(await fetcher(`/api/today${date ? `?date=${encodeURIComponent(date)}` : ""}`)); }
 export async function getGoalReview(programId:string,localDate:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview|null>{const response=await fetcher(`/api/programs/${programId}/reviews/${localDate}`);if(response.status===204)return null;return planJson(response);}
+export async function retryGoalReview(reviewId:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview>{return planJson(await fetcher(`/api/reviews/${reviewId}/retry`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:"{}"}));}
 export async function mutateGoalAction(actionId: string, operation: "complete"|"skip"|"defer"|"feedback", payload:Record<string,unknown>, key:string, csrf:string, fetcher:Fetcher=fetch):Promise<unknown>{
   return planJson(await fetcher(`/api/actions/${actionId}/${operation}`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify(payload)}));
 }

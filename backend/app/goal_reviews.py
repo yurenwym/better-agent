@@ -219,6 +219,24 @@ class GoalReviewService:
                 (status, code[:80], now, review_id),
             )
 
+    def retry(self, review_id: str, *, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
+        request_hash=_hash({"review_id":review_id})
+        if not isinstance(idempotency_key,str) or not idempotency_key.strip() or len(idempotency_key)>200:raise ValueError("Idempotency-Key is required")
+        with self.db.transaction() as connection:
+            receipt=connection.execute("SELECT request_hash,response_json FROM goal_command_receipts WHERE owner_id=? AND idempotency_key=?",(owner_id,idempotency_key)).fetchone()
+            if receipt is not None:
+                if receipt["request_hash"]!=request_hash:raise ValueError("idempotency key reused with different payload")
+                return json.loads(receipt["response_json"])
+            row=connection.execute("SELECT r.*,p.owner_id program_owner FROM goal_daily_reviews r JOIN goal_programs p ON p.id=r.program_id WHERE r.id=? AND r.owner_id=?",(review_id,owner_id)).fetchone()
+            if row is None:raise GoalProgramNotFound(review_id)
+            if row["status"]!="FAILED":raise ValueError("only failed reviews can be retried")
+            now=_now();available=(datetime.now(timezone.utc)+timedelta(seconds=self.queue_delay_seconds)).isoformat()
+            connection.execute("UPDATE goal_daily_reviews SET status='QUEUED',attempts=0,lease_owner=NULL,lease_until=?,error_code=NULL,updated_at=? WHERE id=?",(available,now,review_id))
+            self.programs._event(connection,row["program_id"],None,"review.retry_queued","user",{"review_id":review_id})
+            response=self.for_program_date(row["program_id"],row["local_date"],owner_id,connection=connection)
+            self.programs._save_receipt(connection,owner_id,"review",review_id,"retry",idempotency_key,request_hash,response)
+        return response
+
     def for_program_date(self, program_id: str, local_date: str, owner_id: str = OWNER_ID, *, connection=None) -> dict[str, Any] | None:
         owns_connection = connection is None
         connection = connection or self.db._connect()
@@ -287,7 +305,7 @@ class ManagedGoalReviewWorker:
             pass
         except Exception as exc:
             with contextlib.suppress(PermissionError):
-                self.service.fail(review["id"], self.owner, type(exc).__name__.upper())
+                self.service.fail(review["id"], self.owner, getattr(exc,"code",type(exc).__name__.upper()))
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError):

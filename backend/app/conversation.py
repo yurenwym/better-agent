@@ -300,20 +300,20 @@ class ConversationService:
         self._cancel_events: dict[str, asyncio.Event] = {}
         self.materializer = ExecutionMaterializer(db, agent_runtime, self.events)
 
-    def create_thread(self, title: str = "新的对话") -> ThreadSnapshot:
+    def create_thread(self, title: str = "新的对话", owner_id: str = "local-user") -> ThreadSnapshot:
         thread_id = f"thread_{uuid.uuid4().hex}"
         now = _now()
         with self.db.transaction() as connection:
             connection.execute(
-                "INSERT INTO threads(id, title, version, next_event_seq, created_at, updated_at) "
-                "VALUES (?, ?, 0, 1, ?, ?)",
-                (thread_id, (title or "新的对话").strip()[:120] or "新的对话", now, now),
+                "INSERT INTO threads(id, title, owner_id, version, next_event_seq, created_at, updated_at) "
+                "VALUES (?, ?, ?, 0, 1, ?, ?)",
+                (thread_id, (title or "新的对话").strip()[:120] or "新的对话", owner_id, now, now),
             )
-        return self.thread(thread_id)
+        return self.thread(thread_id, owner_id)
 
-    def thread(self, thread_id: str) -> ThreadSnapshot:
+    def thread(self, thread_id: str, owner_id: str = "local-user") -> ThreadSnapshot:
         with self.db.connection() as connection:
-            row = connection.execute("SELECT * FROM threads WHERE id = ? AND deleted_at IS NULL", (thread_id,)).fetchone()
+            row = connection.execute("SELECT * FROM threads WHERE id = ? AND owner_id=? AND deleted_at IS NULL", (thread_id,owner_id)).fetchone()
         if row is None:
             raise KeyError(thread_id)
         return ThreadSnapshot(
@@ -361,14 +361,15 @@ class ConversationService:
                 (now, now, thread_id),
             )
 
-    def turn(self, turn_id: str) -> TurnSnapshot:
+    def turn(self, turn_id: str, owner_id: str = "local-user") -> TurnSnapshot:
         with self.db.connection() as connection:
-            row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+            row = connection.execute("SELECT t.* FROM turns t JOIN threads h ON h.id=t.thread_id WHERE t.id=? AND h.owner_id=? AND h.deleted_at IS NULL",(turn_id,owner_id)).fetchone()
         if row is None:
             raise KeyError(turn_id)
         return _turn_from_row(row)
 
-    def turns(self, thread_id: str) -> list[TurnSnapshot]:
+    def turns(self, thread_id: str, owner_id: str = "local-user") -> list[TurnSnapshot]:
+        self.thread(thread_id,owner_id)
         with self.db.connection() as connection:
             rows = connection.execute(
                 "SELECT * FROM turns WHERE thread_id = ? ORDER BY created_at, id",
@@ -376,7 +377,8 @@ class ConversationService:
             ).fetchall()
         return [_turn_from_row(row) for row in rows]
 
-    def messages(self, thread_id: str) -> list[ThreadMessageSnapshot]:
+    def messages(self, thread_id: str, owner_id: str = "local-user") -> list[ThreadMessageSnapshot]:
+        self.thread(thread_id,owner_id)
         with self.db.connection() as connection:
             rows = connection.execute(
                 "SELECT * FROM thread_messages WHERE thread_id = ? ORDER BY message_seq, created_at, id",
@@ -391,14 +393,14 @@ class ConversationService:
             ).fetchall()
         return [row["turn_id"] for row in rows]
 
-    def cancel_turn(self, turn_id: str) -> TurnSnapshot:
+    def cancel_turn(self, turn_id: str, owner_id: str = "local-user") -> TurnSnapshot:
         now = _now()
         active = False
         with self.db.transaction() as connection:
             row = connection.execute(
-                "SELECT turns.*, turn_jobs.status AS job_status FROM turns "
-                "JOIN turn_jobs ON turn_jobs.turn_id = turns.id WHERE turns.id = ?",
-                (turn_id,),
+                "SELECT turns.*, turn_jobs.status AS job_status FROM turns JOIN threads ON threads.id=turns.thread_id "
+                "JOIN turn_jobs ON turn_jobs.turn_id = turns.id WHERE turns.id = ? AND threads.owner_id=? AND threads.deleted_at IS NULL",
+                (turn_id,owner_id),
             ).fetchone()
             if row is None:
                 raise KeyError(turn_id)
@@ -445,9 +447,10 @@ class ConversationService:
             event = self._cancel_events.get(turn_id)
             if event is not None:
                 event.set()
-        return self.turn(turn_id)
+        return self.turn(turn_id,owner_id)
 
-    def pending_ask(self, turn_id: str) -> AskSnapshot | None:
+    def pending_ask(self, turn_id: str, owner_id: str = "local-user") -> AskSnapshot | None:
+        self.turn(turn_id,owner_id)
         with self.db.connection() as connection:
             row = connection.execute(
                 "SELECT * FROM turn_asks WHERE turn_id = ? AND status = 'PENDING' "
@@ -462,7 +465,9 @@ class ConversationService:
         expected_version: int,
         idempotency_key: str,
         answers: Any,
+        owner_id: str = "local-user",
     ) -> AskAnswerResult:
+        self.turn(turn_id,owner_id)
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
         now = _now()
@@ -552,7 +557,7 @@ class ConversationService:
                 )
         if continuation_id is None or ask_id is None:
             raise RuntimeError("ask continuation was not created")
-        return AskAnswerResult(ask_id, self.turn(continuation_id))
+        return AskAnswerResult(ask_id, self.turn(continuation_id,owner_id))
 
     async def select_direction(
         self,
@@ -560,7 +565,9 @@ class ConversationService:
         action: str,
         expected_version: int,
         idempotency_key: str,
+        owner_id: str = "local-user",
     ) -> TurnSnapshot:
+        self.turn(turn_id,owner_id)
         if not isinstance(idempotency_key, str) or not idempotency_key.strip():
             raise ValueError("idempotency_key is required")
         if action == "modify_plan":
@@ -573,7 +580,7 @@ class ConversationService:
         if result.created and self.agent_runtime is not None:
             content = self._user_content(turn_id)
             await self.agent_runtime.handle_message(result.run_id, content, [])
-        return self.turn(turn_id)
+        return self.turn(turn_id,owner_id)
 
     def _modify_direction(
         self,
@@ -624,6 +631,7 @@ class ConversationService:
         skill_names: list[str] | tuple[str, ...] | None = None,
         goal_action_id: str | None = None,
         connection=None,
+        owner_id: str = "local-user",
     ) -> TurnSubmission:
         if not isinstance(client_turn_id, str) or not client_turn_id.strip():
             raise ValueError("client_turn_id is required")
@@ -637,7 +645,7 @@ class ConversationService:
         now = _now()
         with (self.db.transaction() if connection is None else contextlib.nullcontext(connection)) as connection:
             thread = connection.execute(
-                "SELECT * FROM threads WHERE id = ? AND deleted_at IS NULL", (thread_id,)
+                "SELECT * FROM threads WHERE id = ? AND owner_id=? AND deleted_at IS NULL", (thread_id,owner_id)
             ).fetchone()
             if thread is None:
                 raise KeyError(thread_id)
@@ -1736,9 +1744,9 @@ class ManagedTurnWorker:
             if message_id is None:
                 message_id = f"message_{uuid.uuid4().hex}"
                 connection.execute(
-                    "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
-                    "VALUES (?, ?, ?, 'assistant', ?, 'cancelled', ?, ?, ?)",
-                    (message_id, turn.thread_id, turn.id, SAFE_CANCEL_MESSAGE, generation, len(SAFE_CANCEL_MESSAGE), now),
+                    "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, message_seq, created_at) "
+                    "VALUES (?, ?, ?, 'assistant', ?, 'cancelled', ?, ?, (SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?), ?)",
+                    (message_id, turn.thread_id, turn.id, SAFE_CANCEL_MESSAGE, generation, len(SAFE_CANCEL_MESSAGE), turn.thread_id, now),
                 )
                 self.conversation.events.append(
                     turn.thread_id, turn.id, "message.started", "worker",
@@ -1826,9 +1834,9 @@ class ManagedTurnWorker:
                 if message_id is None:
                     message_id = f"message_{uuid.uuid4().hex}"
                     connection.execute(
-                        "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
-                        "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, ?)",
-                        (message_id, turn.thread_id, turn.id, failure_message, generation, len(failure_message), now),
+                        "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, message_seq, created_at) "
+                        "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, (SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?), ?)",
+                        (message_id, turn.thread_id, turn.id, failure_message, generation, len(failure_message), turn.thread_id, now),
                     )
                     self.conversation.events.append(
                         turn.thread_id, turn.id, "message.started", "worker",

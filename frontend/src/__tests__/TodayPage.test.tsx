@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import TodayPage from "../pages/TodayPage";
 
-const api=vi.hoisted(()=>({getToday:vi.fn(),listGoalPrograms:vi.fn(),deleteGoalProgram:vi.fn(),mutateGoalAction:vi.fn(),transitionGoalProgram:vi.fn(),requestGoalActionHelp:vi.fn(),proposeGoalAdjustment:vi.fn(),decideGoalAdjustment:vi.fn(),syncGoalAdjustment:vi.fn()}));
+const api=vi.hoisted(()=>({getToday:vi.fn(),listGoalPrograms:vi.fn(),deleteGoalProgram:vi.fn(),mutateGoalAction:vi.fn(),transitionGoalProgram:vi.fn(),requestGoalActionHelp:vi.fn(),proposeGoalAdjustment:vi.fn(),decideGoalAdjustment:vi.fn(),syncGoalAdjustment:vi.fn(),retryGoalReview:vi.fn()}));
 vi.mock("../api",()=>({...api,ApiError:class ApiError extends Error{status=409;}}));
 afterEach(cleanup);
 
@@ -11,7 +11,7 @@ const response={date:null,programs:[{program:{id:"program-1",objective_title:"�
 const program={...response.programs[0].program,compile_status:"READY",compile_error_code:null,daily_minutes:60,source_thread_id:"thread-1",source_plan_document_id:"plan-1",source_plan_document_version_id:"plan-version-1",source_plan_content_hash:"sha256:x",current_program_version_id:"pv-1",structure:null,actions:[action],progress:response.programs[0].progress,next_event_seq:4,deleted_at:null,completion_summary:null,completion_episode_id:null};
 
 describe("TodayPage",()=>{
-  beforeEach(()=>{vi.clearAllMocks();api.getToday.mockResolvedValue(response);api.listGoalPrograms.mockResolvedValue({programs:[program]});api.deleteGoalProgram.mockResolvedValue(undefined);api.mutateGoalAction.mockResolvedValue({});api.transitionGoalProgram.mockResolvedValue({});api.requestGoalActionHelp.mockResolvedValue({thread_id:"thread-1",action_id:"action-1"});});
+  beforeEach(()=>{vi.clearAllMocks();api.getToday.mockResolvedValue(response);api.listGoalPrograms.mockResolvedValue({programs:[program]});api.deleteGoalProgram.mockResolvedValue(undefined);api.mutateGoalAction.mockResolvedValue({});api.transitionGoalProgram.mockResolvedValue({});api.requestGoalActionHelp.mockResolvedValue({thread_id:"thread-1",action_id:"action-1"});api.retryGoalReview.mockResolvedValue({});});
   it("renders grouped actions and refetches after completion",async()=>{
     api.mutateGoalAction.mockResolvedValueOnce({action:{...action,status:"COMPLETED",version:1}});
     render(<TodayPage csrfToken="csrf"/>);
@@ -83,6 +83,13 @@ describe("TodayPage",()=>{
     expect(await screen.findByRole("heading",{name:"今天的复盘"})).toBeTruthy();
     fireEvent.click(screen.getByRole("button",{name:"接受调整"}));
     await waitFor(()=>expect(api.decideGoalAdjustment).toHaveBeenCalledWith("proposal-auto","accept",0,expect.any(String),"csrf"));
+  });
+  it("offers a recovery action when daily review generation fails",async()=>{
+    const failed={id:"review-failed",program_id:"program-1",local_date:"2026-09-01",status:"FAILED",signals:["high_difficulty"],summary:null,encouragement:null,needs_adjustment:null,adjustment_reason:null,proposal:null,error_code:"INVALID_MODEL_OUTPUT"};
+    api.getToday.mockResolvedValue({date:null,programs:[{...response.programs[0],today:[],today_estimated_minutes:0,review:failed}]});
+    render(<TodayPage csrfToken="csrf"/>);
+    fireEvent.click(await screen.findByRole("button",{name:"重新复盘"}));
+    await waitFor(()=>expect(api.retryGoalReview).toHaveBeenCalledWith("review-failed",expect.any(String),"csrf"));
   });
   it("lists a paused program and lets the user resume it",async()=>{
     const paused={...program,status:"PAUSED",version:3};

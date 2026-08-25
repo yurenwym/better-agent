@@ -1,5 +1,6 @@
 import asyncio
 from copy import deepcopy
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -141,6 +142,48 @@ def test_expired_review_lease_cannot_complete_or_fail(tmp_path) -> None:
         reviews.complete(claimed["id"], "slow-worker", result, None)
     with pytest.raises(PermissionError, match="lease lost"):
         reviews.fail(claimed["id"], "slow-worker", "TIMEOUT")
+
+
+def test_failed_review_can_be_requeued_without_losing_its_evidence(tmp_path) -> None:
+    _, goals, version, _, reviews, worker = review_services(tmp_path)
+    draft = preview(goals, version); active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
+    action = active["actions"][0]; goals.complete_action(action["id"], expected_version=0, idempotency_key="complete")
+    claimed=reviews.claim_next("broken",1); reviews.fail(claimed["id"],"broken","INVALID_MODEL_OUTPUT")
+    claimed=reviews.claim_next("broken",1); reviews.fail(claimed["id"],"broken","INVALID_MODEL_OUTPUT")
+
+    retried=reviews.retry(claimed["id"],idempotency_key="retry")
+
+    assert retried["status"]=="QUEUED" and retried["error_code"] is None
+    assert reviews.retry(claimed["id"],idempotency_key="retry")["status"]=="QUEUED"
+    assert asyncio.run(worker.run_once()) is True
+    assert reviews.for_program_date(active["id"],"2026-09-01")["status"]=="COMPLETED"
+
+
+def test_review_retry_rejects_a_review_that_has_not_failed(tmp_path) -> None:
+    _, goals, version, _, reviews, _ = review_services(tmp_path)
+    draft=preview(goals,version);active=goals.activate(draft["id"],expected_version=draft["version"],idempotency_key="activate")
+    goals.complete_action(active["actions"][0]["id"],expected_version=0,idempotency_key="complete")
+
+    with pytest.raises(ValueError,match="only failed"):
+        reviews.retry(reviews.for_program_date(active["id"],"2026-09-01")["id"],idempotency_key="retry")
+    with reviews.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_command_receipts WHERE idempotency_key='retry'").fetchone()[0]==0
+
+
+def test_review_retry_is_idempotent_under_concurrency(tmp_path) -> None:
+    _,goals,version,_,reviews,_=review_services(tmp_path)
+    draft=preview(goals,version);active=goals.activate(draft["id"],expected_version=draft["version"],idempotency_key="activate")
+    goals.complete_action(active["actions"][0]["id"],expected_version=0,idempotency_key="complete")
+    claimed=reviews.claim_next("broken",1);reviews.fail(claimed["id"],"broken","INVALID_MODEL_OUTPUT")
+    claimed=reviews.claim_next("broken",1);reviews.fail(claimed["id"],"broken","INVALID_MODEL_OUTPUT")
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results=list(pool.map(lambda _:reviews.retry(claimed["id"],idempotency_key="same-retry"),range(2)))
+
+    assert results[0]==results[1]
+    with reviews.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_program_events WHERE program_id=? AND type='review.retry_queued'",(active["id"],)).fetchone()[0]==1
+        assert connection.execute("SELECT COUNT(*) FROM goal_command_receipts WHERE idempotency_key='same-retry'").fetchone()[0]==1
 
 
 def test_worker_reviews_a_missed_past_day_after_restart(tmp_path, monkeypatch) -> None:

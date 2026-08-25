@@ -60,7 +60,7 @@ class LiveResearchModel:
 
     async def distill(self, source, topic: str, sections: tuple[str, ...]):
         excerpt = relevant_excerpt(source, topic, sections)
-        data = await self._json(UNTRUSTED + " Extract only facts directly supported by this one source and directly useful for the requested topic or sections.", f"Topic: {topic}\nSections: {sections}\nSource title: {source.title}\nRelevant source excerpts:\n{excerpt}\nReturn evidence array with text,date_hint,relevance. Return an empty array when the source does not support any requested deliverable.")
+        data = await self._json(UNTRUSTED + " Extract only facts directly supported by this one source and directly useful for the requested topic or sections. Ignore navigation, headings, link fragments, marketing copy, and repeated boilerplate. Prefer concrete actions, thresholds, durations, measurements, examples, and constraints over generic claims.", f"Topic: {topic}\nSections: {sections}\nSource title: {source.title}\nRelevant source excerpts:\n{excerpt}\nReturn evidence array with text,date_hint,relevance. Return an empty array when the source does not support any requested deliverable.")
         result = []
         for item in data.get("evidence", [])[:6]:
             raw=item.get("relevance",0)
@@ -101,13 +101,13 @@ class LiveResearchModel:
         return tuple(str(x) for x in data.get("queries", [])[:3])
 
     async def curate(self, plan, evidence):
-        data = await self._json("Assign only supplied evidence IDs to every requested report section. Return every heading exactly once and never omit a section.", f"Sections (all mandatory, preserve exact headings and order): {plan.sections}\nEvidence: {[(x.id,x.text) for x in evidence]}\nReturn sections array with heading,thesis,evidence_ids. If a section lacks evidence, still return it with an empty evidence_ids array so the caller can reject the incomplete report.")
+        data = await self._json("Assign only supplied evidence IDs to every requested report section. Return every heading exactly once and never omit a section. Prefer specific, actionable evidence that directly answers each heading; avoid generic background when concrete steps, measurements, examples, or constraints are available.", f"Sections (all mandatory, preserve exact headings and order): {plan.sections}\nEvidence: {[(x.id,x.text) for x in evidence]}\nReturn sections array with heading,thesis,evidence_ids. If a section lacks evidence, still return it with an empty evidence_ids array so the caller can reject the incomplete report.")
         return [(str(x.get("heading", "")), str(x.get("thesis", "")), tuple(str(i) for i in x.get("evidence_ids", []))) for x in data.get("sections", [])]
 
     async def write(self, heading, thesis, evidence, prior_summary):
         source_map = [(x.text, x.source_id) for x in evidence]
         response = await self.gateway.complete(ModelRequest(messages=[
-            {"role": "system", "content": UNTRUSTED + " Write the requested concise Markdown section only. Do not output a heading. Every factual paragraph must cite supplied evidence using [[source:SOURCE_ID]]. Never invent IDs."},
+            {"role": "system", "content": UNTRUSTED + " Write the requested concise Markdown section only. Answer the heading directly with concrete steps, measurements, examples, or constraints whenever the supplied evidence supports them. Do not output a heading. Every factual paragraph must cite supplied evidence using [[source:SOURCE_ID]]. Never invent IDs or add unsupported details."},
             {"role": "user", "content": f"Heading: {heading}\nThesis: {thesis}\nPrior summary: {prior_summary}\nEvidence: {source_map}"},
         ], temperature=0))
         body = re.sub(r"^\s*#{1,6}\s+[^\n]+\n+", "", response.message.strip(), count=1)

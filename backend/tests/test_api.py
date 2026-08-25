@@ -13,6 +13,24 @@ def _headers(app, **extra):
     }
 
 
+def test_thread_and_turn_routes_are_scoped_to_the_local_owner(tmp_path) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    foreign = runtime.conversation.create_thread("Private", owner_id="another-user")
+    accepted = runtime.conversation.accept_turn(
+        foreign.id, "foreign-turn", "secret", [], owner_id="another-user"
+    )
+
+    assert client.get(f"/api/threads/{foreign.id}", headers={"host":"127.0.0.1:8000"}).status_code == 404
+    assert client.get(f"/api/threads/{foreign.id}/messages", headers={"host":"127.0.0.1:8000"}).status_code == 404
+    assert client.get(f"/api/threads/{foreign.id}/events", headers={"host":"127.0.0.1:8000"}).status_code == 404
+    assert client.post(f"/api/turns/{accepted.turn_id}/cancel", headers=_headers(app)).status_code == 404
+
+
 def test_rest_routes_drive_goal_message_plan_and_approval(tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway, ModelDecision
