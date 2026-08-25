@@ -225,6 +225,27 @@ def test_second_active_canary_is_rejected(tmp_path):
         service.start_canary(second["id"], expected_version=second_approved["version"], approval_id=second_approval["id"], allocation_percent=10, assignment_unit="run", idempotency_key="canary-2")
 
 
+def test_default_canary_gate_requires_balanced_champion_and_challenger_samples(tmp_path):
+    db, bundles, service, base, target = setup_service(tmp_path)
+    production = EvolutionService(db, bundles)
+    assert production.minimum_canary_samples == 20
+    item = candidate(service, base, target, experiences(service, base.id))
+    service.evaluate(item["id"], expected_version=item["version"], deterministic_checks={"safe": True}, metrics={}, eval_set_digest="set", evaluator_digest="eval", idempotency_key="gate-eval")
+    approved = service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), idempotency_key="gate-approve")
+    current = service.get_candidate(item["id"])
+    deployment = service.start_canary(item["id"], expected_version=current["version"], approval_id=approved["id"], allocation_percent=100, assignment_unit="run", idempotency_key="gate-canary")
+    with db.transaction() as connection:
+        for index in range(20):
+            connection.execute(
+                "INSERT INTO canary_exposures(deployment_id,run_id,assignment_hash,cohort,bundle_id,success,safety_pass,request_digest,idempotency_key,exposed_at) VALUES (?,?,?,?,?,1,1,?,?,datetime('now'))",
+                (deployment["id"], f"challenger-{index}", f"hash-c-{index}", "challenger", target.id, f"digest-c-{index}", f"key-c-{index}"),
+            )
+    summary = service.get_candidate(item["id"])["canary"]
+    assert summary["challenger_sample_size"] == 20
+    assert summary["champion_sample_size"] == 0
+    assert summary["promotable"] is False
+
+
 def test_online_canary_rejects_candidate_types_without_a_runtime_adapter(tmp_path):
     _, bundles, service, base, _ = setup_service(tmp_path)
     target = bundles.ensure({**base.manifest, "skills":{"new":"digest"}})

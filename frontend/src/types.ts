@@ -458,7 +458,7 @@ export interface EvolutionCandidate {
     total?: number | null;
   };
   permission_diff: { added: string[]; removed: string[]; unchanged?: string[] };
-  canary: null | { allocation?: number; sample_size?: number; status?: string };
+  canary: null | { allocation?: number; sample_size?: number; challenger_sample_size?: number; champion_sample_size?: number; required_samples?: number; safety_failures?: number; success_failures?: number; promotable?: boolean; status?: string };
   approval_id?: string | null;
   created_at: string;
   updated_at: string;

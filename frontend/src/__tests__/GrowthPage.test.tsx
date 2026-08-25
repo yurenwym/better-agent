@@ -74,4 +74,15 @@ describe("GrowthPage", () => {
     expect((await screen.findAllByText("研究任务曾多次扩大用户没有要求的范围。")).length).toBeGreaterThan(0);
     expect(screen.queryByText("????????")).toBeNull();
   });
+
+  it("explains that canary promotion needs both cohorts", async () => {
+    api.listEvolutionCandidates.mockResolvedValue({ candidates: [{
+      id:"candidate-canary",kind:"prompt",title:"提示词候选",summary:"优化范围",status:"CANARY",version:3,risk_level:"medium",evidence_count:3,
+      evaluation:{status:"COMPLETED",deterministic_pass:true,regressions:[],passed:12,total:12},permission_diff:{added:[],removed:[]},
+      canary:{sample_size:4,challenger_sample_size:4,champion_sample_size:7,required_samples:20,safety_failures:0,success_failures:0,promotable:false},created_at:"",updated_at:"",
+    }] });
+    render(<GrowthPage csrfToken="csrf"/>);
+    expect(await screen.findByText("挑战组 4/20 · 对照组 7/20")).toBeTruthy();
+    expect(screen.getByText("还需 16 个挑战组样本、13 个对照组样本")).toBeTruthy();
+  });
 });

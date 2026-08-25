@@ -49,7 +49,8 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
   const evaluationProgress = candidate.evaluation?.total != null
     ? `${candidate.evaluation.passed ?? 0} / ${candidate.evaluation.total} 项检查通过`
     : evaluationPassed ? "全部确定性检查通过" : "等待评测";
-  const canaryProgress = candidate.status === "CANARY" ? `当前 ${candidate.canary?.sample_size ?? 0} / 3 个验证样本` : null;
+  const canaryProgress = candidate.status === "CANARY" ? `挑战组 ${candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0}/${candidate.canary?.required_samples ?? 20} · 对照组 ${candidate.canary?.champion_sample_size ?? 0}/${candidate.canary?.required_samples ?? 20}` : null;
+  const canaryMissing = candidate.status === "CANARY" ? `还需 ${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0), 0)} 个挑战组样本、${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.champion_sample_size ?? 0), 0)} 个对照组样本` : null;
   return <article className="evolution-card">
     <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
     <div className="evolution-facts">
@@ -73,7 +74,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       {candidate.status === "READY_FOR_EVAL" && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>开始评测</button>}
       {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
       {candidate.status === "APPROVED" && (candidate.kind === "prompt" ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("canary")}>开始 Canary</button> : <span className="canary-gate-note">该类型尚未配置在线运行适配器</span>)}
-      {candidate.status === "CANARY" && <><button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚 Canary</button>{(candidate.canary?.sample_size ?? 0) >= 3 ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("promote")}>正式启用</button> : <span className="canary-gate-note">还需 {3 - (candidate.canary?.sample_size ?? 0)} 个挑战组样本</span>}</>}
+      {candidate.status === "CANARY" && <><button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚 Canary</button>{candidate.canary?.promotable ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("promote")}>正式启用</button> : <span className="canary-gate-note">{canaryMissing}{(candidate.canary?.safety_failures ?? 0) > 0 ? " · 存在安全失败，已禁止晋升" : ""}</span>}</>}
       {candidate.status === "PROMOTED" && <button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚版本</button>}
     </footer>
   </article>;

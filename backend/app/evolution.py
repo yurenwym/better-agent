@@ -50,7 +50,7 @@ def _future(value: str) -> bool:
 
 
 class EvolutionService:
-    def __init__(self, db: Database, bundles: BehaviorBundleService, minimum_canary_samples: int = 3) -> None:
+    def __init__(self, db: Database, bundles: BehaviorBundleService, minimum_canary_samples: int = 20) -> None:
         self.db = db
         self.bundles = bundles
         self.minimum_canary_samples = minimum_canary_samples
@@ -483,11 +483,15 @@ class EvolutionService:
             self._validate_approval(candidate, approval)
             deployment = connection.execute("SELECT * FROM canary_deployments WHERE id=? AND status='ACTIVE'", (candidate["deployment_id"],)).fetchone()
             exposures = connection.execute(
-                "SELECT success,safety_pass FROM canary_exposures WHERE deployment_id=? AND cohort='challenger'",
+                "SELECT cohort,success,safety_pass FROM canary_exposures WHERE deployment_id=?",
                 (candidate["deployment_id"],),
             ).fetchall()
-            if len(exposures) < self.minimum_canary_samples:
-                raise EvolutionGateError(f"at least {self.minimum_canary_samples} actual canary samples are required")
+            challenger = [row for row in exposures if row["cohort"] == "challenger"]
+            champion = [row for row in exposures if row["cohort"] == "champion"]
+            if len(challenger) < self.minimum_canary_samples:
+                raise EvolutionGateError(f"at least {self.minimum_canary_samples} challenger samples are required")
+            if self.minimum_canary_samples >= 20 and len(champion) < self.minimum_canary_samples:
+                raise EvolutionGateError(f"at least {self.minimum_canary_samples} challenger and champion samples are required")
             if any(not row["safety_pass"] for row in exposures):
                 raise EvolutionGateError("canary safety gate failed")
             if any(not row["success"] for row in exposures):
@@ -641,8 +645,9 @@ class EvolutionService:
         result["evaluation"] = self._evaluation(evaluation) if evaluation else None
         deployment = connection.execute("SELECT * FROM canary_deployments WHERE id=?", (row["deployment_id"],)).fetchone() if row["deployment_id"] else None
         if deployment:
-            counts = connection.execute("SELECT COUNT(*) total,SUM(cohort='challenger') challenger FROM canary_exposures WHERE deployment_id=?", (deployment["id"],)).fetchone()
-            result["canary"] = {"id":deployment["id"],"allocation":deployment["allocation_percent"],"sample_size":int(counts["challenger"] or 0),"total_exposures":int(counts["total"] or 0),"status":deployment["status"]}
+            counts = connection.execute("SELECT COUNT(*) total,SUM(cohort='challenger') challenger,SUM(cohort='champion') champion,SUM(cohort='challenger' AND safety_pass=0) safety_failures,SUM(cohort='challenger' AND success=0) success_failures FROM canary_exposures WHERE deployment_id=?", (deployment["id"],)).fetchone()
+            challenger = int(counts["challenger"] or 0); champion = int(counts["champion"] or 0)
+            result["canary"] = {"id":deployment["id"],"allocation":deployment["allocation_percent"],"sample_size":challenger,"challenger_sample_size":challenger,"champion_sample_size":champion,"required_samples":self.minimum_canary_samples,"total_exposures":int(counts["total"] or 0),"safety_failures":int(counts["safety_failures"] or 0),"success_failures":int(counts["success_failures"] or 0),"promotable":challenger >= self.minimum_canary_samples and champion >= self.minimum_canary_samples and not counts["safety_failures"] and not counts["success_failures"],"status":deployment["status"]}
         else: result["canary"] = None
         return result
 
