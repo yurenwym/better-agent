@@ -19,6 +19,21 @@ export interface Bootstrap {
   human_mode?: boolean;
 }
 
+export interface GoalWorkspace {
+  resource_id: string;
+  thread_id: string;
+  plan_document_id: string;
+  phase: "DISCOVERING" | "PLANNING" | "READY_TO_START" | "EXECUTING" | "REVIEWING" | "ADJUSTING" | "COMPLETED" | "PAUSED" | "CANCELLED";
+  next_action: { kind: string; label: string; href: string; resource_id: string; reason: string } | null;
+  sources: Array<{ kind: string; id: string; label: string }>;
+  plan: { id: string; title: string; version: number; file_status: string };
+  program: { id: string; objective_title: string; status: string; start_date: string; end_date: string; version: number } | null;
+  today: { program_id: string; date: string; action_count: number; estimated_minutes: number } | null;
+  review: GoalDailyReview | null;
+  research: Array<{ id: string; topic: string; status: string; phase: string }>;
+  growth: { episode_id: string | null; episode_count: number; latest_summary: string | null };
+}
+
 export interface SkillDefinition {
   name: string;
   title: string;

@@ -26,6 +26,7 @@ import type {
   ResearchSchedule,
   NotificationChannel,
   GoalProgram,
+  GoalWorkspace,
   GoalDailyReview,
   TodayResponse,
   GoalAdjustmentProposal,
@@ -90,6 +91,10 @@ function mutationHeaders(csrfToken: string): HeadersInit {
 
 export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap> {
   return json<Bootstrap>(await fetcher("/api/bootstrap"));
+}
+
+export async function getGoalWorkspace(resourceId: string, fetcher: Fetcher = fetch): Promise<GoalWorkspace> {
+  return json<GoalWorkspace>(await fetcher(`/api/workspaces/${encodeURIComponent(resourceId)}`));
 }
 
 function goalMutationHeaders(csrfToken: string, idempotencyKey: string): HeadersInit {

@@ -139,6 +139,14 @@ def register_routes(app) -> None:
             "human_mode": settings.get().human_mode if settings else False,
         }
 
+    @app.get("/api/workspaces/{resource_id}")
+    async def get_goal_workspace(resource_id: str, request: Request):
+        from .goal_workspace import GoalWorkspaceService
+        try:
+            return GoalWorkspaceService(runtime(request)).get(resource_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="workspace not found") from exc
+
     @app.get("/api/settings")
     async def get_settings(service=Depends(runtime)) -> dict[str, Any]:
         settings = getattr(service, "settings", None)

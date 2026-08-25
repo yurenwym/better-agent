@@ -1,6 +1,6 @@
 import type { Bootstrap, Run, Thread } from "../types";
 
-export type WorkspacePage = "chat" | "today" | "plan" | "trajectory" | "research" | "schedules" | "memory" | "growth";
+export type WorkspacePage = "chat" | "workspace" | "today" | "plan" | "trajectory" | "research" | "schedules" | "memory" | "growth";
 
 interface WorkspaceSidebarProps {
   activePage: WorkspacePage;
@@ -17,6 +17,7 @@ interface WorkspaceSidebarProps {
 
 const navItems: Array<{ id: WorkspacePage; label: string; glyph: "chat" | "plan" | "trace" | "memory" | "growth" }> = [
   { id: "chat", label: "对话", glyph: "chat" },
+  { id: "workspace", label: "目标工作区", glyph: "plan" },
   { id: "today", label: "Today", glyph: "plan" },
   { id: "plan", label: "计划", glyph: "plan" },
   { id: "trajectory", label: "轨迹", glyph: "trace" },

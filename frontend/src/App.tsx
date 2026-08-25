@@ -12,10 +12,12 @@ import ResearchPage from "./pages/ResearchPage";
 import SchedulesPage from "./pages/SchedulesPage";
 import TodayPage from "./pages/TodayPage";
 import GrowthPage from "./pages/GrowthPage";
+import GoalWorkspacePage from "./pages/GoalWorkspacePage";
 import type { AgentRun } from "./types";
 import "./index.css";
 
 const headings: Record<WorkspacePage, string> = {
+  workspace: "目标工作区",
   chat: "目标对话",
   today: "今天的行动",
   plan: "计划",
@@ -40,7 +42,7 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";if(path==="/growth")return "growth";return "chat"; }
+function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/workspace"||/^\/workspace\//.test(path))return "workspace";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";if(path==="/memory")return "memory";if(path==="/growth")return "growth";return "chat"; }
 function threadFromPath(): string|null { const match=typeof window!=="undefined"?window.location.pathname.match(/^\/threads\/([^/]+)$/):null;return match?.[1]??null; }
 export default function App() {
   const [page, setPage] = useState<WorkspacePage>(pageFromPath);
@@ -54,6 +56,10 @@ export default function App() {
   const [notice,setNotice]=useState<{message:string;tone:"success"|"error"}|null>(null);
   const [planId, setPlanId] = useState<string | null>(() => {
     const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/plans\/([^/]+)$/) : null;
+    return match?.[1] ?? null;
+  });
+  const [workspaceResourceId, setWorkspaceResourceId] = useState<string | null>(() => {
+    const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/workspace\/([^/]+)$/) : null;
     return match?.[1] ?? null;
   });
 
@@ -89,7 +95,7 @@ export default function App() {
 
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
-  const widePage = page === "chat" || page === "trajectory" || page === "plan" || page === "research" || page === "growth";
+  const widePage = page === "chat" || page === "workspace" || page === "trajectory" || page === "plan" || page === "research" || page === "growth";
   const fluidPage = page === "chat" || page === "research" || page === "today";
   const showTopbar = page !== "chat";
   const showPageHeader = page !== "chat" && page !== "research" && page !== "today" && page !== "plan";
@@ -102,7 +108,7 @@ export default function App() {
         bootstrap={bootstrap}
         run={run}
         threads={threads}
-        onNavigate={(next)=>{setPage(next);const paths:Partial<Record<WorkspacePage,string>>={today:"/today",plan:"/plans",research:"/research",schedules:"/schedules",growth:"/growth"};if(paths[next])window.history.pushState({},"",paths[next]);}}
+        onNavigate={(next)=>{setPage(next);const paths:Partial<Record<WorkspacePage,string>>={workspace:"/workspace",today:"/today",plan:"/plans",research:"/research",schedules:"/schedules",memory:"/memory",growth:"/growth"};if(next==="workspace")setWorkspaceResourceId(planId??threadId);if(paths[next])window.history.pushState({},"",next==="workspace"&&(planId??threadId)?`/workspace/${planId??threadId}`:paths[next]);}}
         onNewConversation={() => { setRun(null); setExpertRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
         onSelectThread={(nextThreadId)=>{setRun(null);setThreadId(nextThreadId);setPlanId(null);window.history.pushState({},"",`/threads/${nextThreadId}`);setPage("chat");}}
         onDeleteThread={(deleteThreadId)=>setThreadToDelete(threads.find(item=>item.id===deleteThreadId)??null)}
@@ -132,6 +138,7 @@ export default function App() {
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={(nextThreadId)=>{setThreadId(nextThreadId);window.history.pushState({},"",`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads));}} onRun={setRun} onExpertRun={setExpertRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
+          {page === "workspace" && <GoalWorkspacePage resourceId={workspaceResourceId ?? planId ?? threadId} />}
           {page === "today" && <TodayPage csrfToken={csrfToken} onHelp={(nextThreadId)=>{setThreadId(nextThreadId);setPage("chat");window.history.pushState({},"","/");}} />}
           {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("plan"); window.history.pushState({}, "", "/plans"); }} />}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} expertRun={expertRun} csrfToken={csrfToken} onExpertRun={setExpertRun} />}

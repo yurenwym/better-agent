@@ -154,6 +154,8 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
             @app.get("/schedules", include_in_schema=False)
             @app.get("/growth", include_in_schema=False)
             @app.get("/memory", include_in_schema=False)
+            @app.get("/workspace", include_in_schema=False)
+            @app.get("/workspace/{resource_id}", include_in_schema=False)
             async def frontend_route(plan_id: str | None = None, thread_id: str | None = None):
                 return FileResponse(index_path)
 
