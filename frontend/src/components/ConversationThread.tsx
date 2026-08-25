@@ -28,6 +28,9 @@ interface ConversationThreadProps {
   skills?: SkillDefinition[];
   selectedSkills?: string[];
   onToggleSkill?: (name: string) => void;
+  deepProcessing?: boolean;
+  expertBusy?: boolean;
+  onDeepProcessingChange?: (enabled: boolean) => void;
   decision?: {
     title: string;
     description: string;
@@ -44,7 +47,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, deepProcessing = false, expertBusy = false, onDeepProcessingChange, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -66,7 +69,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
   }
 
   return (
-    <section className="conversation-surface" aria-label="当前目标对话">
+    <section className={`conversation-surface${messages.length === 0 ? " conversation-surface-empty" : ""}`} aria-label="当前目标对话">
       <div className="conversation-header">
         <div>
           <span className="eyebrow">CONVERSATION / LIVE</span>
@@ -214,8 +217,24 @@ export default function ConversationThread({ messages, busy = false, title = "�
                 </div>
               )}
             </div>
+            {onDeepProcessingChange && (
+              <label className="composer-expert-toggle">
+                <input
+                  aria-label="深入处理"
+                  checked={deepProcessing}
+                  disabled={expertBusy || composerLocked}
+                  role="switch"
+                  type="checkbox"
+                  onChange={(event) => onDeepProcessingChange(event.target.checked)}
+                />
+                <span aria-hidden="true" />
+                <strong>深入处理</strong>
+              </label>
+            )}
           </div>
-          <button className="button button-primary" disabled={busy || composerLocked || !draft.trim()} type="submit">发送</button>
+          <button className="button button-primary composer-submit" disabled={busy || expertBusy || composerLocked || !draft.trim()} type="submit">
+            {expertBusy ? "正在启动…" : deepProcessing ? "启动专家协同" : "发送"}
+          </button>
         </div>
       </form>
     </section>

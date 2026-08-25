@@ -407,13 +407,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
+          deepProcessing={deepProcessing}
+          expertBusy={expertBusy}
+          onDeepProcessingChange={setDeepProcessing}
           decision={decision}
           onSubmit={submitConversation}
         />
-        <div className="expert-mode-control">
-          <label className="expert-mode-switch"><input aria-label="深入处理" checked={deepProcessing} disabled={expertBusy} role="switch" type="checkbox" onChange={(event) => setDeepProcessing(event.target.checked)} /><span aria-hidden="true" /><div><strong>深入处理</strong><small>交给多个专家并行分析，再汇总结论</small></div></label>
-          {deepProcessing && <button className="button button-primary expert-submit" disabled={expertBusy} type="button" onClick={(event) => { const form = event.currentTarget.closest(".conversation-with-expert-mode")?.querySelector("form"); form?.requestSubmit(); }}>{expertBusy ? "正在启动…" : "启动专家协同"}</button>}
-        </div>
         </div>
         {expertRun && <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} />}
 

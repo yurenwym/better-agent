@@ -106,6 +106,17 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 
 .conversation-surface, .hero-panel, .form-panel, .card, .event-panel, .empty-panel, .activity-rail { border: 1px solid var(--color-line); border-radius: var(--radius-lg); background: var(--color-panel); box-shadow: var(--shadow-panel); }
 .conversation-surface { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-height: 590px; overflow: hidden; }
+.conversation-surface-empty { grid-template-rows: minmax(0, 1fr) auto; min-height: min(720px, calc(100dvh - 48px)); border-color: transparent; background: transparent; box-shadow: none; overflow: visible; }
+.conversation-surface-empty .conversation-header { display: none; }
+.conversation-surface-empty .conversation-content { align-content: end; overflow: visible; }
+.conversation-surface-empty .conversation-thread { min-height: 0; background: transparent; }
+.conversation-surface-empty .conversation-empty { min-height: 0; padding: clamp(48px, 10vh, 110px) 24px 34px; }
+.conversation-surface-empty .conversation-empty-mark { width: 48px; height: 48px; border-radius: 15px; }
+.conversation-surface-empty .conversation-empty h3 { font-size: clamp(28px, 3vw, 36px); }
+.conversation-surface-empty .conversation-empty p { max-width: 520px; font-size: 14px; }
+.conversation-surface-empty .conversation-composer { width: min(900px, calc(100% - 32px)); margin: 0 auto clamp(22px, 5vh, 56px); border: 1px solid var(--color-line-strong); border-radius: 18px; background: var(--color-panel); padding: 12px; box-shadow: 0 18px 50px rgba(24,42,76,.12); }
+.conversation-surface-empty .conversation-composer textarea { min-height: 96px; border: 0; padding: 10px 12px; box-shadow: none; }
+.conversation-surface-empty .conversation-composer textarea:focus-visible { outline: 0; box-shadow: none; }
 .conversation-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; padding: 22px 24px 18px; border-bottom: 1px solid var(--color-line); }
 .conversation-header > div { display: grid; gap: 6px; min-width: 0; }
 .conversation-header h2 { font-size: 23px; }
@@ -166,7 +177,7 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .conversation-composer textarea { min-height: 82px; border-color: var(--color-line-strong); background: #fff; box-shadow: 0 1px 2px rgba(24, 42, 76, 0.03); }
 .conversation-composer textarea:disabled { background: var(--color-panel-soft); cursor: not-allowed; opacity: 0.78; }
 .composer-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.composer-tools { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.composer-tools { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .composer-skill-menu { position: relative; }
 .composer-skill-trigger { min-height: 36px; gap: 7px; padding: 0 11px; font-size: 12px; }
 .composer-skill-trigger svg { width: 15px; height: 15px; color: var(--color-accent-strong); }
@@ -459,6 +470,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
 
 @media (max-width: 900px) {
   .workspace-app { display: block; }
+  .workspace-main { min-height: calc(100dvh - 175px); }
   .workspace-sidebar { position: relative; display: grid; grid-template-columns: minmax(0, 1fr); align-items: center; width: 100%; max-width: 100vw; min-width: 0; height: auto; min-height: 0; overflow: hidden; padding: 14px 18px; border-right: 0; border-bottom: 1px solid var(--color-line); }
   .sidebar-brand-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
   .sidebar-brand { min-width: 0; padding: 0; }
@@ -519,6 +531,11 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .conversation-decision .button-row { width: 100%; }
   .conversation-decision .button { flex: 1; }
   .conversation-composer { padding: 14px; }
+  .conversation-surface-empty { min-height: calc(100dvh - 235px); }
+  .conversation-surface-empty .conversation-empty { padding: 44px 16px 24px; }
+  .conversation-surface-empty .conversation-composer { width: 100%; margin: 0; border-radius: 16px; }
+  .conversation-surface-empty .composer-footer { align-items: center; }
+  .conversation-surface-empty .composer-tools { flex-wrap: wrap; }
   .message-markdown { font-size: 16px; }
   .message-markdown table { min-width: 420px; }
   .message-code-block { font-size: 12px; }
