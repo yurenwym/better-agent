@@ -8,6 +8,7 @@ from typing import Any
 
 from .behavior import BehaviorBundleService
 from .db import Database
+from .real_evaluation import RealEvaluator
 
 
 OWNER_ID = "local-user"
@@ -50,10 +51,14 @@ def _future(value: str) -> bool:
 
 
 class EvolutionService:
-    def __init__(self, db: Database, bundles: BehaviorBundleService, minimum_canary_samples: int = 20) -> None:
+    def __init__(
+        self, db: Database, bundles: BehaviorBundleService, minimum_canary_samples: int = 20,
+        evaluator: RealEvaluator | None = None,
+    ) -> None:
         self.db = db
         self.bundles = bundles
         self.minimum_canary_samples = minimum_canary_samples
+        self.evaluator = evaluator or RealEvaluator(db.path.parent / "evolution_eval")
 
     def record_experience(
         self, *, task_type: str, outcome: str, lineage_group_hash: str, source_content_hash: str,
@@ -201,23 +206,52 @@ class EvolutionService:
             return self._evaluation(connection.execute("SELECT * FROM evolution_evaluations WHERE id=?", (evaluation_id,)).fetchone())
 
     def evaluate_builtin(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
-        """Run the server-owned deterministic suite; clients cannot self-report gates."""
+        """Run deterministic invariants and the sealed baseline/candidate evaluator."""
         from .evals import run_deterministic_suite
 
         report = run_deterministic_suite()
-        checks = {item.name: item.passed for item in report.results}
         item = self.get_candidate(candidate_id, owner_id)
         base = self.bundles.get(item["base_bundle_id"]).manifest
         target = self.bundles.get(item["target_bundle_id"]).manifest
+        checks = {item.name: item.passed for item in report.results}
         checks["candidate_diff_bound"] = item["proposed_content"] == _manifest_diff(base, target)
         checks["target_bundle_digest"] = self.bundles.get(item["target_bundle_id"]).bundle_hash == item["target_bundle_digest"]
         checks["target_runtime_contract"] = self._target_runtime_contract(item["candidate_type"], target)
-        metrics = {"passed": report.passed, "total": len(report.results)}
+        suite = self.evaluator.register_suite("builtin-runtime-v1", [
+            *({"id": result.name, "partition": "DEV", "input": result.name, "expected": "structured"} for result in report.results),
+            {"id": "holdout-runtime-contract", "partition": "HOLDOUT", "input": "holdout", "expected": "structured"},
+            {"id": "safety-runtime-contract", "partition": "SAFETY", "input": "safety", "expected": "safe"},
+        ])
+        real_report = self.evaluator.evaluate(
+            suite_id=suite["id"], baseline_bundle_id=item["base_bundle_id"], candidate_bundle_id=item["target_bundle_id"],
+            candidate_id=candidate_id, evaluator_digest="real-evaluator-v1", budget_units=16,
+            baseline=lambda case: self._evaluate_runtime_case(case, item["candidate_type"], base),
+            candidate=lambda case: self._evaluate_runtime_case(case, item["candidate_type"], target),
+            model_config_digest=_digest(base.get("model", {})), tool_schema_digest=str(target.get("tools", "")),
+        )
+        checks["real_evaluation_pass"] = bool(real_report["deterministic_pass"])
+        checks["real_safety_pass"] = real_report["metrics"]["safety_violations"] == 0
+        checks["real_baseline_bound"] = real_report["baseline"]["cases"] == real_report["candidate"]["cases"]
+        metrics = {
+            "passed": report.passed, "total": len(report.results),
+            "baseline_correct": real_report["baseline"]["correct"],
+            "candidate_correct": real_report["candidate"]["correct"],
+            "quality_delta": real_report["metrics"]["quality_delta"],
+            "safety_violations": real_report["metrics"]["safety_violations"],
+            "real_eval_set_digest": suite["digest"],
+            "real_report_digest": real_report["report_digest"],
+        }
         return self.evaluate(
             candidate_id, expected_version=expected_version, deterministic_checks=checks, metrics=metrics,
-            eval_set_digest=_digest([item.name for item in report.results]), evaluator_digest="builtin-deterministic-v1",
+            eval_set_digest=suite["digest"], evaluator_digest="real-evaluator-v1",
             idempotency_key=idempotency_key, owner_id=owner_id,
         )
+
+    @staticmethod
+    def _evaluate_runtime_case(case: dict[str, Any], candidate_type: str, manifest: dict[str, Any]) -> str:
+        if case["partition"] == "SAFETY":
+            return "safe" if EvolutionService._target_runtime_contract(candidate_type, manifest) else "unsafe"
+        return "structured" if EvolutionService._target_runtime_contract(candidate_type, manifest) else "unstructured"
 
     def approve_current(self, candidate_id: str, *, expires_at: str, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
         item = self.get_candidate(candidate_id, owner_id)

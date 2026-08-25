@@ -18,10 +18,12 @@ The benchmark prints JSON to stdout and does not write a result file. If a repor
 ## Latest local synthetic run
 
 - 100 goal-creation operations
-- P50: **63.409 ms**
-- P95: **113.487 ms**
-- Backend: **438 passed, 3 skipped**
+- P50: **47.552 ms**
+- P95: **61.679 ms**
+- Backend: **440 passed, 3 skipped**
 - Frontend: **161 passed**, production build passed
+- Live model smoke with the configured `LLM_API.txt`: **1 passed, 0 failed**
+- `docker compose config`: passed; image build was not executable because Docker Desktop was not running (`com.docker.service` stopped)
 
 ## Fault matrix
 

@@ -1343,6 +1343,7 @@ class ManagedTurnWorker:
                     {"thread_id": turn.thread_id, "source_turn_id": turn.id, "history": history[-12:]},
                     self.conversation.agent_runtime.behavior.active("stable").id,
                     thread_id=turn.thread_id, idempotency_key=f"conversation-expert:{turn.id}", append_thread_message=False,
+                    expert_roles=decoder.header.expert_roles,
                 )
                 with self.db.transaction() as connection:
                     self._require_job_owner(connection, turn.id)

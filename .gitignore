@@ -30,6 +30,7 @@ data/memory/
 data/artifacts/
 data/plans/
 data/research_notes/
+data/evolution_eval/
 data/edge-*/
 .e2e-data/
 .e2e-*/

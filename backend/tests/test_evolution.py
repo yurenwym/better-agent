@@ -260,3 +260,14 @@ def test_online_canary_rejects_candidate_types_without_a_runtime_adapter(tmp_pat
     approved = service.get_candidate(item["id"])
     with pytest.raises(EvolutionGateError, match="runtime adapter"):
         service.start_canary(item["id"], expected_version=approved["version"], approval_id=approval["id"], allocation_percent=10, assignment_unit="run", idempotency_key="skill-canary")
+
+
+def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):
+    _, _, service, base, target = setup_service(tmp_path)
+    item = candidate(service, base, target, experiences(service, base.id))
+    evaluation = service.evaluate_builtin(item["id"], expected_version=item["version"], idempotency_key="builtin-real")
+    assert evaluation["evaluator_digest"] == "real-evaluator-v1"
+    assert evaluation["eval_set_digest"] == evaluation["metrics"]["real_eval_set_digest"]
+    assert evaluation["metrics"]["baseline_correct"] == evaluation["metrics"]["candidate_correct"]
+    assert evaluation["metrics"]["real_report_digest"]
+    assert evaluation["checks"]["real_evaluation_pass"] is True

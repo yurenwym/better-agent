@@ -138,6 +138,8 @@ async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_r
     turn = runtime.conversation.turn(accepted.turn_id)
     assert turn.status == "COMPLETED"
     assert turn.policy == "start_expert"
+    routed_run = runtime.agent_tasks.latest_run_for_thread(thread.id)
+    assert runtime.agent_tasks.context(routed_run["context_snapshot_id"])["expert_roles"] == ["planner", "critic"]
     assert runtime.agent_tasks.latest_run_for_thread(thread.id)["objective"] == "比较训练方案"
     assert [message.content for message in runtime.conversation.messages(thread.id)] == ["比较两个训练方案"]
 

@@ -47,6 +47,20 @@ def test_completed_expert_run_projects_a_visible_thread_message_and_events(tmp_p
     assert "expert.run.queued" in event_types and "expert.run.completed" in event_types
 
 
+def test_worker_uses_requested_expert_roles(tmp_path):
+    db = Database(tmp_path / "agent.db")
+    bundle = BehaviorBundleService(db).ensure({"code":"test"})
+    service = AgentTaskService(db)
+    run = service.create_run(
+        "local-user", "compare options", {}, bundle.id, expert_roles=("planner", "critic"), idempotency_key="expert-roles",
+    )
+    worker = ManagedAgentWorker(service, ExpertModel())
+    for _ in range(4):
+        assert asyncio.run(worker.run_once()) is True
+    result = service.artifact(service.get_task(run["coordinator_task_id"])["result_artifact_id"])["content"]
+    assert [item["role"] for item in result["experts"]] == ["critic", "planner"]
+
+
 def test_worker_without_model_fails_children_without_faking_results(tmp_path):
     db = Database(tmp_path / "agent.db")
     bundle = BehaviorBundleService(db).ensure({"code":"test"})

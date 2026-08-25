@@ -13,6 +13,7 @@ from .model_gateway import GatewayError, ModelRequest
 
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
+EXPERT_ROLES = {"researcher", "planner", "critic"}
 
 
 class AgentTaskConflict(ValueError):
@@ -67,9 +68,14 @@ class AgentTaskService:
     def create_run(
         self, owner_id: str, objective: str, context: dict[str, Any], runtime_bundle_id: str, *,
         thread_id: str | None = None, budget_units: int = 16, idempotency_key: str, append_thread_message: bool = True,
+        expert_roles: tuple[str, ...] = (),
     ) -> dict[str, Any]:
         objective = objective.strip()
         if not objective: raise ValueError("objective is required")
+        roles = tuple(dict.fromkeys(expert_roles))
+        if any(role not in EXPERT_ROLES for role in roles):
+            raise ValueError("expert roles are invalid")
+        context = {**context, "expert_roles": list(roles)}
         now = _now(); context_hash = _hash(context)
         with self.db.transaction() as connection:
             prior = connection.execute("SELECT * FROM agent_runs WHERE idempotency_key=?", (idempotency_key,)).fetchone()
@@ -512,10 +518,12 @@ class ManagedAgentWorker:
     async def _coordinate(self, task: dict[str, Any]) -> None:
         children = self.service.children(task["id"])
         if not children:
+            context = self.service.context(task["context_snapshot_id"])
+            requested_roles = tuple(role for role in context.get("expert_roles", []) if role in EXPERT_ROLES)
+            roles = requested_roles or ("researcher", "planner", "critic")
             specs = [
-                {"child_key":"researcher","role":"researcher","objective":task["objective"],"output_schema":"expert_result.v1","budget_units":1},
-                {"child_key":"planner","role":"planner","objective":task["objective"],"output_schema":"expert_result.v1","budget_units":1},
-                {"child_key":"critic","role":"critic","objective":task["objective"],"output_schema":"expert_result.v1","budget_units":1},
+                {"child_key":role,"role":role,"objective":task["objective"],"output_schema":"expert_result.v1","budget_units":1}
+                for role in roles
             ]
             self.service.fan_out(task["id"], self.owner, task["lease_epoch"], specs, "ALL_DONE")
             return
