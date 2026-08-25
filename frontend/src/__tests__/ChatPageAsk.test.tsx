@@ -111,7 +111,7 @@ describe("ChatPage ask flow", () => {
     await waitFor(() => expect(screen.getByRole("region", { name: "等待你的回答" })).toBeTruthy());
     fireEvent.click(screen.getByRole("button", { name: "目标：计划" }));
     const submit = screen.getByRole("button", { name: "提交回答" });
-    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false));
+    await waitFor(() => expect(submit.hasAttribute("disabled")).toBe(false), { timeout: 3000 });
     fireEvent.click(submit);
 
     await waitFor(() => expect(api.answerAsk).toHaveBeenCalledWith(

@@ -1,8 +1,19 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, createResearch, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, createResearch, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listEvolutionCandidates, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
+  it("preserves the evolution reason, proposed change and evaluation progress", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{
+      id:"candidate-1",candidate_type:"prompt",reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},
+      status:"EVALUATED",version:1,experience_ids:["one","two","three"],permission_diff:{added:[]},
+      evaluation:{status:"COMPLETED",deterministic_pass:true,checks:{safety:true},metrics:{passed:12,total:12}},
+    }] }) });
+
+    const { candidates } = await listEvolutionCandidates(fetcher);
+
+    expect(candidates[0]).toMatchObject({reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},evidence_count:3,evaluation:{passed:12,total:12}});
+  });
   it("loads and saves a conversation-owned Markdown plan with CAS metadata", async () => {
     const fetcher = vi.fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ plan: null }) })

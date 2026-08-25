@@ -30,6 +30,7 @@ data/memory/
 data/artifacts/
 data/plans/
 data/research_notes/
+data/edge-*/
 evals/results/
 
 # Local graph analysis output

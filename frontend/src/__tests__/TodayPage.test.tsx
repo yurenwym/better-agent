@@ -21,6 +21,15 @@ describe("TodayPage",()=>{
     await waitFor(()=>expect(api.mutateGoalAction).toHaveBeenCalledWith("action-1","complete",expect.objectContaining({expected_version:0}),expect.any(String),"csrf"));
     await waitFor(()=>expect(api.getToday).toHaveBeenCalledTimes(2));
   });
+  it("shows the full day-by-day plan and the next action",async()=>{
+    const tomorrow={...action,id:"action-2",logical_key:"d2",scheduled_date:"2026-09-02",position:2,title:"复盘错题",estimated_minutes:30};
+    api.listGoalPrograms.mockResolvedValue({programs:[{...program,actions:[action,tomorrow]}]});
+    render(<TodayPage csrfToken="csrf"/>);
+    expect(await screen.findByRole("heading",{name:"每天要做什么"})).toBeTruthy();
+    expect(screen.getByText("第 1 天")).toBeTruthy();
+    expect(screen.getByText("第 2 天")).toBeTruthy();
+    expect(screen.getByText("下一步：完成一道题")).toBeTruthy();
+  });
   it("saves optional completion feedback after the completed action version",async()=>{
     api.mutateGoalAction.mockResolvedValueOnce({action:{...action,status:"COMPLETED",version:1}}).mockResolvedValueOnce({});
     render(<TodayPage csrfToken="csrf"/>);

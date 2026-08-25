@@ -40,7 +40,7 @@ def test_fastapi_serves_spa_index_for_known_frontend_routes_only(tmp_path) -> No
     client = TestClient(create_app(static_dir=dist))
     headers = {"host": "127.0.0.1:8000"}
 
-    for path in ("/plans", "/plans/plan-1", "/threads/thread-1", "/today", "/research", "/schedules"):
+    for path in ("/plans", "/plans/plan-1", "/threads/thread-1", "/today", "/research", "/schedules", "/growth"):
         response = client.get(path, headers=headers)
         assert response.status_code == 200
         assert "local-ui" in response.text

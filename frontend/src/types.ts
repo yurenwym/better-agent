@@ -423,6 +423,8 @@ export interface EvolutionCandidate {
   risk_level: "low" | "medium" | "high" | string;
   evidence_count: number;
   evidence_refs?: string[];
+  reason?: string;
+  proposed_content?: Record<string, unknown>;
   diff?: Array<{ label: string; before?: string; after?: string }>;
   evaluation: null | {
     id?: string;
@@ -431,6 +433,8 @@ export interface EvolutionCandidate {
     deterministic_pass: boolean | null;
     score_delta?: number | null;
     regressions: string[];
+    passed?: number | null;
+    total?: number | null;
   };
   permission_diff: { added: string[]; removed: string[]; unchanged?: string[] };
   canary: null | { allocation?: number; sample_size?: number; status?: string };

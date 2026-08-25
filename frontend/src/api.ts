@@ -207,6 +207,8 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
     version: Number(raw.version ?? 0), risk_level: String(raw.risk_level ?? (kind === "code" ? "high" : "medium")),
     evidence_count: Number(raw.evidence_count ?? (Array.isArray(raw.experience_ids) ? raw.experience_ids.length : 0)),
     evidence_refs: stringList(raw.evidence_refs ?? raw.experience_ids),
+    reason: typeof raw.reason === "string" ? raw.reason : undefined,
+    proposed_content: raw.proposed_content && typeof raw.proposed_content === "object" ? raw.proposed_content as Record<string, unknown> : undefined,
     evaluation: evaluation ? {
       id: typeof evaluation.id === "string" ? evaluation.id : undefined,
       report_digest: typeof evaluation.report_digest === "string" ? evaluation.report_digest : undefined,
@@ -219,6 +221,8 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
         : evaluation.checks && typeof evaluation.checks === "object"
           ? Object.entries(evaluation.checks as Record<string, unknown>).filter(([, passed]) => passed !== true).map(([name]) => name)
           : [],
+      passed: evaluation.metrics && typeof evaluation.metrics === "object" && typeof (evaluation.metrics as Record<string, unknown>).passed === "number" ? Number((evaluation.metrics as Record<string, unknown>).passed) : null,
+      total: evaluation.metrics && typeof evaluation.metrics === "object" && typeof (evaluation.metrics as Record<string, unknown>).total === "number" ? Number((evaluation.metrics as Record<string, unknown>).total) : null,
     } : null,
     permission_diff: { added: stringList(permission.added), removed: stringList(permission.removed), unchanged: stringList(permission.unchanged) },
     canary: raw.canary && typeof raw.canary === "object" ? raw.canary as EvolutionCandidate["canary"] : null,

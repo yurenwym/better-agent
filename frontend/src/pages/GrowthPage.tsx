@@ -44,18 +44,18 @@ export default function GrowthPage({ csrfToken }: GrowthPageProps) {
 
   return <div className="growth-page page-stack">
     <section className="hero-panel growth-hero">
-      <div><span className="eyebrow">CONTROLLED EVOLUTION</span><h2>受控成长</h2><p>系统只从证据中提出候选。每项改变都经过独立评测、权限核对和人工审批，再以 Canary 小范围验证；不会自行改写核心安全规则。</p></div>
-      <span className="version-badge">{candidates.length} 个候选</span>
+      <div><span className="eyebrow">CONTROLLED EVOLUTION</span><h2>Agent 正在怎样变得更好</h2><p>这里展示每次自进化的原因、具体改变和验证结果。任何改变都要经过你的批准，并先在少量任务中验证。</p></div>
+      <span className="version-badge">{candidates.filter(item=>!["REJECTED","ROLLED_BACK"].includes(item.status)).length} 个进行中</span>
     </section>
-    <section className="growth-principles" aria-label="成长安全边界">
-      <article><span>01</span><div><strong>证据驱动</strong><p>一次失败不会直接改变系统行为。</p></div></article>
-      <article><span>02</span><div><strong>权限透明</strong><p>新增与移除权限逐项展示。</p></div></article>
-      <article><span>03</span><div><strong>随时回滚</strong><p>Canary 和已启用版本保留回退路径。</p></div></article>
+    <section className="growth-principles" aria-label="自进化流程">
+      <article><span>01</span><div><strong>从重复问题中学习</strong><p>至少三条独立经验才会提出改变。</p></div></article>
+      <article><span>02</span><div><strong>先验证，再让你决定</strong><p>通过确定性测试后才允许批准。</p></div></article>
+      <article><span>03</span><div><strong>小范围试用，可回滚</strong><p>Canary 安全后才会正式启用。</p></div></article>
     </section>
     {notice && <p className="growth-notice" role="status">{notice}</p>}
     {error && <div className="error-message" role="alert"><span>{error}</span></div>}
     <section className="growth-list" aria-label="成长候选列表">
-      <div className="section-heading"><span className="eyebrow">CANDIDATES</span><h3>能力候选</h3><p>按钮只在候选状态允许时出现，所有变更均携带当前版本。</p></div>
+      <div className="section-heading"><span className="eyebrow">EVOLUTION LOG</span><h3>进化记录</h3><p>每张卡片都回答四个问题：发现了什么、准备改什么、验证是否通过、现在需要做什么。</p></div>
       {loading ? <p className="muted" role="status">正在加载候选…</p> : candidates.length === 0 ? <div className="empty-state"><strong>暂无成长候选</strong><p>积累足够的独立证据后，候选会出现在这里。</p></div> : candidates.map((candidate) => <EvolutionCandidateCard key={candidate.id} candidate={candidate} busy={busyId === candidate.id} onAction={(action) => void act(candidate, action)} />)}
     </section>
   </div>;

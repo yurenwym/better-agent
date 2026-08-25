@@ -13,15 +13,56 @@ const statuses: Record<string, string> = {
 };
 const kinds: Record<string, string> = { memory: "记忆", skill: "技能", policy: "策略", prompt: "提示词", code: "代码" };
 
+const changeLabels: Record<string, string> = { prompts: "提示词策略", prompt: "提示词策略", skills: "技能", policy: "行为策略", memory: "记忆规则", code: "运行代码" };
+const statusNext: Record<string, string> = {
+  READY_FOR_EVAL: "下一步：运行独立评测，确认改变没有破坏已有能力。",
+  EVALUATED: "下一步：由你决定是否批准进入小范围验证。",
+  PENDING_APPROVAL: "下一步：由你决定是否批准进入小范围验证。",
+  APPROVED: "下一步：开始 Canary，只让少量任务使用新版本。",
+  CANARY: "正在小范围验证；样本充足且安全后，才能正式启用。",
+  PROMOTED: "新版本已正式启用，仍可随时回滚。",
+  REJECTED: "候选已拒绝，不会改变当前 Agent。",
+  ROLLED_BACK: "新版本已回滚，Agent 已恢复到原有行为。",
+};
+
+function changeValue(value: unknown): string {
+  if (typeof value === "string" && value.includes("research-scope-bounded")) return "限制研究范围，只生成用户明确要求的内容";
+  if (typeof value === "string") return value;
+  if (value === null) return "移除该能力";
+  return JSON.stringify(value, null, 2);
+}
+
+function candidateProblem(candidate: EvolutionCandidate): string {
+  if (candidate.reason && !/^\?+$/.test(candidate.reason.replace(/\s/g,""))) return candidate.reason;
+  if (Object.values(candidate.proposed_content ?? {}).some(value=>typeof value==="string"&&value.includes("research-scope-bounded"))) return "研究任务曾多次扩大用户没有要求的范围。";
+  return candidate.summary;
+}
+
+function readableSummary(candidate: EvolutionCandidate): string {
+  if (!candidate.summary || /^\?+$/.test(candidate.summary.replace(/\s/g,""))) return candidateProblem(candidate);
+  return candidate.summary;
+}
+
 export default function EvolutionCandidateCard({ candidate, busy = false, onAction }: Props) {
   const evaluationPassed = candidate.evaluation?.deterministic_pass === true && candidate.evaluation.regressions.length === 0;
+  const changes = Object.entries(candidate.proposed_content ?? {});
+  const evaluationProgress = candidate.evaluation?.total != null
+    ? `${candidate.evaluation.passed ?? 0} / ${candidate.evaluation.total} 项检查通过`
+    : evaluationPassed ? "全部确定性检查通过" : "等待评测";
+  const canaryProgress = candidate.status === "CANARY" ? `当前 ${candidate.canary?.sample_size ?? 0} / 3 个验证样本` : null;
   return <article className="evolution-card">
-    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}</span><h3>{candidate.title}</h3><p>{candidate.summary}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
+    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
     <div className="evolution-facts">
       <div><span>证据</span><strong>{candidate.evidence_count} 条证据</strong></div>
       <div><span>独立评测</span><strong>{candidate.evaluation ? (evaluationPassed ? "评测已通过" : "存在回归") : "尚未评测"}</strong></div>
       <div><span>权限变化</span><strong>{candidate.permission_diff.added.length ? `新增权限 ${candidate.permission_diff.added.length} 项` : "没有新增权限"}</strong></div>
       <div><span>风险</span><strong>{candidate.risk_level === "high" ? "高" : candidate.risk_level === "medium" ? "中" : "低"}</strong></div>
+    </div>
+    <div className="evolution-story">
+      <section><span className="evolution-step">01</span><div><h4>发现的问题</h4><p>{candidateProblem(candidate)}</p><small>来自 {candidate.evidence_count} 条独立经验，单次异常不会触发进化。</small></div></section>
+      <section><span className="evolution-step">02</span><div><h4>准备怎样改变</h4>{changes.length ? <dl className="evolution-change-list">{changes.map(([name,value])=><div key={name}><dt>{changeLabels[name] ?? name}</dt><dd>{changeValue(value)}</dd></div>)}</dl> : <p>{candidate.summary}</p>}</div></section>
+      <section><span className="evolution-step">03</span><div><h4>验证结果</h4><p className={evaluationPassed ? "evolution-pass" : ""}>{evaluationProgress}</p><small>{candidate.permission_diff.added.length ? `涉及 ${candidate.permission_diff.added.length} 项新增权限，需谨慎确认。` : "没有新增权限，核心安全边界保持不变。"}</small></div></section>
+      <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
     </div>
     {(candidate.permission_diff.added.length > 0 || candidate.permission_diff.removed.length > 0) && <div className="permission-diff" aria-label="权限变化明细">
       {candidate.permission_diff.added.map((item) => <span className="permission-added" key={`add-${item}`}>+ {item}</span>)}
