@@ -1,6 +1,6 @@
 # better-agent
 
-本地单用户 Personal Agent V1：澄清 → 计划 → 审批 → 顺序 ReAct → 观察/复盘，并提供三层记忆、证据优先的深度研究、定时研究、通知和真人对话模式。服务只监听 loopback，SQLite 使用 WAL，事件日志 append-only。
+本地单用户 Personal Agent Runtime：澄清 → 研究 → 计划 → 执行 → 每日复盘 → 调整 → 成长，并提供三层记忆、证据优先的深度研究、定时研究、通知、专家协同和受控 Evolution。服务默认只监听 loopback，SQLite 使用 WAL，事件日志 append-only。
 
 ## 启动
 
@@ -61,6 +61,20 @@ python -m app.eval compare baseline.json latest.json
 
 运行数据位于 `data/agent.db`、`data/memory/` 和 `data/artifacts/`，均被 `.gitignore` 排除。默认导出为脱敏 JSONL；`WRITE` 工具必须绑定 `run_id`、`tool_call_id`、参数 Hash 并获得显式审批。状态、预算、Checkpoint、计划版本、工具结果和 `memory.applied` 都保留在轨迹中。
 
-## V1 边界
+## 当前边界
 
-V1 不包含 RAG/向量检索、多 Agent、MCP、Shell、Redis、Celery、微服务、工具并行、跨厂商静默 fallback、隐藏思维链持久化或自动 Prompt 优化。真实模型质量评测是报告，不阻塞确定性 Invariant/场景回放构建门禁。
+当前版本不包含 RAG/向量检索、MCP、Shell、Redis、Celery、微服务、工具并行、跨厂商静默 fallback、隐藏思维链持久化或自动修改核心安全策略。多 Agent 仅支持受控 Expert Run；Evolution Candidate 仍需独立证据、确定性评测和人工批准，不能表述为完全自主进化。
+
+## 测试
+
+```powershell
+Set-Location backend
+python -m pytest -q
+python -m app.eval run --suite v1 --mode deterministic
+Set-Location ..\frontend
+npm ci
+npm test -- --run
+npm run build
+npx playwright install chromium
+npm run e2e
+```

@@ -1,0 +1,14 @@
+services:
+  better-agent:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - better-agent-data:/app/data
+    environment:
+      PORT: "8000"
+      BETTER_AGENT_HOST: "0.0.0.0"
+    restart: unless-stopped
+
+volumes:
+  better-agent-data:

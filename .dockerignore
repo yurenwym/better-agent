@@ -1,0 +1,14 @@
+.git
+.github
+.pytest_cache
+__pycache__
+*.pyc
+data
+frontend/node_modules
+frontend/dist
+evals/results
+graphify-out
+docs/superpowers/plans
+*.env
+*.key
+*.pem

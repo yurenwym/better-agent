@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import os
 from pathlib import Path
 
 
@@ -24,7 +25,8 @@ def main() -> None:
     from app.main import create_app
     from app.startup import build_runtime
 
-    app = create_app(runtime=build_runtime(ROOT / "data"), static_dir=FRONTEND / "dist")
+    data_root = Path(os.getenv("BETTER_AGENT_DATA_ROOT", str(ROOT / "data"))).resolve()
+    app = create_app(runtime=build_runtime(data_root), static_dir=FRONTEND / "dist")
     uvicorn.run(app, host=DEFAULT_HOST, port=DEFAULT_PORT)
 
 

@@ -31,6 +31,8 @@ data/artifacts/
 data/plans/
 data/research_notes/
 data/edge-*/
+.e2e-data/
+.e2e-*/
 evals/results/
 
 # Local graph analysis output
