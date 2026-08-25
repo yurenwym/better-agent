@@ -29,6 +29,7 @@ data/*.png
 data/memory/
 data/artifacts/
 data/plans/
+data/research_notes/
 evals/results/
 
 # Local graph analysis output
