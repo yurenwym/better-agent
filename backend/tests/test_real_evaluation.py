@@ -38,8 +38,9 @@ def test_candidate_cannot_read_holdout_or_safety_cases(tmp_path) -> None:
     suite = evaluator.register_suite(
         "gated", [{"id": "dev", "partition": "DEV", "input": "dev", "expected": "ok"}, {"id": "holdout", "partition": "HOLDOUT", "input": "secret", "expected": "ok"}],
     )
-    with pytest.raises(EvaluationAccessError, match="partition"):
-        evaluator.candidate_cases(suite["id"])
+    cases = evaluator.candidate_cases(suite["id"])
+    assert [case["id"] for case in cases] == ["dev"]
+    assert all(case["partition"] in {"DISCOVERY", "DEV"} for case in cases)
 
 
 def test_real_evaluation_requires_exact_binding_and_never_promotes_from_missing_baseline(tmp_path) -> None:

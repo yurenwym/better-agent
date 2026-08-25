@@ -60,7 +60,8 @@ def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
     assert deployment.status_code == 200
     deployment_id = deployment.json()["id"]
     challenger_count = 0
-    for index in range(200):
+    champion_count = 0
+    for index in range(600):
         thread = client.post("/api/threads", headers=headers(app, f"thread-{index}"), json={"title":f"sample-{index}"}).json()
         run = client.post(
             f"/api/threads/{thread['id']}/expert-runs", headers=headers(app, f"run-{index}"),
@@ -70,11 +71,12 @@ def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
         with runtime.db.connection() as connection:
             exposure = connection.execute("SELECT cohort FROM canary_exposures WHERE run_id=?", (run["id"],)).fetchone()
         challenger_count += exposure["cohort"] == "challenger"
-        if challenger_count >= 3: break
-    assert challenger_count >= 3
+        champion_count += exposure["cohort"] == "champion"
+        if challenger_count >= 20 and champion_count >= 20: break
+    assert challenger_count >= 20 and champion_count >= 20
     with runtime.db.transaction() as connection:
         connection.execute(
-            "UPDATE canary_exposures SET success=1,safety_pass=1 WHERE deployment_id=? AND cohort='challenger'",
+            "UPDATE canary_exposures SET success=1,safety_pass=1 WHERE deployment_id=?",
             (deployment_id,),
         )
 

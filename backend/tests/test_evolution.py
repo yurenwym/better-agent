@@ -229,18 +229,18 @@ def test_default_canary_gate_requires_balanced_champion_and_challenger_samples(t
     db, bundles, service, base, target = setup_service(tmp_path)
     production = EvolutionService(db, bundles)
     assert production.minimum_canary_samples == 20
-    item = candidate(service, base, target, experiences(service, base.id))
-    service.evaluate(item["id"], expected_version=item["version"], deterministic_checks={"safe": True}, metrics={}, eval_set_digest="set", evaluator_digest="eval", idempotency_key="gate-eval")
-    approved = service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), idempotency_key="gate-approve")
-    current = service.get_candidate(item["id"])
-    deployment = service.start_canary(item["id"], expected_version=current["version"], approval_id=approved["id"], allocation_percent=100, assignment_unit="run", idempotency_key="gate-canary")
+    item = candidate(production, base, target, experiences(production, base.id))
+    production.evaluate(item["id"], expected_version=item["version"], deterministic_checks={"safe": True}, metrics={}, eval_set_digest="set", evaluator_digest="eval", idempotency_key="gate-eval")
+    approved = production.approve_current(item["id"], expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), idempotency_key="gate-approve")
+    current = production.get_candidate(item["id"])
+    deployment = production.start_canary(item["id"], expected_version=current["version"], approval_id=approved["id"], allocation_percent=100, assignment_unit="run", idempotency_key="gate-canary")
     with db.transaction() as connection:
         for index in range(20):
             connection.execute(
                 "INSERT INTO canary_exposures(deployment_id,run_id,assignment_hash,cohort,bundle_id,success,safety_pass,request_digest,idempotency_key,exposed_at) VALUES (?,?,?,?,?,1,1,?,?,datetime('now'))",
                 (deployment["id"], f"challenger-{index}", f"hash-c-{index}", "challenger", target.id, f"digest-c-{index}", f"key-c-{index}"),
             )
-    summary = service.get_candidate(item["id"])["canary"]
+    summary = production.get_candidate(item["id"])["canary"]
     assert summary["challenger_sample_size"] == 20
     assert summary["champion_sample_size"] == 0
     assert summary["promotable"] is False

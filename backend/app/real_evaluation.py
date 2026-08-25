@@ -61,8 +61,6 @@ class RealEvaluator:
 
     def candidate_cases(self, suite_id: str) -> list[dict[str, Any]]:
         suite = self._suite(suite_id)
-        if any(case["partition"] in {"HOLDOUT", "SAFETY"} for case in suite["cases"]):
-            raise EvaluationAccessError("candidate cannot read HOLDOUT or SAFETY partition")
         return [case for case in suite["cases"] if case["partition"] in {"DISCOVERY", "DEV"}]
 
     def evaluate(

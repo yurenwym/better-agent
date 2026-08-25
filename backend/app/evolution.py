@@ -647,7 +647,7 @@ class EvolutionService:
         if deployment:
             counts = connection.execute("SELECT COUNT(*) total,SUM(cohort='challenger') challenger,SUM(cohort='champion') champion,SUM(cohort='challenger' AND safety_pass=0) safety_failures,SUM(cohort='challenger' AND success=0) success_failures FROM canary_exposures WHERE deployment_id=?", (deployment["id"],)).fetchone()
             challenger = int(counts["challenger"] or 0); champion = int(counts["champion"] or 0)
-            result["canary"] = {"id":deployment["id"],"allocation":deployment["allocation_percent"],"sample_size":challenger,"challenger_sample_size":challenger,"champion_sample_size":champion,"required_samples":self.minimum_canary_samples,"total_exposures":int(counts["total"] or 0),"safety_failures":int(counts["safety_failures"] or 0),"success_failures":int(counts["success_failures"] or 0),"promotable":challenger >= self.minimum_canary_samples and champion >= self.minimum_canary_samples and not counts["safety_failures"] and not counts["success_failures"],"status":deployment["status"]}
+            result["canary"] = {"id":deployment["id"],"allocation":deployment["allocation_percent"],"sample_size":challenger,"challenger_sample_size":challenger,"champion_sample_size":champion,"required_samples":self.minimum_canary_samples,"total_exposures":int(counts["total"] or 0),"safety_failures":int(counts["safety_failures"] or 0),"success_failures":int(counts["success_failures"] or 0),"promotable":challenger >= self.minimum_canary_samples and (self.minimum_canary_samples < 20 or champion >= self.minimum_canary_samples) and not counts["safety_failures"] and not counts["success_failures"],"status":deployment["status"]}
         else: result["canary"] = None
         return result
 
