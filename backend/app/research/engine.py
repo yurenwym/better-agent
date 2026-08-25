@@ -8,10 +8,12 @@ from typing import AsyncIterator
 
 from .citations import CITATION, render_citations
 from .models import CuratedSection, Evidence, ResearchEvent, ResearchPlan, ResearchRequest, Source
-from .retriever import filter_sources
+from .retriever import RetrievalError,filter_sources
 
 
-class InsufficientEvidence(RuntimeError): pass
+class InsufficientEvidence(RuntimeError):
+    def __init__(self,reason_code="insufficientevidence",diagnostics=None,*,retryable=False):
+        super().__init__(reason_code);self.reason_code=reason_code;self.diagnostics=diagnostics or {};self.retryable=retryable
 class UnknownCitation(RuntimeError): pass
 class TopicCoverageError(RuntimeError): pass
 class ResearchCancelled(RuntimeError): pass
@@ -19,6 +21,7 @@ class ResearchCancelled(RuntimeError): pass
 
 class ResearchEngine:
     DISTILL_TIMEOUT_SECONDS = 20
+    RETRIEVE_TIMEOUT_SECONDS = 40
     MODEL_STAGE_TIMEOUT_SECONDS = 45
 
     def __init__(self, model, retriever) -> None:
@@ -43,13 +46,21 @@ class ResearchEngine:
         sources: list[Source] = list(request.recovered_sources)
         used_queries = list(plan.queries)
         yield ResearchEvent("phase", "retrieving", {"detail": "正在检索来源"})
-        sources = self._merge_sources(sources, await self._retrieve(used_queries, request), request)
-        yield ResearchEvent("sources", "retrieving", {"count": len(sources), "items": sources})
+        retrieved,diagnostics = await self._retrieve(used_queries, request)
+        sources = self._merge_sources(sources, retrieved, request)
+        diagnostics={**diagnostics,"accepted_sources":len(sources)}
+        yield ResearchEvent("sources", "retrieving", {"count": len(sources), "items": sources,"diagnostics":diagnostics})
 
         yield ResearchEvent("phase", "distilling", {"detail": "正在逐条提炼证据"})
         recovered_ids={item.id for item in request.recovered_sources}
         evidence = [*request.recovered_evidence, *await self._distill([item for item in sources if item.id not in recovered_ids], request, plan)]
-        if not evidence: raise InsufficientEvidence("insufficient_evidence")
+        if not evidence:
+            failures=diagnostics.get("failure_counts",{})
+            priority=("search_auth_failed","search_rate_limited","search_timeout","search_provider_unavailable","search_results_rejected","search_no_results","search_request_failed")
+            reason=next((item for item in priority if item in failures),next(iter(failures),"insufficientevidence")) if not sources else "insufficientevidence"
+            if retrieved and not sources:reason="search_results_filtered"
+            retryable=reason in {"search_timeout","search_rate_limited","search_provider_unavailable"}
+            raise InsufficientEvidence(reason,diagnostics,retryable=retryable)
         yield ResearchEvent("evidence", "distilling", {"count": len(evidence), "items": evidence})
 
         if request.limits.reflection_rounds > 0 and len(sources) < request.limits.max_sources:
@@ -68,7 +79,7 @@ class ResearchEngine:
                 if query and self._query_key(query) not in seen:
                     seen.add(self._query_key(query)); normalized.append(query)
             if normalized:
-                extra = await self._retrieve(normalized, request)
+                extra,_ = await self._retrieve(normalized, request)
                 combined = self._merge_sources(sources, extra, request)
                 new_ids = {item.id for item in combined} - {item.id for item in sources}
                 evidence.extend(await self._distill([item for item in combined if item.id in new_ids], request, plan))
@@ -153,8 +164,12 @@ class ResearchEngine:
             )
         except Exception:
             tldr, points = "研究结论详见各章节及其来源标注。", ()
-        if "[[source:" not in tldr: tldr = "以下结论均基于正文中标注的来源证据。"
-        points = tuple(item for item in points if "[[source:" in item)
+        known_citations={item.id for item in sources}|{item.id.removeprefix("source_") for item in sources}
+        def has_valid_citations(value):
+            markers=CITATION.findall(value)
+            return bool(markers) and all(item in known_citations for item in markers)
+        if not has_valid_citations(tldr): tldr = "以下结论均基于正文中标注的来源证据。"
+        points = tuple(item for item in points if has_valid_citations(item))
         self._cancel(request)
         raw = f"# {plan.title}\n\n> {tldr}\n\n## 核心要点\n\n" + "".join(f"- {item}\n" for item in points) + "\n" + "\n\n".join(bodies)
         try: body = render_citations(raw, sources)
@@ -179,17 +194,41 @@ class ResearchEngine:
         yield ResearchEvent("report", "completed", {"title": plan.title, "markdown": report, "source_count": len(sources), "evidence_count": len(evidence)})
         yield ResearchEvent("phase", "completed", {"detail": "研究完成"})
 
-    async def _retrieve(self, queries: list[str], request: ResearchRequest) -> list[Source]:
+    async def _retrieve(self, queries: list[str], request: ResearchRequest) -> tuple[list[Source],dict]:
         semaphore = asyncio.Semaphore(4)
         async def one(query_index: int, query: str):
             async with semaphore:
                 self._cancel(request)
+                call=asyncio.create_task(self.retriever.retrieve(query, request))
+                cancel_wait=asyncio.create_task(request.cancel_event.wait()) if request.cancel_event else None
                 try:
-                    items = await self.retriever.retrieve(query, request)
-                    return [replace(item, metadata={**item.metadata, "query": query, "query_index": query_index}) for item in items]
-                except Exception: return []
+                    waiting={call,*([] if cancel_wait is None else [cancel_wait])}
+                    done,_=await asyncio.wait(waiting,timeout=self.RETRIEVE_TIMEOUT_SECONDS,return_when=asyncio.FIRST_COMPLETED)
+                    if cancel_wait is not None and cancel_wait in done:
+                        call.cancel()
+                        await asyncio.gather(call,return_exceptions=True)
+                        raise ResearchCancelled("research cancelled")
+                    if call not in done:
+                        call.cancel()
+                        await asyncio.gather(call,return_exceptions=True)
+                        raise RetrievalError("search_timeout",retryable=True)
+                    items=call.result()
+                    return [replace(item, metadata={**item.metadata, "query": query, "query_index": query_index}) for item in items],None
+                except ResearchCancelled:raise
+                except RetrievalError as exc:return [],exc
+                except Exception:return [],RetrievalError("search_provider_unavailable",retryable=True)
+                finally:
+                    if cancel_wait is not None:
+                        cancel_wait.cancel()
+                        await asyncio.gather(cancel_wait,return_exceptions=True)
         results = await asyncio.gather(*(one(index,query) for index,query in enumerate(queries)))
-        return [item for batch in results for item in batch]
+        failures={};sources=[];successful=0
+        for batch,error in results:
+            sources.extend(batch)
+            if error is None:successful+=1
+            else:
+                failures[error.reason_code]=failures.get(error.reason_code,0)+1
+        return sources,{"attempted_queries":len(queries),"successful_queries":successful,"raw_sources":len(sources),"failure_counts":failures}
 
     async def _distill(self, sources: list[Source], request: ResearchRequest, plan: ResearchPlan) -> list[Evidence]:
         semaphore = asyncio.Semaphore(4)

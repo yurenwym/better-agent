@@ -191,7 +191,7 @@ class ResearchService:
                         (source.id, job_id, ordinal, source.kind, source.canonical_url, source.locator, source.title, source.content,
                          source.content_hash, source.published_at, source.retrieved_at, source.quality_score, json.dumps(source.metadata)),
                     )
-                kind = "research.sources_updated"; data = {"job_id": job_id, "source_count": int(event.data.get("count", 0))}
+                kind = "research.sources_updated"; data = {"job_id": job_id, "source_count": int(event.data.get("count", 0)),"diagnostics":event.data.get("diagnostics",{})}
             elif event.type == "evidence":
                 for evidence in event.data.get("items", []):
                     connection.execute(

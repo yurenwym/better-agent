@@ -20,13 +20,23 @@ async def test_tavily_search_maps_results_without_exposing_key():
     assert len(result)==1 and result[0].canonical_url=="https://sqlite.org/wal.html"
     assert result[0].quality_score==.91 and "secret" not in repr(result)
     assert seen["authorization"]=="Bearer secret" and "secret" not in seen["body"]
+    assert '"chunks_per_source":3' in seen["body"]
 
 
 @pytest.mark.asyncio
-async def test_tavily_search_rejects_private_result_urls():
+async def test_tavily_search_reports_when_all_result_urls_are_rejected():
+    from app.research.retriever import RetrievalError
     transport=httpx.MockTransport(lambda request:httpx.Response(200,json={"results":[{"title":"private","url":"http://127.0.0.1/admin","content":"x"*500,"score":1}]}))
-    result=await TavilySearchRetriever("secret",transport=transport).retrieve("x",ResearchRequest("job","x",("web",),ResearchLimits()))
-    assert result==[]
+    with pytest.raises(RetrievalError,match="search_results_rejected"):
+        await TavilySearchRetriever("secret",transport=transport).retrieve("x",ResearchRequest("job","x",("web",),ResearchLimits()))
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_reports_empty_provider_results():
+    from app.research.retriever import RetrievalError
+    transport=httpx.MockTransport(lambda request:httpx.Response(200,json={"results":[]}))
+    with pytest.raises(RetrievalError,match="search_no_results"):
+        await TavilySearchRetriever("secret",transport=transport).retrieve("x",ResearchRequest("job","x",("web",),ResearchLimits()))
 
 
 def test_tavily_requires_key():

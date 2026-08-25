@@ -44,6 +44,11 @@ function isQuote(line: string): boolean {
 }
 
 function renderInline(value: string): ReactNode[] {
+  const breakParts=value.split(/<br\s*\/?\s*>/gi);
+  if(breakParts.length>1)return breakParts.flatMap((part,index)=>[
+    ...(index>0?[<br key={`inline-html-break-${index}`}/>]:[]),
+    ...renderInline(part),
+  ]);
   const nodes: ReactNode[] = [];
   let lastIndex = 0;
 

@@ -7,7 +7,7 @@ import pytest
 
 from app.research.engine import InsufficientEvidence, ResearchCancelled, ResearchEngine, TopicCoverageError, UnknownCitation
 from app.research.models import Evidence, ResearchLimits, ResearchPlan, ResearchRequest, Source
-from app.research.retriever import filter_sources, validate_public_url
+from app.research.retriever import RetrievalError, filter_sources, validate_public_url
 from app.research.live import LiveResearchModel, relevant_excerpt
 
 
@@ -143,6 +143,21 @@ async def test_source_hash_citation_is_normalized_to_the_exact_source_id() -> No
 
 
 @pytest.mark.asyncio
+async def test_hallucinated_summary_citation_does_not_discard_a_valid_report() -> None:
+    class HallucinatedSummary(FakeModel):
+        async def summarize(self, sections):
+            return "摘要 [[source:invented]]", ("要点 [[source:invented]]",)
+
+    events = [event async for event in ResearchEngine(HallucinatedSummary(), FakeRetriever()).run_research(
+        ResearchRequest("summary-citation", "x", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+
+    report = next(event.data["markdown"] for event in events if event.type == "report")
+    assert "invented" not in report
+    assert "https://example.com/base" in report
+
+
+@pytest.mark.asyncio
 async def test_recovery_keeps_persisted_source_identity_for_completed_section() -> None:
     old_source=Source("old-source",1,"web","https://example.com/old",None,"Old","old body"*80,None,"old",.8,"old-hash")
     old_evidence=Evidence("old-evidence",old_source.id,"old fact",None,.9)
@@ -184,6 +199,52 @@ def test_source_filter_is_stable_deduplicated_and_domain_bounded() -> None:
     assert [item.id for item in result] == ["s0", "s1", "s2"]
     assert [item.ordinal for item in result] == [1, 2, 3]
     assert all("#" not in (item.canonical_url or "") for item in result)
+
+
+@pytest.mark.asyncio
+async def test_retrieval_failure_keeps_safe_query_diagnostics():
+    class BrokenRetriever:
+        async def retrieve(self, query, request):
+            raise RetrievalError("search_provider_unavailable")
+
+    engine = ResearchEngine(FakeModel(), BrokenRetriever())
+    with pytest.raises(InsufficientEvidence) as caught:
+        _ = [event async for event in engine.run_research(
+            ResearchRequest("diagnostic", "x", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+
+    assert caught.value.reason_code == "search_provider_unavailable"
+    assert caught.value.diagnostics == {
+        "attempted_queries": 2,
+        "successful_queries": 0,
+        "raw_sources": 0,
+        "accepted_sources": 0,
+        "failure_counts": {"search_provider_unavailable": 2},
+    }
+
+
+@pytest.mark.asyncio
+async def test_retrieval_stops_promptly_when_research_is_cancelled():
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    class HangingRetriever:
+        async def retrieve(self, query, request):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    stop = asyncio.Event()
+    engine = ResearchEngine(FakeModel(), HangingRetriever())
+    task = asyncio.create_task(engine._retrieve(["x"], ResearchRequest("cancel-retrieve", "x", ("web",), ResearchLimits(), stop)))
+    await started.wait()
+    stop.set()
+
+    with pytest.raises(ResearchCancelled):
+        await asyncio.wait_for(task, .2)
+    assert cancelled.is_set()
 
 
 def test_merge_sources_never_exceeds_the_research_limit() -> None:

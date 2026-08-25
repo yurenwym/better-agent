@@ -129,6 +129,15 @@ def test_failed_research_keeps_collected_source_and_evidence_counts(tmp_path):
  failed=service.fail(job.id,"w","unknowncitation")
  assert (failed.source_count,failed.evidence_count)==(1,1)
 
+def test_source_event_exposes_only_safe_retrieval_diagnostics(tmp_path):
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"private query","safe-diagnostics",("web",));service.claim_next("w",30)
+ diagnostics={"attempted_queries":2,"successful_queries":0,"raw_sources":0,"accepted_sources":0,"failure_counts":{"search_timeout":2}}
+ service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":0,"diagnostics":diagnostics}))
+ event=conversation.events.list(job.thread_id)[-1]
+ assert event.type=="research.sources_updated" and event.data["diagnostics"]==diagnostics
+ serialized=str(event.data)
+ assert "private query" not in serialized and "https://" not in serialized and "secret" not in serialized
+
 def test_expired_cancelled_last_attempt_finishes_cancelled(tmp_path):
  db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","cancel-exhaust",("web",))
  with db.transaction() as c:c.execute("UPDATE research_jobs SET status='RUNNING',attempts=max_attempts,lease_owner='dead',lease_until='2000-01-01T00:00:00+00:00',cancel_requested_at='2000-01-01T00:00:00+00:00' WHERE id=?",(job.id,))

@@ -58,8 +58,9 @@ class ManagedResearchWorker:
         except PermissionError:
             pass
         except Exception as exc:
-            retryable=isinstance(exc,(TimeoutError,ConnectionError,asyncio.TimeoutError)) or getattr(exc,"kind","") in {"timeout","rate_limit","server"}
-            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, type(exc).__name__.lower(),retryable)
+            reason=getattr(exc,"reason_code",type(exc).__name__.lower())
+            retryable=bool(getattr(exc,"retryable",False)) or isinstance(exc,(TimeoutError,ConnectionError,asyncio.TimeoutError)) or getattr(exc,"kind","") in {"timeout","rate_limit","server"}
+            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, reason,retryable)
         finally:
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError): await heartbeat

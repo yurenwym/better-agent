@@ -52,6 +52,15 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText('<script>alert("x")</script>')).toBeTruthy();
   });
 
+  it("renders model br tags as line breaks without enabling raw HTML", () => {
+    render(<MarkdownMessage content={'第一行<br>第二行<br/>第三行<br />第四行<script>alert("x")</script>'} />);
+
+    expect(screen.getByText(/第一行/).querySelectorAll("br")).toHaveLength(3);
+    expect(screen.queryByText(/<br\s*\/?\s*>/)).toBeNull();
+    expect(screen.getByText(/<script>alert\("x"\)<\/script>/)).toBeTruthy();
+    expect(screen.queryByRole("script")).toBeNull();
+  });
+
   it("degrades incomplete blocks to visible code without throwing", () => {
     const fence = String.fromCharCode(96).repeat(3);
     render(<MarkdownMessage content={fence + "\npartial output"} />);

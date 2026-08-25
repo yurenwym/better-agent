@@ -15,6 +15,13 @@ import re
 import uuid
 
 
+class RetrievalError(RuntimeError):
+    def __init__(self, reason_code: str, *, retryable: bool = False) -> None:
+        super().__init__(reason_code)
+        self.reason_code = reason_code
+        self.retryable = retryable
+
+
 def canonicalize_url(value: str) -> str:
     parsed = urlsplit(value)
     host = (parsed.hostname or "").lower()
@@ -86,4 +93,11 @@ class CombinedRetriever:
     def __init__(self,*retrievers):self.retrievers=retrievers
     async def retrieve(self,query,request):
         batches=await asyncio.gather(*(item.retrieve(query,request) for item in self.retrievers),return_exceptions=True)
-        return [source for batch in batches if isinstance(batch,list) for source in batch]
+        sources=[source for batch in batches if isinstance(batch,list) for source in batch]
+        if sources:return sources
+        failures=[batch for batch in batches if isinstance(batch,RetrievalError)]
+        if failures:
+            retryable=any(item.retryable for item in failures)
+            reason=next((item.reason_code for item in failures if item.retryable),failures[0].reason_code)
+            raise RetrievalError(reason,retryable=retryable)
+        return []
