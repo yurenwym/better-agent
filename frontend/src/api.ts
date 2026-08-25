@@ -37,6 +37,7 @@ import type {
   AgentRun,
   AgentTask,
   EvolutionCandidate,
+  GrowthProfile,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -95,6 +96,10 @@ export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap>
 
 export async function getGoalWorkspace(resourceId: string, fetcher: Fetcher = fetch): Promise<GoalWorkspace> {
   return json<GoalWorkspace>(await fetcher(`/api/workspaces/${encodeURIComponent(resourceId)}`));
+}
+
+export async function getGrowthProfile(fetcher: Fetcher = fetch): Promise<GrowthProfile> {
+  return json<GrowthProfile>(await fetcher("/api/growth/profile"));
 }
 
 function goalMutationHeaders(csrfToken: string, idempotencyKey: string): HeadersInit {

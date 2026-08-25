@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   startEvolutionCanary: vi.fn(),
   promoteEvolutionCandidate: vi.fn(),
   rollbackEvolutionCandidate: vi.fn(),
+  getGrowthProfile: vi.fn(),
 }));
 
 vi.mock("../api", () => api);
@@ -28,6 +29,15 @@ describe("GrowthPage", () => {
       canary: null, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:01Z",
     }] });
     api.approveEvolutionCandidate.mockResolvedValue({ id: "candidate-1", status: "APPROVED", version: 4 });
+    api.getGrowthProfile.mockResolvedValue({ owner_id: "local-user", metrics: {
+      total_programs: 2, completed_programs: 1, completed_actions: 4, skipped_actions: 1,
+      deferred_actions: 0, average_difficulty: 3.5, average_actual_minutes: 42, accepted_adjustments: 1,
+    }, programs: [{
+      id: "program-1", objective_title: "完成第一次骑行", objective_summary: "建立稳定习惯", status: "COMPLETED",
+      start_date: "2026-08-01", end_date: "2026-08-07", version: 2,
+      progress: { required_completed: 4, required_total: 4, optional_completed: 0, optional_total: 0 },
+      completion_summary: "完成了计划", completion_episode_id: "episode-1", source_plan_document_id: "plan-1",
+    }] });
   });
 
   it("shows candidate evidence, evaluation and permission changes", async () => {
@@ -43,6 +53,9 @@ describe("GrowthPage", () => {
     expect(screen.getByRole("heading", { name: "准备怎样改变" })).toBeTruthy();
     expect(screen.getByText("限制研究范围，只生成用户明确要求的内容")).toBeTruthy();
     expect(screen.getByText("12 / 12 项检查通过")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "我的成长档案" })).toBeTruthy();
+    expect(screen.getByText("完成行动")).toBeTruthy();
+    expect(screen.getByText("4/4 必做行动")).toBeTruthy();
   });
 
   it("approves with the expected candidate version", async () => {

@@ -152,6 +152,19 @@ def register_routes(app) -> None:
         settings = getattr(service, "settings", None)
         return {"human_mode": settings.get().human_mode if settings else False}
 
+    @app.get("/api/growth/profile")
+    async def get_growth_profile(request: Request):
+        from .growth import GrowthProfileService
+        return GrowthProfileService(runtime(request)).profile()
+
+    @app.get("/api/growth/programs/{program_id}")
+    async def get_growth_program(program_id: str, request: Request):
+        from .growth import GrowthProfileService
+        try:
+            return GrowthProfileService(runtime(request)).program(program_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="growth program not found") from exc
+
     @app.post("/api/plans/{plan_document_id}/program-preview", dependencies=[Depends(mutate)], response_model=None)
     async def preview_goal_program(
         plan_document_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)

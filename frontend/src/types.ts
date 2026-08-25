@@ -34,6 +34,12 @@ export interface GoalWorkspace {
   growth: { episode_id: string | null; episode_count: number; latest_summary: string | null };
 }
 
+export interface GrowthProfile {
+  owner_id: string;
+  metrics: { total_programs: number; completed_programs: number; completed_actions: number; skipped_actions: number; deferred_actions: number; average_difficulty: number | null; average_actual_minutes: number | null; accepted_adjustments: number };
+  programs: Array<{ id: string; objective_title: string; objective_summary: string; status: string; start_date: string; end_date: string; version: number; progress: GoalProgress; completion_summary: string | null; completion_episode_id: string | null; source_plan_document_id: string }>;
+}
+
 export interface SkillDefinition {
   name: string;
   title: string;
