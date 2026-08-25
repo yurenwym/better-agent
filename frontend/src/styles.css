@@ -72,7 +72,9 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .workspace-main-viewport { display: flex; flex-direction: column; }
 .workspace-main-viewport .workspace-page-fluid { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
 .workspace-main-viewport .workspace-page-fluid > .chat-workspace { flex: 1 1 0; min-height: 0; align-items: stretch; }
-.workspace-main-viewport .chat-main-column { min-height: 0; }
+.workspace-main-viewport .chat-main-column { display: flex; min-height: 0; height: 100%; flex-direction: column; }
+.workspace-main-viewport .conversation-with-expert-mode { flex: 1 1 0; min-height: 0; }
+.workspace-main-viewport .conversation-surface { min-height: 0; height: 100%; }
 .workspace-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 26px 48px 20px; border-bottom: 1px solid var(--color-line); background: rgba(246, 248, 251, 0.92); }
 .workspace-title-lockup { display: grid; gap: 7px; min-width: 0; }
 .brand-kicker, .eyebrow { color: var(--color-accent-strong); font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: 0.12em; line-height: 1.3; text-transform: uppercase; }
