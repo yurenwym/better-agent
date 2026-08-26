@@ -136,3 +136,7 @@ def test_challenger_safety_failure_atomically_rolls_back_canary(tmp_path):
     assert state["candidate_status"] == "ROLLED_BACK"
     assert evolution.bundles.active("canary").id == base.id
     assert event["type"] == "evolution.canary.auto_rolled_back"
+    rollback = evolution.get_candidate(deployment["candidate_id"])["rollback"]
+    assert rollback["kind"] == "safety_auto"
+    assert rollback["actor"] == "safety-gate"
+    assert rollback["reason"] == "Canary safety check failed"

@@ -595,9 +595,10 @@ class EvolutionService:
             return self._candidate_row(connection, candidate_id, owner_id)
 
     def rollback(
-        self, candidate_id: str, *, expected_version: int, reason: str, idempotency_key: str, owner_id: str = OWNER_ID,
+        self, candidate_id: str, *, expected_version: int, reason: str, idempotency_key: str,
+        actor: str = "release-manager", owner_id: str = OWNER_ID,
     ) -> dict[str, Any]:
-        request_digest = _digest({"candidate_id": candidate_id, "expected_version": expected_version, "reason": reason})
+        request_digest = _digest({"candidate_id": candidate_id, "expected_version": expected_version, "reason": reason, "actor": actor})
         with self.db.transaction() as connection:
             prior = connection.execute("SELECT * FROM evolution_decisions WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if prior is not None:
@@ -617,16 +618,16 @@ class EvolutionService:
             connection.execute(
                 "INSERT INTO evolution_decisions(id,candidate_id,evaluation_id,decision,from_bundle_id,to_bundle_id,actor,reason,"
                 "candidate_digest,evaluation_report_digest,permission_diff_digest,target_bundle_digest,request_digest,idempotency_key,created_at) "
-                "VALUES (?,?,?,'ROLLBACK',?,?,'release-manager',?,?,?,?,?,?,?,?)",
-                (decision_id, candidate_id, candidate["current_evaluation_id"], candidate["target_bundle_id"], candidate["base_bundle_id"], reason,
-                 candidate["proposed_digest"], approval["evaluation_report_digest"], candidate["permission_diff_digest"],
+                "VALUES (?,?,?,'ROLLBACK',?,?,?,?,?,?,?,?,?,?,?)",
+                (decision_id, candidate_id, candidate["current_evaluation_id"], candidate["target_bundle_id"], candidate["base_bundle_id"], actor,
+                 reason, candidate["proposed_digest"], approval["evaluation_report_digest"], candidate["permission_diff_digest"],
                  candidate["target_bundle_digest"], request_digest, idempotency_key, now),
             )
             self._switch_channel(connection, "stable", candidate["base_bundle_id"], f"evolution-rollback:{idempotency_key}")
             if candidate["deployment_id"]:
                 connection.execute("UPDATE canary_deployments SET status='ROLLED_BACK',updated_at=? WHERE id=?", (now, candidate["deployment_id"]))
             self._advance(connection, candidate_id, expected_version, "ROLLED_BACK")
-            self._event(connection, candidate_id, "evolution.rolled_back", "release-manager", {"reason": reason}, f"rollback:{idempotency_key}")
+            self._event(connection, candidate_id, "evolution.rolled_back", actor, {"reason": reason}, f"rollback:{idempotency_key}")
             return self._candidate_row(connection, candidate_id, owner_id)
 
     def get_candidate(self, candidate_id: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
@@ -728,6 +729,17 @@ class EvolutionService:
         row = self._candidate_db(connection, candidate_id, owner_id)
         result = self._candidate(row)
         result["evidence_count"] = len(result["experience_ids"])
+        source_rows = connection.execute(
+            "SELECT DISTINCT source_kind FROM evolution_experiences "
+            "WHERE id IN (SELECT value FROM json_each(?)) ORDER BY source_kind",
+            (row["experience_ids_json"],),
+        ).fetchall()
+        result["evidence_source_kinds"] = [source["source_kind"] for source in source_rows]
+        result["record_origin"] = (
+            "demo" if row["idempotency_key"].startswith("demo-")
+            else "observed" if row["idempotency_key"].startswith("auto-candidate:")
+            else "manual"
+        )
         evaluation = connection.execute("SELECT * FROM evolution_evaluations WHERE id=?", (row["current_evaluation_id"],)).fetchone() if row["current_evaluation_id"] else None
         result["evaluation"] = self._evaluation(evaluation) if evaluation else None
         deployment = connection.execute("SELECT * FROM canary_deployments WHERE id=?", (row["deployment_id"],)).fetchone() if row["deployment_id"] else None
@@ -736,6 +748,23 @@ class EvolutionService:
             challenger = int(counts["challenger"] or 0); champion = int(counts["champion"] or 0)
             result["canary"] = {"id":deployment["id"],"allocation":deployment["allocation_percent"],"sample_size":challenger,"challenger_sample_size":challenger,"champion_sample_size":champion,"required_samples":self.minimum_canary_samples,"total_exposures":int(counts["total"] or 0),"pending_safety":int(counts["pending_safety"] or 0),"safety_failures":int(counts["safety_failures"] or 0),"success_failures":int(counts["success_failures"] or 0),"promotable":challenger >= self.minimum_canary_samples and (self.minimum_canary_samples < 20 or champion >= self.minimum_canary_samples) and not counts["pending_safety"] and not counts["safety_failures"] and not counts["success_failures"],"status":deployment["status"]}
         else: result["canary"] = None
+        rollback = connection.execute(
+            "SELECT type,actor,data_json,occurred_at FROM evolution_events "
+            "WHERE candidate_id=? AND type IN ('evolution.rolled_back','evolution.canary.auto_rolled_back') "
+            "ORDER BY row_id DESC LIMIT 1",
+            (candidate_id,),
+        ).fetchone()
+        if rollback:
+            data = json.loads(rollback["data_json"] or "{}")
+            automatic = rollback["type"] == "evolution.canary.auto_rolled_back"
+            result["rollback"] = {
+                "kind": "safety_auto" if automatic else "manual",
+                "actor": rollback["actor"],
+                "reason": "Canary safety check failed" if automatic else str(data.get("reason") or "manual rollback"),
+                "occurred_at": rollback["occurred_at"],
+            }
+        else:
+            result["rollback"] = None
         return result
 
     @staticmethod

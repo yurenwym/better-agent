@@ -444,6 +444,8 @@ export interface EvolutionCandidate {
   risk_level: "low" | "medium" | "high" | string;
   evidence_count: number;
   evidence_refs?: string[];
+  evidence_source_kinds?: string[];
+  record_origin?: "demo" | "manual" | "observed";
   reason?: string;
   proposed_content?: Record<string, unknown>;
   diff?: Array<{ label: string; before?: string; after?: string }>;
@@ -463,6 +465,7 @@ export interface EvolutionCandidate {
   };
   permission_diff: { added: string[]; removed: string[]; unchanged?: string[] };
   canary: null | { allocation?: number; sample_size?: number; challenger_sample_size?: number; champion_sample_size?: number; required_samples?: number; safety_failures?: number; success_failures?: number; promotable?: boolean; status?: string };
+  rollback?: null | { kind: "manual" | "safety_auto"; actor: string; reason: string; occurred_at: string };
   approval_id?: string | null;
   created_at: string;
   updated_at: string;

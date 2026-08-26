@@ -52,7 +52,7 @@ describe("GrowthPage", () => {
     expect(screen.getByText("多次研究都扩大了用户没有要求的范围。")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "准备怎样改变" })).toBeTruthy();
     expect(screen.getByText("限制研究范围，只生成用户明确要求的内容")).toBeTruthy();
-    expect(screen.getByText("12 / 12 项检查通过")).toBeTruthy();
+    expect(screen.getByText("确定性检查 12 / 12 通过")).toBeTruthy();
     expect(screen.getByRole("list")).toBeTruthy();
     expect(screen.getByText("基线正确")).toBeTruthy();
     expect(screen.getByText("候选正确")).toBeTruthy();
@@ -87,5 +87,23 @@ describe("GrowthPage", () => {
     render(<GrowthPage csrfToken="csrf"/>);
     expect(await screen.findByText("挑战组 4/20 · 对照组 7/20")).toBeTruthy();
     expect(screen.getByText("还需 16 个挑战组样本、13 个对照组样本")).toBeTruthy();
+  });
+
+  it("labels a manual rollback and old evaluation metrics without implying a safety failure", async () => {
+    api.listEvolutionCandidates.mockResolvedValue({ candidates: [{
+      id:"candidate-rollback",kind:"prompt",title:"提示词候选",summary:"限制研究范围",status:"ROLLED_BACK",version:4,risk_level:"medium",evidence_count:3,
+      evaluation:{status:"COMPLETED",deterministic_pass:true,regressions:[],passed:12,total:12,baseline_correct:null,candidate_correct:null,quality_delta:null,safety_violations:null},
+      permission_diff:{added:[],removed:[]},canary:{status:"ROLLED_BACK",sample_size:0},
+      rollback:{kind:"manual",actor:"user",reason:"user rollback",occurred_at:"2026-08-25T07:36:55Z"},record_origin:"demo",created_at:"",updated_at:"2026-08-25T07:36:55Z",
+    }] });
+
+    render(<GrowthPage csrfToken="csrf"/>);
+
+    expect(await screen.findByText("用户手动回滚")).toBeTruthy();
+    expect(screen.getByText("这是一条演示数据，用于验证进化流程，不代表 Agent 从真实任务中自动学习的结果。")).toBeTruthy();
+    expect(screen.getByText("旧版评测未记录真实行为指标")).toBeTruthy();
+    expect(screen.getByText("确定性检查 12 / 12 通过")).toBeTruthy();
+    expect(screen.getByText("回滚分支")).toBeTruthy();
+    expect(screen.queryByText("安全失败")).toBeNull();
   });
 });

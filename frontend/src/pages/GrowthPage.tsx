@@ -21,6 +21,9 @@ export default function GrowthPage({ csrfToken }: GrowthPageProps) {
     APPROVED: 3, CANARY: 4, PROMOTED: 5, FAILED: 2, REJECTED: 3, ROLLED_BACK: 4,
   }[status] ?? 0);
   const furthestStage = candidates.reduce((current, candidate) => Math.max(current, stageIndex(candidate.status)), 0);
+  const currentStage = candidates.reduce<number | null>((current, candidate) =>
+    ["REJECTED", "ROLLED_BACK", "FAILED"].includes(candidate.status) ? current : Math.max(current ?? 0, stageIndex(candidate.status)), null);
+  const rolledBackCount = candidates.filter(candidate => candidate.status === "ROLLED_BACK").length;
 
   useEffect(() => {
     let active = true;
@@ -66,7 +69,8 @@ export default function GrowthPage({ csrfToken }: GrowthPageProps) {
     </section>
     <section className="evolution-pipeline" aria-label="自进化阶段">
       <div className="section-heading"><span className="eyebrow">RELEASE PIPELINE</span><h3>可信改进闭环</h3><p>系统自动收集经验和生成候选；评测后由你批准，Canary 样本达标后仍需你确认晋升。</p></div>
-      <ol>{stages.map((stage, index) => <li className={index <= furthestStage ? "is-reached" : ""} key={stage} aria-current={index === furthestStage ? "step" : undefined}><span>{index + 1}</span><strong>{stage}</strong></li>)}</ol>
+      <ol>{stages.map((stage, index) => <li className={index <= furthestStage ? "is-reached" : ""} key={stage} aria-current={index === currentStage ? "step" : undefined}><span>{index + 1}</span><strong>{stage}</strong></li>)}</ol>
+      {rolledBackCount > 0 && <p className="evolution-pipeline-outcome"><strong>回滚分支</strong><span>{rolledBackCount} 个候选曾进入验证，随后已恢复原版本；详情见下方记录。</span></p>}
     </section>
     {notice && <p className="growth-notice" role="status">{notice}</p>}
     {error && <div className="error-message" role="alert"><span>{error}</span></div>}

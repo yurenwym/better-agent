@@ -1213,7 +1213,7 @@ def register_routes(app) -> None:
     async def rollback_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
         return _evolution_call(lambda: service.rollback(
             candidate_id, expected_version=_required_int(payload, "expected_version"), reason=str(payload.get("reason") or "user rollback"),
-            idempotency_key=idempotency_key(request),
+            actor=str(payload.get("actor") or "user"), idempotency_key=idempotency_key(request),
         ))
 
     @app.get("/api/evolution/bundles")

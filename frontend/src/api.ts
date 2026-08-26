@@ -218,6 +218,8 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
     version: Number(raw.version ?? 0), risk_level: String(raw.risk_level ?? (kind === "code" ? "high" : "medium")),
     evidence_count: Number(raw.evidence_count ?? (Array.isArray(raw.experience_ids) ? raw.experience_ids.length : 0)),
     evidence_refs: stringList(raw.evidence_refs ?? raw.experience_ids),
+    evidence_source_kinds: stringList(raw.evidence_source_kinds),
+    record_origin: ["demo", "manual", "observed"].includes(String(raw.record_origin)) ? raw.record_origin as EvolutionCandidate["record_origin"] : undefined,
     reason: typeof raw.reason === "string" ? raw.reason : undefined,
     proposed_content: raw.proposed_content && typeof raw.proposed_content === "object" ? raw.proposed_content as Record<string, unknown> : undefined,
     evaluation: evaluation ? {
@@ -241,6 +243,7 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
     } : null,
     permission_diff: { added: stringList(permission.added), removed: stringList(permission.removed), unchanged: stringList(permission.unchanged) },
     canary: raw.canary && typeof raw.canary === "object" ? raw.canary as EvolutionCandidate["canary"] : null,
+    rollback: raw.rollback && typeof raw.rollback === "object" ? raw.rollback as EvolutionCandidate["rollback"] : null,
     approval_id: typeof raw.approval_id === "string" ? raw.approval_id : null,
     created_at: String(raw.created_at ?? ""), updated_at: String(raw.updated_at ?? raw.created_at ?? ""),
   };

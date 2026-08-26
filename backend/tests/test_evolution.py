@@ -57,6 +57,8 @@ def test_experience_lineage_requires_three_independent_discovery_records_and_can
     item = candidate(service, base, target, [*evidence, third])
     assert item["status"] == "READY_FOR_EVAL"
     assert len(item["experience_ids"]) == 3
+    assert item["record_origin"] == "manual"
+    assert item["evidence_source_kinds"] == ["manual"]
 
     with pytest.raises(EvolutionConflict, match="lineage partition"):
         service.record_experience(
@@ -125,6 +127,10 @@ def test_deterministic_gate_approval_binding_canary_samples_and_atomic_rollback(
         item["id"], expected_version=promoted["version"], reason="operator rollback", idempotency_key="rollback-1"
     )
     assert rolled_back["status"] == "ROLLED_BACK"
+    assert rolled_back["rollback"]["kind"] == "manual"
+    assert rolled_back["rollback"]["actor"] == "release-manager"
+    assert rolled_back["rollback"]["reason"] == "operator rollback"
+    assert rolled_back["rollback"]["occurred_at"]
     assert bundles.active("stable").id == base.id
 
 
@@ -304,4 +310,6 @@ def test_candidate_generator_requires_three_independent_discovery_experiences(tm
     assert len(generated) == 1
     assert generated[0]["candidate_type"] == "prompt"
     assert generated[0]["proposed_content"].keys() == {"prompt"}
+    assert generated[0]["record_origin"] == "observed"
+    assert generated[0]["evidence_source_kinds"] == ["observer"]
     assert generator.generate() == []

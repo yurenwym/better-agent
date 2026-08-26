@@ -43,17 +43,31 @@ function readableSummary(candidate: EvolutionCandidate): string {
   return candidate.summary;
 }
 
+function rollbackTitle(candidate: EvolutionCandidate): string {
+  if (candidate.rollback?.kind === "safety_auto") return "安全机制自动回滚";
+  if (candidate.rollback?.actor === "user" || candidate.rollback?.reason === "user rollback") return "用户手动回滚";
+  return "管理员手动回滚";
+}
+
+function rollbackReason(candidate: EvolutionCandidate): string {
+  if (candidate.rollback?.kind === "safety_auto") return "Canary 任务出现明确的安全失败，系统已恢复原版本。";
+  if (candidate.rollback?.reason === "user rollback") return "用户主动终止了这次改进。";
+  return candidate.rollback?.reason || "已手动恢复原版本。";
+}
+
 export default function EvolutionCandidateCard({ candidate, busy = false, onAction }: Props) {
   const evaluationPassed = candidate.evaluation?.deterministic_pass === true && candidate.evaluation.regressions.length === 0;
   const evaluation = candidate.evaluation;
+  const hasBehaviorMetrics = evaluation != null && [evaluation.baseline_correct, evaluation.candidate_correct, evaluation.quality_delta, evaluation.safety_violations].every(value => typeof value === "number");
   const changes = Object.entries(candidate.proposed_content ?? {});
   const evaluationProgress = evaluation?.total != null
-    ? `${evaluation.passed ?? 0} / ${evaluation.total} 项检查通过`
+    ? `确定性检查 ${evaluation.passed ?? 0} / ${evaluation.total} 通过`
     : evaluationPassed ? "全部确定性检查通过" : "等待评测";
   const canaryProgress = candidate.status === "CANARY" ? `挑战组 ${candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0}/${candidate.canary?.required_samples ?? 20} · 对照组 ${candidate.canary?.champion_sample_size ?? 0}/${candidate.canary?.required_samples ?? 20}` : null;
   const canaryMissing = candidate.status === "CANARY" ? `还需 ${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0), 0)} 个挑战组样本、${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.champion_sample_size ?? 0), 0)} 个对照组样本` : null;
   return <article className="evolution-card">
-    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
+    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}{candidate.record_origin === "demo" ? " · 演示记录" : candidate.record_origin === "manual" ? " · 人工证据" : ""}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
+    {candidate.record_origin === "demo" && <p className="evolution-demo-note">这是一条演示数据，用于验证进化流程，不代表 Agent 从真实任务中自动学习的结果。</p>}
     <div className="evolution-facts">
       <div><span>证据</span><strong>{candidate.evidence_count} 条证据</strong></div>
       <div><span>独立评测</span><strong>{candidate.evaluation ? (evaluationPassed ? "评测已通过" : "存在回归") : "尚未评测"}</strong></div>
@@ -66,12 +80,17 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       <section><span className="evolution-step">03</span><div><h4>验证结果</h4><p className={evaluationPassed ? "evolution-pass" : ""}>{evaluationProgress}</p><small>{candidate.permission_diff.added.length ? `涉及 ${candidate.permission_diff.added.length} 项新增权限，需谨慎确认。` : "没有新增权限，核心安全边界保持不变。"}</small></div></section>
       <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
     </div>
-    {evaluation && <div className="evolution-metrics" aria-label="基线与候选评测">
+    {candidate.status === "ROLLED_BACK" && candidate.rollback && <div className={`evolution-rollback ${candidate.rollback.kind === "safety_auto" ? "is-automatic" : ""}`} role="status">
+      <div><strong>{rollbackTitle(candidate)}</strong><span>{rollbackReason(candidate)}</span></div>
+      <time dateTime={candidate.rollback.occurred_at}>{new Date(candidate.rollback.occurred_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai", hour12: false })}</time>
+    </div>}
+    {evaluation && hasBehaviorMetrics && <div className="evolution-metrics" aria-label="真实行为评测">
       <div><span>基线正确</span><strong>{evaluation.baseline_correct ?? "—"}</strong></div>
       <div><span>候选正确</span><strong>{evaluation.candidate_correct ?? "—"}</strong></div>
       <div><span>质量变化</span><strong>{typeof evaluation.quality_delta === "number" ? `${evaluation.quality_delta >= 0 ? "+" : ""}${evaluation.quality_delta}` : "—"}</strong></div>
       <div><span>安全失败</span><strong>{evaluation.safety_violations ?? "—"}</strong></div>
     </div>}
+    {evaluation && !hasBehaviorMetrics && <div className="evolution-metrics-unavailable"><strong>旧版评测未记录真实行为指标</strong><span>当前只能确认确定性检查结果，不能据此判断候选质量或 Canary 安全性。</span></div>}
     {(candidate.permission_diff.added.length > 0 || candidate.permission_diff.removed.length > 0) && <div className="permission-diff" aria-label="权限变化明细">
       {candidate.permission_diff.added.map((item) => <span className="permission-added" key={`add-${item}`}>+ {item}</span>)}
       {candidate.permission_diff.removed.map((item) => <span className="permission-removed" key={`remove-${item}`}>− {item}</span>)}

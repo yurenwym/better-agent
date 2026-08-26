@@ -8,11 +8,13 @@ describe("REST client", () => {
       id:"candidate-1",candidate_type:"prompt",reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},
       status:"EVALUATED",version:1,experience_ids:["one","two","three"],permission_diff:{added:[]},
       evaluation:{status:"COMPLETED",deterministic_pass:true,checks:{safety:true},metrics:{passed:12,total:12}},
+      rollback:{kind:"manual",actor:"user",reason:"user rollback",occurred_at:"2026-08-25T07:36:55Z"},
+      record_origin:"demo",evidence_source_kinds:["manual"],
     }] }) });
 
     const { candidates } = await listEvolutionCandidates(fetcher);
 
-    expect(candidates[0]).toMatchObject({reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},evidence_count:3,evaluation:{passed:12,total:12}});
+    expect(candidates[0]).toMatchObject({reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},evidence_count:3,evaluation:{passed:12,total:12},rollback:{kind:"manual",reason:"user rollback"},record_origin:"demo",evidence_source_kinds:["manual"]});
   });
   it("loads and saves a conversation-owned Markdown plan with CAS metadata", async () => {
     const fetcher = vi.fn()
