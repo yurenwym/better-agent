@@ -58,6 +58,33 @@ jobs:
       - run: npx playwright test
         working-directory: frontend
 
+  docker-smoke:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config --quiet
+      - run: docker build --tag better-agent:ci .
+      - run: docker run --detach --name better-agent-ci --publish 127.0.0.1:8000:8000 better-agent:ci
+      - name: Wait for container health
+        run: |
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then break; fi
+            sleep 2
+          done
+          test "$(docker inspect --format '{{.State.Health.Status}}' better-agent-ci)" = "healthy"
+          curl --fail --silent http://127.0.0.1:8000/api/bootstrap >/dev/null
+          curl --fail --silent http://127.0.0.1:8000/ >/dev/null
+          docker restart better-agent-ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8000/api/health >/dev/null; then exit 0; fi
+            sleep 2
+          done
+          docker logs better-agent-ci
+          exit 1
+      - if: always()
+        run: docker rm --force better-agent-ci || true
+
   secrets:
     runs-on: ubuntu-latest
     steps:

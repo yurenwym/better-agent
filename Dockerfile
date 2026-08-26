@@ -8,8 +8,8 @@ RUN npm run build
 FROM python:3.12-slim AS app
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 BETTER_AGENT_HOST=0.0.0.0 PORT=8000
 WORKDIR /app
-RUN pip install --no-cache-dir fastapi httpx pydantic 'tzdata>=2025.2' 'uvicorn[standard]>=0.29'
 COPY backend ./backend
+RUN pip install --no-cache-dir ./backend
 COPY scripts ./scripts
 COPY README.md LICENSE ./
 COPY --from=frontend /src/frontend/dist ./frontend/dist
