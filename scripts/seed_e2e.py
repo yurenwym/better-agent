@@ -27,8 +27,19 @@ def main() -> None:
         source_message_id=None,
         actor="user",
     )
+    base = runtime.behavior.active("stable")
+    for index in range(3):
+        run = __import__("asyncio").run(runtime.create_goal(f"E2E failure {index}", "observer candidate"))
+        runtime.events.append(run.id, run.goal_id, "run.failed", "e2e", {"reason": "repeated prompt failure"})
+    runtime.observer.observe()
+    candidate = runtime.candidate_generator.generate()[0]
+    runtime.evolution.evaluate(
+        candidate["id"], expected_version=candidate["version"], deterministic_checks={"schema": True, "safety": True},
+        metrics={"passed": 2, "total": 2, "baseline_correct": 1, "candidate_correct": 2, "quality_delta": 1, "safety_violations": 0},
+        eval_set_digest="e2e-eval-set", evaluator_digest="e2e-deterministic", idempotency_key="e2e-evaluation",
+    )
     (data_root / "e2e-seed.json").write_text(
-        json.dumps({"thread_id": thread.id, "plan_id": version.plan_document_id, "today": today.isoformat(), "tomorrow": tomorrow.isoformat()}),
+        json.dumps({"thread_id": thread.id, "plan_id": version.plan_document_id, "candidate_id": candidate["id"], "today": today.isoformat(), "tomorrow": tomorrow.isoformat()}),
         encoding="utf-8",
     )
     print(json.dumps({"thread_id": thread.id, "plan_id": version.plan_document_id, "today": today.isoformat()}, ensure_ascii=False))

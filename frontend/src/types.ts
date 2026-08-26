@@ -456,6 +456,10 @@ export interface EvolutionCandidate {
     regressions: string[];
     passed?: number | null;
     total?: number | null;
+    baseline_correct?: number | null;
+    candidate_correct?: number | null;
+    quality_delta?: number | null;
+    safety_violations?: number | null;
   };
   permission_diff: { added: string[]; removed: string[]; unchanged?: string[] };
   canary: null | { allocation?: number; sample_size?: number; challenger_sample_size?: number; champion_sample_size?: number; required_samples?: number; safety_failures?: number; success_failures?: number; promotable?: boolean; status?: string };

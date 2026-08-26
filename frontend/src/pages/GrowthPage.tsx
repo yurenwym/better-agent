@@ -15,6 +15,12 @@ export default function GrowthPage({ csrfToken }: GrowthPageProps) {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [profile, setProfile] = useState<GrowthProfile | null>(null);
+  const stages = ["经验", "候选", "评测", "审批", "Canary", "晋升"];
+  const stageIndex = (status: EvolutionCandidate["status"]) => ({
+    DRAFT: 0, READY_FOR_EVAL: 1, EVALUATING: 2, EVALUATED: 2, PENDING_APPROVAL: 3,
+    APPROVED: 3, CANARY: 4, PROMOTED: 5, FAILED: 2, REJECTED: 3, ROLLED_BACK: 4,
+  }[status] ?? 0);
+  const furthestStage = candidates.reduce((current, candidate) => Math.max(current, stageIndex(candidate.status)), 0);
 
   useEffect(() => {
     let active = true;
@@ -57,6 +63,10 @@ export default function GrowthPage({ csrfToken }: GrowthPageProps) {
       <article><span>01</span><div><strong>从重复问题中学习</strong><p>至少三条独立经验才会提出改变。</p></div></article>
       <article><span>02</span><div><strong>先验证，再让你决定</strong><p>通过确定性测试后才允许批准。</p></div></article>
       <article><span>03</span><div><strong>小范围试用，可回滚</strong><p>Canary 安全后才会正式启用。</p></div></article>
+    </section>
+    <section className="evolution-pipeline" aria-label="自进化阶段">
+      <div className="section-heading"><span className="eyebrow">RELEASE PIPELINE</span><h3>可信改进闭环</h3><p>系统自动收集经验和生成候选；评测后由你批准，Canary 样本达标后仍需你确认晋升。</p></div>
+      <ol>{stages.map((stage, index) => <li className={index <= furthestStage ? "is-reached" : ""} key={stage} aria-current={index === furthestStage ? "step" : undefined}><span>{index + 1}</span><strong>{stage}</strong></li>)}</ol>
     </section>
     {notice && <p className="growth-notice" role="status">{notice}</p>}
     {error && <div className="error-message" role="alert"><span>{error}</span></div>}

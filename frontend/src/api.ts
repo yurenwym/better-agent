@@ -208,6 +208,7 @@ function stringList(value: unknown): string[] { return Array.isArray(value) ? va
 function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
   const permission = raw.permission_diff && typeof raw.permission_diff === "object" ? raw.permission_diff as Record<string, unknown> : {};
   const evaluation = raw.evaluation && typeof raw.evaluation === "object" ? raw.evaluation as Record<string, unknown> : null;
+  const evaluationMetrics = evaluation?.metrics && typeof evaluation.metrics === "object" ? evaluation.metrics as Record<string, unknown> : {};
   const kind = String(raw.kind ?? raw.candidate_type ?? "policy") as EvolutionCandidate["kind"];
   return {
     id: String(raw.id), kind,
@@ -233,6 +234,10 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
           : [],
       passed: evaluation.metrics && typeof evaluation.metrics === "object" && typeof (evaluation.metrics as Record<string, unknown>).passed === "number" ? Number((evaluation.metrics as Record<string, unknown>).passed) : null,
       total: evaluation.metrics && typeof evaluation.metrics === "object" && typeof (evaluation.metrics as Record<string, unknown>).total === "number" ? Number((evaluation.metrics as Record<string, unknown>).total) : null,
+      baseline_correct: typeof evaluationMetrics.baseline_correct === "number" ? evaluationMetrics.baseline_correct : null,
+      candidate_correct: typeof evaluationMetrics.candidate_correct === "number" ? evaluationMetrics.candidate_correct : null,
+      quality_delta: typeof evaluationMetrics.quality_delta === "number" ? evaluationMetrics.quality_delta : null,
+      safety_violations: typeof evaluationMetrics.safety_violations === "number" ? evaluationMetrics.safety_violations : null,
     } : null,
     permission_diff: { added: stringList(permission.added), removed: stringList(permission.removed), unchanged: stringList(permission.unchanged) },
     canary: raw.canary && typeof raw.canary === "object" ? raw.canary as EvolutionCandidate["canary"] : null,

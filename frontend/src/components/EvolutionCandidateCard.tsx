@@ -45,9 +45,10 @@ function readableSummary(candidate: EvolutionCandidate): string {
 
 export default function EvolutionCandidateCard({ candidate, busy = false, onAction }: Props) {
   const evaluationPassed = candidate.evaluation?.deterministic_pass === true && candidate.evaluation.regressions.length === 0;
+  const evaluation = candidate.evaluation;
   const changes = Object.entries(candidate.proposed_content ?? {});
-  const evaluationProgress = candidate.evaluation?.total != null
-    ? `${candidate.evaluation.passed ?? 0} / ${candidate.evaluation.total} 项检查通过`
+  const evaluationProgress = evaluation?.total != null
+    ? `${evaluation.passed ?? 0} / ${evaluation.total} 项检查通过`
     : evaluationPassed ? "全部确定性检查通过" : "等待评测";
   const canaryProgress = candidate.status === "CANARY" ? `挑战组 ${candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0}/${candidate.canary?.required_samples ?? 20} · 对照组 ${candidate.canary?.champion_sample_size ?? 0}/${candidate.canary?.required_samples ?? 20}` : null;
   const canaryMissing = candidate.status === "CANARY" ? `还需 ${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0), 0)} 个挑战组样本、${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.champion_sample_size ?? 0), 0)} 个对照组样本` : null;
@@ -65,6 +66,12 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       <section><span className="evolution-step">03</span><div><h4>验证结果</h4><p className={evaluationPassed ? "evolution-pass" : ""}>{evaluationProgress}</p><small>{candidate.permission_diff.added.length ? `涉及 ${candidate.permission_diff.added.length} 项新增权限，需谨慎确认。` : "没有新增权限，核心安全边界保持不变。"}</small></div></section>
       <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
     </div>
+    {evaluation && <div className="evolution-metrics" aria-label="基线与候选评测">
+      <div><span>基线正确</span><strong>{evaluation.baseline_correct ?? "—"}</strong></div>
+      <div><span>候选正确</span><strong>{evaluation.candidate_correct ?? "—"}</strong></div>
+      <div><span>质量变化</span><strong>{typeof evaluation.quality_delta === "number" ? `${evaluation.quality_delta >= 0 ? "+" : ""}${evaluation.quality_delta}` : "—"}</strong></div>
+      <div><span>安全失败</span><strong>{evaluation.safety_violations ?? "—"}</strong></div>
+    </div>}
     {(candidate.permission_diff.added.length > 0 || candidate.permission_diff.removed.length > 0) && <div className="permission-diff" aria-label="权限变化明细">
       {candidate.permission_diff.added.map((item) => <span className="permission-added" key={`add-${item}`}>+ {item}</span>)}
       {candidate.permission_diff.removed.map((item) => <span className="permission-removed" key={`remove-${item}`}>− {item}</span>)}

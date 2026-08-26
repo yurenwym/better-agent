@@ -75,4 +75,15 @@ test("golden journey completes the durable goal loop", async ({ page, request })
   await page.goto("/memory");
   await expect(page.getByRole("heading", { name: "最近经历" })).toBeVisible();
   await expect(page.getByText(/已完成目标/)).toBeVisible();
+
+  await page.goto("/growth");
+  await expect(page.getByRole("heading", { name: "可信改进闭环" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "提示词候选" })).toBeVisible();
+  await expect(page.getByText("3 条证据")).toBeVisible();
+  await page.getByRole("button", { name: "批准候选" }).click();
+  await expect(page.getByText("已批准")).toBeVisible();
+  await page.getByRole("button", { name: "开始 Canary" }).click();
+  await expect(page.getByText("灰度中")).toBeVisible();
+  await page.getByRole("button", { name: "回滚 Canary" }).click();
+  await expect(page.getByText("已回滚", { exact: true })).toBeVisible();
 });

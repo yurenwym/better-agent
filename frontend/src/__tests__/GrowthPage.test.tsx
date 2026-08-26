@@ -24,7 +24,7 @@ describe("GrowthPage", () => {
       status: "PENDING_APPROVAL", version: 3, risk_level: "medium", evidence_count: 24,
       reason: "多次研究都扩大了用户没有要求的范围。",
       proposed_content: { prompts: "research-scope-bounded" },
-      evaluation: { status: "PASSED", deterministic_pass: true, score_delta: 0.12, regressions: [], passed: 12, total: 12 },
+      evaluation: { status: "PASSED", deterministic_pass: true, score_delta: 0.12, regressions: [], passed: 12, total: 12, baseline_correct: 8, candidate_correct: 9, quality_delta: .1, safety_violations: 0 },
       permission_diff: { added: ["memory:read"], removed: [], unchanged: ["conversation:read"] },
       canary: null, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:01Z",
     }] });
@@ -53,6 +53,9 @@ describe("GrowthPage", () => {
     expect(screen.getByRole("heading", { name: "准备怎样改变" })).toBeTruthy();
     expect(screen.getByText("限制研究范围，只生成用户明确要求的内容")).toBeTruthy();
     expect(screen.getByText("12 / 12 项检查通过")).toBeTruthy();
+    expect(screen.getByRole("list")).toBeTruthy();
+    expect(screen.getByText("基线正确")).toBeTruthy();
+    expect(screen.getByText("候选正确")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "我的成长档案" })).toBeTruthy();
     expect(screen.getByText("完成行动")).toBeTruthy();
     expect(screen.getByText("4/4 必做行动")).toBeTruthy();

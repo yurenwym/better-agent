@@ -11,14 +11,14 @@ const executablePath = process.env.BETTER_AGENT_E2E_BROWSER;
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
-  retries: process.env.CI ? 2 : 0,
-  reporter: process.env.CI ? "github" : "list",
+  retries: 0,
+  reporter: process.env.CI ? [["github"], ["html", { open: "never" }]] : "list",
   use: { baseURL: `http://127.0.0.1:${port}`, trace: "retain-on-failure", screenshot: "only-on-failure", ...devices["Desktop Chrome"], ...(executablePath ? { launchOptions: { executablePath } } : {}) },
   webServer: {
     command: "python scripts/e2e_server.py",
     cwd: "..",
     url: `http://127.0.0.1:${port}/api/health`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
     env: { BETTER_AGENT_DATA_ROOT: e2eDataRoot, BETTER_AGENT_GOAL_REVIEW_DELAY: "0", PORT: port, BETTER_AGENT_HOST: "127.0.0.1" },
   },
