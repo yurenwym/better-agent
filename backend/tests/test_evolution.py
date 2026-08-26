@@ -278,3 +278,30 @@ def test_builtin_evaluation_fails_closed_without_behavior_runner(tmp_path):
     assert evaluation["checks"]["behavior_evaluation_configured"] is False
     with pytest.raises(EvolutionGateError, match="deterministic"):
         service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), idempotency_key="deny")
+
+
+def test_candidate_generator_requires_three_independent_discovery_experiences(tmp_path):
+    from app.evolution import EvolutionCandidateGenerator
+
+    _, bundles, service, base, _ = setup_service(tmp_path)
+    generator = EvolutionCandidateGenerator(service, bundles)
+    for index in range(2):
+        service.record_experience(
+            task_type="research", outcome="failure", lineage_group_hash=f"lineage-{index}",
+            source_content_hash=f"source-{index}", runtime_bundle_id=base.id,
+            dataset_partition="DISCOVERY", signal_type="research_failed",
+            failure_tags=["research_failed"], source_kind="observer", severity="error", idempotency_key=f"generator-exp-{index}",
+        )
+    assert generator.generate() == []
+
+    service.record_experience(
+        task_type="research", outcome="failure", lineage_group_hash="lineage-2",
+        source_content_hash="source-2", runtime_bundle_id=base.id,
+        dataset_partition="DISCOVERY", signal_type="research_failed",
+        failure_tags=["research_failed"], source_kind="observer", severity="error", idempotency_key="generator-exp-2",
+    )
+    generated = generator.generate()
+    assert len(generated) == 1
+    assert generated[0]["candidate_type"] == "prompt"
+    assert generated[0]["proposed_content"].keys() == {"prompt"}
+    assert generator.generate() == []

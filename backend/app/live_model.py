@@ -26,6 +26,7 @@ class LiveRuntimeModel:
     def __init__(self, gateway: ModelGateway, tool_schemas: list[dict[str, Any]] | None = None) -> None:
         self.gateway = gateway
         self.tool_schemas = tool_schemas or []
+        self.runtime_prompt_policy = None
         self._last_response: ContextVar[Any] = ContextVar("live_model_last_response", default=None)
         self._context_hash: ContextVar[str | None] = ContextVar("live_model_context_hash", default=None)
         self._context_text: ContextVar[str] = ContextVar("live_model_context_text", default="")
@@ -172,8 +173,9 @@ class LiveRuntimeModel:
         allow_tool_calls: bool = False,
     ) -> dict[str, Any]:
         self.last_response = None
+        policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
         messages = [
-            {"role": "system", "content": instruction},
+            {"role": "system", "content": _with_runtime_policy(instruction, policy)},
             {"role": "user", "content": json.dumps(input_data, ensure_ascii=False)},
         ]
         request_data = dict(input_data)
@@ -220,6 +222,7 @@ class LiveConversationModel:
         self.gateway = gateway
         self.settings = settings
         self.memory_store = None
+        self.runtime_prompt_policy = None
 
     async def _classify_existing_plan_save(
         self,
@@ -370,9 +373,10 @@ class LiveConversationModel:
             header=json.dumps({"v":3,"policy":"start_research","content_shape":"research","reason_code":"explicit_deep_research","research":{"topic":research_topic,"scope":"web"}},ensure_ascii=False)+"\n"
             if on_text_delta is not None:on_text_delta(header)
             return type("ResearchRouteResponse",(),{"message":header,"tool_calls":[],"finish_reason":"stop"})()
+        policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
         messages: list[dict[str, str]] = [{
             "role": "system",
-            "content": (
+            "content": _with_runtime_policy((
                 "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
                 "Use V1 for answer-only compatibility, V2 for saved documents, V3 for explicit deep research, and V4 for bounded expert collaboration. "
                 "The header policy is answer|propose_execution|clarify|start_research|start_expert. "
@@ -403,7 +407,7 @@ class LiveConversationModel:
                 "Use clarify only for legacy one-question text responses when a structured ask is not appropriate. "
                 "Never expose the header, hidden reasoning, tool schema, or raw JSON in the Markdown body. "
                 "Use the user's language and start the useful answer immediately after the header."
-            ),
+            ), policy),
         }]
         if human_mode:
             messages.append({"role": "system", "content": (
@@ -580,6 +584,12 @@ def _has_prior_assistant_markdown_plan(history: list[dict[str, Any]]) -> bool:
         if any(line.startswith("|") for line in lines[:5]):
             return True
     return False
+
+
+def _with_runtime_policy(instruction: str, policy: Any) -> str:
+    if policy is None or policy == "" or policy == "live-model-v1":
+        return instruction
+    return "Apply this approved Better Agent runtime prompt policy:\n" + json.dumps(policy, ensure_ascii=False) + "\n\n" + instruction
 
 
 def _response_has_plan_artifact(response: Any) -> bool:

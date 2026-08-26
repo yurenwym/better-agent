@@ -34,6 +34,7 @@ class GoalProgramService:
         self.conversation = conversation
         self.compile_timeout_seconds = compile_timeout_seconds
         self.reviews = None
+        self.expert_advisor = None
         self._recover_interrupted_compilations()
 
     def _recover_interrupted_compilations(self) -> None:
@@ -226,6 +227,14 @@ class GoalProgramService:
 
     async def _compile(self, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
         try:
+            if self.expert_advisor is not None:
+                advice = await self.expert_advisor.advise(
+                    purpose="plan", source_id=str(request["source_plan_document_version_id"]),
+                    objective="审阅计划并提出可执行性、风险和遗漏建议",
+                    context={"request": request, "plan_markdown": source_markdown}, roles=("planner", "critic"),
+                )
+                if advice is not None:
+                    request = {**request, "expert_advice": advice}
             return await asyncio.wait_for(
                 self.compiler.compile(source_markdown, request),
                 timeout=self.compile_timeout_seconds,
@@ -325,18 +334,34 @@ class GoalProgramService:
         request_hash = _hash({"action_id": action_id, "content": content, "expected_version": expected_version, "client_turn_id": client_turn_id})
         cached = self._receipt(owner_id, idempotency_key, request_hash)
         if cached is not None: return cached
-        with self.db.transaction() as connection:
+        with self.db.connection() as connection:
             action, program = self._owned_action(connection, action_id, owner_id)
             if action["version"] != expected_version:
                 raise GoalProgramConflict("action version conflict", self._action_json(action))
             thread = connection.execute("SELECT id,owner_id FROM threads WHERE id=?", (program["source_thread_id"],)).fetchone()
             if thread is None or thread["owner_id"] != owner_id: raise GoalProgramNotFound(action_id)
+            context = {"program": self._program_summary(program), "action": self._action_json(action), "user_question": content}
+            thread_id = program["source_thread_id"]
+        if self.expert_advisor is None:
             turn_key = client_turn_id.strip() if isinstance(client_turn_id,str) and client_turn_id.strip() else f"goal-help-{idempotency_key}"
-            submission = self.conversation.accept_turn(program["source_thread_id"], turn_key, content, [], goal_action_id=action_id, connection=connection)
+            submission = self.conversation.accept_turn(thread_id, turn_key, content, [], goal_action_id=action_id)
             response = {"thread_id": submission.thread_id, "turn_id": submission.turn_id, "status": submission.status,
                         "version": submission.version, "event_cursor": submission.event_cursor, "action_id": action_id}
+        else:
+            turn_key = client_turn_id.strip() if isinstance(client_turn_id,str) and client_turn_id.strip() else f"goal-help-{idempotency_key}"
+            submission = self.conversation.accept_turn(
+                thread_id, turn_key, content, [], goal_action_id=action_id, deferred_to_expert=True,
+            )
+            run = self.expert_advisor.start(
+                purpose="action-help", source_id=f"{action_id}:{idempotency_key}", objective=content,
+                context=context, roles=("planner", "critic"), owner_id=owner_id, thread_id=thread_id,
+                append_thread_message=False,
+            )
+            response = {"thread_id": thread_id, "turn_id": submission.turn_id, "status": "accepted",
+                        "version": run["version"], "event_cursor": 0, "action_id": action_id, "agent_run_id": run["id"]}
+        with self.db.transaction() as connection:
             self._save_receipt(connection, owner_id, "action", action_id, "request-help", idempotency_key, request_hash, response)
-            self._event(connection, program["id"], action_id, "action.help_requested", "user", {"turn_id": submission.turn_id})
+            self._event(connection, program["id"], action_id, "action.help_requested", "user", {"turn_id": response["turn_id"], "agent_run_id": response.get("agent_run_id")})
         return response
 
     def _activate(self, connection, row, expected_version: int) -> None:

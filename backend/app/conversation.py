@@ -649,6 +649,7 @@ class ConversationService:
         content: str,
         skill_names: list[str] | tuple[str, ...] | None = None,
         goal_action_id: str | None = None,
+        deferred_to_expert: bool = False,
         connection=None,
         owner_id: str = "local-user",
     ) -> TurnSubmission:
@@ -689,14 +690,17 @@ class ConversationService:
             turn_id = f"turn_{uuid.uuid4().hex}"
             message_id = f"message_{uuid.uuid4().hex}"
             parent_turn_id = thread["active_turn_id"]
+            initial_status = "COMPLETED" if deferred_to_expert else "ACCEPTED"
             connection.execute(
                 """
                 INSERT INTO turns(
-                    id, thread_id, client_turn_id, parent_turn_id, status, version, skill_names_json, goal_action_id,
+                    id, thread_id, client_turn_id, parent_turn_id, status, policy, content_shape, version, skill_names_json, goal_action_id,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
                 """,
-                (turn_id, thread_id, client_turn_id, parent_turn_id, json.dumps(selected_skills, ensure_ascii=False), goal_action_id, now, now),
+                (turn_id, thread_id, client_turn_id, parent_turn_id, initial_status,
+                 "start_expert" if deferred_to_expert else None, "expert" if deferred_to_expert else None,
+                 json.dumps(selected_skills, ensure_ascii=False), goal_action_id, now, now),
             )
             connection.execute(
                 """
@@ -707,10 +711,11 @@ class ConversationService:
                 """,
                 (message_id, thread_id, turn_id, content, len(content), thread_id, now),
             )
-            connection.execute(
-                "INSERT INTO turn_jobs(turn_id, status, attempts) VALUES (?, 'QUEUED', 0)",
-                (turn_id,),
-            )
+            if not deferred_to_expert:
+                connection.execute(
+                    "INSERT INTO turn_jobs(turn_id, status, attempts) VALUES (?, 'QUEUED', 0)",
+                    (turn_id,),
+                )
             connection.execute(
                 "UPDATE threads SET version = version + 1, active_turn_id = ?, updated_at = ? WHERE id = ?",
                 (turn_id, now, thread_id),
@@ -724,7 +729,10 @@ class ConversationService:
                 connection=connection,
                 occurred_at=now,
             )
-        return TurnSubmission(thread_id, turn_id, "ACCEPTED", 0, event.seq)
+            if deferred_to_expert:
+                self.events.append(thread_id, turn_id, "expert.requested", "user", {"goal_action_id": goal_action_id}, connection=connection, occurred_at=now)
+                event = self.events.append(thread_id, turn_id, "turn.completed", "user", {}, connection=connection, occurred_at=now)
+        return TurnSubmission(thread_id, turn_id, initial_status, 0, event.seq)
 
 
 EXECUTION_PROJECTION_LEASE_SECONDS = 60

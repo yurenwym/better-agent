@@ -17,10 +17,10 @@ from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
 from .settings import SettingsService
 from .notifications import NotificationService
-from .agents import AgentTaskService, LiveExpertModel, ManagedAgentWorker
+from .agents import AgentTaskService, ExpertAdvisoryService, LiveExpertModel, ManagedAgentWorker
 from .behavior import BehaviorBundleService
-from .evolution import EvolutionService, LiveBehaviorRunner
-from .experience_observer import ExperienceObserver
+from .evolution import EvolutionCandidateGenerator, EvolutionService, LiveBehaviorRunner, LivePromptCandidateProposer, LiveSafetyJudge
+from .experience_observer import ExperienceObserver, ManagedExperienceObserver
 from .conversation import UnavailableConversationModel
 
 
@@ -87,7 +87,8 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     if provider=="tavily":web_retriever=TavilySearchRetriever(os.getenv("TAVILY_API_KEY",""))
     elif provider=="duckduckgo":web_retriever=WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", "https://html.duckduckgo.com/html/"))
     else:raise ValueError(f"unsupported RESEARCH_SEARCH_PROVIDER: {provider}")
-    engine = ResearchEngine(LiveResearchModel(gateway), CombinedRetriever(web_retriever, LocalNoteRetriever(root / "research_notes"))) if gateway else None
+    research_model = LiveResearchModel(gateway) if gateway else None
+    engine = ResearchEngine(research_model, CombinedRetriever(web_retriever, LocalNoteRetriever(root / "research_notes"))) if gateway else None
     runtime.research = ResearchService(db, runtime.conversation.events, engine)
     runtime.research_worker = ManagedResearchWorker(runtime.research) if engine else None
     from .research.scheduler import ManagedScheduler, ScheduleService
@@ -114,7 +115,26 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.evolution = EvolutionService(
         db, runtime.behavior, behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,
     )
+    prompt_policy = lambda: runtime.behavior.active("stable").manifest.get("prompts", runtime.behavior.active("stable").manifest.get("prompt"))
+    if gateway:
+        model.runtime_prompt_policy = prompt_policy
+        conversation_model.runtime_prompt_policy = prompt_policy
+        research_model.runtime_prompt_policy = prompt_policy
+        runtime.goal_programs.compiler.runtime_prompt_policy = prompt_policy
     runtime.observer = ExperienceObserver(db, runtime.events, runtime.evolution, thread_events=runtime.conversation.events)
+    runtime.candidate_generator = EvolutionCandidateGenerator(
+        runtime.evolution, runtime.behavior, LivePromptCandidateProposer(gateway) if gateway else None,
+    )
+    runtime.observer_worker = ManagedExperienceObserver(runtime.observer, candidate_generator=runtime.candidate_generator)
     runtime.agent_tasks = AgentTaskService(db, thread_events=runtime.conversation.events, evolution=runtime.evolution)
-    runtime.agent_worker = ManagedAgentWorker(runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None)
+    runtime.agent_worker = ManagedAgentWorker(
+        runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None,
+        safety_judge=LiveSafetyJudge(gateway) if gateway else None,
+    )
+    runtime.expert_advisor = ExpertAdvisoryService(runtime.agent_tasks, runtime.behavior) if gateway else None
+    if runtime.expert_advisor is not None:
+        runtime.goal_programs.expert_advisor = runtime.expert_advisor
+        runtime.goal_review_worker.expert_advisor = runtime.expert_advisor
+        if runtime.research_worker is not None:
+            runtime.research_worker.expert_advisor = runtime.expert_advisor
     return runtime

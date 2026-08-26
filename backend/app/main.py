@@ -99,6 +99,7 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
         research_worker = getattr(runtime, "research_worker", None)
         goal_review_worker = getattr(runtime, "goal_review_worker", None)
         agent_worker = getattr(runtime, "agent_worker", None)
+        observer_worker = getattr(runtime, "observer_worker", None)
         scheduler = getattr(runtime, "scheduler", None)
         if worker is not None:
             await worker.start()
@@ -108,6 +109,8 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
             await goal_review_worker.start()
         if agent_worker is not None:
             await agent_worker.start()
+        if observer_worker is not None:
+            await observer_worker.start()
         if scheduler is not None:
             await scheduler.start()
         try:
@@ -121,6 +124,8 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
                 await goal_review_worker.stop()
             if agent_worker is not None:
                 await agent_worker.stop()
+            if observer_worker is not None:
+                await observer_worker.stop()
             if worker is not None:
                 await worker.stop()
 

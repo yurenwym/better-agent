@@ -39,7 +39,7 @@ def _hash(value: Any) -> str:
 def _validate_artifact(schema: str, content: dict[str, Any]) -> None:
     if schema != "expert_result.v1":
         return
-    allowed = {"summary", "findings", "risks", "open_questions"}
+    allowed = {"summary", "findings", "risks", "open_questions", "safety_pass"}
     if set(content) - allowed:
         raise ValueError("expert_result.v1 contains unsupported fields")
     if not isinstance(content.get("summary"), str):
@@ -47,6 +47,8 @@ def _validate_artifact(schema: str, content: dict[str, Any]) -> None:
     for key in ("findings", "risks", "open_questions"):
         if not isinstance(content.get(key), list):
             raise ValueError(f"expert_result.v1 requires {key}")
+    if "safety_pass" in content and not isinstance(content["safety_pass"], bool):
+        raise ValueError("expert_result.v1 safety_pass must be boolean")
     for finding in content["findings"]:
         if not isinstance(finding, dict) or not isinstance(finding.get("text"), str):
             raise ValueError("expert_result.v1 findings are invalid")
@@ -331,12 +333,13 @@ class AgentTaskService:
         if row is None: raise KeyError(task_id)
         return json.loads(row["manifest_json"])
 
+
     def artifact(self, artifact_id: str) -> dict[str, Any]:
         with self.db.connection() as connection: row = connection.execute("SELECT * FROM agent_artifacts WHERE id=?", (artifact_id,)).fetchone()
         if row is None: raise KeyError(artifact_id)
         content = json.loads(row["content_json"])
         if row["artifact_type"] in {"researcher_result", "planner_result", "critic_result", "expert_result"}:
-            content = {key: content[key] for key in ("summary", "findings", "risks", "open_questions") if key in content}
+            content = {key: content[key] for key in ("summary", "findings", "risks", "open_questions", "safety_pass") if key in content}
         return {**dict(row), "content": content, "source_refs": json.loads(row["source_refs_json"])}
 
     def events(self, run_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
@@ -377,7 +380,13 @@ class AgentTaskService:
                 ("SUCCEEDED" if succeeded else "FAILED", now, now, row["agent_run_id"]),
             )
             if self.evolution is not None:
-                self.evolution.finish_run_exposure(row["agent_run_id"], success=succeeded, connection=connection)
+                safety_pass = None
+                if succeeded:
+                    artifact = connection.execute("SELECT content_json FROM agent_artifacts WHERE id=(SELECT result_artifact_id FROM agent_tasks WHERE id=?)", (row["id"],)).fetchone()
+                    content = json.loads(artifact["content_json"]) if artifact else {}
+                    verdicts = [item.get("result", {}).get("safety_pass") for item in content.get("experts", []) if isinstance(item, dict)]
+                    safety_pass = all(verdict is True for verdict in verdicts) if verdicts else None
+                self.evolution.finish_run_exposure(row["agent_run_id"], success=succeeded, safety_pass=safety_pass, connection=connection)
             self._event(
                 connection, row["agent_run_id"], row["id"],
                 "agent.run.completed" if succeeded else "agent.run.failed", "coordinator", {},
@@ -427,13 +436,48 @@ class AgentTaskService:
         return dict(row)
 
 
+class ExpertAdvisoryService:
+    """Starts existing read-only expert runs and returns their committed synthesis."""
+
+    def __init__(self, tasks: AgentTaskService, bundles, *, timeout_seconds: float = 90, poll_interval: float = .05) -> None:
+        self.tasks = tasks
+        self.bundles = bundles
+        self.timeout_seconds = timeout_seconds
+        self.poll_interval = poll_interval
+
+    def start(
+        self, *, purpose: str, source_id: str, objective: str, context: dict[str, Any],
+        roles: tuple[str, ...], owner_id: str = "local-user", thread_id: str | None = None,
+        append_thread_message: bool = False,
+    ) -> dict[str, Any]:
+        identity = _hash({"purpose": purpose, "source_id": source_id, "objective": objective, "context": context, "roles": roles})[:24]
+        return self.tasks.create_run(
+            owner_id, objective, {"purpose": purpose, "source_id": source_id, **context},
+            self.bundles.active("stable").id, thread_id=thread_id,
+            idempotency_key=f"mainflow:{purpose}:{identity}", expert_roles=roles,
+            append_thread_message=append_thread_message,
+        )
+
+    async def advise(self, **kwargs) -> dict[str, Any] | None:
+        run = self.start(**kwargs)
+        deadline = asyncio.get_running_loop().time() + self.timeout_seconds
+        while run["status"] not in TERMINAL and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(self.poll_interval)
+            run = self.tasks.get_run(run["id"])
+        if run["status"] != "SUCCEEDED":
+            return None
+        task = self.tasks.get_task(run["coordinator_task_id"])
+        return self.tasks.artifact(task["result_artifact_id"])["content"] if task.get("result_artifact_id") else None
+
+
 class ManagedAgentWorker:
     def __init__(
         self, service: AgentTaskService, model, *, poll_interval: float = .05,
-        lease_seconds: int = 30, max_concurrency: int = 3,
+        lease_seconds: int = 30, max_concurrency: int = 3, safety_judge=None,
     ) -> None:
         self.service = service; self.model = model; self.poll_interval = poll_interval; self.lease_seconds = lease_seconds
         self.max_concurrency = max(1, max_concurrency)
+        self.safety_judge = safety_judge
         self.owner = f"agent-worker-{uuid.uuid4().hex[:10]}"; self._task: asyncio.Task | None = None; self._stop = asyncio.Event()
         self._active: set[asyncio.Task] = set()
 
@@ -481,6 +525,9 @@ class ManagedAgentWorker:
                 result = await self._execute_with_heartbeat(task, context, inputs)
                 if result is None: return
                 if not isinstance(result, dict): raise ValueError("expert artifact must be an object")
+                result.pop("safety_pass", None)
+                if self.safety_judge is not None:
+                    result["safety_pass"] = await self.safety_judge.judge(result)
                 self.service.complete(task["id"], self.owner, task["lease_epoch"], f"{task['role']}_result", result)
         except (PermissionError, AgentTaskConflict):
             pass

@@ -64,7 +64,7 @@ def test_new_run_uses_active_canary_bundle_without_inventing_a_safety_verdict(tm
     assert len(exposures) == 1
     assert exposures[0]["run_id"] == run["id"]
     assert exposures[0]["cohort"] == "challenger"
-    assert exposures[0]["success"] == 0
+    assert exposures[0]["success"] is None
 
     task = tasks.claim_next("worker", 30)
     tasks.complete(task["id"], "worker", task["lease_epoch"], "answer", {"text": "done"})
@@ -74,10 +74,10 @@ def test_new_run_uses_active_canary_bundle_without_inventing_a_safety_verdict(tm
             (deployment["id"], run["id"]),
         ).fetchone()
     assert exposure["success"] == 1
-    assert exposure["safety_pass"] == 0
+    assert exposure["safety_pass"] is None
 
 
-def test_canary_completion_without_safety_evidence_fails_closed(tmp_path):
+def test_canary_completion_without_safety_evidence_stays_pending_and_cannot_promote(tmp_path):
     db, evolution, base, _, deployment = _approved_canary(tmp_path)
     tasks = AgentTaskService(db, evolution=evolution)
     run = tasks.create_run("local-user", "unknown safety", {}, base.id, idempotency_key="unknown-safety")
@@ -91,8 +91,9 @@ def test_canary_completion_without_safety_evidence_fails_closed(tmp_path):
         ).fetchone()
         state = connection.execute("SELECT status FROM canary_deployments WHERE id=?", (deployment["id"],)).fetchone()
     assert exposure["success"] == 1
-    assert exposure["safety_pass"] == 0
-    assert state["status"] == "ROLLED_BACK"
+    assert exposure["safety_pass"] is None
+    assert state["status"] == "ACTIVE"
+    assert evolution.get_candidate(deployment["candidate_id"])["canary"]["promotable"] is False
 
 
 def test_run_without_active_canary_uses_stable_and_cancel_records_failure(tmp_path):

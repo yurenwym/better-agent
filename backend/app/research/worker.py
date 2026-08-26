@@ -10,10 +10,11 @@ from .service import ResearchConflict
 
 
 class ManagedResearchWorker:
-    def __init__(self, service, *, poll_interval: float = .2, lease_seconds: int = 30) -> None:
+    def __init__(self, service, *, poll_interval: float = .2, lease_seconds: int = 30, expert_advisor=None) -> None:
         self.service = service; self.owner = f"research-worker-{uuid.uuid4().hex}"; self.poll_interval = poll_interval; self.lease_seconds = lease_seconds
         self._task = None; self._stop = None; self._active_cancel = None
         self._shutdown = False
+        self.expert_advisor = expert_advisor
 
     async def start(self):
         if self._task: return
@@ -43,6 +44,17 @@ class ManagedResearchWorker:
                 self.service.apply_event(job.id, self.owner, event)
             if self.service.get(job.id).cancel_requested_at: raise ResearchCancelled("research cancelled")
             if not report: raise RuntimeError("research report missing")
+            if self.expert_advisor is not None:
+                advice = await self.expert_advisor.advise(
+                    purpose="research", source_id=job.id, objective="审阅研究报告的证据覆盖、结论边界和关键风险",
+                    context={"topic": job.topic, "report": report["markdown"]}, roles=("researcher", "critic"),
+                    thread_id=job.thread_id,
+                )
+                if advice is not None:
+                    self.service.events.append(job.thread_id, job.source_turn_id, "research.expert_reviewed", "coordinator", {
+                        "job_id": job.id, "summary": str(advice.get("summary", ""))[:500],
+                        "incomplete": bool(advice.get("incomplete")),
+                    })
             self.service.complete(job.id, self.owner, report["title"], report["markdown"], int(report["source_count"]), int(report["evidence_count"]))
             notifier = getattr(self.service, "notifications", None)
             if notifier is not None:

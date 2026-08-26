@@ -77,6 +77,7 @@ class FixedGoalProgramCompiler:
 class GoalProgramCompiler:
     def __init__(self, gateway: ModelGateway) -> None:
         self.gateway = gateway
+        self.runtime_prompt_policy = None
 
     async def compile(self, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
         days = (date.fromisoformat(request["end_date"]) - date.fromisoformat(request["start_date"])).days + 1
@@ -119,7 +120,9 @@ class GoalProgramCompiler:
 
     async def _validated(self, instruction: str, data: dict[str, Any], validator, *, max_tokens: int = 12000) -> dict[str, Any]:
         last_error: Exception | None = None
-        messages = [{"role": "system", "content": instruction}, {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
+        policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
+        prefix = "" if policy is None or policy == "" or policy == "live-model-v1" else "Apply this approved Better Agent runtime prompt policy:\n" + json.dumps(policy, ensure_ascii=False) + "\n\n"
+        messages = [{"role": "system", "content": prefix + instruction}, {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
         for attempt in range(2):
             try:
                 response = await self.gateway.complete(ModelRequest(messages=messages, temperature=0, max_tokens=max_tokens))

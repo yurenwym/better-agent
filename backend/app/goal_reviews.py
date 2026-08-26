@@ -261,13 +261,14 @@ class GoalReviewService:
 
 
 class ManagedGoalReviewWorker:
-    def __init__(self, service: GoalReviewService, *, poll_interval: float = .2, lease_seconds: int = 30) -> None:
+    def __init__(self, service: GoalReviewService, *, poll_interval: float = .2, lease_seconds: int = 30, expert_advisor=None) -> None:
         self.service = service
         self.owner = f"goal-review-worker-{uuid.uuid4().hex}"
         self.poll_interval = poll_interval
         self.lease_seconds = lease_seconds
         self._task = None
         self._stop = None
+        self.expert_advisor = expert_advisor
 
     async def start(self) -> None:
         if self._task is not None:
@@ -291,6 +292,13 @@ class ManagedGoalReviewWorker:
         heartbeat = asyncio.create_task(self._heartbeat(review["id"]))
         try:
             evidence = self.service.evidence(review["id"], self.owner)
+            if self.expert_advisor is not None:
+                advice = await self.expert_advisor.advise(
+                    purpose="review", source_id=review["id"], objective="审阅每日执行证据并提出是否需要调整的建议",
+                    context={"daily_evidence": evidence}, roles=("planner", "critic"),
+                )
+                if advice is not None:
+                    evidence = {**evidence, "expert_advice": advice}
             result = await self.service.compiler.review(evidence)
             proposal_id = None
             if evidence["signals"] and result["needs_adjustment"]:

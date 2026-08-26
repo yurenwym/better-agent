@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
 import json
 from collections import defaultdict
@@ -7,10 +9,17 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-TERMINAL_RUN_EVENTS = {"run.completed", "run.failed", "run.cancelled", "budget.exhausted"}
+TERMINAL_RUN_EVENTS = {"run.completed", "run.failed", "run.cancelled"}
 TERMINAL_AGENT_EVENTS = {"agent.run.completed", "agent.run.failed", "agent.run.cancelled"}
-TERMINAL_THREAD_EVENTS = {"research.completed", "research.failed", "research.cancelled"}
-TERMINAL_GOAL_EVENTS = {"program.completed", "program.cancelled", "adjustment.accepted", "adjustment.rejected"}
+TERMINAL_THREAD_EVENTS = {
+    "turn.completed", "turn.failed", "turn.cancelled",
+    "research.completed", "research.failed", "research.cancelled",
+}
+TERMINAL_GOAL_EVENTS = {
+    "program.completed", "program.cancelled", "program.compile_failed", "program.tombstoned",
+    "action.completed", "action.skipped", "action.deferred",
+    "review.completed", "adjustment.accepted", "adjustment.rejected",
+}
 
 
 def _now() -> str:
@@ -74,7 +83,7 @@ class ExperienceObserver:
         chosen = terminal[-1] if terminal else rows[-1]
         data = json.loads(chosen["data_json"])
         tags = []
-        if chosen["type"] == "budget.exhausted": tags.append("budget_exhausted")
+        if any(row["type"] == "budget.exhausted" for row in rows): tags.append("budget_exhausted")
         if chosen["type"] == "run.failed": tags.append("run_failed")
         if chosen["type"] == "run.cancelled": tags.append("run_cancelled")
         if any(row["type"] == "run.retrying" for row in rows): tags.append("retry")
@@ -106,14 +115,16 @@ class ExperienceObserver:
                 "SELECT e.*,t.owner_id FROM thread_events e JOIN threads t ON t.id=e.thread_id WHERE t.owner_id=? ORDER BY e.thread_id,e.seq",
                 (owner_id,),
             ).fetchall()
-        grouped: dict[str, list[Any]] = defaultdict(list)
-        for row in rows: grouped[row["thread_id"]].append(row)
         result = []
-        for thread_id, items in grouped.items():
-            terminal = [row for row in items if row["type"] in TERMINAL_THREAD_EVENTS]
-            for row in terminal:
-                data = json.loads(row["data_json"])
-                result.append(self._source("thread", thread_id, row, True, "research", self._outcome(row["type"]), ["research_failed"] if row["type"] == "research.failed" else [], data))
+        for row in rows:
+            if row["type"] not in TERMINAL_THREAD_EVENTS:
+                continue
+            data = json.loads(row["data_json"])
+            is_research = row["type"].startswith("research.")
+            source_id = str(data.get("job_id") or row["turn_id"])
+            task_type = "research" if is_research else "conversation"
+            tags = ["research_failed" if is_research else "conversation_failed"] if row["type"].endswith("failed") else []
+            result.append(self._source("research" if is_research else "turn", source_id, row, True, task_type, self._outcome(row["type"]), tags, data))
         return result
 
     def _goal_sources(self, owner_id: str) -> list[dict[str, Any]]:
@@ -122,7 +133,19 @@ class ExperienceObserver:
                 "SELECT e.*,p.owner_id,p.id program_id FROM goal_program_events e JOIN goal_programs p ON p.id=e.program_id WHERE p.owner_id=? ORDER BY e.program_id,e.seq",
                 (owner_id,),
             ).fetchall()
-        return [self._source("goal_program", row["program_id"], row, True, "goal_program", self._outcome(row["type"]), [], json.loads(row["data_json"])) for row in rows if row["type"] in TERMINAL_GOAL_EVENTS]
+        result = []
+        for row in rows:
+            if row["type"] not in TERMINAL_GOAL_EVENTS:
+                continue
+            data = json.loads(row["data_json"])
+            prefix = row["type"].split(".", 1)[0]
+            aggregate_id = row["program_id"]
+            if prefix == "action": aggregate_id = row["action_id"] or row["program_id"]
+            elif prefix == "review": aggregate_id = str(data.get("review_id") or row["program_id"])
+            elif prefix == "adjustment": aggregate_id = str(data.get("proposal_id") or row["program_id"])
+            tags = ["compile_failed"] if row["type"] == "program.compile_failed" else []
+            result.append(self._source(prefix, aggregate_id, row, True, prefix, self._outcome(row["type"]), tags, data))
+        return result
 
     @staticmethod
     def _source(kind, source_id, row, terminal, task_type, outcome, tags, data, runtime_bundle_id=None):
@@ -134,9 +157,57 @@ class ExperienceObserver:
 
     @staticmethod
     def _outcome(event_type: str) -> str:
-        return "success" if event_type.endswith("completed") else "cancelled" if event_type.endswith("cancelled") else "failure"
+        if event_type.endswith(("completed", "accepted")):
+            return "success"
+        if event_type.endswith(("cancelled", "skipped", "deferred", "rejected", "tombstoned")):
+            return "cancelled"
+        return "failure"
 
     @staticmethod
     def _safe_evidence(items):
         source = items[-1]
         return {"event_count": len(items), "terminal_event": source["source_event_id"], "retry_count": int(source["data"].get("retry_count", 0)), "failure_tags": sorted({tag for item in items for tag in item["failure_tags"]}), "source_kinds": sorted({item["source_kind"] for item in items})}
+
+
+class ManagedExperienceObserver:
+    """Runs the idempotent observer as part of the application lifecycle."""
+
+    def __init__(self, observer: ExperienceObserver, *, poll_interval: float = .5, owner_id: str = "local-user", candidate_generator=None) -> None:
+        self.observer = observer
+        self.poll_interval = poll_interval
+        self.owner_id = owner_id
+        self.candidate_generator = candidate_generator
+        self._task: asyncio.Task | None = None
+        self._stop = asyncio.Event()
+
+    async def start(self) -> None:
+        if self._task is None or self._task.done():
+            self._stop.clear()
+            self._task = asyncio.create_task(self._loop(), name="experience-observer")
+
+    async def stop(self) -> None:
+        self._stop.set()
+        if self._task is not None:
+            self._task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._task
+            self._task = None
+
+    async def run_once(self) -> dict[str, int]:
+        result = await asyncio.to_thread(self.observer.observe, self.owner_id)
+        if self.candidate_generator is not None:
+            generated = await asyncio.to_thread(self.candidate_generator.generate, self.owner_id)
+            result["candidates_created"] = len(generated)
+        return result
+
+    async def _loop(self) -> None:
+        while not self._stop.is_set():
+            try:
+                await self.run_once()
+            except Exception:
+                # Terminal-event producers must never fail because observation is unavailable.
+                pass
+            try:
+                await asyncio.wait_for(self._stop.wait(), self.poll_interval)
+            except asyncio.TimeoutError:
+                pass

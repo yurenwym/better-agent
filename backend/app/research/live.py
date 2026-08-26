@@ -34,10 +34,17 @@ def relevant_excerpt(source, topic: str, sections: tuple[str, ...], max_chars: i
 
 
 class LiveResearchModel:
-    def __init__(self, gateway: ModelGateway) -> None: self.gateway = gateway
+    def __init__(self, gateway: ModelGateway) -> None:
+        self.gateway = gateway
+        self.runtime_prompt_policy = None
+
+    def _system(self, instruction: str) -> str:
+        policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
+        if policy is None or policy == "" or policy == "live-model-v1": return instruction
+        return "Apply this approved Better Agent runtime prompt policy:\n" + json.dumps(policy, ensure_ascii=False) + "\n\n" + instruction
 
     async def _json(self, system: str, user: str) -> dict[str, Any]:
-        messages=[{"role": "system", "content": system + " Return strict JSON only."}, {"role": "user", "content": user}]
+        messages=[{"role": "system", "content": self._system(system + " Return strict JSON only.")}, {"role": "user", "content": user}]
         for attempt in range(2):
             response = await self.gateway.complete(ModelRequest(messages=messages, temperature=0, max_tokens=1200))
             text = response.message.strip()
@@ -105,7 +112,7 @@ class LiveResearchModel:
     async def write(self, heading, thesis, evidence, prior_summary):
         source_map = [(x.text, x.source_id) for x in evidence]
         response = await self.gateway.complete(ModelRequest(messages=[
-            {"role": "system", "content": UNTRUSTED + " Write the requested concise Markdown section only. Answer the heading directly with concrete steps, measurements, examples, or constraints whenever the supplied evidence supports them. Do not output a heading. Every factual paragraph must cite supplied evidence using [[source:SOURCE_ID]]. Never invent IDs or add unsupported details."},
+            {"role": "system", "content": self._system(UNTRUSTED + " Write the requested concise Markdown section only. Answer the heading directly with concrete steps, measurements, examples, or constraints whenever the supplied evidence supports them. Do not output a heading. Every factual paragraph must cite supplied evidence using [[source:SOURCE_ID]]. Never invent IDs or add unsupported details.")},
             {"role": "user", "content": f"Heading: {heading}\nThesis: {thesis}\nPrior summary: {prior_summary}\nEvidence: {source_map}"},
         ], temperature=0, max_tokens=1000))
         body = re.sub(r"^\s*#{1,6}\s+[^\n]+\n+", "", response.message.strip(), count=1)
@@ -126,7 +133,7 @@ class LiveResearchModel:
 
     async def repair(self, topic: str, plan: ResearchPlan, missing_requirements: tuple[str, ...], evidence_context):
         response = await self.gateway.complete(ModelRequest(messages=[
-            {"role": "system", "content": UNTRUSTED + " Write one concise Markdown supplement that directly covers every missing requirement using only the supplied evidence. Every factual paragraph must cite evidence as [[source:SOURCE_ID]]. Never invent IDs, URLs, facts, or a reference list. Return the supplement only, beginning with a level-2 heading."},
+            {"role": "system", "content": self._system(UNTRUSTED + " Write one concise Markdown supplement that directly covers every missing requirement using only the supplied evidence. Every factual paragraph must cite evidence as [[source:SOURCE_ID]]. Never invent IDs, URLs, facts, or a reference list. Return the supplement only, beginning with a level-2 heading.")},
             {"role": "user", "content": f"Topic: {topic}\nMandatory sections: {plan.sections}\nMissing requirements: {missing_requirements}\nEvidence (source_id, text): {evidence_context}"},
         ], temperature=0))
         supplement = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", response.message.strip())

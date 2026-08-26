@@ -726,6 +726,20 @@ MIGRATIONS = (
       updated_at TEXT NOT NULL, PRIMARY KEY(stream_kind,owner_id)
     );
     """),
+    (8, r"""
+    ALTER TABLE canary_exposures RENAME TO canary_exposures_v7;
+    CREATE TABLE canary_exposures (
+      deployment_id TEXT NOT NULL REFERENCES canary_deployments(id), run_id TEXT NOT NULL,
+      assignment_hash TEXT NOT NULL, cohort TEXT NOT NULL CHECK(cohort IN ('champion','challenger')),
+      bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id), success INTEGER CHECK(success IN (0,1)),
+      safety_pass INTEGER CHECK(safety_pass IN (0,1)), request_digest TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE, exposed_at TEXT NOT NULL, finished_at TEXT,
+      PRIMARY KEY(deployment_id,run_id)
+    );
+    INSERT INTO canary_exposures(deployment_id,run_id,assignment_hash,cohort,bundle_id,success,safety_pass,request_digest,idempotency_key,exposed_at,finished_at)
+    SELECT deployment_id,run_id,assignment_hash,cohort,bundle_id,success,safety_pass,request_digest,idempotency_key,exposed_at,exposed_at FROM canary_exposures_v7;
+    DROP TABLE canary_exposures_v7;
+    """),
 )
 
 
