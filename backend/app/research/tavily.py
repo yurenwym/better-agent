@@ -35,11 +35,12 @@ class TavilySearchRetriever:
         async def one(item):
             try:
                 url=await asyncio.wait_for(validate_public_url(str(item.get("url","")).strip()),5)
-                content=str(item.get("raw_content") or item.get("content") or "").strip()[:self.max_chars]
+                excerpt=str(item.get("content") or "").strip()
+                content=str(item.get("raw_content") or excerpt).strip()[:self.max_chars]
                 if not content:return None
                 digest=hashlib.sha256(content.encode()).hexdigest();stable=hashlib.sha256(f"{request.job_id}:tavily:{url}:{digest}".encode()).hexdigest()
                 score=max(0,min(float(item.get("score",.5)),1))
-                return Source(f"source_{stable}",0,"web",url,None,str(item.get("title") or url),content,item.get("published_date"),datetime.now(timezone.utc).isoformat(),score,digest,{"provider":"tavily"})
+                return Source(f"source_{stable}",0,"web",url,None,str(item.get("title") or url),content,item.get("published_date"),datetime.now(timezone.utc).isoformat(),score,digest,{"provider":"tavily","search_excerpt":excerpt[:3000]})
             except (TimeoutError,TypeError,ValueError):return None
         results=await asyncio.gather(*(one(item) for item in items[:5]))
         accepted=[item for item in results if item is not None]

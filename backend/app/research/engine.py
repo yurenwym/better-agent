@@ -18,11 +18,13 @@ class UnknownCitation(RuntimeError): pass
 class TopicCoverageError(RuntimeError):
     reason_code = "topiccoverageerror"
 
-    def __init__(self, message: str, missing_requirements=()) -> None:
+    def __init__(self, message: str, missing_requirements=(), repair_error: str | None = None) -> None:
         super().__init__(message)
         self.diagnostics = {
             "missing_requirements": [str(item)[:300] for item in missing_requirements if str(item).strip()][:12]
         }
+        if repair_error:
+            self.diagnostics["repair_error"] = repair_error
 class ResearchCancelled(RuntimeError): pass
 
 
@@ -30,6 +32,7 @@ class ResearchEngine:
     DISTILL_TIMEOUT_SECONDS = 20
     RETRIEVE_TIMEOUT_SECONDS = 40
     MODEL_STAGE_TIMEOUT_SECONDS = 45
+    REPAIR_TIMEOUT_SECONDS = 90
 
     def __init__(self, model, retriever) -> None:
         self.model = model
@@ -102,8 +105,13 @@ class ResearchEngine:
                 timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
             )
         except Exception:
-            raw_sections = self._fallback_curated_sections(plan, evidence)
+            raw_sections = self._fallback_curated_sections(plan, evidence, sources)
         valid_ids = {item.id for item in evidence}
+        evidence_by_id_for_curation = {item.id:item for item in evidence}
+        fallback_by_heading = {
+            self._heading_key(heading): ids
+            for heading, _, ids in self._fallback_curated_sections(plan, evidence, sources)
+        }
         curated = {}
         unmatched = []
         for raw in raw_sections[:request.limits.max_sections]:
@@ -111,6 +119,18 @@ class ResearchEngine:
             ids = tuple(dict.fromkeys(item for item in ids if item in valid_ids))
             if ids:
                 key = self._heading_key(str(heading))
+                heading_terms = self._search_terms(str(heading))
+                assigned_score = sum(
+                    sum(term in evidence_by_id_for_curation[item].text.lower() for term in heading_terms)
+                    for item in ids
+                )
+                fallback_ids = fallback_by_heading.get(key, ())
+                fallback_score = sum(
+                    sum(term in evidence_by_id_for_curation[item].text.lower() for term in heading_terms)
+                    for item in fallback_ids
+                )
+                if fallback_score > assigned_score:
+                    ids = fallback_ids
                 value = (str(thesis), ids)
                 if key in {self._heading_key(item) for item in plan.sections}: curated[key] = value
                 else: unmatched.append(value)
@@ -127,7 +147,7 @@ class ResearchEngine:
             return result
         sections = build_sections()
         if not sections and not request.completed_sections:
-            raw_sections = self._fallback_curated_sections(plan, evidence)
+            raw_sections = self._fallback_curated_sections(plan, evidence, sources)
             curated = {self._heading_key(heading):(str(thesis),tuple(ids)) for heading,thesis,ids in raw_sections}
             unmatched = []
             sections = build_sections()
@@ -197,25 +217,42 @@ class ResearchEngine:
             missing_requirements = () if passed else ("topic requirements",)
         if not passed:
             repair = getattr(self.model, "repair", None)
+            repair_error = None
             if repair is not None:
                 try:
-                    repaired = await asyncio.wait_for(
-                        repair(request.topic, plan, report, tuple(missing_requirements)),
-                        timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
+                    evidence_context = self._repair_evidence(missing_requirements, evidence, sources)
+                    supplement = await asyncio.wait_for(
+                        repair(request.topic, plan, tuple(missing_requirements), evidence_context),
+                        timeout=self.REPAIR_TIMEOUT_SECONDS,
                     )
-                    original_urls = set(re.findall(r"https?://[^\s)]+", report))
-                    repaired_urls = set(re.findall(r"https?://[^\s)]+", repaired)) if isinstance(repaired, str) else set()
-                    if isinstance(repaired, str) and repaired.strip() and repaired_urls == original_urls:
-                        report = repaired.strip()
+                    if isinstance(supplement, str) and supplement.strip():
+                        evidence_supplement = self._fallback_repair_supplement(missing_requirements, evidence_context)
+                        rendered_supplement = render_citations(supplement.strip()+"\n\n"+evidence_supplement, sources)
+                        report = report.replace("\n\n## 研究限制", "\n\n"+rendered_supplement+"\n\n## 研究限制", 1)
                         passed, missing_requirements = await asyncio.wait_for(
                             self.model.audit(request.topic, plan, report),
                             timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                         )
+                except asyncio.TimeoutError:
+                    repair_error = "timeout"
+                    supplement = self._fallback_repair_supplement(missing_requirements, evidence_context)
+                    report = report.replace("\n\n## 研究限制", "\n\n"+render_citations(supplement, sources)+"\n\n## 研究限制", 1)
+                    try:
+                        passed, missing_requirements = await asyncio.wait_for(
+                            self.model.audit(request.topic, plan, report),
+                            timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
+                        )
+                    except Exception:
+                        passed = False
+                except KeyError:
+                    repair_error = "unknowncitation"
+                    passed = False
                 except Exception:
+                    repair_error = "failed"
                     passed = False
             detail = ", ".join(str(item) for item in missing_requirements if str(item).strip()) or "topic requirements"
             if not passed:
-                raise TopicCoverageError(f"report does not cover: {detail}", missing_requirements)
+                raise TopicCoverageError(f"report does not cover: {detail}", missing_requirements, repair_error)
         yield ResearchEvent("report", "completed", {"title": plan.title, "markdown": report, "source_count": len(sources), "evidence_count": len(evidence)})
         yield ResearchEvent("phase", "completed", {"detail": "研究完成"})
 
@@ -280,7 +317,28 @@ class ResearchEngine:
         keys={(item.kind,item.canonical_url or item.locator or item.content_hash) for item in accepted}
         content_hashes={item.content_hash for item in accepted if item.content_hash}
         ids={item.id for item in accepted};next_ordinal=max((item.ordinal for item in accepted),default=0)+1
-        filtered = filter_sources(new,min_chars=request.limits.min_source_chars,max_sources=max(len(new),request.limits.max_sources))
+        query_hits = {}; excerpt_hits = {}
+        for source in new:
+            queries = [*source.metadata.get("queries", []), source.metadata.get("query")]
+            for identity in (source.id, source.canonical_url, source.content_hash):
+                if identity:
+                    query_hits.setdefault(identity, []).extend(item for item in queries if item)
+                    excerpt = source.metadata.get("search_excerpt")
+                    if excerpt:
+                        excerpt_hits.setdefault(identity, []).append(excerpt)
+        enriched = []
+        for source in new:
+            queries = []
+            for identity in (source.id, source.canonical_url, source.content_hash):
+                queries.extend(query_hits.get(identity, ()))
+            excerpts = []
+            for identity in (source.id, source.canonical_url, source.content_hash):
+                excerpts.extend(excerpt_hits.get(identity, ()))
+            excerpts = list(dict.fromkeys(excerpts))
+            metadata = {**source.metadata, "queries": list(dict.fromkeys(queries)), "query_excerpts": excerpts}
+            content = ("\n\n".join(excerpts)+"\n\n"+source.content)[:20_000] if excerpts else source.content
+            enriched.append(replace(source, content=content, metadata=metadata))
+        filtered = filter_sources(enriched,min_chars=request.limits.min_source_chars,max_sources=max(len(new),request.limits.max_sources))
         reserved = {}
         for source in filtered:
             query_index = source.metadata.get("query_index")
@@ -332,10 +390,14 @@ class ResearchEngine:
         )
 
     @staticmethod
-    def _fallback_curated_sections(plan, evidence):
+    def _fallback_curated_sections(plan, evidence, sources=()):
+        source_context = {
+            item.id: f"{item.title} {item.metadata.get('query', '')} {' '.join(item.metadata.get('queries', ()))}".lower()
+            for item in sources
+        }
         section_terms = []
         for heading in plan.sections:
-            terms = {heading.lower()}
+            terms = ResearchEngine._search_terms(heading)
             terms.update(
                 run[index:index + 2]
                 for run in re.findall(r"[\u4e00-\u9fff]{4,}", heading)
@@ -344,7 +406,8 @@ class ResearchEngine:
             section_terms.append(terms)
         assigned = [[] for _ in plan.sections]
         for item in evidence:
-            scores = [sum(term in item.text.lower() for term in terms) for terms in section_terms]
+            searchable = item.text.lower()+" "+source_context.get(item.source_id,"")
+            scores = [sum(term in searchable for term in terms) for terms in section_terms]
             best = max(scores, default=0)
             if best > 0:
                 assigned[scores.index(best)].append(item)
@@ -374,6 +437,49 @@ class ResearchEngine:
 
     @staticmethod
     def _query_key(query: str) -> str: return re.sub(r"\s+", "", query).lower()
+
+    @staticmethod
+    def _search_terms(value: str) -> set[str]:
+        stop = {"the","and","for","with","guidance","specific","concrete","provided","importance","steps"}
+        return {item.lower() for item in re.findall(r"[a-zA-Z][a-zA-Z0-9-]{2,}|[\u4e00-\u9fff]{2,}", value) if item.lower() not in stop}
+
+    @classmethod
+    def _repair_evidence(cls, missing_requirements, evidence, sources=()) -> tuple[tuple[str, str], ...]:
+        source_context = {
+            item.id: f"{item.title} {item.metadata.get('query', '')} {' '.join(item.metadata.get('queries', ()))}".lower()
+            for item in sources
+        }
+        selected = []
+        seen = set()
+        for requirement in missing_requirements:
+            terms = cls._search_terms(str(requirement))
+            ranked = sorted(
+                evidence,
+                key=lambda item: (
+                    -sum(term in (item.text.lower()+" "+source_context.get(item.source_id,"")) for term in terms),
+                    -item.relevance,
+                    item.id,
+                ),
+            )
+            for item in ranked[:2]:
+                key = (item.source_id, item.text)
+                if key not in seen:
+                    seen.add(key); selected.append(key)
+        return tuple(selected[:20])
+
+    @classmethod
+    def _fallback_repair_supplement(cls, missing_requirements, evidence_context) -> str:
+        lines = ["## 审计缺口的证据补充"]
+        for requirement in missing_requirements:
+            terms = cls._search_terms(str(requirement))
+            ranked = sorted(
+                evidence_context,
+                key=lambda item: (-sum(term in item[1].lower() for term in terms), item[0], item[1]),
+            )
+            lines.extend(("", f"### {str(requirement).strip()[:200]}"))
+            for source_id, text in ranked[:2]:
+                lines.append(f"- {text.strip()[:700]} [[source:{source_id}]]")
+        return "\n".join(lines)
 
     @staticmethod
     def _heading_key(heading: str) -> str: return re.sub(r"[^\w\u4e00-\u9fff]+", "", heading).lower()

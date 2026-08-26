@@ -42,8 +42,8 @@ class FakeModel:
     async def audit(self, topic: str, plan: ResearchPlan, report: str):
         return True, ()
 
-    async def repair(self, topic: str, plan: ResearchPlan, report: str, missing_requirements: tuple[str, ...]):
-        return report
+    async def repair(self, topic: str, plan: ResearchPlan, missing_requirements: tuple[str, ...], evidence_context):
+        return ""
 
 
 class FakeRetriever:
@@ -115,6 +115,30 @@ async def test_invalid_model_curation_falls_back_to_all_planned_sections() -> No
 
 
 @pytest.mark.asyncio
+async def test_semantically_wrong_valid_curation_is_replaced_by_matching_evidence() -> None:
+    class WrongAssignment(FakeModel):
+        async def plan(self, topic, limits):
+            return ResearchPlan(topic, ("Coroutines", "TaskGroup Cancellation"), (topic,))
+        async def distill(self, source, topic, sections):
+            return [
+                Evidence("coroutine", source.id, "coroutines use await", None, .9),
+                Evidence("taskgroup", source.id, "TaskGroup cancels remaining tasks", None, .9),
+            ]
+        async def curate(self, plan, evidence):
+            return [
+                ("Coroutines", "c", ("taskgroup",)),
+                ("TaskGroup Cancellation", "t", ("coroutine",)),
+            ]
+
+    events = [event async for event in ResearchEngine(WrongAssignment(), FakeRetriever()).run_research(
+        ResearchRequest("semantic-curation", "asyncio", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    sections = [event.data["markdown"] for event in events if event.type == "section"]
+    assert "coroutines use await" in sections[0]
+    assert "TaskGroup cancels remaining tasks" in sections[1]
+
+
+@pytest.mark.asyncio
 async def test_failed_topic_audit_cannot_be_published_as_completed() -> None:
     class OffTopic(FakeModel):
         async def audit(self, topic: str, plan: ResearchPlan, report: str):
@@ -138,9 +162,11 @@ async def test_failed_topic_audit_repairs_once_then_publishes() -> None:
             self.audits += 1
             return (self.audits == 2, () if self.audits == 2 else ("投递渠道",))
 
-        async def repair(self, topic, plan, report, missing_requirements):
+        async def repair(self, topic, plan, missing_requirements, evidence_context):
             self.repairs += 1
-            return report.replace("## 参考来源", "## 投递渠道\n\n请通过来源中的官方入口投递。\n\n## 参考来源")
+            assert evidence_context
+            assert all(len(item) == 2 for item in evidence_context)
+            return "## 投递渠道\n\n请通过来源中的官方入口投递。 [[source:s-base]]"
 
     model = Repairable()
     events = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
@@ -173,15 +199,76 @@ async def test_repair_with_an_unknown_link_cannot_pass_the_second_audit() -> Non
         async def audit(self, topic, plan, report):
             self.audits += 1
             return self.audits > 1, (() if self.audits > 1 else ("投递渠道",))
-        async def repair(self, topic, plan, report, missing_requirements):
-            return report + "\n\n[未知来源](https://unknown.example/claim)"
+        async def repair(self, topic, plan, missing_requirements, evidence_context):
+            return "## 投递渠道\n\n未知事实。 [[source:unknown]]"
 
     model = UnsafeRepair()
-    with pytest.raises(TopicCoverageError):
+    with pytest.raises(TopicCoverageError) as caught:
         _ = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
             ResearchRequest("unsafe-repair", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
         )]
     assert model.audits == 1
+    assert caught.value.diagnostics["repair_error"] == "unknowncitation"
+
+
+@pytest.mark.asyncio
+async def test_repair_has_its_own_bounded_timeout() -> None:
+    class SlowRepair(FakeModel):
+        async def audit(self, topic, plan, report): return False, ("投递渠道",)
+        async def repair(self, topic, plan, missing_requirements, evidence_context):
+            await asyncio.Event().wait()
+
+    engine = ResearchEngine(SlowRepair(), FakeRetriever())
+    engine.REPAIR_TIMEOUT_SECONDS = .01
+    with pytest.raises(TopicCoverageError) as caught:
+        _ = [event async for event in engine.run_research(
+            ResearchRequest("repair-timeout", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+    assert caught.value.diagnostics["repair_error"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_repair_timeout_uses_cited_evidence_then_reaudits_once() -> None:
+    class SlowThenPass(FakeModel):
+        def __init__(self): super().__init__(); self.audits = 0
+        async def audit(self, topic, plan, report):
+            self.audits += 1
+            return self.audits == 2, (() if self.audits == 2 else ("投递渠道",))
+        async def repair(self, topic, plan, missing_requirements, evidence_context):
+            await asyncio.Event().wait()
+
+    model = SlowThenPass(); engine = ResearchEngine(model, FakeRetriever()); engine.REPAIR_TIMEOUT_SECONDS = .01
+    events = [event async for event in engine.run_research(
+        ResearchRequest("repair-timeout-fallback", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data["markdown"] for event in events if event.type == "report")
+    assert model.audits == 2
+    assert "审计缺口的证据补充" in report
+    assert "https://example.com/base" in report
+
+
+def test_repair_evidence_selects_each_gap_instead_of_only_global_top_scores() -> None:
+    evidence = [
+        Evidence("e1", "s1", "helmet pre-ride safety check", None, .5),
+        Evidence("e2", "s2", "hydration and post-ride recovery", None, .5),
+        Evidence("e3", "s3", "unrelated background", None, .9),
+    ]
+    selected = ResearchEngine._repair_evidence(("helmet safety guidance", "hydration recovery guidance"), evidence)
+    assert selected[0][0] == "s1"
+    assert any(source_id == "s2" for source_id, _ in selected)
+
+
+def test_repair_evidence_uses_the_source_query_when_excerpt_wording_differs() -> None:
+    evidence = [
+        Evidence("e1", "s1", "general comfort advice", None, .5),
+        Evidence("e2", "s2", "generic background", None, .9),
+    ]
+    sources = [
+        Source("s1", 1, "web", "https://example.com/fit", None, "Beginner setup", "body", None, "n", .8, metadata={"query":"bike fit visibility route selection"}),
+        Source("s2", 2, "web", "https://example.com/other", None, "Background", "body", None, "n", .8),
+    ]
+    selected = ResearchEngine._repair_evidence(("bike fit and route guidance",), evidence, sources)
+    assert selected[0][0] == "s1"
 
 
 @pytest.mark.asyncio
@@ -338,6 +425,27 @@ def test_merge_sources_deduplicates_identical_content_from_different_urls() -> N
     assert [item.id for item in result] == ["first"]
 
 
+def test_merge_sources_preserves_all_queries_for_a_deduplicated_page() -> None:
+    sources = [
+        Source("same", 0, "web", "https://docs.python.org/3/library/asyncio-task.html", None, "Tasks", "body" * 100, None, "n", .9, "hash", {"query":"asyncio.create_task", "query_index":0}),
+        Source("same", 0, "web", "https://docs.python.org/3/library/asyncio-task.html", None, "Tasks", "body" * 100, None, "n", .9, "hash", {"query":"asyncio.timeout", "query_index":1}),
+    ]
+
+    result = ResearchEngine._merge_sources([], sources, ResearchRequest("queries", "x", ("web",), ResearchLimits()))
+
+    assert len(result) == 1
+    assert result[0].metadata["queries"] == ["asyncio.create_task", "asyncio.timeout"]
+
+
+def test_merge_sources_prefixes_each_query_specific_excerpt() -> None:
+    sources = [
+        Source("same", 0, "web", "https://docs.python.org/tasks", None, "Tasks", "long raw page " * 40, None, "n", .9, "hash", {"query":"create_task", "search_excerpt":"create_task schedules coroutines"}),
+        Source("same", 0, "web", "https://docs.python.org/tasks", None, "Tasks", "long raw page " * 40, None, "n", .9, "hash", {"query":"timeout", "search_excerpt":"asyncio.timeout limits waiting"}),
+    ]
+    result = ResearchEngine._merge_sources([], sources, ResearchRequest("excerpts", "x", ("web",), ResearchLimits()))
+    assert result[0].content.startswith("create_task schedules coroutines\n\nasyncio.timeout limits waiting")
+
+
 def test_relevant_excerpt_prefers_topic_paragraphs_and_bounds_model_input() -> None:
     noise = "网站导航与无关广告。" * 1000
     requirements = "岗位要求：熟悉 Python、LLM 应用开发和 Agent 工作流。"
@@ -348,6 +456,27 @@ def test_relevant_excerpt_prefers_topic_paragraphs_and_bounds_model_input() -> N
 
     assert requirements in excerpt and channel in excerpt
     assert len(excerpt) <= 1200
+
+
+def test_relevant_excerpt_uses_every_query_that_hit_a_deduplicated_source() -> None:
+    source = Source(
+        "official", 1, "web", "https://docs.python.org/3/library/asyncio-task.html", None, "Tasks",
+        "create_task schedules a coroutine.\n\nasyncio.timeout limits waiting.\n\nUnrelated introduction.",
+        None, "n", .9, metadata={"queries":["asyncio.create_task", "asyncio.timeout"]},
+    )
+    excerpt = relevant_excerpt(source, "Python asyncio", ("Tasks",), max_chars=1000)
+    assert "create_task" in excerpt and "asyncio.timeout" in excerpt
+
+
+def test_fallback_distill_keeps_one_fact_for_each_query_intent() -> None:
+    source = Source(
+        "official", 1, "web", "https://docs.python.org/3/library/asyncio-task.html", None, "Tasks",
+        "create_task schedules a coroutine.\n\nasyncio.timeout limits waiting.\n\nCancellation raises CancelledError.",
+        None, "n", .9, metadata={"queries":["asyncio.create_task", "asyncio.timeout", "task cancellation"]},
+    )
+    evidence = LiveResearchModel.fallback_distill(source, "Python asyncio", ("Tasks",))
+    text = " ".join(item.text for item in evidence)
+    assert "create_task" in text and "asyncio.timeout" in text and "CancelledError" in text
 
 
 def test_live_research_fallback_distill_only_extracts_relevant_source_text() -> None:
@@ -421,6 +550,7 @@ async def test_live_research_plan_prompt_forbids_scope_expansion() -> None:
     prompt = gateway.requests[0].messages[0]["content"]
     assert "Do not expand the scope" in prompt
     assert "systematic review" in prompt
+    assert "site:docs.python.org" in prompt
 
 
 @pytest.mark.asyncio
@@ -481,6 +611,21 @@ def test_fallback_curation_assigns_evidence_to_the_matching_section() -> None:
     assert sections[0][2] == (company.id,)
     assert sections[1][2] == (requirement.id,)
     assert sections[2][2] == (channel.id,)
+
+
+def test_fallback_curation_splits_english_headings_and_uses_source_queries() -> None:
+    safety = Evidence("safety", "source-safety", "Follow the checklist.", None, .8)
+    recovery = Evidence("recovery", "source-recovery", "Take the next day easy.", None, .8)
+    sources = [
+        Source("source-safety", 1, "web", "https://example.com/s", None, "Checklist", "body", None, "n", .8, metadata={"query":"helmet bike safety preparation"}),
+        Source("source-recovery", 2, "web", "https://example.com/r", None, "Rest", "body", None, "n", .8, metadata={"query":"post ride recovery hydration rest"}),
+    ]
+    plan = ResearchPlan("x", ("Safety Preparation", "Recovery Guidance"), ("x",))
+
+    sections = ResearchEngine._fallback_curated_sections(plan, [safety, recovery], sources)
+
+    assert sections[0][2] == (safety.id,)
+    assert sections[1][2] == (recovery.id,)
 
 
 @pytest.mark.asyncio

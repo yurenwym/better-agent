@@ -17,7 +17,7 @@ UNTRUSTED = (
 
 
 def relevant_excerpt(source, topic: str, sections: tuple[str, ...], max_chars: int = 6000) -> str:
-    seeds = " ".join((topic, *sections, str(source.metadata.get("query", ""))))
+    seeds = " ".join((topic, *sections, str(source.metadata.get("query", "")), *source.metadata.get("queries", ())))
     terms = {item.lower() for item in re.findall(r"[a-zA-Z0-9][\w.+#-]{1,}|[\u4e00-\u9fff]{2,}", seeds)}
     for run in re.findall(r"[\u4e00-\u9fff]{4,}", seeds):
         terms.update(run[index:index + 2] for index in range(len(run) - 1))
@@ -53,7 +53,9 @@ class LiveResearchModel:
             "Plan an evidence-first research report. Treat every explicit deliverable in the topic as mandatory. "
             "Do not expand the scope or add new deliverables such as a systematic review, methodology review, tools, "
             "limitations, ethics, or future research unless the user explicitly requested them. Prefer current primary "
-            "sources and direct action links when relevant.",
+            "sources and direct action links when relevant. When the user explicitly requests official documentation or "
+            "names an official domain, add a site:DOMAIN restriction to every relevant query; for official Python "
+            "documentation use site:docs.python.org.",
             f"Current date: {date.today().isoformat()}\nTopic: {topic}\nReturn title, sections(array of 2-{limits.max_sections} concise strings covering only the requested deliverables), queries(array up to {limits.max_queries}, with at least one query per section).",
         )
         return ResearchPlan(str(data["title"]), tuple(str(x) for x in data["sections"]), tuple(str(x) for x in data["queries"]))
@@ -73,23 +75,19 @@ class LiveResearchModel:
         excerpt = relevant_excerpt(source, topic, sections, max_chars=3600)
         sentences = [
             item.strip()
-            for item in re.split(r"(?<=[。！？.!?])\s*|\n+", excerpt)
+            for item in re.split(r"(?<=[。！？.!?])\s+|\n+", excerpt)
             if 8 <= len(item.strip()) <= 700
         ]
-        seeds = " ".join((topic, *sections, str(source.metadata.get("query", ""))))
-        terms = {item.lower() for item in re.findall(r"[a-zA-Z0-9][\w.+#-]{1,}|[\u4e00-\u9fff]{2,}", seeds)}
-        for run in re.findall(r"[\u4e00-\u9fff]{4,}", seeds):
-            terms.update(run[index:index + 2] for index in range(len(run) - 1))
-        ranked = sorted(
-            enumerate(sentences),
-            key=lambda pair: (-sum(term in pair[1].lower() for term in terms), pair[0]),
-        )
         selected = []
-        for _, sentence in ranked:
-            if not any(term in sentence.lower() for term in terms) or sentence in selected:
-                continue
-            selected.append(sentence)
-            if len(selected) == 3:
+        intents = [*source.metadata.get("queries", ()), str(source.metadata.get("query", "")), topic, *sections]
+        for intent in intents:
+            terms = {item.lower() for item in re.findall(r"[a-zA-Z0-9][\w.+#-]{1,}|[\u4e00-\u9fff]{2,}", intent)}
+            terms.update(part.lower() for item in tuple(terms) for part in re.split(r"[._]", item) if len(part) >= 3)
+            ranked = sorted(enumerate(sentences), key=lambda pair: (-sum(term in pair[1].lower() for term in terms), pair[0]))
+            match = next((sentence for _, sentence in ranked if sentence not in selected and any(term in sentence.lower() for term in terms)), None)
+            if match:
+                selected.append(match)
+            if len(selected) == 6:
                 break
         return [
             Evidence(f"evidence_{uuid.uuid4().hex}", source.id, sentence, None, .45)
@@ -109,7 +107,7 @@ class LiveResearchModel:
         response = await self.gateway.complete(ModelRequest(messages=[
             {"role": "system", "content": UNTRUSTED + " Write the requested concise Markdown section only. Answer the heading directly with concrete steps, measurements, examples, or constraints whenever the supplied evidence supports them. Do not output a heading. Every factual paragraph must cite supplied evidence using [[source:SOURCE_ID]]. Never invent IDs or add unsupported details."},
             {"role": "user", "content": f"Heading: {heading}\nThesis: {thesis}\nPrior summary: {prior_summary}\nEvidence: {source_map}"},
-        ], temperature=0))
+        ], temperature=0, max_tokens=1000))
         body = re.sub(r"^\s*#{1,6}\s+[^\n]+\n+", "", response.message.strip(), count=1)
         body = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", body)
         return f"## {heading}\n\n{body}", thesis[:240]
@@ -120,15 +118,16 @@ class LiveResearchModel:
 
     async def audit(self, topic: str, plan: ResearchPlan, report: str):
         data = await self._json(
-            "Audit whether a research report directly and completely answers the original topic. Every explicit deliverable and every planned section is mandatory. Do not reward background prose for missing actionable results.",
+            "Audit whether a research report directly and completely answers the original topic. Every explicit deliverable and every planned section is mandatory. Do not reward background prose for missing actionable results. Do not invent mandatory details that the topic did not explicitly request; a concrete evidence-backed example can satisfy a broad deliverable.",
             f"Topic: {topic}\nMandatory sections: {plan.sections}\nReport:\n{report}\nReturn passes(boolean) and missing_requirements(array of concise strings). passes must be false if any deliverable is missing, unsupported, or not actionable.",
         )
         missing = tuple(str(item) for item in data.get("missing_requirements", []) if str(item).strip())
         return data.get("passes") is True and not missing, missing
 
-    async def repair(self, topic: str, plan: ResearchPlan, report: str, missing_requirements: tuple[str, ...]):
+    async def repair(self, topic: str, plan: ResearchPlan, missing_requirements: tuple[str, ...], evidence_context):
         response = await self.gateway.complete(ModelRequest(messages=[
-            {"role": "system", "content": UNTRUSTED + " Revise the supplied Markdown report once so it directly covers every missing requirement. Preserve all existing source links and reference entries exactly. Use only facts and links already present in the report; do not invent sources, URLs, or unsupported claims. Return the complete revised Markdown report only."},
-            {"role": "user", "content": f"Topic: {topic}\nMandatory sections: {plan.sections}\nMissing requirements: {missing_requirements}\nReport:\n{report}"},
+            {"role": "system", "content": UNTRUSTED + " Write one concise Markdown supplement that directly covers every missing requirement using only the supplied evidence. Every factual paragraph must cite evidence as [[source:SOURCE_ID]]. Never invent IDs, URLs, facts, or a reference list. Return the supplement only, beginning with a level-2 heading."},
+            {"role": "user", "content": f"Topic: {topic}\nMandatory sections: {plan.sections}\nMissing requirements: {missing_requirements}\nEvidence (source_id, text): {evidence_context}"},
         ], temperature=0))
-        return response.message.strip()
+        supplement = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", response.message.strip())
+        return supplement

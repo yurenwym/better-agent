@@ -363,4 +363,7 @@ def _safe_failure_details(value: dict[str, Any] | None) -> dict[str, Any]:
     if not isinstance(missing, (list, tuple)):
         return {}
     items = [str(item).strip()[:300] for item in missing if str(item).strip()][:12]
-    return {"missing_requirements": items} if items else {}
+    result = {"missing_requirements": items} if items else {}
+    if value.get("repair_error") in {"timeout", "unknowncitation", "failed"}:
+        result["repair_error"] = value["repair_error"]
+    return result

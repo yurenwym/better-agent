@@ -101,6 +101,32 @@ def test_compiler_repairs_schema_invalid_json_once() -> None:
     assert "daily minute budget" in prompt
 
 
+@pytest.mark.parametrize(("days", "expected_max_tokens"), [(2, 3000), (7, 3500), (28, 12000)])
+def test_compiler_bounds_output_tokens_by_program_length(days: int, expected_max_tokens: int) -> None:
+    from app.goal_program_compiler import GoalProgramCompiler
+
+    class Gateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            return SimpleNamespace(message=json.dumps(fixture(days), ensure_ascii=False))
+
+    gateway = Gateway()
+    value = fixture(days)
+    asyncio.run(GoalProgramCompiler(gateway).compile(
+        "# Training plan",
+        {
+            "start_date": value["start_date"],
+            "end_date": value["end_date"],
+            "daily_minutes": 60,
+        },
+    ))
+
+    assert gateway.requests[0].max_tokens == expected_max_tokens
+
+
 def test_adjust_prompt_repeats_the_exact_program_schema() -> None:
     from app.goal_program_compiler import GoalProgramCompiler
 
