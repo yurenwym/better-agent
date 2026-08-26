@@ -16,6 +16,7 @@ import {
   revisePlan,
   previewGoalProgram,
   activateGoalProgram,
+  retryGoalProgramCompile,
   listGoalPrograms,
 } from "../api";
 import MarkdownMessage from "../components/MarkdownMessage";
@@ -178,8 +179,19 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   async function activateProgram() {
     if (!program) return;
     setBusy(true); setError("");
-    try { setProgram(await activateGoalProgram(program.id,program.version,crypto.randomUUID(),csrfToken)); }
+    try { const next=await activateGoalProgram(program.id,program.version,crypto.randomUUID(),csrfToken);setProgram(next);setLinkedProgram(next); }
     catch(reason){setError(reason instanceof Error?reason.message:"激活执行项目失败");}
+    finally{setBusy(false);}
+  }
+
+  async function retryProgramCompile() {
+    if (!program) return;
+    setBusy(true); setError("");
+    try {
+      const next = await retryGoalProgramCompile(program.id,program.version,crypto.randomUUID(),csrfToken);
+      setProgram(next); setLinkedProgram(next);
+    }
+    catch(reason){setError(reason instanceof Error?reason.message:"重新生成执行预览失败");}
     finally{setBusy(false);}
   }
 
@@ -191,6 +203,9 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
     setDocument(null);
     setSourceDocument(null);
     setStructuredPlans(null);
+    setLinkedProgram(null);
+    setProgram(null);
+    setShowExecution(false);
     async function load() {
       try {
         let nextDocument: PlanDocument | null = null;
@@ -221,7 +236,12 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           if (nextDocument) applyDocument(nextDocument);
           setStructuredPlans(nextStructuredPlans);
           setSourceDocument(nextSourceDocument);
-          setLinkedProgram(nextDocument ? programs.find(item=>item.source_plan_document_id===nextDocument!.id&&["DRAFT","ACTIVE","PAUSED"].includes(item.status))??programs.find(item=>item.source_plan_document_id===nextDocument!.id)??null : null);
+          const linked = nextDocument ? programs.find(item=>item.source_plan_document_id===nextDocument!.id&&["DRAFT","ACTIVE","PAUSED"].includes(item.status))??programs.find(item=>item.source_plan_document_id===nextDocument!.id)??null : null;
+          setLinkedProgram(linked);
+          if (linked?.status === "DRAFT") {
+            setProgram(linked);
+            setShowExecution(true);
+          }
           setDraft(nextStructuredPlans?.current ? editableSteps(nextStructuredPlans.current.steps) : []);
         }
       } catch (caught) {
@@ -420,7 +440,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
         {error && <div className="error-message" role="alert"><span>{error}</span>{document.file_status === "failed" && <button className="button button-danger" type="button" onClick={() => void retryProjection()}>Retry file write</button>}</div>}
         {conflict && <section className="plan-conflict" role="status"><strong>Newer server version detected</strong><p>Keep your draft, compare the server copy, then reload or merge manually.</p><div className="plan-conflict-preview"><MarkdownMessage content={String(conflict.markdown ?? "")} /></div></section>}
         {editing ? <section className="card plan-editor-card"><PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} /></section> : <section className="card plan-readable-card"><div className="panel-toolbar"><div><span className="eyebrow">PLAN CONTENT</span><h3>Readable plan</h3></div><span className="muted">Rendered view</span></div><MarkdownMessage content={markdown} /></section>}
-        {showExecution&&<section className="card program-preview-card" aria-busy={busy}><div className="panel-toolbar"><div><span className="eyebrow">EXECUTION PROGRAM</span><h3>{program?.status==="ACTIVE"?"当前执行版本":"生成执行预览"}</h3></div>{program&&<span className="version-badge">{program.status} · v{program.version}</span>}</div>{!program?<div className="program-preview-form"><label>开始日期<input aria-label="执行开始日期" type="date" value={startDate} onChange={event=>setStartDate(event.target.value)}/></label><label>结束日期（可选）<input aria-label="执行结束日期" min={startDate} type="date" value={endDate} onChange={event=>setEndDate(event.target.value)}/></label><label>时区<input aria-label="执行时区" value={timezone} onChange={event=>setTimezone(event.target.value)}/></label><label>每日分钟<input aria-label="每日可用分钟" min="5" max="1440" type="number" value={dailyMinutes} onChange={event=>setDailyMinutes(Number(event.target.value))}/></label><button className="button button-primary" disabled={busy||Boolean(endDate&&endDate<startDate)} type="button" onClick={()=>void createProgramPreview()}>{busy?"正在编译…":"生成预览"}</button></div>:<><p>来源文档 v{current.version} · {program.source_plan_content_hash}</p><p>{program.start_date} — {program.end_date} · {program.timezone} · 每日预算 {program.daily_minutes} 分钟</p>{program.structure?.assumptions.length?<ul>{program.structure.assumptions.map(item=><li key={item}>{item}</li>)}</ul>:null}<div className="program-calendar">{program.structure?.actions.map(action=><article key={action.logical_key}><span>{action.scheduled_date}</span><strong>{action.title}</strong><small>{action.estimated_minutes} 分钟</small></article>)}</div>{program.status==="DRAFT"&&<button className="button button-primary" disabled={busy} type="button" onClick={()=>void activateProgram()}>{busy?"正在激活…":"确认并激活"}</button>}<p className="muted">原计划文档与执行版本相互独立；继续编辑正文不会静默改变已激活安排。</p></>}</section>}
+        {showExecution&&<section className="card program-preview-card" aria-busy={busy}><div className="panel-toolbar"><div><span className="eyebrow">EXECUTION PROGRAM</span><h3>{program?.status==="ACTIVE"?"当前执行版本":"生成执行预览"}</h3></div>{program&&<span className="version-badge">{program.status} · v{program.version}</span>}</div>{!program?<div className="program-preview-form"><label>开始日期<input aria-label="执行开始日期" type="date" value={startDate} onChange={event=>setStartDate(event.target.value)}/></label><label>结束日期（可选）<input aria-label="执行结束日期" min={startDate} type="date" value={endDate} onChange={event=>setEndDate(event.target.value)}/></label><label>时区<input aria-label="执行时区" value={timezone} onChange={event=>setTimezone(event.target.value)}/></label><label>每日分钟<input aria-label="每日可用分钟" min="5" max="1440" type="number" value={dailyMinutes} onChange={event=>setDailyMinutes(Number(event.target.value))}/></label><button className="button button-primary" disabled={busy||Boolean(endDate&&endDate<startDate)} type="button" onClick={()=>void createProgramPreview()}>{busy?"正在编译…":"生成预览"}</button></div>:<><p>来源文档 v{current.version} · {program.source_plan_content_hash}</p><p>{program.start_date} — {program.end_date} · {program.timezone} · 每日预算 {program.daily_minutes} 分钟</p>{program.compile_status==="FAILED"?<div className="error-message" role="alert"><span>执行预览生成失败（{program.compile_error_code || "COMPILE_FAILED"}）</span><button className="button button-secondary" disabled={busy} type="button" onClick={()=>void retryProgramCompile()}>{busy?"正在重试…":"重新生成预览"}</button></div>:<>{program.structure?.assumptions.length?<ul>{program.structure.assumptions.map(item=><li key={item}>{item}</li>)}</ul>:null}<div className="program-calendar">{program.structure?.actions.map(action=><article key={action.logical_key}><span>{action.scheduled_date}</span><strong>{action.title}</strong><small>{action.estimated_minutes} 分钟</small></article>)}</div>{program.status==="DRAFT"&&program.compile_status==="READY"&&<button className="button button-primary" disabled={busy} type="button" onClick={()=>void activateProgram()}>{busy?"正在激活…":"确认并激活"}</button>}</>}<p className="muted">原计划文档与执行版本相互独立；继续编辑正文不会静默改变已激活安排。</p></>}</section>}
         <section className="card plan-history-card"><div className="panel-toolbar"><div><span className="eyebrow">IMMUTABLE HISTORY</span><h3>Version history</h3></div><div className="button-row"><button className="button button-secondary" disabled={busy} type="button" onClick={() => void syncFile()}>Sync file</button><button className="button button-quiet" disabled={busy} type="button" onClick={() => void retryProjection()}>Retry projection</button></div></div><div className="history-list">{history.map((version) => <div className={selectedVersion === version.version ? "history-row history-row-selected" : "history-row"} key={version.id}><button className="history-version" disabled={busy} type="button" onClick={() => void selectHistoryVersion(version)}>v{version.version}</button><span>{version.actor}</span><span>{version.change_summary || "No summary"}</span><span>{version.content_hash.slice(0, 18)}</span>{version.status === "committed" && version.version !== current.version && <button className="button button-quiet" disabled={busy} type="button" aria-label={`Restore version ${version.version}`} onClick={() => void restore(version)}>Restore</button>}</div>)}</div></section>
         {renderStructuredPlan()}
         <ConfirmDialog open={deleteOpen} title="删除计划？" description={`确定删除“${document.title}”吗？计划内容及其历史版本将无法恢复。`} busy={busy} onCancel={()=>setDeleteOpen(false)} onConfirm={()=>void deleteDocument()} />

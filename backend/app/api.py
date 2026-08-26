@@ -1350,6 +1350,7 @@ def _research_job_json(job) -> dict[str, Any]:
         "cancel_requested_at": job.cancel_requested_at, "created_at": job.created_at, "updated_at": job.updated_at,
         "title": job.report_title, "source_count": job.source_count, "evidence_count": job.evidence_count,
         "assistant_message_id": job.assistant_message_id, "failure_reason_code": job.failure_reason_code,
+        "failure_details": job.failure_details,
     }
 
 

@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   retryPlanProjection: vi.fn(),
   previewGoalProgram: vi.fn(),
   activateGoalProgram: vi.fn(),
+  retryGoalProgramCompile: vi.fn(),
   listGoalPrograms: vi.fn(),
 }));
 
@@ -78,6 +79,7 @@ describe("PlanPage document editor", () => {
     api.retryPlanProjection.mockResolvedValue(document);
     api.previewGoalProgram.mockResolvedValue(null);
     api.activateGoalProgram.mockResolvedValue(null);
+    api.retryGoalProgramCompile.mockResolvedValue(null);
     api.listGoalPrograms.mockResolvedValue({ programs: [] });
     api.getPlanVersion.mockResolvedValue({ ...current, version: 1, id: "version-1", markdown: "# Travel plan\n\n## Day 1\nOriginal" });
   });
@@ -132,6 +134,46 @@ describe("PlanPage document editor", () => {
 
     expect(await screen.findByText("执行已暂停")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "开始执行" })).toBeNull();
+  });
+
+  it("restores a linked ready draft and allows activation after refresh", async () => {
+    const linked = {
+      id:"program-1", source_plan_document_id:"plan-1", source_plan_content_hash:"sha256:v2",
+      objective_title:"Travel plan", status:"DRAFT", compile_status:"READY", version:3,
+      start_date:"2026-09-01", end_date:"2026-09-07", timezone:"Asia/Shanghai", daily_minutes:60,
+      structure:{ assumptions:[], actions:[] },
+      progress:{required_completed:0,required_total:7,completion_rate:0,completion_ready:false},
+    };
+    api.listGoalPrograms.mockResolvedValue({programs:[linked]});
+    api.activateGoalProgram.mockResolvedValue({...linked,status:"ACTIVE",version:4});
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "确认并激活" }));
+
+    await waitFor(() => expect(api.activateGoalProgram).toHaveBeenCalledWith(
+      "program-1", 3, expect.any(String), "csrf",
+    ));
+  });
+
+  it("shows and retries a linked failed draft instead of offering activation", async () => {
+    const failed = {
+      id:"program-1", source_plan_document_id:"plan-1", source_plan_content_hash:"sha256:v2",
+      objective_title:"Travel plan", status:"DRAFT", compile_status:"FAILED", compile_error_code:"COMPILE_TIMEOUT", version:3,
+      start_date:"2026-09-01", end_date:"2026-09-07", timezone:"Asia/Shanghai", daily_minutes:60,
+      structure:null, progress:{required_completed:0,required_total:0,completion_rate:0,completion_ready:false},
+    };
+    api.listGoalPrograms.mockResolvedValue({programs:[failed]});
+    api.retryGoalProgramCompile.mockResolvedValue({...failed,compile_status:"READY",compile_error_code:null,version:5,structure:{assumptions:[],actions:[]}});
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("COMPILE_TIMEOUT");
+    expect(screen.queryByRole("button", { name: "确认并激活" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "重新生成预览" }));
+
+    await waitFor(() => expect(api.retryGoalProgramCompile).toHaveBeenCalledWith(
+      "program-1", 3, expect.any(String), "csrf",
+    ));
+    expect(await screen.findByRole("button", { name: "确认并激活" })).toBeTruthy();
   });
 
   it("starts in rendered mode and saves edits made in the visual plan", async () => {

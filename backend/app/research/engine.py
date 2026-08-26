@@ -15,7 +15,14 @@ class InsufficientEvidence(RuntimeError):
     def __init__(self,reason_code="insufficientevidence",diagnostics=None,*,retryable=False):
         super().__init__(reason_code);self.reason_code=reason_code;self.diagnostics=diagnostics or {};self.retryable=retryable
 class UnknownCitation(RuntimeError): pass
-class TopicCoverageError(RuntimeError): pass
+class TopicCoverageError(RuntimeError):
+    reason_code = "topiccoverageerror"
+
+    def __init__(self, message: str, missing_requirements=()) -> None:
+        super().__init__(message)
+        self.diagnostics = {
+            "missing_requirements": [str(item)[:300] for item in missing_requirements if str(item).strip()][:12]
+        }
 class ResearchCancelled(RuntimeError): pass
 
 
@@ -130,7 +137,7 @@ class ResearchEngine:
         sections=[by_ordinal[item] for item in sorted(by_ordinal)]
         missing = [heading for index,heading in enumerate(plan.sections,1) if index not in by_ordinal]
         if missing:
-            raise TopicCoverageError(f"missing planned sections: {', '.join(missing)}")
+            raise TopicCoverageError(f"missing planned sections: {', '.join(missing)}", missing)
 
         yield ResearchEvent("phase", "writing", {"detail": "正在撰写报告"})
         evidence_by_id = {item.id: item for item in evidence}
@@ -189,8 +196,26 @@ class ResearchEngine:
             passed = self._deterministic_topic_audit(request.topic, plan, sections, bodies, sources)
             missing_requirements = () if passed else ("topic requirements",)
         if not passed:
+            repair = getattr(self.model, "repair", None)
+            if repair is not None:
+                try:
+                    repaired = await asyncio.wait_for(
+                        repair(request.topic, plan, report, tuple(missing_requirements)),
+                        timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
+                    )
+                    original_urls = set(re.findall(r"https?://[^\s)]+", report))
+                    repaired_urls = set(re.findall(r"https?://[^\s)]+", repaired)) if isinstance(repaired, str) else set()
+                    if isinstance(repaired, str) and repaired.strip() and repaired_urls == original_urls:
+                        report = repaired.strip()
+                        passed, missing_requirements = await asyncio.wait_for(
+                            self.model.audit(request.topic, plan, report),
+                            timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
+                        )
+                except Exception:
+                    passed = False
             detail = ", ".join(str(item) for item in missing_requirements if str(item).strip()) or "topic requirements"
-            raise TopicCoverageError(f"report does not cover: {detail}")
+            if not passed:
+                raise TopicCoverageError(f"report does not cover: {detail}", missing_requirements)
         yield ResearchEvent("report", "completed", {"title": plan.title, "markdown": report, "source_count": len(sources), "evidence_count": len(evidence)})
         yield ResearchEvent("phase", "completed", {"detail": "研究完成"})
 

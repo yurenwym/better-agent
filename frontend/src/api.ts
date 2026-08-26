@@ -355,6 +355,9 @@ export async function previewGoalProgram(planDocumentId: string, payload: { star
 export async function activateGoalProgram(programId: string, expectedVersion: number, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
   return planJson(await fetcher(`/api/programs/${programId}/activate`, { method:"POST", headers:goalMutationHeaders(csrf,key), body:JSON.stringify({expected_version:expectedVersion}) }));
 }
+export async function retryGoalProgramCompile(programId: string, expectedVersion: number, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
+  return planJson(await fetcher(`/api/programs/${programId}/compile-retry`, { method:"POST", headers:goalMutationHeaders(csrf,key), body:JSON.stringify({expected_version:expectedVersion}) }));
+}
 export async function getGoalProgram(programId: string, fetcher: Fetcher = fetch): Promise<GoalProgram> { return planJson(await fetcher(`/api/programs/${programId}`)); }
 export async function listGoalPrograms(fetcher: Fetcher = fetch): Promise<{programs:GoalProgram[]}> { return planJson(await fetcher("/api/programs")); }
 export async function deleteGoalProgram(programId:string,expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/programs/${programId}`,{method:"DELETE",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({expected_version:expectedVersion})});if(!response.ok)await planJson(response);}

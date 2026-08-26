@@ -18,6 +18,13 @@ class AdjustmentCompiler:
         return candidate
 
 
+class EmptyAdjustmentCompiler:
+    def __init__(self): self.calls = 0
+    async def adjust(self, current, reason):
+        self.calls += 1
+        return deepcopy(current)
+
+
 def active_services(tmp_path):
     from app.goal_adjustments import GoalAdjustmentService
     db,conversation,goals,version=service(tmp_path)
@@ -101,3 +108,26 @@ def test_sync_recovers_when_revision_committed_before_proposal_receipt(tmp_path,
     assert recovered["proposal"]["plan_sync_status"]=="COMMITTED"
     with db.connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id=?",(active["source_plan_document_id"],)).fetchone()[0]==2
+
+
+def test_unchanged_adjustment_is_retried_once_and_not_persisted(tmp_path, monkeypatch) -> None:
+    from app.goal_adjustments import GoalAdjustmentService
+    from app.goal_programs import GoalProgramConflict
+
+    monkeypatch.setattr("app.goal_adjustments._local_date", lambda _timezone: "2026-09-01")
+    db, conversation, goals, _, active = active_services(tmp_path)
+    compiler = EmptyAdjustmentCompiler()
+    adjustments = GoalAdjustmentService(goals, compiler, conversation.plan_documents)
+
+    with pytest.raises(GoalProgramConflict, match="no effective changes"):
+        asyncio.run(adjustments.propose(
+            active["id"], reason="降低训练强度", expected_version=active["version"],
+            idempotency_key="empty-proposal",
+        ))
+
+    assert compiler.calls == 2
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_adjustment_proposals").fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM goal_command_receipts WHERE idempotency_key='empty-proposal'"
+        ).fetchone()[0] == 0

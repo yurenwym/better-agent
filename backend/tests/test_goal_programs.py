@@ -180,6 +180,61 @@ def test_cancelled_preview_marks_compilation_failed_and_allows_retry(tmp_path) -
     assert ready["compile_status"] == "READY"
 
 
+def test_retry_compile_timeout_returns_to_failed_state(tmp_path) -> None:
+    from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
+
+    _, _, goals, version = service(tmp_path)
+    goals.compiler = FixedGoalProgramCompiler(error=GoalCompilationError("INVALID_MODEL_OUTPUT", "bad"))
+    with pytest.raises(GoalCompilationError):
+        preview(goals, version, "failed-before-retry-timeout")
+    failed = goals.list()[0]
+    goals.compile_timeout_seconds = .01
+
+    async def never_finishes(*_args):
+        await asyncio.Event().wait()
+
+    goals.compiler.compile = never_finishes
+    with pytest.raises(GoalCompilationError) as caught:
+        asyncio.run(goals.retry_compile(
+            failed["id"], expected_version=failed["version"], idempotency_key="retry-times-out"
+        ))
+
+    assert caught.value.code == "COMPILE_TIMEOUT"
+    timed_out = goals.get(failed["id"])
+    assert timed_out["compile_status"] == "FAILED"
+    assert timed_out["compile_error_code"] == "COMPILE_TIMEOUT"
+
+
+def test_compile_timeout_closes_receipt_and_allows_retry(tmp_path) -> None:
+    from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
+
+    db, _, goals, version = service(tmp_path)
+    goals.compile_timeout_seconds = .01
+
+    async def never_finishes(*_args):
+        await asyncio.Event().wait()
+
+    goals.compiler.compile = never_finishes
+    with pytest.raises(GoalCompilationError) as caught:
+        preview(goals, version, "timeout-preview")
+
+    assert caught.value.code == "COMPILE_TIMEOUT"
+    failed = goals.list()[0]
+    assert failed["compile_status"] == "FAILED"
+    assert failed["compile_error_code"] == "COMPILE_TIMEOUT"
+    with db.connection() as connection:
+        receipt = connection.execute(
+            "SELECT response_json FROM goal_command_receipts WHERE idempotency_key='timeout-preview'"
+        ).fetchone()
+    assert "_pending_program_id" not in receipt["response_json"]
+
+    goals.compiler = FixedGoalProgramCompiler(fixture())
+    ready = asyncio.run(goals.retry_compile(
+        failed["id"], expected_version=failed["version"], idempotency_key="retry-timeout"
+    ))
+    assert ready["compile_status"] == "READY"
+
+
 def test_service_startup_recovers_an_orphaned_compilation(tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
     from app.goal_programs import GoalProgramService

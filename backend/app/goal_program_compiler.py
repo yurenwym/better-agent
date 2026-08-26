@@ -58,7 +58,10 @@ class FixedGoalProgramCompiler:
 
     async def adjust(self, current: dict[str, Any], reason: str) -> dict[str, Any]:
         candidate = deepcopy(current)
-        candidate["assumptions"] = [*candidate.get("assumptions", []), f"用户调整：{reason}"[:300]]
+        if candidate.get("actions"):
+            action = candidate["actions"][-1]
+            action["title"] = f"{action['title']}（已调整）"[:160]
+            action["description"] = f"{action['description']}\n调整原因：{reason}"[:2000]
         return candidate
 
     async def review(self, evidence: dict[str, Any]) -> dict[str, Any]:

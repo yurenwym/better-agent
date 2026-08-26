@@ -42,6 +42,9 @@ class FakeModel:
     async def audit(self, topic: str, plan: ResearchPlan, report: str):
         return True, ()
 
+    async def repair(self, topic: str, plan: ResearchPlan, report: str, missing_requirements: tuple[str, ...]):
+        return report
+
 
 class FakeRetriever:
     async def retrieve(self, query: str, request: ResearchRequest):
@@ -121,6 +124,64 @@ async def test_failed_topic_audit_cannot_be_published_as_completed() -> None:
         _ = [event async for event in ResearchEngine(OffTopic(), FakeRetriever()).run_research(
             ResearchRequest("coverage-audit", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
         )]
+
+
+@pytest.mark.asyncio
+async def test_failed_topic_audit_repairs_once_then_publishes() -> None:
+    class Repairable(FakeModel):
+        def __init__(self):
+            super().__init__()
+            self.audits = 0
+            self.repairs = 0
+
+        async def audit(self, topic: str, plan: ResearchPlan, report: str):
+            self.audits += 1
+            return (self.audits == 2, () if self.audits == 2 else ("投递渠道",))
+
+        async def repair(self, topic, plan, report, missing_requirements):
+            self.repairs += 1
+            return report.replace("## 参考来源", "## 投递渠道\n\n请通过来源中的官方入口投递。\n\n## 参考来源")
+
+    model = Repairable()
+    events = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
+        ResearchRequest("coverage-repair", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+
+    assert model.audits == 2
+    assert model.repairs == 1
+    assert any(event.type == "report" and "## 投递渠道" in event.data["markdown"] for event in events)
+
+
+@pytest.mark.asyncio
+async def test_topic_coverage_error_exposes_missing_requirements_after_one_repair() -> None:
+    class StillIncomplete(FakeModel):
+        async def audit(self, topic, plan, report): return False, ("岗位要求", "投递渠道")
+
+    with pytest.raises(TopicCoverageError) as caught:
+        _ = [event async for event in ResearchEngine(StillIncomplete(), FakeRetriever()).run_research(
+            ResearchRequest("coverage-details", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+
+    assert caught.value.reason_code == "topiccoverageerror"
+    assert caught.value.diagnostics == {"missing_requirements": ["岗位要求", "投递渠道"]}
+
+
+@pytest.mark.asyncio
+async def test_repair_with_an_unknown_link_cannot_pass_the_second_audit() -> None:
+    class UnsafeRepair(FakeModel):
+        def __init__(self): super().__init__(); self.audits = 0
+        async def audit(self, topic, plan, report):
+            self.audits += 1
+            return self.audits > 1, (() if self.audits > 1 else ("投递渠道",))
+        async def repair(self, topic, plan, report, missing_requirements):
+            return report + "\n\n[未知来源](https://unknown.example/claim)"
+
+    model = UnsafeRepair()
+    with pytest.raises(TopicCoverageError):
+        _ = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
+            ResearchRequest("unsafe-repair", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+    assert model.audits == 1
 
 
 @pytest.mark.asyncio

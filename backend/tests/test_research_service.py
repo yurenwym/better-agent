@@ -9,6 +9,7 @@ from app.db import Database
 from app.research.models import Evidence, ResearchEvent, Source
 from app.research.service import ResearchConflict, ResearchService
 from app.research.worker import ManagedResearchWorker
+from app.research.engine import TopicCoverageError
 
 
 class CompletingEngine:
@@ -17,6 +18,12 @@ class CompletingEngine:
         yield ResearchEvent("sources", "retrieving", {"count": 1})
         yield ResearchEvent("section", "writing", {"ordinal": 1, "heading": "结论", "markdown": "## 结论\n\n有证据。", "summary": "done"})
         yield ResearchEvent("report", "completed", {"title": request.topic, "markdown": "# 报告\n\n有证据。", "source_count": 1, "evidence_count": 1})
+
+
+class CoverageFailureEngine:
+    async def run_research(self, request):
+        raise TopicCoverageError("incomplete", ("岗位要求", "投递渠道"))
+        yield
 
 
 def build(tmp_path):
@@ -128,6 +135,19 @@ def test_failed_research_keeps_collected_source_and_evidence_counts(tmp_path):
  service.apply_event(job.id,"w",ResearchEvent("evidence","distilling",{"count":1,"items":[evidence]}))
  failed=service.fail(job.id,"w","unknowncitation")
  assert (failed.source_count,failed.evidence_count)==(1,1)
+
+def test_failed_research_persists_safe_failure_diagnostics(tmp_path):
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-details",("web",));service.claim_next("w",30)
+ failed=service.fail(job.id,"w","topiccoverageerror",diagnostics={"missing_requirements":["岗位要求","投递渠道"]})
+ assert failed.failure_details=={"missing_requirements":["岗位要求","投递渠道"]}
+
+@pytest.mark.asyncio
+async def test_worker_persists_engine_failure_diagnostics(tmp_path):
+ _,conversation,service=build(tmp_path);service.engine=CoverageFailureEngine();job=service.create_manual(conversation.create_thread().id,"x","worker-details",("web",))
+ await ManagedResearchWorker(service,lease_seconds=30).run_once()
+ failed=service.get(job.id)
+ assert failed.failure_reason_code=="topiccoverageerror"
+ assert failed.failure_details=={"missing_requirements":["岗位要求","投递渠道"]}
 
 def test_source_event_exposes_only_safe_retrieval_diagnostics(tmp_path):
  _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"private query","safe-diagnostics",("web",));service.claim_next("w",30)

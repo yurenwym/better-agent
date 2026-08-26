@@ -26,11 +26,13 @@ class GoalProgramNotFound(KeyError):
 
 
 class GoalProgramService:
-    def __init__(self, db: Database, compiler: GoalCompiler, *, plan_documents=None, conversation=None) -> None:
+    def __init__(self, db: Database, compiler: GoalCompiler, *, plan_documents=None, conversation=None,
+                 compile_timeout_seconds: float = 120) -> None:
         self.db = db
         self.compiler = compiler
         self.plan_documents = plan_documents
         self.conversation = conversation
+        self.compile_timeout_seconds = compile_timeout_seconds
         self.reviews = None
         self._recover_interrupted_compilations()
 
@@ -114,7 +116,7 @@ class GoalProgramService:
                            "source_plan_document_version_id": source["version_id"], "source_plan_content_hash": source["content_hash"],
                            "defaulted_end_date": defaulted}
         try:
-            structure = await self.compiler.compile(source["markdown_content"], compile_request)
+            structure = await self._compile(source["markdown_content"], compile_request)
             structure = validate_program_structure(structure, start.isoformat(), end.isoformat(), daily_minutes)
         except asyncio.CancelledError:
             with self.db.transaction() as connection:
@@ -189,7 +191,15 @@ class GoalProgramService:
                    "start_date": row["start_date"], "end_date": row["end_date"], "timezone": row["timezone"],
                    "daily_minutes": row["daily_minutes"], "requested_end_date": row["end_date"], "defaulted_end_date": False}
         try:
-            structure = validate_program_structure(await self.compiler.compile(source["markdown_content"], request), row["start_date"], row["end_date"], row["daily_minutes"])
+            structure = validate_program_structure(await self._compile(source["markdown_content"], request), row["start_date"], row["end_date"], row["daily_minutes"])
+        except asyncio.CancelledError:
+            with self.db.transaction() as connection:
+                connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code='COMPILE_CANCELLED',version=version+1,updated_at=? WHERE id=? AND version=?",
+                                   (_now(), program_id, compiling_version))
+                self._event(connection, program_id, None, "program.compile_failed", "compiler", {"reason_code": "COMPILE_CANCELLED"})
+                response = self._program_json(connection, program_id, owner_id)
+                self._save_receipt(connection, owner_id, "program", program_id, "compile-retry", idempotency_key, request_hash, response)
+            raise
         except GoalCompilationError as exc:
             with self.db.transaction() as connection:
                 connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code=?,version=version+1,updated_at=? WHERE id=? AND version=?",
@@ -213,6 +223,15 @@ class GoalProgramService:
             response = self._program_json(connection, program_id, owner_id)
             self._save_receipt(connection, owner_id, "program", program_id, "compile-retry", idempotency_key, request_hash, response)
         return response
+
+    async def _compile(self, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return await asyncio.wait_for(
+                self.compiler.compile(source_markdown, request),
+                timeout=self.compile_timeout_seconds,
+            )
+        except asyncio.TimeoutError as exc:
+            raise GoalCompilationError("COMPILE_TIMEOUT", "goal compilation timed out", temporary=True) from exc
 
     def activate(self, program_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
         return self._command(program_id, owner_id, "activate", idempotency_key, {"expected_version": expected_version},

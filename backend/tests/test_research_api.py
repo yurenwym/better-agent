@@ -51,6 +51,19 @@ def test_research_job_api_returns_a_stable_failure_reason(tmp_path) -> None:
     assert payload["failure_reason_code"] == "unknowncitation"
 
 
+def test_research_job_api_returns_missing_requirements(tmp_path) -> None:
+    http, runtime = client(tmp_path)
+    csrf = http.get("/api/bootstrap").json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
+    thread = http.post("/api/threads", headers=headers, json={}).json()
+    job = runtime.research.create_manual(thread["id"], "research", "failed-details-api", ("web",))
+    runtime.research.claim_next("worker", 30)
+    runtime.research.fail(job.id, "worker", "topiccoverageerror", diagnostics={"missing_requirements":["投递渠道"]})
+
+    payload = http.get(f"/api/research/jobs/{job.id}").json()
+    assert payload["failure_details"] == {"missing_requirements": ["投递渠道"]}
+
+
 def test_research_job_delete_requires_terminal_state_and_removes_it(tmp_path) -> None:
     http, runtime = client(tmp_path)
     csrf = http.get("/api/bootstrap").json()["csrf_token"]

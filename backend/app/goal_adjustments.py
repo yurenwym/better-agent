@@ -38,17 +38,25 @@ class GoalAdjustmentService:
             affected=connection.execute("SELECT id,version,status,logical_key,scheduled_date FROM goal_actions WHERE program_id=? AND status='SCHEDULED' AND scheduled_date>=? ORDER BY scheduled_date,position,id",(program_id,local_today)).fetchall()
             snapshot=[dict(row) for row in affected]
             protected_keys={row["logical_key"] for row in connection.execute("SELECT logical_key FROM goal_actions WHERE program_id=? AND status IN ('COMPLETED','SKIPPED','DEFERRED')",(program_id,)).fetchall()}
-        raw_candidate=await self.compiler.adjust(current,reason)
-        if isinstance(raw_candidate,dict) and isinstance(raw_candidate.get("actions"),list):
-            original={item["logical_key"]:item for item in current["actions"]}
-            candidate_by_key={item.get("logical_key"):item for item in raw_candidate["actions"] if isinstance(item,dict)}
-            earliest_future=min((item["scheduled_date"] for item in snapshot),default=local_today)
-            candidate_by_key={key:item for key,item in candidate_by_key.items() if key in protected_keys or item.get("scheduled_date","")>=earliest_future}
-            for key in protected_keys:
-                if key in original:candidate_by_key[key]=original[key]
-            raw_candidate={**raw_candidate,"actions":list(candidate_by_key.values())}
-        candidate=validate_program_structure(raw_candidate,program["start_date"],program["end_date"],program["daily_minutes"])
+        async def generate(adjustment_reason: str):
+            raw_candidate=await self.compiler.adjust(current,adjustment_reason)
+            if isinstance(raw_candidate,dict) and isinstance(raw_candidate.get("actions"),list):
+                original={item["logical_key"]:item for item in current["actions"]}
+                candidate_by_key={item.get("logical_key"):item for item in raw_candidate["actions"] if isinstance(item,dict)}
+                earliest_future=min((item["scheduled_date"] for item in snapshot),default=local_today)
+                candidate_by_key={key:item for key,item in candidate_by_key.items() if key in protected_keys or item.get("scheduled_date","")>=earliest_future}
+                for key in protected_keys:
+                    if key in original:candidate_by_key[key]=original[key]
+                raw_candidate={**raw_candidate,"actions":list(candidate_by_key.values())}
+            return validate_program_structure(raw_candidate,program["start_date"],program["end_date"],program["daily_minutes"])
+
+        candidate=await generate(reason)
         diff=deterministic_diff(current,candidate)
+        if not any(diff.values()):
+            candidate=await generate(reason+"\n必须对至少一个未来行动产生具体、有效的调整。")
+            diff=deterministic_diff(current,candidate)
+        if not any(diff.values()):
+            raise GoalProgramConflict("adjustment has no effective changes")
         proposal_id=f"adjustment_{uuid.uuid4().hex}"; now=_now()
         with self.db.transaction() as connection:
             current_program=self.programs._program_row(connection,program_id,owner_id)

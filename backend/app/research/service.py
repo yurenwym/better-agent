@@ -41,6 +41,7 @@ class ResearchJob:
     evidence_count: int = 0
     assistant_message_id: str | None = None
     failure_reason_code: str | None = None
+    failure_details: dict[str, Any] | None = None
 
 
 class ResearchService:
@@ -224,18 +225,20 @@ class ResearchService:
             self.events.append(row["thread_id"], row["source_turn_id"], "research.completed", "research_worker", {"job_id": job_id, "report_url": f"/api/research/jobs/{job_id}/report", "message_id": message_id, "source_count": source_count}, connection=connection, occurred_at=now)
         return self.get(job_id)
 
-    def fail(self, job_id: str, owner: str, reason: str, retryable: bool = False) -> ResearchJob:
+    def fail(self, job_id: str, owner: str, reason: str, retryable: bool = False,
+             diagnostics: dict[str, Any] | None = None) -> ResearchJob:
         now = _now()
+        error = {"reason_code": reason, **_safe_failure_details(diagnostics)}
         with self.db.transaction() as connection:
             row = self._owned(job_id, owner, connection)
             if retryable and int(row["attempts"]) < int(row["max_attempts"]):
                 available=(datetime.now(timezone.utc)+timedelta(seconds=2**int(row["attempts"]))).isoformat()
-                connection.execute("UPDATE research_jobs SET status='QUEUED',last_error_json=?,lease_owner=NULL,lease_until=NULL,available_at=?,updated_at=? WHERE id=?",(json.dumps({"reason_code":reason}),available,now,job_id))
-                connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'",(now,json.dumps({"reason_code":reason}),job_id))
+                connection.execute("UPDATE research_jobs SET status='QUEUED',last_error_json=?,lease_owner=NULL,lease_until=NULL,available_at=?,updated_at=? WHERE id=?",(json.dumps(error,ensure_ascii=False),available,now,job_id))
+                connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'",(now,json.dumps(error,ensure_ascii=False),job_id))
                 self.events.append(row["thread_id"],row["source_turn_id"],"research.retry_scheduled","research_worker",{"job_id":job_id,"attempt":row["attempts"],"available_at":available,"reason_code":reason},connection=connection,occurred_at=now)
                 return self._job(job_id,connection)
-            connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',last_error_json=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (json.dumps({"reason_code": reason}), now, now, job_id))
-            connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'", (now, json.dumps({"reason_code": reason}), job_id))
+            connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',last_error_json=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (json.dumps(error,ensure_ascii=False), now, now, job_id))
+            connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'", (now, json.dumps(error,ensure_ascii=False), job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "research.failed", "research_worker", {"job_id": job_id, "reason_code": reason, "retryable": retryable}, connection=connection, occurred_at=now)
             self._fail_message(row,reason,connection,now)
         return self.get(job_id)
@@ -346,7 +349,18 @@ class ResearchService:
         ).fetchone()
         if not row: raise KeyError(job_id)
         error = json.loads(row["last_error_json"] or "{}")
-        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"))
+        details = {key:value for key,value in error.items() if key != "reason_code"}
+        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"), details or None)
 
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_failure_details(value: dict[str, Any] | None) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        return {}
+    missing = value.get("missing_requirements")
+    if not isinstance(missing, (list, tuple)):
+        return {}
+    items = [str(item).strip()[:300] for item in missing if str(item).strip()][:12]
+    return {"missing_requirements": items} if items else {}

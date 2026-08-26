@@ -125,3 +125,10 @@ class LiveResearchModel:
         )
         missing = tuple(str(item) for item in data.get("missing_requirements", []) if str(item).strip())
         return data.get("passes") is True and not missing, missing
+
+    async def repair(self, topic: str, plan: ResearchPlan, report: str, missing_requirements: tuple[str, ...]):
+        response = await self.gateway.complete(ModelRequest(messages=[
+            {"role": "system", "content": UNTRUSTED + " Revise the supplied Markdown report once so it directly covers every missing requirement. Preserve all existing source links and reference entries exactly. Use only facts and links already present in the report; do not invent sources, URLs, or unsupported claims. Return the complete revised Markdown report only."},
+            {"role": "user", "content": f"Topic: {topic}\nMandatory sections: {plan.sections}\nMissing requirements: {missing_requirements}\nReport:\n{report}"},
+        ], temperature=0))
+        return response.message.strip()
