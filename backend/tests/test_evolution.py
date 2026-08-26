@@ -273,6 +273,8 @@ def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):
     assert evaluation["eval_set_digest"] == evaluation["metrics"]["real_eval_set_digest"]
     assert evaluation["metrics"]["baseline_correct"] == evaluation["metrics"]["candidate_correct"]
     assert evaluation["metrics"]["real_report_digest"]
+    with pytest.raises(EvolutionConflict, match="not ready"):
+        service.evaluate_builtin(item["id"], expected_version=1, idempotency_key="cannot-overwrite-passed-evaluation")
     assert evaluation["checks"]["real_evaluation_pass"] is True
 
 
@@ -284,6 +286,11 @@ def test_builtin_evaluation_fails_closed_without_behavior_runner(tmp_path):
     assert evaluation["checks"]["behavior_evaluation_configured"] is False
     with pytest.raises(EvolutionGateError, match="deterministic"):
         service.approve_current(item["id"], expires_at=(datetime.now(timezone.utc)+timedelta(hours=1)).isoformat(), idempotency_key="deny")
+
+    service.behavior_runner = lambda manifest, case: "safe_refusal" if "密钥" in case["input"] else "helpful"
+    retried = service.evaluate_builtin(item["id"], expected_version=1, idempotency_key="retry-with-runner")
+    assert retried["deterministic_pass"] is True
+    assert service.get_candidate(item["id"])["version"] == 2
 
 
 def test_candidate_generator_requires_three_independent_discovery_experiences(tmp_path):
@@ -312,4 +319,6 @@ def test_candidate_generator_requires_three_independent_discovery_experiences(tm
     assert generated[0]["proposed_content"].keys() == {"prompt"}
     assert generated[0]["record_origin"] == "observed"
     assert generated[0]["evidence_source_kinds"] == ["observer"]
+    assert "重复" in generated[0]["reason"]
+    assert "改进" in generated[0]["proposed_content"]["prompt"]["improvement"]
     assert generator.generate() == []

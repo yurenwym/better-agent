@@ -27,20 +27,31 @@ const statusNext: Record<string, string> = {
 
 function changeValue(value: unknown): string {
   if (typeof value === "string" && value.includes("research-scope-bounded")) return "限制研究范围，只生成用户明确要求的内容";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return localizeEvolutionText(value);
+  if (typeof value === "object" && value && "improvement" in value) return localizeEvolutionText(String((value as Record<string, unknown>).improvement ?? ""));
   if (value === null) return "移除该能力";
   return JSON.stringify(value, null, 2);
 }
 
 function candidateProblem(candidate: EvolutionCandidate): string {
-  if (candidate.reason && !/^\?+$/.test(candidate.reason.replace(/\s/g,""))) return candidate.reason;
+  if (candidate.reason && !/^\?+$/.test(candidate.reason.replace(/\s/g,""))) return localizeEvolutionText(candidate.reason);
   if (Object.values(candidate.proposed_content ?? {}).some(value=>typeof value==="string"&&value.includes("research-scope-bounded"))) return "研究任务曾多次扩大用户没有要求的范围。";
-  return candidate.summary;
+  return localizeEvolutionText(candidate.summary);
 }
 
 function readableSummary(candidate: EvolutionCandidate): string {
   if (!candidate.summary || /^\?+$/.test(candidate.summary.replace(/\s/g,""))) return candidateProblem(candidate);
-  return candidate.summary;
+  return localizeEvolutionText(candidate.summary);
+}
+
+function localizeEvolutionText(value: string): string {
+  const repeated = value.match(/^Repeated\s+(\w+)\s+observed in\s+(\d+)\s+independent\s+(\w+)\s+experiences\.$/i);
+  if (repeated) {
+    const task = { conversation: "对话任务", research: "研究任务", goal: "目标任务" }[repeated[3].toLowerCase()] ?? repeated[3];
+    return `${task}连续出现 ${repeated[2]} 条独立失败记录。`;
+  }
+  if (value === "Address repeated observed failure without changing permissions or core policy.") return "针对重复失败改进提示词，不新增权限，也不改变核心策略。";
+  return value;
 }
 
 function rollbackTitle(candidate: EvolutionCandidate): string {
@@ -58,6 +69,7 @@ function rollbackReason(candidate: EvolutionCandidate): string {
 export default function EvolutionCandidateCard({ candidate, busy = false, onAction }: Props) {
   const evaluationPassed = candidate.evaluation?.deterministic_pass === true && candidate.evaluation.regressions.length === 0;
   const evaluation = candidate.evaluation;
+  const behaviorEvaluationUnavailable = evaluation?.regressions.includes("behavior_evaluation_configured") === true;
   const hasBehaviorMetrics = evaluation != null && [evaluation.baseline_correct, evaluation.candidate_correct, evaluation.quality_delta, evaluation.safety_violations].every(value => typeof value === "number");
   const changes = Object.entries(candidate.proposed_content ?? {});
   const evaluationProgress = evaluation?.total != null
@@ -66,11 +78,11 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
   const canaryProgress = candidate.status === "CANARY" ? `挑战组 ${candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0}/${candidate.canary?.required_samples ?? 20} · 对照组 ${candidate.canary?.champion_sample_size ?? 0}/${candidate.canary?.required_samples ?? 20}` : null;
   const canaryMissing = candidate.status === "CANARY" ? `还需 ${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.challenger_sample_size ?? candidate.canary?.sample_size ?? 0), 0)} 个挑战组样本、${Math.max((candidate.canary?.required_samples ?? 20) - (candidate.canary?.champion_sample_size ?? 0), 0)} 个对照组样本` : null;
   return <article className="evolution-card">
-    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}{candidate.record_origin === "demo" ? " · 演示记录" : candidate.record_origin === "manual" ? " · 人工证据" : ""}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{statuses[candidate.status] ?? candidate.status}</span></header>
+    <header className="evolution-card-heading"><div><span className="eyebrow">{kinds[candidate.kind] ?? candidate.kind} · v{candidate.version}{candidate.record_origin === "demo" ? " · 演示记录" : candidate.record_origin === "manual" ? " · 人工证据" : ""}</span><h3>{candidate.title}</h3><p>{readableSummary(candidate)}</p></div><span className={`evolution-status status-${candidate.status.toLowerCase()}`}>{behaviorEvaluationUnavailable ? "评测未完成" : statuses[candidate.status] ?? candidate.status}</span></header>
     {candidate.record_origin === "demo" && <p className="evolution-demo-note">这是一条演示数据，用于验证进化流程，不代表 Agent 从真实任务中自动学习的结果。</p>}
     <div className="evolution-facts">
       <div><span>证据</span><strong>{candidate.evidence_count} 条证据</strong></div>
-      <div><span>独立评测</span><strong>{candidate.evaluation ? (evaluationPassed ? "评测已通过" : "存在回归") : "尚未评测"}</strong></div>
+      <div><span>独立评测</span><strong>{behaviorEvaluationUnavailable ? "模型评测未配置" : candidate.evaluation ? (evaluationPassed ? "评测已通过" : "评测未通过") : "尚未评测"}</strong></div>
       <div><span>权限变化</span><strong>{candidate.permission_diff.added.length ? `新增权限 ${candidate.permission_diff.added.length} 项` : "没有新增权限"}</strong></div>
       <div><span>风险</span><strong>{candidate.risk_level === "high" ? "高" : candidate.risk_level === "medium" ? "中" : "低"}</strong></div>
     </div>
@@ -78,7 +90,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       <section><span className="evolution-step">01</span><div><h4>发现的问题</h4><p>{candidateProblem(candidate)}</p><small>来自 {candidate.evidence_count} 条独立经验，单次异常不会触发进化。</small></div></section>
       <section><span className="evolution-step">02</span><div><h4>准备怎样改变</h4>{changes.length ? <dl className="evolution-change-list">{changes.map(([name,value])=><div key={name}><dt>{changeLabels[name] ?? name}</dt><dd>{changeValue(value)}</dd></div>)}</dl> : <p>{candidate.summary}</p>}</div></section>
       <section><span className="evolution-step">03</span><div><h4>验证结果</h4><p className={evaluationPassed ? "evolution-pass" : ""}>{evaluationProgress}</p><small>{candidate.permission_diff.added.length ? `涉及 ${candidate.permission_diff.added.length} 项新增权限，需谨慎确认。` : "没有新增权限，核心安全边界保持不变。"}</small></div></section>
-      <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
+      <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{behaviorEvaluationUnavailable ? "请先配置评测模型，然后重新评测。评测通过前不能批准候选。" : statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
     </div>
     {candidate.status === "ROLLED_BACK" && candidate.rollback && <div className={`evolution-rollback ${candidate.rollback.kind === "safety_auto" ? "is-automatic" : ""}`} role="status">
       <div><strong>{rollbackTitle(candidate)}</strong><span>{rollbackReason(candidate)}</span></div>
@@ -90,15 +102,16 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       <div><span>质量变化</span><strong>{typeof evaluation.quality_delta === "number" ? `${evaluation.quality_delta >= 0 ? "+" : ""}${evaluation.quality_delta}` : "—"}</strong></div>
       <div><span>安全失败</span><strong>{evaluation.safety_violations ?? "—"}</strong></div>
     </div>}
-    {evaluation && !hasBehaviorMetrics && <div className="evolution-metrics-unavailable"><strong>旧版评测未记录真实行为指标</strong><span>当前只能确认确定性检查结果，不能据此判断候选质量或 Canary 安全性。</span></div>}
+    {evaluation && behaviorEvaluationUnavailable && <div className="evolution-metrics-unavailable"><strong>真实行为评测未运行</strong><span>当前未配置评测模型。基础检查已通过，但候选质量和安全性尚未验证，因此暂不可批准。</span></div>}
+    {evaluation && !behaviorEvaluationUnavailable && !hasBehaviorMetrics && <div className="evolution-metrics-unavailable"><strong>旧版评测未记录真实行为指标</strong><span>当前只能确认确定性检查结果，不能据此判断候选质量或 Canary 安全性。</span></div>}
     {(candidate.permission_diff.added.length > 0 || candidate.permission_diff.removed.length > 0) && <div className="permission-diff" aria-label="权限变化明细">
       {candidate.permission_diff.added.map((item) => <span className="permission-added" key={`add-${item}`}>+ {item}</span>)}
       {candidate.permission_diff.removed.map((item) => <span className="permission-removed" key={`remove-${item}`}>− {item}</span>)}
     </div>}
-    {candidate.evaluation?.regressions.length ? <div className="evolution-warning"><strong>回归项</strong><span>{candidate.evaluation.regressions.join("；")}</span></div> : null}
+    {candidate.evaluation?.regressions.length && !behaviorEvaluationUnavailable ? <div className="evolution-warning"><strong>未通过项目</strong><span>{candidate.evaluation.regressions.map(item => ({real_baseline_bound:"基线与候选使用了不同评测样本",real_evaluation_pass:"真实行为评测未通过",real_safety_pass:"安全评测未通过"}[item] ?? item)).join("；")}</span></div> : null}
     <footer className="evolution-actions">
       {candidate.status === "READY_FOR_EVAL" && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>开始评测</button>}
-      {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
+      {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{!evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>重新评测</button>}{evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
       {candidate.status === "APPROVED" && (candidate.kind === "prompt" ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("canary")}>开始 Canary</button> : <span className="canary-gate-note">该类型尚未配置在线运行适配器</span>)}
       {candidate.status === "CANARY" && <><button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚 Canary</button>{candidate.canary?.promotable ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("promote")}>正式启用</button> : <span className="canary-gate-note">{canaryMissing}{(candidate.canary?.safety_failures ?? 0) > 0 ? " · 存在安全失败，已禁止晋升" : ""}</span>}</>}
       {candidate.status === "PROMOTED" && <button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚版本</button>}

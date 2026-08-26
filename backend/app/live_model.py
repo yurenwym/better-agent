@@ -72,19 +72,19 @@ class LiveRuntimeModel:
 
     async def needs_clarification(self, goal: dict[str, Any], interactions: list[str]) -> bool:
         payload = await self._json(
-            "Return JSON only: {\"needs_clarification\": true|false}. Ask for clarification only when the objective or deliverable is genuinely missing. "
-            "A broad content request is enough for an assumption-based first version; do not ask for personal details before providing it. "
-            "For example, a request for a 7-day diet plan can be planned with clearly stated assumptions and safety notes. Do not ask for personal details.",
+            "只返回 JSON：{\"needs_clarification\": true|false}。仅当目标或交付物确实缺失时才要求澄清。"
+            "对于宽泛的内容请求，可以基于明确假设先给出第一版，不要在提供内容前索取个人信息。"
+            "例如，用户要求七天饮食计划时，可以声明假设并附安全提示后直接规划，不要先询问个人信息。",
             {"goal": goal, "interactions": interactions},
         )
         return bool(payload.get("needs_clarification", False))
 
     async def plan(self, goal: dict[str, Any], interactions: list[str]) -> PlanDraft:
         payload = await self._json(
-            "Return JSON only with keys summary and steps. steps must be a non-empty array of objects with id, title, description. "
-            "Make the plan tailored to the exact user goal and its deliverable, using the user's language. "
-            "For content or planning requests, put concrete deliverable details in summary, step titles, or descriptions; "
-            "do not return generic checklist steps such as clarify the goal, execute each item, or summarize progress unless the user explicitly asks for a workflow.",
+            "只返回包含 summary 和 steps 的 JSON。steps 必须是非空数组，每项包含 id、title、description。"
+            "计划必须准确贴合用户目标和交付物，并使用用户的语言。"
+            "对于内容或规划请求，应在 summary、步骤标题或描述中写出具体交付内容；"
+            "除非用户明确要求工作流，否则不要返回‘澄清目标、逐项执行、总结进度’之类的通用清单。",
             {"goal": goal, "interactions": interactions},
         )
         steps = payload.get("steps")
@@ -103,12 +103,12 @@ class LiveRuntimeModel:
 
     async def decide(self, step: dict[str, Any], observation: str, iteration: int) -> ModelDecision:
         payload = await self._json(
-            "Return JSON only. action must be one of complete_step, continue, await_outcome, tool_call, blocked. "
-            "Put the user-visible result in output or summary; do not use a generic label when a concrete result is available. "
-            "For a content deliverable, return the visible answer as soon as the step and observation contain enough information. "
-            "Do not call tools just to fill assumptions, get the current time, or repeat a result already present in observation. "
-            "Use at most one tool only when the current step explicitly requires it. "
-            "For tool_call include tool_call: {id,name,params}. Never return hidden reasoning.",
+            "只返回 JSON。action 只能是 complete_step、continue、await_outcome、tool_call、blocked 之一。"
+            "将用户可见结果放在 output 或 summary 中；已有具体结果时不要使用空泛标签。"
+            "对于内容交付，只要步骤和观察信息充分，就立即返回可见答案。"
+            "不要为了补充假设、获取当前时间或重复 observation 中已有结果而调用工具。"
+            "仅当当前步骤明确需要时才调用工具，并且最多调用一个。"
+            "tool_call 操作必须包含 tool_call: {id,name,params}。不要返回隐藏推理。",
             {"step": step, "observation": observation, "iteration": iteration},
             allow_tool_calls=True,
         )
@@ -135,7 +135,7 @@ class LiveRuntimeModel:
 
     async def reflect(self, goal: dict[str, Any], plan: Any, run_id: str) -> list[dict[str, Any]]:
         payload = await self._json(
-            "Return JSON only with key candidates. candidates is an array of optional preference or habit objects with kind, content, scope, confidence, evidence_event_ids. Do not invent a candidate when evidence is absent.",
+            "只返回包含 candidates 的 JSON。candidates 是可选的偏好或习惯对象数组，每项包含 kind、content、scope、confidence、evidence_event_ids。没有证据时不要虚构候选记忆。",
             {"goal": goal, "plan": _plan_json(plan), "run_id": run_id},
         )
         candidates = payload.get("candidates", [])
@@ -200,7 +200,7 @@ class LiveRuntimeModel:
                 reset_callback()
             repair = await self.gateway.complete(
                 ModelRequest(messages=messages + [
-                    {"role": "user", "content": "The previous response was not valid JSON. Return only the requested JSON object."},
+                    {"role": "user", "content": "上一条响应不是有效 JSON。只返回所要求的 JSON 对象。"},
                 ], tools=self.tool_schemas),
                 cancel_event=self._cancel_event.get(),
                 on_text_delta=self._text_delta_callback.get(),
@@ -237,11 +237,11 @@ class LiveConversationModel:
                 {
                     "role": "system",
                     "content": (
-                        "Return JSON only: {\"save_existing_plan\": true|false}. "
-                        "Use the LLM to decide whether the latest user message explicitly asks to write, save, or generate a document from a complete Markdown plan already shown by the assistant. "
-                        "A request such as 写进计划页面, 保存到计划, or 生成文档 means true only when that prior assistant plan exists. "
-                        "Questions about the plan, requests for more detail, or personalization without an explicit save request are false. "
-                        "Do not infer true from generic planning keywords."
+                        "只返回 JSON：{\"save_existing_plan\": true|false}。"
+                        "判断用户最新消息是否明确要求把助手已经展示的完整 Markdown 计划写入、保存为或生成计划文档。"
+                        "‘写进计划页面’、‘保存到计划’或‘生成文档’仅在此前确有完整助手计划时为 true。"
+                        "仅询问计划、要求补充细节或个性化但没有明确保存要求时为 false。"
+                        "不要仅凭一般规划关键词推断为 true。"
                     ),
                 },
                 {
@@ -280,13 +280,11 @@ class LiveConversationModel:
                 {
                     "role": "system",
                     "content": (
-                        "Return JSON only: {\"plan_document_request\": true|false}. "
-                        "Use the LLM to decide whether the latest user message explicitly asks for a complete plan document "
-                        "to be generated, written, saved, or put into the plan page. True includes a direct request to proceed "
-                        "without asking questions. False includes a generic guide or recommendation, a question about a plan, "
-                        "or a plan request without an explicit document/save instruction. Merely asking to make a 7-day diet, "
-                        "travel, or training plan is an answer request, not a document save request. Do not infer true from "
-                        "planning keywords alone."
+                        "只返回 JSON：{\"plan_document_request\": true|false}。"
+                        "判断用户最新消息是否明确要求生成、编写、保存完整计划文档或写入计划页面。"
+                        "明确要求不经提问直接生成文档时也为 true。一般攻略、推荐、询问计划，"
+                        "或没有明确文档/保存指令的计划请求为 false。仅要求七天饮食、旅行或训练计划属于回答请求，"
+                        "不是文档保存请求。不要仅凭规划关键词推断为 true。"
                     ),
                 },
                 {
@@ -318,7 +316,7 @@ class LiveConversationModel:
 
     async def _classify_explicit_research_request(self, content: str, cancel_event) -> tuple[bool, str]:
         request = ModelRequest(messages=[
-            {"role":"system","content":"Return JSON only: {\"start_research\":true|false,\"topic\":\"...\"}. True only when the user explicitly requests starting a new deep research, investigation, comparison with sources, or a sourced report. References to existing research, such as 'based on the previous deep research, create a plan', are false. Ordinary questions, guides, plans, recommendations, and requests that can be answered directly are false. Preserve the requested topic concisely."},
+            {"role":"system","content":"只返回 JSON：{\"start_research\":true|false,\"topic\":\"...\"}。仅当用户明确要求启动新的深度研究、调查、带来源对比或有来源报告时为 true。引用已有研究（如‘根据之前的深度研究制定计划’）为 false。普通问题、攻略、计划、推荐以及可直接回答的请求均为 false。简洁保留用户要求的研究主题。"},
             {"role":"user","content":content},
         ],tools=[],temperature=0,max_tokens=200)
         try:
@@ -334,11 +332,11 @@ class LiveConversationModel:
         if not isinstance(self.gateway,ModelGateway):return None
         explicit_marker=bool(re.search(r"(?:请|帮我|以后)?\s*(?:记住|记得)|\bremember\b",content,re.I))
         if not explicit_marker:return None
-        request=ModelRequest(messages=[{"role":"system","content":"Return JSON only: {\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}. True only when the user explicitly commands you to remember stable information for future conversations. Examples that MUST be true: 'Remember that I dislike spicy food', '请记住我喜欢简洁明确的回答', '以后记得我九点后出发'. Ordinary statements without an explicit remember-for-future command are false. Preserve only the stable fact in content. Never include credentials or secrets."},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220)
+        request=ModelRequest(messages=[{"role":"system","content":"只返回 JSON：{\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}。仅当用户明确要求为未来对话记住稳定信息时为 true，例如‘记住我不吃辣’、‘请记住我喜欢简洁明确的回答’、‘以后记得我九点后出发’。没有明确长期记忆指令的普通陈述为 false。content 只保留稳定事实，绝不包含凭据或密钥。"},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220)
         try:
             payload=_parse_json((await self.gateway.complete(request,cancel_event=cancel_event)).message)
             if payload.get("remember") is not True and explicit_marker:
-                repair=ModelRequest(messages=[*request.messages,{"role":"system","content":"The application already verified an explicit remember-for-future command. Return the same JSON schema with remember=true and extract the stable information; do not ask a question."}],tools=[],temperature=0,max_tokens=220)
+                repair=ModelRequest(messages=[*request.messages,{"role":"system","content":"应用已经确认这是明确的长期记忆指令。按相同 JSON 结构返回 remember=true 并提取稳定信息，不要再提问。"}],tools=[],temperature=0,max_tokens=220)
                 payload=_parse_json((await self.gateway.complete(repair,cancel_event=cancel_event)).message)
             if payload.get("remember") is not True:return None
             if payload.get("kind") not in {"preference","constraint","fact","decision","lesson"} or payload.get("scope_type") not in {"user","project"}:return None
@@ -377,53 +375,41 @@ class LiveConversationModel:
         messages: list[dict[str, str]] = [{
             "role": "system",
             "content": _with_runtime_policy((
-                "Respond with one JSON control header on a single line, followed by the user-facing Markdown body. "
-                "Use V1 for answer-only compatibility, V2 for saved documents, V3 for explicit deep research, and V4 for bounded expert collaboration. "
-                "The header policy is answer|propose_execution|clarify|start_research|start_expert. "
-                "Only when the user explicitly asks for deep research, investigation, or a sourced report, return exactly "
-                "v=3, policy=start_research, content_shape=research, reason_code=explicit_deep_research, and research={topic,scope:web}; no visible body or artifact. "
-                "For an explicit request to create, save, or modify a plan document, use v=2 with exactly one artifact "
-                "object: kind=plan_document, operation=upsert, and a concise title. Return the complete Markdown document "
-                "after the header; that exact visible body is the saved document. "
-                "Do not use an artifact for a generic guide, explanation, or answer-only plan. "
-                "Artifact authority comes only from the user's explicit request; never invent a save request from keywords alone. "
-                "Highest-priority save rule: saving an existing plan means the user explicitly asks to put, write, or save a complete plan already present in the conversation into the plan page or generate a plan document from that plan. "
-                "This includes requests such as 'write the plan already shown into the plan page', 'save that plan as a plan document', or 'generate the document from that plan'; a standalone request to generate a new document does not count as saving an existing plan. "
-                "For saving an existing plan, do not call ask_user and do not ask for personalization; return v=2 with the plan_document upsert artifact and reproduce the complete existing Markdown body, applying any explicit edits. "
-                "If history contains a prior assistant Markdown plan and the latest request includes Chinese phrases such as '\u5199\u8fdb\u8ba1\u5212\u9875\u9762', '\u4fdd\u5b58\u5230\u8ba1\u5212', or '\u751f\u6210\u6587\u6863', treat it as saving an existing plan and do not call ask_user. "
-                "This saving rule takes precedence over the personalized-plan question rule below. "
-                "For a new plan document, when no complete plan body exists in the conversation, follow the personalized-plan question rule; after ask_user answers, if the original request explicitly asks to create the plan document, return v=2 with the artifact. "
-                "Use answer for content, explanations, guides, comparisons, and plans as deliverables. "
-                "Use start_expert only when at least two independent perspectives materially improve a complex comparison or decision; return exactly v=4 with expert={objective,roles}, roles chosen only from researcher,planner,critic, and no visible body. "
-                "Use propose_execution only for explicit ongoing tracking, tool use, external writes, or side effects. "
-                "You decide which relevant personal context is missing from the current request and history. "
-                "For a personalized, long-term, or goal-driven plan, you must call ask_user before drafting when the relevant personal context is not already provided. "
-                "Treat a request to create a training tutorial, program, routine, or regimen intended to be followed by the user as a goal-driven deliverable, not merely a general explanation, and apply the same rule. "
-                "Only skip ask_user when the user explicitly asks for a generic explanation or template, or has already provided the relevant personal context; do not answer first and ask later. "
-                "If it is ambiguous whether the user wants a generic explanation or a personal plan, ask one concise intent question before drafting. "
-                "Choose only the minimum questions needed for this specific request; do not use a fixed questionnaire and do not ask for information that is not relevant. "
-                "For general knowledge, a broad guide, a template, or a useful first answer that can be written with explicit assumptions, answer directly instead of asking for preferences. "
-                "The ask_user call must contain one to four concrete questions; do not emit prose or a control header in the same response. "
-                "Use clarify only for legacy one-question text responses when a structured ask is not appropriate. "
-                "Never expose the header, hidden reasoning, tool schema, or raw JSON in the Markdown body. "
-                "Use the user's language and start the useful answer immediately after the header."
+                "先在单独一行返回一个 JSON 控制头，再返回用户可见的 Markdown 正文。"
+                "V1 用于仅回答兼容，V2 用于保存文档，V3 用于明确的深度研究，V4 用于有边界的专家协作。"
+                "控制头 policy 只能是 answer|propose_execution|clarify|start_research|start_expert。"
+                "仅当用户明确要求新的深度研究、调查或有来源报告时，返回 v=3、policy=start_research、content_shape=research、reason_code=explicit_deep_research、research={topic,scope:web}，且不要返回可见正文或 artifact。"
+                "用户明确要求创建、保存或修改计划文档时，使用 v=2 且只包含一个 artifact：kind=plan_document、operation=upsert 和简洁标题。控制头后返回完整 Markdown 文档，该可见正文就是保存内容。"
+                "一般攻略、解释或只需回答的计划不得使用 artifact。artifact 权限只来自用户明确要求，绝不能仅凭关键词虚构保存意图。"
+                "最高优先级保存规则：用户明确要求把对话中已经存在的完整计划写入或保存到计划页面，或据此生成计划文档，才算保存已有计划。单独要求生成全新文档不属于保存已有计划。"
+                "保存已有计划时不得调用 ask_user，也不要再询问个性化信息；返回含 plan_document upsert artifact 的 v=2，并完整复现已有 Markdown，应用用户明确提出的修改。"
+                "若历史中已有助手 Markdown 计划，且最新请求包含‘写进计划页面’、‘保存到计划’或‘生成文档’，视为保存已有计划，不得调用 ask_user。此规则优先于下面的个性化计划提问规则。"
+                "新建计划文档且对话中尚无完整计划正文时，遵循个性化计划提问规则；ask_user 得到回答后，若原请求明确要求创建文档，则返回含 artifact 的 v=2。"
+                "内容、解释、攻略、比较和作为交付物的计划使用 answer。仅当至少两个独立视角能显著改善复杂比较或决策时使用 start_expert；返回 v=4 和 expert={objective,roles}，roles 只能从 researcher、planner、critic 中选择，不返回可见正文。"
+                "仅对明确需要持续跟踪、工具调用、外部写入或副作用的请求使用 propose_execution。"
+                "根据当前请求和历史自行判断缺少哪些相关个人背景。个性化、长期或目标导向计划在缺少必要背景时必须先调用 ask_user。"
+                "用户准备亲自遵循的训练教程、方案、日程或习惯计划属于目标导向交付物，应遵循同一规则。"
+                "仅当用户明确要求通用解释/模板，或已经提供相关背景时才能跳过 ask_user；不要先回答后提问。"
+                "若无法判断用户要通用解释还是个人计划，先问一个简洁的意图问题。只提本次请求真正需要的最少问题，不使用固定问卷，不询问无关信息。"
+                "一般知识、宽泛攻略、模板，或可通过明确假设直接写出的有用第一版，应直接回答而不是询问偏好。"
+                "ask_user 必须包含一到四个具体问题；同一响应中不要再输出正文或控制头。结构化询问不适用时，clarify 仅用于兼容旧版单问题文本。"
+                "Markdown 正文中绝不暴露控制头、隐藏推理、工具结构或原始 JSON。使用用户的语言，并在控制头后立即开始有效答案。"
             ), policy),
         }]
         if human_mode:
             messages.append({"role": "system", "content": (
-                "Human conversation mode applies only to user-facing text after the exact JSON control header. "
-                "Never apply it to control JSON, ask_user, plan_document artifacts, research reports, runtime JSON, tools, or citations. "
-                "Use natural spoken Chinese in usually 1-2 and at most 3 bubbles. Put [[next]] on its own line only at a real pause. "
-                "Avoid Markdown headings, tables, and report-style numbered lists in the ordinary visible body."
+                "拟人对话模式只作用于完整 JSON 控制头之后的用户可见文本。"
+                "不得作用于控制 JSON、ask_user、plan_document artifact、研究报告、运行时 JSON、工具或引用。"
+                "使用自然口语中文，通常一到两段，最多三段；仅在真实停顿处将 [[next]] 单独放一行。"
+                "普通可见正文避免 Markdown 标题、表格和报告式编号列表。"
             )})
         save_existing_plan = await self._classify_existing_plan_save(content, history, cancel_event)
         if save_existing_plan:
             messages.append({
                 "role": "system",
                 "content": (
-                    "The intent gate classified this request as saving an existing plan. "
-                    "Do not call ask_user. The response must contain a valid v=2 plan_document upsert artifact "
-                    "and the complete Markdown plan body."
+                    "意图门禁已确认这是保存已有计划的请求。不要调用 ask_user。"
+                    "响应必须包含有效的 v=2 plan_document upsert artifact 和完整 Markdown 计划正文。"
                 ),
             })
         messages.extend(history)
@@ -517,27 +503,24 @@ class LiveConversationModel:
                 plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
             if plan_document_intent:
                 return await force_plan_document(
-                    "The conversation response declared a plan-document request. "
-                    "Retry now with no tool call: the first line must be a valid v=2 JSON control header "
-                    "containing exactly one plan_document upsert artifact, followed by the complete Markdown body."
+                    "对话响应声明了计划文档请求。立即重试且不要调用工具：第一行必须是有效的 v=2 JSON 控制头，"
+                    "其中只包含一个 plan_document upsert artifact，随后返回完整 Markdown 正文。"
                 )
         if isinstance(response, AskRequest):
             if not await self._classify_explicit_plan_document_request(content, history, cancel_event):
                 return response
             return await force_plan_document(
-                "The intent gate confirmed an explicit plan-document request. "
-                "Do not call ask_user or request more context. Return a valid v=2 JSON control header "
-                "with exactly one plan_document upsert artifact, followed by a complete Markdown plan using "
-                "reasonable explicit assumptions."
+                "意图门禁已确认这是明确的计划文档请求。不要调用 ask_user 或索取更多背景。"
+                "返回有效的 v=2 JSON 控制头，其中只包含一个 plan_document upsert artifact，"
+                "随后基于合理且明确的假设返回完整 Markdown 计划。"
             )
         if _response_is_plan_shaped(response) and not _response_has_plan_artifact(response):
             if plan_document_intent is None:
                 plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
             if plan_document_intent:
                 return await force_plan_document(
-                    "The intent gate confirmed an explicit plan-document request. "
-                    "Retry with no tool call and return a valid v=2 JSON control header with exactly one "
-                    "plan_document upsert artifact, followed by the complete Markdown plan body."
+                    "意图门禁已确认这是明确的计划文档请求。不要调用工具并重试：返回有效的 v=2 JSON 控制头，"
+                    "其中只包含一个 plan_document upsert artifact，随后返回完整 Markdown 计划正文。"
                 )
         if valid:
             return response
@@ -546,10 +529,10 @@ class LiveConversationModel:
             plan_document_intent = await self._classify_explicit_plan_document_request(content, history, cancel_event)
         if plan_document_intent:
             return await force_plan_document(
-                'The intent gate confirmed a saved plan document. Begin with this exact JSON shape on one line: '
+                '意图门禁已确认需要保存计划文档。第一行必须使用以下准确 JSON 结构：'
                 '{"v":2,"policy":"answer","content_shape":"plan_document","reason_code":"explicit_plan_save",'
                 '"artifact":{"kind":"plan_document","operation":"upsert","title":"PLAN TITLE"}}. '
-                'Replace only PLAN TITLE, then put the complete Markdown plan beginning with # on the next line.'
+                '只替换 PLAN TITLE，并从下一行开始输出以 # 开头的完整 Markdown 计划。'
             )
 
         if on_text_reset is not None:
@@ -557,12 +540,10 @@ class LiveConversationModel:
         repair_messages = messages + [{
             "role": "user",
             "content": (
-                "The previous response violated the conversation control-header protocol. "
-                "Retry the original user request now. The first line must be exactly one JSON object "
-                "with v=1 or v=2, policy, content_shape, and reason_code; if the user explicitly requested a saved plan, "
-                "include the valid V2 plan_document upsert artifact. If the user asked to save an existing plan, do not call ask_user. "
-                "If no complete plan body exists yet, a new plan may use ask_user before drafting; after ask_user answers, an explicit plan-document request must use V2. "
-                "Do not put prose, Markdown, or a code fence before it."
+                "上一条响应违反了对话控制头协议。立即重新处理原始用户请求。第一行必须且只能是一个 JSON 对象，"
+                "包含 v=1 或 v=2、policy、content_shape、reason_code；若用户明确要求保存计划，需包含有效的 V2 plan_document upsert artifact。"
+                "若用户要求保存已有计划，不得调用 ask_user。若尚无完整计划正文，新计划可在起草前调用 ask_user；得到回答后，明确的计划文档请求必须使用 V2。"
+                "控制头之前不要输出正文、Markdown 或代码围栏。"
             ),
         }]
         response, _ = await complete_once(repair_messages)
@@ -589,7 +570,7 @@ def _has_prior_assistant_markdown_plan(history: list[dict[str, Any]]) -> bool:
 def _with_runtime_policy(instruction: str, policy: Any) -> str:
     if policy is None or policy == "" or policy == "live-model-v1":
         return instruction
-    return "Apply this approved Better Agent runtime prompt policy:\n" + json.dumps(policy, ensure_ascii=False) + "\n\n" + instruction
+    return "应用以下已经批准的 Better Agent 运行时提示词策略：\n" + json.dumps(policy, ensure_ascii=False) + "\n\n" + instruction
 
 
 def _response_has_plan_artifact(response: Any) -> bool:

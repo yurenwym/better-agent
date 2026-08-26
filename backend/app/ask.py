@@ -14,8 +14,8 @@ ASK_TOOL_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "ask_user",
         "description": (
-            "Ask the user for the minimum information needed to continue the current goal. "
-            "Do not call this tool when a prior assistant Markdown plan already exists and the user asks to save it as a plan document or write it into the plan page; return the V2 plan_document response instead."
+            "向用户询问继续当前目标所需的最少信息。仅在需要用户提供关键信息时提问。"
+            "若助手此前已经给出 Markdown 计划，且用户要求保存为计划文档或写入计划页面，不要调用此工具；应直接返回 V2 plan_document 响应。"
         ),
         "parameters": {
             "type": "object",

@@ -97,8 +97,8 @@ def test_compiler_repairs_schema_invalid_json_once() -> None:
     assert len(result["actions"]) == 7
     assert "UNKNOWN_FIELDS" in gateway.requests[1].messages[-1]["content"]
     prompt=gateway.requests[0].messages[0]["content"]
-    assert "5 and 180 minutes" in prompt
-    assert "daily minute budget" in prompt
+    assert "5 到 180 分钟" in prompt
+    assert "每日总时长不得超过给定的 daily_minutes" in prompt
 
 
 @pytest.mark.parametrize(("days", "expected_max_tokens"), [(2, 3000), (7, 3500), (28, 12000)])
@@ -137,4 +137,4 @@ def test_adjust_prompt_repeats_the_exact_program_schema() -> None:
     gateway=Gateway();asyncio.run(GoalProgramCompiler(gateway).adjust(fixture(),"reduce future load"))
     prompt=gateway.requests[0].messages[0]["content"]
     assert "objective_title, objective_summary, start_date, end_date, assumptions, milestones, actions" in prompt
-    assert "Do not return a current_program or reason wrapper" in prompt
+    assert "不要返回 current_program 或 reason 外层对象" in prompt

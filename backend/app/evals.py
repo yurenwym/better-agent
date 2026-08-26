@@ -70,9 +70,9 @@ def check_invariants(runtime: AgentRuntime, run_id: str) -> list[str]:
 
 
 async def _normal_loop(root: Path) -> str:
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Finish"}], decisions=[ModelDecision.complete("done")]))
-    run = await runtime.create_goal("Normal", "Complete a small task")
-    await runtime.handle_message(run.id, "Complete it")
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "完成任务"}], decisions=[ModelDecision.complete("已完成")]))
+    run = await runtime.create_goal("常规任务", "完成一个小任务")
+    await runtime.handle_message(run.id, "请完成它")
     finished = await runtime.approve_plan(run.id, 1)
     assert finished.state.value == "COMPLETED"
     assert check_invariants(runtime, run.id) == []
@@ -81,25 +81,25 @@ async def _normal_loop(root: Path) -> str:
 
 async def _clarification(root: Path) -> str:
     runtime = _runtime(root, MockModelGateway(clarification_required=True))
-    run = await runtime.create_goal("Clarify", "")
-    assert (await runtime.handle_message(run.id, "Help")).state.value == "CLARIFYING"
-    assert (await runtime.handle_message(run.id, "Use the local project")).state.value == "AWAITING_APPROVAL"
+    run = await runtime.create_goal("澄清任务", "")
+    assert (await runtime.handle_message(run.id, "请帮助我")).state.value == "CLARIFYING"
+    assert (await runtime.handle_message(run.id, "使用本地项目")).state.value == "AWAITING_APPROVAL"
     return run.id
 
 
 async def _plan_revision(root: Path) -> str:
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "old", "title": "Old"}]))
-    run = await runtime.create_goal("Revise", "Change the plan")
-    await runtime.handle_message(run.id, "Plan this")
-    revised = await runtime.revise_plan(run.id, 1, [{"id": "new", "title": "New"}])
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "old", "title": "旧步骤"}]))
+    run = await runtime.create_goal("修改计划", "调整这份计划")
+    await runtime.handle_message(run.id, "请制定计划")
+    revised = await runtime.revise_plan(run.id, 1, [{"id": "new", "title": "新步骤"}])
     assert revised.version == 2
     return run.id
 
 
 async def _step_cancel(root: Path) -> str:
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Cancel"}]))
-    run = await runtime.create_goal("Cancel step", "Stop one step")
-    await runtime.handle_message(run.id, "Stop it")
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "取消步骤"}]))
+    run = await runtime.create_goal("取消步骤", "停止一个步骤")
+    await runtime.handle_message(run.id, "停止它")
     current = await runtime.cancel_step(run.id, "step-1")
     assert runtime.plans.current(run.id).steps[0].status == "cancelled"
     assert current.state.value == "AWAITING_APPROVAL"
@@ -108,9 +108,9 @@ async def _step_cancel(root: Path) -> str:
 
 async def _write_rejection(root: Path) -> str:
     call = ToolCall("write-rejected", "write_note", {"path": "rejected.md", "content": "no"})
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Write"}], decisions=[ModelDecision.tool(call)]))
-    run = await runtime.create_goal("Reject write", "Do not write")
-    await runtime.handle_message(run.id, "Write only with approval")
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "写入内容"}], decisions=[ModelDecision.tool(call)]))
+    run = await runtime.create_goal("拒绝写入", "不要写入")
+    await runtime.handle_message(run.id, "仅在批准后写入")
     await runtime.approve_plan(run.id, 1)
     approval = runtime.pending_approvals(run.id)[0]
     await runtime.reject_approval(approval.id)
@@ -161,9 +161,9 @@ async def _authentication_blocked(root: Path) -> str:
 
 
 async def _budget_recovery(root: Path) -> str:
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Use budget"}], decisions=[ModelDecision.continue_() for _ in range(5)]))
-    run = await runtime.create_goal("Budget", "Exhaust then resume")
-    await runtime.handle_message(run.id, "Use budget")
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "使用预算"}], decisions=[ModelDecision.continue_() for _ in range(5)]))
+    run = await runtime.create_goal("预算恢复", "耗尽预算后恢复")
+    await runtime.handle_message(run.id, "使用预算")
     assert (await runtime.approve_plan(run.id, 1)).state.value == "BLOCKED"
     await runtime.add_budget(run.id, 1)
     assert (await runtime.resume(run.id)).state.value == "COMPLETED"
@@ -179,7 +179,7 @@ async def _tool_failure(root: Path) -> str:
 
 async def _memory_confirmation(root: Path) -> str:
     runtime = _runtime(root, MockModelGateway())
-    candidate = runtime.memory.create_candidate("run-memory", "goal-memory", "preference", "Use concise plans", "global", 0.9, [])
+    candidate = runtime.memory.create_candidate("run-memory", "goal-memory", "preference", "使用简洁的计划", "global", 0.9, [])
     assert runtime.memory.context_memories(None, None) == []
     runtime.memory.confirm(candidate.id)
     applied = runtime.memory.apply_confirmed("run-memory-2", "goal-memory", None, None)
@@ -189,9 +189,9 @@ async def _memory_confirmation(root: Path) -> str:
 
 async def _restart_recovery(root: Path) -> str:
     call = ToolCall("write-once", "write_note", {"path": "once.md", "content": "once"})
-    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Write once"}], decisions=[ModelDecision.tool(call), ModelDecision.await_outcome("wait")]))
-    run = await runtime.create_goal("Recovery", "Recover")
-    await runtime.handle_message(run.id, "Recover")
+    runtime = _runtime(root, MockModelGateway(plan_steps=[{"id": "step-1", "title": "只写入一次"}], decisions=[ModelDecision.tool(call), ModelDecision.await_outcome("等待")]))
+    run = await runtime.create_goal("恢复任务", "恢复执行")
+    await runtime.handle_message(run.id, "恢复执行")
     await runtime.approve_plan(run.id, 1)
     approval = runtime.pending_approvals(run.id)[0]
     await runtime.grant_approval(approval.id)

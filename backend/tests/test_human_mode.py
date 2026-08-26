@@ -28,8 +28,8 @@ async def test_human_mode_prompt_is_visible_body_only() -> None:
     model = LiveConversationModel(gateway, settings)
     await model.route_and_respond(content="你好", history=[], skill_names=[], on_text_delta=None, on_text_reset=None, cancel_event=None)
     system = "\n".join(message["content"] for message in gateway.requests[-1].messages if message["role"] == "system")
-    assert "user-facing text after" in system
-    assert "Never apply it to control JSON" in system
+    assert "用户可见文本" in system
+    assert "不得作用于控制 JSON" in system
 
 
 def test_control_v3_accepts_only_valid_start_research() -> None:

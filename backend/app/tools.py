@@ -237,12 +237,12 @@ def create_default_registry(
     registry.register(
         ToolSpec(
             "local_time",
-            "Return the local wall-clock time.",
+            "返回本地当前时间。",
             {"type": "object", "properties": {}, "additionalProperties": False},
             ToolRisk.PURE,
             lambda params: ToolResult(
                 True,
-                "local time",
+                "本地时间",
                 {"iso": datetime.now().astimezone().isoformat(), "timezone": datetime.now().astimezone().tzname()},
             ),
         )
@@ -250,7 +250,7 @@ def create_default_registry(
     registry.register(
         ToolSpec(
             "calculator",
-            "Evaluate a small arithmetic expression.",
+            "计算一个简单算术表达式。",
             {
                 "type": "object",
                 "required": ["expression"],
@@ -258,13 +258,13 @@ def create_default_registry(
                 "additionalProperties": False,
             },
             ToolRisk.PURE,
-            lambda params: ToolResult(True, "calculation complete", {"value": _calculate(params["expression"])}),
+            lambda params: ToolResult(True, "计算完成", {"value": _calculate(params["expression"])}),
         )
     )
     registry.register(
         ToolSpec(
             "read_note",
-            "Read a Markdown note in the Agent workspace.",
+            "读取 Agent 工作区中的 Markdown 笔记。",
             {
                 "type": "object",
                 "required": ["path"],
@@ -279,7 +279,7 @@ def create_default_registry(
     registry.register(
         ToolSpec(
             "write_note",
-            "Write a Markdown note after explicit user approval.",
+            "在用户明确批准后写入 Markdown 笔记。",
             {
                 "type": "object",
                 "required": ["path", "content"],
@@ -299,8 +299,8 @@ def _read_note(registry: ToolRegistry, params: dict[str, Any]) -> ToolResult:
     try:
         content = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        return ToolResult(False, "note not found", error="not_found", meta={"path": params["path"]})
-    return ToolResult(True, "note read", {"path": params["path"], "content": content})
+        return ToolResult(False, "未找到笔记", error="not_found", meta={"path": params["path"]})
+    return ToolResult(True, "笔记读取完成", {"path": params["path"], "content": content})
 
 
 def _write_note(registry: ToolRegistry, params: dict[str, Any]) -> ToolResult:
@@ -314,7 +314,7 @@ def _write_note(registry: ToolRegistry, params: dict[str, Any]) -> ToolResult:
         handle.flush()
         os.fsync(handle.fileno())
     os.replace(temp_name, path)
-    return ToolResult(True, "note written", {"path": params["path"], "length": len(params["content"])})
+    return ToolResult(True, "笔记写入完成", {"path": params["path"], "length": len(params["content"])})
 
 
 def _calculate(expression: str) -> int | float:

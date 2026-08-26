@@ -164,6 +164,6 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
 
     assert response.message == valid
     assert gateway.calls == 3
-    assert "control-header" in gateway.requests[2].messages[-1]["content"]
+    assert "控制头协议" in gateway.requests[2].messages[-1]["content"]
     assert deltas == [valid]
     assert resets == [True]

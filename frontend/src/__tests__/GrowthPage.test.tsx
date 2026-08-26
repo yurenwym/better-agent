@@ -106,4 +106,22 @@ describe("GrowthPage", () => {
     expect(screen.getByText("回滚分支")).toBeTruthy();
     expect(screen.queryByText("安全失败")).toBeNull();
   });
+
+  it("explains an unavailable behavior evaluation and offers retry instead of exposing internal checks", async () => {
+    api.listEvolutionCandidates.mockResolvedValue({ candidates: [{
+      id:"candidate-unconfigured",kind:"prompt",title:"提示词候选",summary:"Repeated turn_failed observed in 9 independent conversation experiences.",status:"EVALUATED",version:1,risk_level:"medium",evidence_count:9,record_origin:"observed",
+      proposed_content:{prompts:{base:"live-model-v1",improvement:"Address repeated observed failure without changing permissions or core policy."}},
+      evaluation:{status:"COMPLETED",deterministic_pass:false,regressions:["behavior_evaluation_configured","real_baseline_bound","real_evaluation_pass","real_safety_pass"],passed:12,total:12,baseline_correct:0,candidate_correct:0,quality_delta:0,safety_violations:null},
+      permission_diff:{added:[],removed:[]},canary:null,created_at:"",updated_at:"",
+    }] });
+
+    render(<GrowthPage csrfToken="csrf"/>);
+
+    expect(await screen.findByText("真实行为评测未运行")).toBeTruthy();
+    expect(screen.getByText("当前未配置评测模型。基础检查已通过，但候选质量和安全性尚未验证，因此暂不可批准。")).toBeTruthy();
+    expect(screen.getByRole("button", {name:"重新评测"})).toBeTruthy();
+    expect(screen.queryByText(/behavior_evaluation_configured/)).toBeNull();
+    expect(screen.getAllByText("对话任务连续出现 9 条独立失败记录。").length).toBeGreaterThan(0);
+    expect(screen.getByText("针对重复失败改进提示词，不新增权限，也不改变核心策略。")).toBeTruthy();
+  });
 });

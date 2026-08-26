@@ -90,10 +90,10 @@ async def test_live_runtime_model_parses_structured_plan_and_decision(monkeypatc
 
     assert plan.steps[0]["title"] == "Draft"
     assert decision.action == "complete_step"
-    assert "tailored" in seen[0]["messages"][0]["content"].lower()
-    assert "deliverable" in seen[0]["messages"][0]["content"].lower()
-    assert "do not call tools just to fill assumptions" in seen[1]["messages"][0]["content"].lower()
-    assert "visible answer" in seen[1]["messages"][0]["content"].lower()
+    assert "准确贴合用户目标" in seen[0]["messages"][0]["content"]
+    assert "交付物" in seen[0]["messages"][0]["content"]
+    assert "不要为了补充假设" in seen[1]["messages"][0]["content"]
+    assert "用户可见结果" in seen[1]["messages"][0]["content"]
 
 
 @pytest.mark.asyncio
@@ -116,8 +116,8 @@ async def test_live_runtime_model_includes_context_snapshot_in_request(monkeypat
     assert seen[0]["messages"][1]["content"]
     assert "snapshot-hash" in seen[0]["messages"][1]["content"]
     assert "confirmed memory" in seen[0]["messages"][1]["content"]
-    assert "assumption-based first version" in seen[0]["messages"][0]["content"].lower()
-    assert "do not ask for personal details" in seen[0]["messages"][0]["content"].lower()
+    assert "基于明确假设先给出第一版" in seen[0]["messages"][0]["content"]
+    assert "不要先询问个人信息" in seen[0]["messages"][0]["content"]
 
 
 @pytest.mark.asyncio
@@ -437,11 +437,11 @@ async def test_live_conversation_model_lets_llm_choose_ask_questions_for_persona
     assert gateway.requests[0].messages[-1]["content"] == "我想制作一个长期的训练计划，学习骑行"
     prompt = gateway.requests[0].messages[0]["content"].lower()
     assert "ask_user" in prompt
-    assert "training tutorial, program, routine, or regimen" in prompt
-    assert "intended to be followed by the user" in prompt
-    assert "generic explanation or a personal plan" in prompt
-    assert "must call ask_user before drafting" in prompt
-    assert "already provided the relevant personal context" in prompt
+    assert "训练教程、方案、日程或习惯计划" in prompt
+    assert "用户准备亲自遵循" in prompt
+    assert "通用解释还是个人计划" in prompt
+    assert "必须先调用 ask_user" in prompt
+    assert "已经提供相关背景" in prompt
 
 
 @pytest.mark.asyncio

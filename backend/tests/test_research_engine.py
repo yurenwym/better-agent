@@ -515,7 +515,7 @@ async def test_live_research_json_calls_bound_model_output() -> None:
     await model.distill(source, "AI Agent 秋招", ("岗位要求",))
 
     assert gateway.requests[0].max_tokens == 1200
-    assert "Ignore navigation" in gateway.requests[0].messages[0]["content"]
+    assert "忽略导航" in gateway.requests[0].messages[0]["content"]
 
 
 @pytest.mark.asyncio
@@ -524,7 +524,7 @@ async def test_live_research_prompts_prefer_actionable_evidence_and_sections() -
         def __init__(self) -> None: self.requests = []
         async def complete(self, request):
             self.requests.append(request)
-            if "strict JSON" in request.messages[0]["content"]:
+            if "严格 JSON" in request.messages[0]["content"]:
                 return SimpleNamespace(message='{"sections": []}')
             return SimpleNamespace(message="Use a concrete step [[source:source_x]]")
 
@@ -532,8 +532,8 @@ async def test_live_research_prompts_prefer_actionable_evidence_and_sections() -
     await model.curate(ResearchPlan("x", ("Action",), ("x",)), [Evidence("e", "source_x", "Do one concrete step", None, .9)])
     await model.write("Action", "Make it practical", [Evidence("e", "source_x", "Do one concrete step", None, .9)], "")
 
-    assert "actionable evidence" in gateway.requests[0].messages[0]["content"]
-    assert "Answer the heading directly" in gateway.requests[1].messages[0]["content"]
+    assert "可操作证据" in gateway.requests[0].messages[0]["content"]
+    assert "直接回答标题" in gateway.requests[1].messages[0]["content"]
 
 
 @pytest.mark.asyncio
@@ -548,8 +548,8 @@ async def test_live_research_plan_prompt_forbids_scope_expansion() -> None:
     await LiveResearchModel(gateway).plan("研究主动回忆为什么有效，以及如何应用", ResearchLimits())
 
     prompt = gateway.requests[0].messages[0]["content"]
-    assert "Do not expand the scope" in prompt
-    assert "systematic review" in prompt
+    assert "不要扩大范围" in prompt
+    assert "系统综述" in prompt
     assert "site:docs.python.org" in prompt
 
 

@@ -355,20 +355,20 @@ async def test_live_prompt_distinguishes_new_plan_creation_from_existing_plan_sa
         cancel_event=None,
     )
     prompt = gateway.request.messages[0]["content"].lower()
-    assert "when no complete plan body exists" in prompt
-    assert "new plan document" in prompt
-    assert "after ask_user answers" in prompt
+    assert "对话中尚无完整计划正文" in prompt
+    assert "新建计划文档" in prompt
+    assert "ask_user 得到回答后" in prompt
     assert "\u5199\u8fdb\u8ba1\u5212\u9875\u9762" in prompt
-    assert "prior assistant markdown plan" in prompt
+    assert "历史中已有助手 markdown 计划" in prompt
 
 
 def test_ask_tool_description_excludes_existing_plan_save_requests() -> None:
     from app.ask import ASK_TOOL_SCHEMA
 
     description = ASK_TOOL_SCHEMA["function"]["description"].lower()
-    assert "do not call" in description
-    assert "prior assistant markdown plan" in description
-    assert "plan document" in description
+    assert "不要调用" in description
+    assert "助手此前已经给出 markdown 计划" in description
+    assert "计划文档" in description
 
 
 def test_existing_plan_prefilter_accepts_list_and_table_markdown() -> None:
@@ -476,7 +476,7 @@ async def test_confirmed_plan_save_wraps_markdown_when_model_writes_a_prose_head
         def __init__(self) -> None: self.requests = []
         async def complete(self, request, **kwargs):
             self.requests.append(request)
-            if request.messages[0]["content"].startswith("Return JSON only"):
+            if request.messages[0]["content"].startswith("只返回 JSON"):
                 return SimpleNamespace(message='{"plan_document_request":true}', tool_calls=[])
             message = "schema v=2, policy=answer, content_shape=plan_document\n# Three day plan\n\n## Day 1\nWalk.\n"
             if kwargs.get("on_text_delta") is not None: kwargs["on_text_delta"](message)
@@ -505,7 +505,7 @@ async def test_model_cannot_save_a_plan_document_without_explicit_user_authority
 
     class Gateway:
         async def complete(self, request, **kwargs):
-            if request.messages[0]["content"].startswith("Return JSON only"):
+            if request.messages[0]["content"].startswith("只返回 JSON"):
                 return SimpleNamespace(message='{"plan_document_request":false}', tool_calls=[])
             message='{"v":2,"policy":"answer","content_shape":"plan_document","reason_code":"model_choice","artifact":{"kind":"plan_document","operation":"upsert","title":"Trip"}}\n# Trip\n\nDay one.'
             if kwargs.get("on_text_delta") is not None:kwargs["on_text_delta"](message)
@@ -902,10 +902,10 @@ async def test_live_prompt_prioritizes_saving_an_existing_plan_over_personalizat
 
     class SaveExistingPlanGateway:
         async def complete(self, request, **kwargs):
-            if request.messages[0]["content"].startswith("Return JSON only"):
+            if request.messages[0]["content"].startswith("只返回 JSON"):
                 return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
             prompt = request.messages[0]["content"].lower()
-            if "saving an existing plan" not in prompt:
+            if "保存已有计划" not in prompt:
                 return SimpleNamespace(
                     message="",
                     tool_calls=[{
@@ -972,10 +972,10 @@ async def test_explicit_save_request_creates_plan_document_without_pending_ask(t
 
     class SaveExistingPlanGateway:
         async def complete(self, request, **kwargs):
-            if request.messages[0]["content"].startswith("Return JSON only"):
+            if request.messages[0]["content"].startswith("只返回 JSON"):
                 return SimpleNamespace(message='{"save_existing_plan":true}', tool_calls=[])
             prompt = request.messages[0]["content"].lower()
-            if "saving an existing plan" not in prompt:
+            if "保存已有计划" not in prompt:
                 return SimpleNamespace(
                     message="",
                     tool_calls=[{
