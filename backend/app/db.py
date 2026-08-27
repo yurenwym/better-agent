@@ -793,6 +793,66 @@ MIGRATIONS = (
     );
     CREATE INDEX idx_model_attempts_invocation ON model_attempts(invocation_id,ordinal);
     """),
+    (10, r"""
+    CREATE TABLE model_price_snapshots (
+      id TEXT PRIMARY KEY, profile_version_id TEXT NOT NULL REFERENCES model_profile_versions(id),
+      uncached_input_rate INTEGER NOT NULL, cache_read_rate INTEGER NOT NULL, cache_write_rate INTEGER NOT NULL,
+      output_rate INTEGER NOT NULL, reasoning_rate INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'USD', effective_at TEXT NOT NULL, price_digest TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL
+    );
+    CREATE TRIGGER model_price_snapshots_frozen BEFORE UPDATE ON model_price_snapshots
+    BEGIN SELECT RAISE(ABORT,'model price snapshot is frozen'); END;
+    CREATE TRIGGER model_price_snapshots_no_delete BEFORE DELETE ON model_price_snapshots
+    BEGIN SELECT RAISE(ABORT,'model price snapshot is frozen'); END;
+    CREATE TABLE cost_budgets (
+      owner_id TEXT NOT NULL, period_kind TEXT NOT NULL CHECK(period_kind IN ('INVOCATION','DAILY','MONTHLY')),
+      period_key TEXT NOT NULL, limit_microusd INTEGER NOT NULL CHECK(limit_microusd >= 0),
+      reserved_microusd INTEGER NOT NULL DEFAULT 0 CHECK(reserved_microusd >= 0),
+      charged_microusd INTEGER NOT NULL DEFAULT 0 CHECK(charged_microusd >= 0),
+      version INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+      PRIMARY KEY(owner_id,period_kind,period_key)
+    );
+    CREATE TABLE cost_ledger (
+      row_id INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE, owner_id TEXT NOT NULL,
+      period_kind TEXT NOT NULL, period_key TEXT NOT NULL, invocation_id TEXT NOT NULL,
+      attempt_id TEXT NOT NULL, price_snapshot_id TEXT,
+      entry_type TEXT NOT NULL CHECK(entry_type IN ('RESERVE','CHARGE','RELEASE','ADJUSTMENT')),
+      amount_microusd INTEGER NOT NULL CHECK(amount_microusd >= 0), cost_status TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '', idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_cost_ledger_owner_period ON cost_ledger(owner_id,period_kind,period_key,row_id);
+    CREATE UNIQUE INDEX uq_cost_attempt_entry ON cost_ledger(attempt_id,entry_type,COALESCE(price_snapshot_id,''));
+    CREATE TRIGGER cost_ledger_append_only_update BEFORE UPDATE ON cost_ledger
+    BEGIN SELECT RAISE(ABORT,'cost ledger is append-only'); END;
+    CREATE TRIGGER cost_ledger_append_only_delete BEFORE DELETE ON cost_ledger
+    BEGIN SELECT RAISE(ABORT,'cost ledger is append-only'); END;
+    ALTER TABLE model_attempts ADD COLUMN price_snapshot_id TEXT REFERENCES model_price_snapshots(id);
+    ALTER TABLE model_attempts ADD COLUMN cost_status TEXT NOT NULL DEFAULT 'UNAVAILABLE';
+    ALTER TABLE model_attempts ADD COLUMN cost_microusd INTEGER;
+    CREATE TABLE evaluation_runs (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, suite_id TEXT NOT NULL, suite_digest TEXT NOT NULL,
+      baseline_bundle_id TEXT NOT NULL, candidate_bundle_id TEXT NOT NULL, evaluator_digest TEXT NOT NULL,
+      status TEXT NOT NULL, budget_microusd INTEGER NOT NULL, created_at TEXT NOT NULL, finished_at TEXT
+    );
+    CREATE TABLE evaluation_case_pairs (
+      id TEXT PRIMARY KEY, evaluation_run_id TEXT NOT NULL REFERENCES evaluation_runs(id), case_id TEXT NOT NULL,
+      partition TEXT NOT NULL CHECK(partition IN ('DEV','HOLDOUT','SAFETY')), domain TEXT NOT NULL,
+      input_digest TEXT NOT NULL, fixture_digest TEXT NOT NULL, execution_order TEXT NOT NULL,
+      UNIQUE(evaluation_run_id,case_id)
+    );
+    CREATE TABLE evaluation_arm_results (
+      id TEXT PRIMARY KEY, case_pair_id TEXT NOT NULL REFERENCES evaluation_case_pairs(id), arm TEXT NOT NULL CHECK(arm IN ('A','B')),
+      bundle_id TEXT NOT NULL, invocation_id TEXT REFERENCES model_invocations(id), output_text TEXT NOT NULL,
+      output_digest TEXT NOT NULL, deterministic_pass INTEGER NOT NULL, metrics_json TEXT NOT NULL,
+      UNIQUE(case_pair_id,arm)
+    );
+    CREATE TABLE evaluation_judgments (
+      id TEXT PRIMARY KEY, case_pair_id TEXT NOT NULL REFERENCES evaluation_case_pairs(id), kind TEXT NOT NULL CHECK(kind IN ('QUALITY','SAFETY')),
+      judge_invocation_id TEXT REFERENCES model_invocations(id), result_json TEXT NOT NULL, judgment_digest TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL, UNIQUE(case_pair_id,kind)
+    );
+    """),
 )
 
 

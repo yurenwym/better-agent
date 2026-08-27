@@ -102,3 +102,37 @@ def test_stats_projector_does_not_sum_partial_usage_across_attempts(tmp_path) ->
 
     assert stats["input_tokens"] is None
     assert stats["output_tokens"] is None
+
+
+def test_stats_projector_prefers_persistent_attempt_and_cost_authorities(tmp_path) -> None:
+    from app.db import Database
+    from app.events import EventStore
+    from app.stats import StatsProjector
+
+    db = Database(tmp_path / "agent.db")
+    store = EventStore(db)
+    with db.transaction() as connection:
+        connection.execute("INSERT INTO model_profiles(id,owner_id,name,status,created_at,updated_at) VALUES ('p','local-user','P','ACTIVE','now','now')")
+        connection.execute(
+            "INSERT INTO model_profile_versions(id,profile_id,version,provider_protocol,provider_name,base_url,model_name,credential_env_ref,capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at) "
+            "VALUES ('pv','p',1,'openai_compatible','test','https://example.test','m','SECRET_ENV','{}',100,20,10,1,'d','now')"
+        )
+        connection.execute(
+            "INSERT INTO model_invocations(id,owner_id,run_id,role,purpose,routing_policy_digest,route_snapshot_json,request_digest,tool_schema_digest,context_snapshot_digest,status,idempotency_key,created_at,finished_at) "
+            "VALUES ('inv','local-user','run-db','planner','plan','direct','{}','r','t','c','SUCCEEDED','k','2026-08-28T00:00:00+00:00','2026-08-28T00:00:02+00:00')"
+        )
+        connection.execute(
+            "INSERT INTO model_attempts(id,invocation_id,ordinal,reason,profile_version_id,provider_protocol,request_digest,status,uncached_input_tokens,cache_read_tokens,cache_write_tokens,output_tokens,reasoning_tokens,started_at,first_token_at,finished_at,usage_status,cost_status,cost_microusd) "
+            "VALUES ('att','inv',1,'primary','pv','openai_compatible','r','SUCCEEDED',10,4,2,7,1,'2026-08-28T00:00:00.1+00:00','2026-08-28T00:00:00.6+00:00','2026-08-28T00:00:01.6+00:00','COMPLETE','ESTIMATED_COMPLETE',25)"
+        )
+    store.append("run-db", "goal-db", "model.usage_updated", "runtime", {"model_attempt_id": "att", "usage": {"prompt_tokens": 999, "completion_tokens": 999}})
+
+    stats = StatsProjector(db, store).project("run-db")
+
+    assert stats["model_attempts"] == 1
+    assert stats["input_tokens"] == 16
+    assert stats["output_tokens"] == 7
+    assert stats["ttft_seconds"] == 0.5
+    assert stats["tps"] == 7.0
+    assert stats["cost_microusd"] == 25
+    assert stats["cost_status"] == "ESTIMATED_COMPLETE"

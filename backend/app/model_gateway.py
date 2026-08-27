@@ -181,7 +181,14 @@ class ModelGateway:
             if on_attempt_started is not None:
                 on_attempt_started(attempt_count, reason)
             if handle is not None:
-                self.control_store.start_attempt(handle, attempt_count, reason)
+                try:
+                    self.control_store.start_attempt(handle, attempt_count, reason)
+                except Exception as exc:
+                    from .costs import BudgetExceeded
+
+                    if isinstance(exc, BudgetExceeded):
+                        raise GatewayError(str(exc), "budget", attempt_count) from exc
+                    raise
             try:
                 def emit_delta(value: str) -> None:
                     if handle is not None:

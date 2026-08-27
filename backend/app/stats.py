@@ -167,7 +167,7 @@ class StatsProjector:
         if plan_total is None and current_plan_id:
             plan_total = len(completed_steps)
 
-        return {
+        result = {
             "run_id": run_id,
             "projection_version": self.projection_version,
             "state": state or self._run_state(run_id),
@@ -188,6 +188,63 @@ class StatsProjector:
                 "cancelled_model_invocations": sum(invocation.status in {"cancelled", "canceled"} for invocation in invocations.values()),
                 "unfinished_attempts": sum(attempt.finished is None for attempt in attempts.values()),
                 "unfinished_tool_calls": sum(tool.started is not None and tool.finished is None for tool in tools.values()),
+            },
+        }
+        persistent = self._persistent_model_stats(run_id)
+        if persistent is not None:
+            result.update(persistent)
+            result["metrics"].update(persistent.pop("metrics", {}))
+        return result
+
+    def _persistent_model_stats(self, run_id: str) -> dict[str, Any] | None:
+        with self.db.connection() as connection:
+            invocations = connection.execute(
+                "SELECT status,created_at,finished_at FROM model_invocations WHERE run_id=? ORDER BY created_at,id", (run_id,)
+            ).fetchall()
+            if not invocations:
+                return None
+            attempts = connection.execute(
+                "SELECT a.* FROM model_attempts a JOIN model_invocations i ON i.id=a.invocation_id WHERE i.run_id=? ORDER BY a.started_at,a.id",
+                (run_id,),
+            ).fetchall()
+        successful = [row for row in attempts if row["status"] == "SUCCEEDED"]
+        complete_usage = [row for row in successful if row["usage_status"] == "COMPLETE"]
+        usage_complete = len(complete_usage) == len(successful) and bool(successful)
+        input_tokens = sum(int(row["uncached_input_tokens"] or 0) + int(row["cache_read_tokens"] or 0) + int(row["cache_write_tokens"] or 0) for row in successful) if usage_complete else None
+        output_tokens = sum(int(row["output_tokens"] or 0) for row in successful) if usage_complete else None
+        uncached = sum(int(row["uncached_input_tokens"] or 0) for row in successful) if usage_complete else None
+        cache_read = sum(int(row["cache_read_tokens"] or 0) for row in successful) if usage_complete else None
+        cache_write = sum(int(row["cache_write_tokens"] or 0) for row in successful) if usage_complete else None
+        denominator = None if None in {uncached, cache_read, cache_write} else int(uncached) + int(cache_read) + int(cache_write)
+        ttfts = [
+            _time(row["first_token_at"]) - _time(row["started_at"])
+            for row in successful if row["first_token_at"] and row["started_at"]
+        ]
+        decode = sum(
+            max(_time(row["finished_at"]) - _time(row["first_token_at"]), 0.0)
+            for row in successful if row["finished_at"] and row["first_token_at"]
+        )
+        model_seconds = sum(
+            max(_time(row["finished_at"]) - _time(row["started_at"]), 0.0)
+            for row in attempts if row["finished_at"] and row["started_at"]
+        )
+        costs = [row for row in attempts if row["cost_microusd"] is not None]
+        cost_statuses = {row["cost_status"] for row in attempts}
+        cost_status = next(iter(cost_statuses)) if len(cost_statuses) == 1 else ("MIXED" if cost_statuses else "UNAVAILABLE")
+        return {
+            "model_attempts": len(attempts),
+            "model_seconds": model_seconds or None,
+            "ttft_seconds": sum(ttfts) / len(ttfts) if ttfts else None,
+            "tps": output_tokens / decode if output_tokens is not None and decode > 0 else None,
+            "cache_hit_rate": cache_read / denominator if denominator else None,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_microusd": sum(int(row["cost_microusd"]) for row in costs) if costs else None,
+            "cost_status": cost_status,
+            "metrics": {
+                "failed_model_invocations": sum(row["status"] == "FAILED" for row in invocations),
+                "cancelled_model_invocations": sum(row["status"] == "CANCELLED" for row in invocations),
+                "unfinished_attempts": sum(row["status"] == "STARTED" for row in attempts),
             },
         }
 

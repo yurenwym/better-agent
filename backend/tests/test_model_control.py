@@ -13,7 +13,7 @@ def test_migration_9_creates_model_control_tables_and_freezes_profile_versions(t
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
-    assert versions[-1] == 9
+    assert 9 in versions and versions[-1] >= 9
     assert {
         "model_profiles",
         "model_profile_versions",

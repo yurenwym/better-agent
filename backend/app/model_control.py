@@ -61,9 +61,10 @@ class ModelCallHandle:
 
 
 class ModelControlStore:
-    def __init__(self, db: Database, *, events: Any | None = None) -> None:
+    def __init__(self, db: Database, *, events: Any | None = None, costs: Any | None = None) -> None:
         self.db = db
         self.events = events
+        self.costs = costs
 
     def begin_invocation(self, profile: Any, request: Any, context: ModelCallContext) -> ModelCallHandle:
         now = _now()
@@ -137,17 +138,26 @@ class ModelControlStore:
     def start_attempt(self, handle: ModelCallHandle, ordinal: int, reason: str) -> str:
         attempt_id = f"{handle.invocation_id}_attempt_{ordinal}"
         now = _now()
-        with self.db.transaction() as connection:
-            row = connection.execute("SELECT request_digest,route_snapshot_json FROM model_invocations WHERE id=?", (handle.invocation_id,)).fetchone()
-            route = json.loads(row["route_snapshot_json"])
-            connection.execute(
-                "INSERT OR IGNORE INTO model_attempts(id,invocation_id,ordinal,reason,profile_version_id,provider_protocol,request_digest,status,started_at) "
-                "VALUES (?,?,?,?,?,?,?,'STARTED',?)",
-                (attempt_id, handle.invocation_id, ordinal, reason, handle.profile_version_id, route["provider_protocol"], row["request_digest"], now),
-            )
-            self._event(connection, handle.context, "model.attempt.started", {
-                "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id, "attempt": ordinal, "reason": reason,
-            })
+        try:
+            with self.db.transaction() as connection:
+                row = connection.execute("SELECT request_digest,route_snapshot_json FROM model_invocations WHERE id=?", (handle.invocation_id,)).fetchone()
+                route = json.loads(row["route_snapshot_json"])
+                connection.execute(
+                    "INSERT OR IGNORE INTO model_attempts(id,invocation_id,ordinal,reason,profile_version_id,provider_protocol,request_digest,status,started_at) "
+                    "VALUES (?,?,?,?,?,?,?,'STARTED',?)",
+                    (attempt_id, handle.invocation_id, ordinal, reason, handle.profile_version_id, route["provider_protocol"], row["request_digest"], now),
+                )
+                if self.costs is not None:
+                    self.costs.reserve_attempt(connection, handle, attempt_id)
+                self._event(connection, handle.context, "model.attempt.started", {
+                    "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id, "attempt": ordinal, "reason": reason,
+                })
+        except Exception as exc:
+            from .costs import BudgetExceeded
+
+            if isinstance(exc, BudgetExceeded):
+                self.finish_invocation(handle, "budget_blocked")
+            raise
         return attempt_id
 
     def mark_output_started(self, handle: ModelCallHandle, ordinal: int) -> None:
@@ -178,13 +188,14 @@ class ModelControlStore:
         usage_digest = _digest(values) if usage is not None else None
         db_status = {"succeeded": "SUCCEEDED", "failed": "FAILED", "cancelled": "CANCELLED"}[status]
         with self.db.transaction() as connection:
+            cost = self.costs.settle_attempt(connection, handle, attempt_id, usage) if self.costs is not None else None
             connection.execute(
                 "UPDATE model_attempts SET status=?,error_kind=?,uncached_input_tokens=?,cache_read_tokens=?,cache_write_tokens=?,"
-                "output_tokens=?,reasoning_tokens=?,finished_at=?,usage_status=?,usage_digest=? WHERE id=? AND status='STARTED'",
+                "output_tokens=?,reasoning_tokens=?,finished_at=?,usage_status=?,usage_digest=?,price_snapshot_id=?,cost_status=?,cost_microusd=? WHERE id=? AND status='STARTED'",
                 (
                     db_status, error_kind, values["uncached_input_tokens"], values["cache_read_tokens"],
                     values["cache_write_tokens"], values["output_tokens"], values["reasoning_tokens"], now,
-                    usage_status, usage_digest, attempt_id,
+                    usage_status, usage_digest, getattr(cost, "price_snapshot_id", None), cost.status if cost else "UNAVAILABLE", cost.microusd if cost else None, attempt_id,
                 ),
             )
             self._event(connection, handle.context, "model.attempt.finished", {

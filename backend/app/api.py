@@ -1037,6 +1037,49 @@ def register_routes(app) -> None:
         projector = getattr(service, "stats", None)
         return projector.project(run_id) if projector else {"run_id": run_id, "state": service.get_run(run_id).state.value}
 
+    @app.put("/api/cost/budgets", dependencies=[Depends(mutate)])
+    async def put_cost_budget(payload: dict[str, Any], request: Request, service=Depends(runtime)) -> dict[str, Any]:
+        period_kind = str(payload.get("period_kind", ""))
+        period_key = str(payload.get("period_key", ""))
+        limit = payload.get("limit_microusd")
+        if period_kind not in {"INVOCATION", "DAILY", "MONTHLY"} or not period_key or not isinstance(limit, int) or limit < 0:
+            raise HTTPException(status_code=422, detail="invalid cost budget")
+        idempotency_key(request)
+        try:
+            service.costs.set_budget("local-user", period_kind, period_key, limit)
+        except Exception as exc:
+            from .costs import BudgetExceeded
+            if isinstance(exc, BudgetExceeded):
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            raise
+        return service.costs.summary("local-user", period_kind, period_key)
+
+    @app.get("/api/cost/summary")
+    async def get_cost_summary(period_kind: str, period_key: str, service=Depends(runtime)) -> dict[str, Any]:
+        if period_kind not in {"INVOCATION", "DAILY", "MONTHLY"} or not period_key:
+            raise HTTPException(status_code=422, detail="invalid cost period")
+        try:
+            return service.costs.summary("local-user", period_kind, period_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="cost budget not found") from exc
+
+    @app.get("/api/model-invocations/{invocation_id}")
+    async def get_model_invocation(invocation_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        with service.db.connection() as connection:
+            row = connection.execute("SELECT * FROM model_invocations WHERE id=? AND owner_id='local-user'", (invocation_id,)).fetchone()
+        if row is None:
+            raise HTTPException(status_code=404, detail="model invocation not found")
+        return {key: row[key] for key in row.keys() if key not in {"route_snapshot_json"}}
+
+    @app.get("/api/model-invocations/{invocation_id}/attempts")
+    async def get_model_attempts(invocation_id: str, service=Depends(runtime)) -> dict[str, Any]:
+        with service.db.connection() as connection:
+            owner = connection.execute("SELECT 1 FROM model_invocations WHERE id=? AND owner_id='local-user'", (invocation_id,)).fetchone()
+            rows = connection.execute("SELECT * FROM model_attempts WHERE invocation_id=? ORDER BY ordinal", (invocation_id,)).fetchall() if owner else []
+        if owner is None:
+            raise HTTPException(status_code=404, detail="model invocation not found")
+        return {"attempts": [{key: row[key] for key in row.keys()} for row in rows]}
+
     @app.get("/api/runs/{run_id}/export")
     async def export_run(run_id: str, request: Request, mode: str = "redacted") -> StreamingResponse:
         service = runtime(request)
