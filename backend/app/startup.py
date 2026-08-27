@@ -13,6 +13,7 @@ from .memory import MemoryService
 from .memory_v2 import MemoryContextProvider, MemoryStore
 from .memory_archive import ConversationArchiver
 from .model_gateway import ModelGateway, ModelProfile
+from .model_control import ModelControlStore
 from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
 from .settings import SettingsService
@@ -53,7 +54,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         configured_profile = load_llm_ap(configured_path)
     if configured_profile is None and os.getenv("AGENT_MODEL_BASE_URL"):
         configured_profile = load_model_profile_from_env()
-    gateway = ModelGateway(configured_profile) if configured_profile else None
+    gateway = ModelGateway(configured_profile, control_store=ModelControlStore(db, events=events)) if configured_profile else None
     settings = SettingsService(db)
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
     conversation_model = LiveConversationModel(gateway, settings) if gateway else UnavailableConversationModel()

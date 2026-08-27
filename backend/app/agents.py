@@ -613,7 +613,7 @@ class LiveExpertModel:
             messages=[
                 {"role":"system","content":expert_system_prompt(runtime_manifest)},
                 {"role":"user","content":_json({"role":role,"objective":objective,"context":context,"input_artifacts":inputs})},
-            ], tools=[], temperature=0, max_tokens=1400,
+            ], tools=[], temperature=0, max_tokens=1400, role="expert", purpose=f"expert_{role}",
         ))
         try: payload = json.loads(response.message)
         except (TypeError, json.JSONDecodeError) as exc: raise GatewayError("expert output is invalid", "structure") from exc

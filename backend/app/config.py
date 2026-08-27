@@ -49,6 +49,10 @@ def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY", mode
         base_url=base_url,
         model=configured_model,
         api_key_env=api_key_env,
+        provider_protocol=os.getenv("AGENT_MODEL_PROVIDER_PROTOCOL", "openai_compatible"),
+        provider_name=os.getenv("AGENT_MODEL_PROVIDER_NAME", "openai-compatible"),
+        context_window=int(os.getenv("AGENT_MODEL_CONTEXT_WINDOW", "0")),
+        max_output_tokens=int(os.getenv("AGENT_MODEL_MAX_OUTPUT_TOKENS", "0")),
     )
 
 
@@ -70,4 +74,8 @@ def load_model_profile_from_env():
         timeout_seconds=float(os.getenv("AGENT_MODEL_TIMEOUT_SECONDS", "60")),
         max_attempts=int(os.getenv("AGENT_MODEL_MAX_ATTEMPTS", "4")),
         network_retries=int(os.getenv("AGENT_MODEL_NETWORK_RETRIES", "2")),
+        provider_protocol=os.getenv("AGENT_MODEL_PROVIDER_PROTOCOL", "openai_compatible"),
+        provider_name=os.getenv("AGENT_MODEL_PROVIDER_NAME", "openai-compatible"),
+        context_window=int(os.getenv("AGENT_MODEL_CONTEXT_WINDOW", "0")),
+        max_output_tokens=int(os.getenv("AGENT_MODEL_MAX_OUTPUT_TOKENS", "0")),
     )

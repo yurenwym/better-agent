@@ -124,7 +124,10 @@ class GoalProgramCompiler:
         messages = [{"role": "system", "content": prefix + instruction}, {"role": "user", "content": json.dumps(data, ensure_ascii=False)}]
         for attempt in range(2):
             try:
-                response = await self.gateway.complete(ModelRequest(messages=messages, temperature=0, max_tokens=max_tokens))
+                response = await self.gateway.complete(ModelRequest(
+                    messages=messages, temperature=0, max_tokens=max_tokens,
+                    role="planner", purpose="compile_goal_program",
+                ))
                 value = json.loads(response.message)
                 if not isinstance(value, dict):
                     raise ValueError("compiler output must be an object")

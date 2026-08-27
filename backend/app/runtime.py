@@ -827,16 +827,31 @@ class AgentRuntime:
             self._active_model_tasks[run.id] = current_task
         invocation_id = f"invocation_{uuid.uuid4().hex}"
         attempt_id = f"{invocation_id}_attempt_1"
+        gateway = getattr(self.model, "gateway", None)
+        persistent_calls = getattr(gateway, "control_store", None) is not None
+        call_context_token = None
+        if persistent_calls:
+            from .model_control import ModelCallContext
+
+            role = {"clarification": "ask", "planning": "planner", "react": "executor", "reflection": "reflector"}.get(kind, kind)
+            call_context_token = gateway.set_call_context(ModelCallContext(
+                role=role,
+                purpose=kind,
+                run_id=run.id,
+                goal_id=run.goal_id,
+                turn_id=run.source_turn_id,
+            ))
         self._prepare_model_context(run, kind, args)
         message_id = self._create_model_message(run)
-        self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
-        self.events.append(
-            run.id,
-            run.goal_id,
-            "model.attempt_started",
-            "runtime",
-            {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
-        )
+        if not persistent_calls:
+            self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
+            self.events.append(
+                run.id,
+                run.goal_id,
+                "model.attempt_started",
+                "runtime",
+                {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
+            )
         setter = getattr(self.model, "set_text_delta_callback", None)
         resetter = getattr(self.model, "set_text_reset_callback", None)
         reset_delta = getattr(self.model, "reset_text_delta_callback", None)
@@ -875,7 +890,8 @@ class AgentRuntime:
             result = await method(*args)
         except asyncio.CancelledError:
             clear_callbacks()
-            self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+            if not persistent_calls:
+                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
             return None
         except Exception as exc:
             clear_callbacks()
@@ -884,22 +900,24 @@ class AgentRuntime:
             if not isinstance(exc, GatewayError):
                 raise
             if exc.kind == "cancelled" or self._is_cancelled(run.id):
-                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                if not persistent_calls:
+                    self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
                 return None
-            self.events.append(
-                run.id,
-                run.goal_id,
-                "model.attempt_finished",
-                "runtime",
-                {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "failed", "error_kind": exc.kind},
-            )
-            self.events.append(
-                run.id,
-                run.goal_id,
-                "model.invocation_finished",
-                "runtime",
-                {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
-            )
+            if not persistent_calls:
+                self.events.append(
+                    run.id,
+                    run.goal_id,
+                    "model.attempt_finished",
+                    "runtime",
+                    {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "failed", "error_kind": exc.kind},
+                )
+                self.events.append(
+                    run.id,
+                    run.goal_id,
+                    "model.invocation_finished",
+                    "runtime",
+                    {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
+                )
             current = self.get_run(run.id)
             reason = f"model {exc.kind}"
             if current.state == AgentState.RECEIVED:
@@ -912,14 +930,19 @@ class AgentRuntime:
         else:
             clear_callbacks()
             if self._is_cancelled(run.id):
-                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                if not persistent_calls:
+                    self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
                 return None
             response = getattr(self.model, "last_response", None)
-            self._record_model_response(run, invocation_id, attempt_id, response)
+            if not persistent_calls:
+                self._record_model_response(run, invocation_id, attempt_id, response)
             self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
-            self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
+            if not persistent_calls:
+                self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
             return result
         finally:
+            if persistent_calls and call_context_token is not None:
+                gateway.reset_call_context(call_context_token)
             if current_task is not None and self._active_model_tasks.get(run.id) is current_task:
                 self._active_model_tasks.pop(run.id, None)
 

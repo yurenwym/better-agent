@@ -740,6 +740,59 @@ MIGRATIONS = (
     SELECT deployment_id,run_id,assignment_hash,cohort,bundle_id,success,safety_pass,request_digest,idempotency_key,exposed_at,exposed_at FROM canary_exposures_v7;
     DROP TABLE canary_exposures_v7;
     """),
+    (9, r"""
+    CREATE TABLE model_profiles (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('ACTIVE','DISABLED')),
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(owner_id,name)
+    );
+    CREATE TABLE model_profile_versions (
+      id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES model_profiles(id), version INTEGER NOT NULL,
+      provider_protocol TEXT NOT NULL CHECK(provider_protocol IN ('openai_compatible','anthropic','gemini')),
+      provider_name TEXT NOT NULL, base_url TEXT NOT NULL, model_name TEXT NOT NULL, credential_env_ref TEXT NOT NULL,
+      capabilities_json TEXT NOT NULL, context_window INTEGER NOT NULL, max_output_tokens INTEGER NOT NULL,
+      timeout_seconds REAL NOT NULL, max_attempts INTEGER NOT NULL, config_digest TEXT NOT NULL,
+      created_at TEXT NOT NULL, UNIQUE(profile_id,version), UNIQUE(profile_id,config_digest)
+    );
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+    CREATE TRIGGER model_profile_versions_no_delete BEFORE DELETE ON model_profile_versions
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+    CREATE TABLE model_routing_policies (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, version INTEGER NOT NULL, name TEXT NOT NULL,
+      roles_json TEXT NOT NULL, policy_digest TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL,
+      UNIQUE(owner_id,name,version)
+    );
+    CREATE TRIGGER model_routing_policies_frozen BEFORE UPDATE ON model_routing_policies
+    BEGIN SELECT RAISE(ABORT,'model routing policy is frozen'); END;
+    CREATE TRIGGER model_routing_policies_no_delete BEFORE DELETE ON model_routing_policies
+    BEGIN SELECT RAISE(ABORT,'model routing policy is frozen'); END;
+    CREATE TABLE model_invocations (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, run_id TEXT, thread_id TEXT, turn_id TEXT, agent_task_id TEXT,
+      role TEXT NOT NULL, purpose TEXT NOT NULL, runtime_bundle_id TEXT, routing_policy_id TEXT,
+      routing_policy_digest TEXT NOT NULL, route_snapshot_json TEXT NOT NULL, request_digest TEXT NOT NULL,
+      tool_schema_digest TEXT NOT NULL, context_snapshot_digest TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('CREATED','ROUTED','RUNNING','SUCCEEDED','FAILED','CANCELLED','BUDGET_BLOCKED')),
+      selected_attempt_id TEXT, idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, finished_at TEXT
+    );
+    CREATE INDEX idx_model_invocations_run ON model_invocations(run_id,created_at);
+    CREATE INDEX idx_model_invocations_thread ON model_invocations(thread_id,created_at);
+    CREATE TABLE model_attempts (
+      id TEXT PRIMARY KEY, invocation_id TEXT NOT NULL REFERENCES model_invocations(id), ordinal INTEGER NOT NULL,
+      reason TEXT NOT NULL CHECK(reason IN ('primary','retry','fallback','repair')),
+      profile_version_id TEXT NOT NULL REFERENCES model_profile_versions(id), provider_protocol TEXT NOT NULL,
+      provider_request_id TEXT, request_digest TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('STARTED','SUCCEEDED','FAILED','CANCELLED')),
+      error_kind TEXT, http_status INTEGER,
+      uncached_input_tokens INTEGER, cache_read_tokens INTEGER, cache_write_tokens INTEGER,
+      output_tokens INTEGER, reasoning_tokens INTEGER,
+      started_at TEXT NOT NULL, first_token_at TEXT, finished_at TEXT,
+      usage_status TEXT NOT NULL DEFAULT 'UNAVAILABLE', usage_digest TEXT,
+      UNIQUE(invocation_id,ordinal)
+    );
+    CREATE INDEX idx_model_attempts_invocation ON model_attempts(invocation_id,ordinal);
+    """),
 )
 
 

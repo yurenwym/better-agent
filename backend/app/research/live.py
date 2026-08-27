@@ -46,7 +46,10 @@ class LiveResearchModel:
     async def _json(self, system: str, user: str) -> dict[str, Any]:
         messages=[{"role": "system", "content": self._system(system + " 只返回严格 JSON。")}, {"role": "user", "content": user}]
         for attempt in range(2):
-            response = await self.gateway.complete(ModelRequest(messages=messages, temperature=0, max_tokens=1200))
+            response = await self.gateway.complete(ModelRequest(
+                messages=messages, temperature=0, max_tokens=1200,
+                role="researcher", purpose="research_structured_step",
+            ))
             text = response.message.strip()
             if text.startswith("```"): text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
             try:value=json.loads(text)
@@ -112,7 +115,7 @@ class LiveResearchModel:
         response = await self.gateway.complete(ModelRequest(messages=[
             {"role": "system", "content": self._system(UNTRUSTED + "只撰写所请求的简洁 Markdown 章节。证据支持时，用具体步骤、测量、示例或约束直接回答标题。不要输出标题。每个事实段落都必须使用 [[source:SOURCE_ID]] 引用给定证据。绝不虚构 ID 或增加无证据细节。")},
             {"role": "user", "content": f"标题：{heading}\n论点：{thesis}\n前文摘要：{prior_summary}\n证据：{source_map}"},
-        ], temperature=0, max_tokens=1000))
+        ], temperature=0, max_tokens=1000, role="researcher", purpose="write_research_section"))
         body = re.sub(r"^\s*#{1,6}\s+[^\n]+\n+", "", response.message.strip(), count=1)
         body = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", body)
         return f"## {heading}\n\n{body}", thesis[:240]
@@ -133,6 +136,6 @@ class LiveResearchModel:
         response = await self.gateway.complete(ModelRequest(messages=[
             {"role": "system", "content": self._system(UNTRUSTED + "只使用给定证据撰写一份简洁 Markdown 补充内容，直接覆盖每项缺失要求。每个事实段落都必须按 [[source:SOURCE_ID]] 引用证据。绝不虚构 ID、URL、事实或参考文献表。只返回补充内容，并以二级标题开头。")},
             {"role": "user", "content": f"主题：{topic}\n必需章节：{plan.sections}\n缺失要求：{missing_requirements}\n证据（source_id, text）：{evidence_context}"},
-        ], temperature=0))
+        ], temperature=0, role="researcher", purpose="repair_research_report"))
         supplement = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", response.message.strip())
         return supplement

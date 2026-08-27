@@ -184,7 +184,7 @@ class LiveRuntimeModel:
             request_data["context_snapshot"] = {"hash": context_hash, "text": self._context_text.get()}
             messages[1] = {"role": "user", "content": json.dumps(request_data, ensure_ascii=False)}
         response = await self.gateway.complete(
-            ModelRequest(messages=messages, tools=self.tool_schemas),
+            ModelRequest(messages=messages, tools=self.tool_schemas, role=None, purpose=None),
             cancel_event=self._cancel_event.get(),
             on_text_delta=self._text_delta_callback.get(),
             on_text_reset=self._text_reset_callback.get(),
@@ -201,7 +201,7 @@ class LiveRuntimeModel:
             repair = await self.gateway.complete(
                 ModelRequest(messages=messages + [
                     {"role": "user", "content": "上一条响应不是有效 JSON。只返回所要求的 JSON 对象。"},
-                ], tools=self.tool_schemas),
+                ], tools=self.tool_schemas, role=None, purpose=None),
                 cancel_event=self._cancel_event.get(),
                 on_text_delta=self._text_delta_callback.get(),
                 on_text_reset=self._text_reset_callback.get(),
@@ -257,6 +257,8 @@ class LiveConversationModel:
             ],
             tools=[],
             temperature=0,
+            role="conversation",
+            purpose="classify_existing_plan_save",
         )
         try:
             response = await self.gateway.complete(request, cancel_event=cancel_event)
@@ -300,6 +302,8 @@ class LiveConversationModel:
             ],
             tools=[],
             temperature=0,
+            role="conversation",
+            purpose="classify_plan_document_request",
         )
         try:
             response = await self.gateway.complete(request, cancel_event=cancel_event)
@@ -318,7 +322,7 @@ class LiveConversationModel:
         request = ModelRequest(messages=[
             {"role":"system","content":"只返回 JSON：{\"start_research\":true|false,\"topic\":\"...\"}。仅当用户明确要求启动新的深度研究、调查、带来源对比或有来源报告时为 true。引用已有研究（如‘根据之前的深度研究制定计划’）为 false。普通问题、攻略、计划、推荐以及可直接回答的请求均为 false。简洁保留用户要求的研究主题。"},
             {"role":"user","content":content},
-        ],tools=[],temperature=0,max_tokens=200)
+        ],tools=[],temperature=0,max_tokens=200,role="conversation",purpose="classify_research_request")
         try:
             response=await self.gateway.complete(request,cancel_event=cancel_event)
             payload=_parse_json(response.message)
@@ -332,11 +336,11 @@ class LiveConversationModel:
         if not isinstance(self.gateway,ModelGateway):return None
         explicit_marker=bool(re.search(r"(?:请|帮我|以后)?\s*(?:记住|记得)|\bremember\b",content,re.I))
         if not explicit_marker:return None
-        request=ModelRequest(messages=[{"role":"system","content":"只返回 JSON：{\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}。仅当用户明确要求为未来对话记住稳定信息时为 true，例如‘记住我不吃辣’、‘请记住我喜欢简洁明确的回答’、‘以后记得我九点后出发’。没有明确长期记忆指令的普通陈述为 false。content 只保留稳定事实，绝不包含凭据或密钥。"},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220)
+        request=ModelRequest(messages=[{"role":"system","content":"只返回 JSON：{\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}。仅当用户明确要求为未来对话记住稳定信息时为 true，例如‘记住我不吃辣’、‘请记住我喜欢简洁明确的回答’、‘以后记得我九点后出发’。没有明确长期记忆指令的普通陈述为 false。content 只保留稳定事实，绝不包含凭据或密钥。"},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220,role="conversation",purpose="classify_memory_request")
         try:
             payload=_parse_json((await self.gateway.complete(request,cancel_event=cancel_event)).message)
             if payload.get("remember") is not True and explicit_marker:
-                repair=ModelRequest(messages=[*request.messages,{"role":"system","content":"应用已经确认这是明确的长期记忆指令。按相同 JSON 结构返回 remember=true 并提取稳定信息，不要再提问。"}],tools=[],temperature=0,max_tokens=220)
+                repair=ModelRequest(messages=[*request.messages,{"role":"system","content":"应用已经确认这是明确的长期记忆指令。按相同 JSON 结构返回 remember=true 并提取稳定信息，不要再提问。"}],tools=[],temperature=0,max_tokens=220,role="conversation",purpose="repair_memory_request")
                 payload=_parse_json((await self.gateway.complete(repair,cancel_event=cancel_event)).message)
             if payload.get("remember") is not True:return None
             if payload.get("kind") not in {"preference","constraint","fact","decision","lesson"} or payload.get("scope_type") not in {"user","project"}:return None
@@ -449,6 +453,8 @@ class LiveConversationModel:
                     messages=request_messages,
                     tools=[ASK_TOOL_SCHEMA] if tools is None else tools,
                     temperature=0,
+                    role="conversation",
+                    purpose="route_and_respond",
                 ),
                 cancel_event=cancel_event,
                 on_text_delta=emit,
