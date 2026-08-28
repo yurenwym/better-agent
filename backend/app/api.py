@@ -139,6 +139,65 @@ def register_routes(app) -> None:
             "human_mode": settings.get().human_mode if settings else False,
         }
 
+    def model_admin(request: Request):
+        value = getattr(runtime(request), "model_admin", None)
+        if value is None:
+            from .model_admin import ModelAdminService
+            value = ModelAdminService(runtime(request).db)
+            runtime(request).model_admin = value
+        return value
+
+    @app.get("/api/model-profiles")
+    async def list_model_profiles(service=Depends(model_admin)):
+        return {"profiles": service.list_profiles()}
+
+    @app.post("/api/model-profiles", status_code=201, dependencies=[Depends(mutate)])
+    async def create_model_profile(payload: dict[str, Any], service=Depends(model_admin)):
+        from .model_admin import ModelAdminError
+        try: return service.create_profile(payload)
+        except ModelAdminError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/model-profiles/{profile_id}")
+    async def get_model_profile(profile_id: str, service=Depends(model_admin)):
+        try: return service.get_profile(profile_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="model profile not found") from exc
+
+    @app.post("/api/model-profiles/{profile_id}/versions", status_code=201, dependencies=[Depends(mutate)])
+    async def create_model_profile_version(profile_id: str, payload: dict[str, Any], service=Depends(model_admin)):
+        from .model_admin import ModelAdminError
+        try: return service.add_version(profile_id, payload)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="model profile not found") from exc
+        except ModelAdminError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/model-profile-versions/{version_id}/verify", dependencies=[Depends(mutate)])
+    async def verify_model_profile_version(version_id: str, service=Depends(model_admin)):
+        from .model_admin import ExternalCredentialMissing, ModelAdminError
+        try: return await service.verify(version_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="model profile version not found") from exc
+        except ExternalCredentialMissing as exc:
+            raise HTTPException(status_code=422, detail={"code": "EXTERNAL_CREDENTIAL_MISSING", "credential_env_ref": str(exc)}) from exc
+        except ModelAdminError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/model-profile-versions/{version_id}/disable", dependencies=[Depends(mutate)])
+    async def disable_model_profile_version(version_id: str, service=Depends(model_admin)):
+        try: return service.disable(version_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="model profile version not found") from exc
+
+    @app.get("/api/model-routing-policies")
+    async def list_model_routing_policies(service=Depends(model_admin)):
+        return {"policies": service.list_policies()}
+
+    @app.post("/api/model-routing-policies", status_code=201, dependencies=[Depends(mutate)])
+    async def create_model_routing_policy(payload: dict[str, Any], service=Depends(model_admin)):
+        from .model_admin import ModelAdminError
+        try: return service.create_policy(_required_text(payload, "name"), payload.get("roles"))
+        except (ModelAdminError, KeyError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/model-routing-policies/{policy_id}")
+    async def get_model_routing_policy(policy_id: str, service=Depends(model_admin)):
+        try: return service.policy(policy_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="routing policy not found") from exc
+
     @app.get("/api/workspaces/{resource_id}")
     async def get_goal_workspace(resource_id: str, request: Request):
         from .goal_workspace import GoalWorkspaceService
@@ -918,6 +977,56 @@ def register_routes(app) -> None:
         except KeyError as exc: raise HTTPException(status_code=404, detail="skill not found") from exc
         return Response(status_code=204)
 
+    @app.get("/api/skills/{skill_id}/versions")
+    async def list_skill_versions(skill_id: str, service=Depends(runtime)):
+        try: return {"versions": service.skill_platform.versions(skill_id)}
+        except KeyError as exc: raise HTTPException(status_code=404, detail="skill not found") from exc
+
+    @app.put("/api/skill-versions/{version_id}/grant", dependencies=[Depends(mutate)])
+    async def update_skill_grant(version_id: str, payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        from .skill_platform import SkillValidationError
+        try: return service.skill_platform.grant(version_id, payload.get("granted_tools", []), idempotency_key=idempotency_key(request))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="skill version not found") from exc
+        except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    async def set_skill_enabled(version_id: str, enabled: bool, request: Request, service):
+        from .skill_platform import SkillValidationError
+        try: return service.skill_platform.set_enabled(version_id, enabled, idempotency_key=idempotency_key(request))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="skill version not found") from exc
+        except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/skill-versions/{version_id}/enable", dependencies=[Depends(mutate)])
+    async def enable_skill_version(version_id: str, request: Request, service=Depends(runtime)):
+        return await set_skill_enabled(version_id, True, request, service)
+
+    @app.post("/api/skill-versions/{version_id}/disable", dependencies=[Depends(mutate)])
+    async def disable_skill_version(version_id: str, request: Request, service=Depends(runtime)):
+        return await set_skill_enabled(version_id, False, request, service)
+
+    @app.get("/api/trusted-connectors")
+    async def list_trusted_connectors(service=Depends(runtime)):
+        return {"connectors": service.connectors.list()}
+
+    @app.post("/api/trusted-connectors", status_code=201, dependencies=[Depends(mutate)])
+    async def create_trusted_connector(payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        from .trusted_connectors import ConnectorSecurityError
+        try:
+            return service.connectors.register(
+                _required_text(payload, "name"), _required_text(payload, "base_url"), payload.get("methods", []),
+                payload.get("paths", []), payload.get("credential_env_ref"), idempotency_key=idempotency_key(request),
+                timeout_seconds=float(payload.get("timeout_seconds", 30)),
+                max_response_bytes=int(payload.get("max_response_bytes", 2 * 1024 * 1024)),
+                request_schema=payload.get("request_schema", {}),
+            )
+        except (ConnectorSecurityError, ValueError, TypeError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/trusted-connector-versions/{version_id}/verify", dependencies=[Depends(mutate)])
+    async def verify_trusted_connector(version_id: str, service=Depends(runtime)):
+        from .trusted_connectors import ConnectorSecurityError
+        try: return service.connectors.verify(version_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="connector version not found") from exc
+        except ConnectorSecurityError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.post("/api/goals", status_code=201, dependencies=[Depends(mutate)])
     async def create_goal(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         if not payload.get("title"):
@@ -1257,6 +1366,18 @@ def register_routes(app) -> None:
     @app.get("/api/evaluation-suites")
     async def list_evaluation_suites(service=Depends(real_evaluator)):
         return {"suites": service.list_suites()}
+
+    @app.post("/api/evaluation-runs", status_code=202, dependencies=[Depends(mutate)])
+    async def create_evaluation_run(payload: dict[str, Any], request: Request, service=Depends(real_evaluator)):
+        from .real_evaluation import EvaluationAccessError
+        try: return service.enqueue(payload, idempotency_key=idempotency_key(request))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation suite not found") from exc
+        except (EvaluationAccessError, ValueError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.get("/api/evaluation-runs/{evaluation_run_id}")
+    async def get_evaluation_run(evaluation_run_id: str, service=Depends(real_evaluator)):
+        try: return service.run(evaluation_run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
 
     @app.get("/api/evaluation-runs/{evaluation_run_id}/report")
     async def get_evaluation_report(evaluation_run_id: str, service=Depends(real_evaluator)):

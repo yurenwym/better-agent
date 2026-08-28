@@ -917,6 +917,41 @@ MIGRATIONS = (
     ALTER TABLE approvals ADD COLUMN binding_json TEXT NOT NULL DEFAULT '{}';
     ALTER TABLE approvals ADD COLUMN binding_digest TEXT NOT NULL DEFAULT '';
     """),
+    (12, r"""
+    DROP TRIGGER model_profile_versions_frozen;
+    DROP TRIGGER trusted_connector_versions_frozen;
+    ALTER TABLE model_profile_versions ADD COLUMN status TEXT NOT NULL DEFAULT 'ACTIVE';
+    ALTER TABLE model_profile_versions ADD COLUMN verified_at TEXT;
+    ALTER TABLE model_profile_versions ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'UNVERIFIED';
+    ALTER TABLE model_profile_versions ADD COLUMN verification_error_kind TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN config_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE evaluation_runs ADD COLUMN lease_owner TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN lease_until TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN cancel_requested_at TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN attempts INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE evaluation_runs ADD COLUMN updated_at TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN idempotency_key TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN request_digest TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN error_json TEXT;
+    CREATE UNIQUE INDEX uq_evaluation_run_idempotency ON evaluation_runs(owner_id,idempotency_key) WHERE idempotency_key IS NOT NULL;
+    CREATE INDEX idx_evaluation_run_claim ON evaluation_runs(status,lease_until,created_at);
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    WHEN OLD.profile_id<>NEW.profile_id OR OLD.version<>NEW.version OR OLD.provider_protocol<>NEW.provider_protocol OR
+         OLD.provider_name<>NEW.provider_name OR OLD.base_url<>NEW.base_url OR OLD.model_name<>NEW.model_name OR
+         OLD.credential_env_ref<>NEW.credential_env_ref OR OLD.capabilities_json<>NEW.capabilities_json OR
+         OLD.context_window<>NEW.context_window OR OLD.max_output_tokens<>NEW.max_output_tokens OR
+         OLD.timeout_seconds<>NEW.timeout_seconds OR OLD.max_attempts<>NEW.max_attempts OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+    CREATE TRIGGER trusted_connector_versions_frozen BEFORE UPDATE ON trusted_connector_versions
+    WHEN OLD.connector_id<>NEW.connector_id OR OLD.version<>NEW.version OR OLD.base_url<>NEW.base_url OR
+         OLD.methods_json<>NEW.methods_json OR OLD.paths_json<>NEW.paths_json OR
+         COALESCE(OLD.credential_env_ref,'')<>COALESCE(NEW.credential_env_ref,'') OR
+         OLD.request_schema_json<>NEW.request_schema_json OR OLD.timeout_seconds<>NEW.timeout_seconds OR
+         OLD.max_response_bytes<>NEW.max_response_bytes OR OLD.risk<>NEW.risk OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at
+    BEGIN SELECT RAISE(ABORT,'trusted connector version is frozen'); END;
+    """),
 )
 
 

@@ -81,7 +81,7 @@ class ModelControlStore:
         }
         config_digest = _digest(config)
         profile_id = f"model_profile_{_digest([profile.provider_name, profile.model])[:24]}"
-        profile_version_id = f"model_profile_version_{config_digest[:24]}"
+        profile_version_id = profile.registered_profile_version_id or f"model_profile_version_{config_digest[:24]}"
         invocation_id = context.invocation_id or f"model_invocation_{uuid.uuid4().hex}"
         request_payload = {
             "messages": request.messages,
@@ -103,7 +103,8 @@ class ModelControlStore:
                 (profile_id, context.owner_id, f"{profile.provider_name}:{profile.model}", "ACTIVE", now, now),
             )
             current = connection.execute("SELECT COALESCE(MAX(version),0) FROM model_profile_versions WHERE profile_id=?", (profile_id,)).fetchone()[0]
-            connection.execute(
+            known = connection.execute("SELECT id FROM model_profile_versions WHERE id=?", (profile_version_id,)).fetchone()
+            if known is None: connection.execute(
                 "INSERT OR IGNORE INTO model_profile_versions("
                 "id,profile_id,version,provider_protocol,provider_name,base_url,model_name,credential_env_ref,capabilities_json,"
                 "context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at"

@@ -153,6 +153,8 @@ class AgentRuntime:
         self.model = model
         self.config = config or RuntimeConfig()
         self.skill_platform = SkillPlatform(db, db.path.parent / "skills")
+        from .trusted_connectors import TrustedConnectorService
+        self.connectors = TrustedConnectorService(db)
         self.skills = skill_catalog or SkillCatalog(platform=self.skill_platform)
         from .conversation import ConversationService, ManagedTurnWorker
 

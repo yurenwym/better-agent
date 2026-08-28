@@ -136,3 +136,34 @@ def test_skill_install_bind_and_uninstall_api(tmp_path) -> None:
     )
     assert removed.status_code == 204
     assert all(item["name"] != "travel-planner" for item in client.get("/api/skills", headers={"host": "127.0.0.1:8000"}).json()["skills"])
+
+
+def test_skill_lifecycle_and_connector_admin_api(tmp_path, monkeypatch) -> None:
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+    from test_runtime import make_runtime
+
+    runtime = make_runtime(tmp_path, MockModelGateway()); app = create_app(runtime=runtime); client = TestClient(app)
+    local = {"host": "127.0.0.1:8000", "origin": "http://127.0.0.1:8000", "content-type": "application/json", "x-csrf-token": app.state.csrf_token}
+    preview = client.post("/api/skills/install", content=_skill_zip(), headers={**local, "content-type": "application/zip"}).json()
+    installed = client.post("/api/skills/confirm-install", json={"install_token": preview["install_token"], "granted_tools": ["calculator"]}, headers={**local, "idempotency-key": "install"}).json()
+    versions = client.get(f"/api/skills/{installed['skill_id']}/versions", headers={"host": "127.0.0.1:8000"})
+    assert versions.json()["versions"][0]["version_id"] == installed["version_id"]
+    disabled = client.post(f"/api/skill-versions/{installed['version_id']}/disable", json={}, headers={**local, "idempotency-key": "disable"})
+    assert disabled.json()["status"] == "DISABLED"
+    enabled = client.post(f"/api/skill-versions/{installed['version_id']}/enable", json={}, headers={**local, "idempotency-key": "enable"})
+    assert enabled.json()["status"] == "ENABLED"
+    grant = client.put(f"/api/skill-versions/{installed['version_id']}/grant", json={"granted_tools": []}, headers={**local, "idempotency-key": "grant"})
+    assert grant.json()["granted_tools"] == []
+
+    monkeypatch.setenv("CONNECTOR_API_KEY", "secret-value")
+    runtime.connectors.resolver = lambda _: ["93.184.216.34"]
+    connector = client.post("/api/trusted-connectors", json={
+        "name": "search", "base_url": "https://api.example.com", "methods": ["GET"], "paths": ["/search"],
+        "credential_env_ref": "CONNECTOR_API_KEY", "request_schema": {"type": "object"},
+    }, headers={**local, "idempotency-key": "connector"})
+    assert connector.status_code == 201 and "secret-value" not in connector.text
+    verified = client.post(f"/api/trusted-connector-versions/{connector.json()['version_id']}/verify", json={}, headers={**local, "idempotency-key": "verify"})
+    assert verified.status_code == 200 and verified.json()["verified_addresses"] == 1
+    listed = client.get("/api/trusted-connectors", headers={"host": "127.0.0.1:8000"})
+    assert listed.json()["connectors"][0]["request_schema"] == {"type": "object"}

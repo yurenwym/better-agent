@@ -32,6 +32,7 @@ class ModelProfile:
     provider_name: str = "openai-compatible"
     context_window: int = 0
     max_output_tokens: int = 0
+    registered_profile_version_id: str | None = None
 
     def public_view(self) -> dict[str, Any]:
         return {

@@ -59,6 +59,7 @@ class TrustedConnectorService:
         idempotency_key: str,
         timeout_seconds: float = 30,
         max_response_bytes: int = 2 * 1024 * 1024,
+        request_schema: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         host = _validate_base_url(base_url)
         del host
@@ -81,6 +82,7 @@ class TrustedConnectorService:
             "credential_env_ref": credential_env_ref,
             "timeout_seconds": timeout_seconds,
             "max_response_bytes": max_response_bytes,
+            "request_schema": request_schema or {},
         }
         config_digest = _digest(config)
         request_digest = _digest({"name": name, **config})
@@ -126,11 +128,11 @@ class TrustedConnectorService:
             risk = "WRITE" if any(method in WRITE_METHODS for method in normalized_methods) else "READ"
             connection.execute(
                 "INSERT INTO trusted_connector_versions(id,connector_id,version,base_url,methods_json,paths_json,"
-                "credential_env_ref,timeout_seconds,max_response_bytes,risk,config_digest,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                "credential_env_ref,request_schema_json,timeout_seconds,max_response_bytes,risk,config_digest,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     version_id, connector_id, version, base_url, _json(normalized_methods), _json(normalized_paths),
-                    credential_env_ref, timeout_seconds, max_response_bytes, risk, config_digest, now,
+                    credential_env_ref, _json(request_schema or {}), timeout_seconds, max_response_bytes, risk, config_digest, now,
                 ),
             )
             connection.execute(
@@ -158,6 +160,7 @@ class TrustedConnectorService:
                 "connector_id": row["connector_id"], "version_id": row["id"], "name": row["name"],
                 "version": row["version"], "base_url": row["base_url"],
                 "methods": json.loads(row["methods_json"]), "paths": json.loads(row["paths_json"]),
+                "request_schema": json.loads(row["request_schema_json"]),
                 "credential_env_ref": row["credential_env_ref"], "timeout_seconds": row["timeout_seconds"],
                 "max_response_bytes": row["max_response_bytes"], "risk": row["risk"],
                 "config_digest": row["config_digest"], "status": row["connector_status"],
@@ -165,6 +168,25 @@ class TrustedConnectorService:
         finally:
             if owns_connection:
                 context.__exit__(None, None, None)
+
+    def list(self) -> list[dict[str, Any]]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT v.id FROM trusted_connector_versions v JOIN trusted_connectors c ON c.id=v.connector_id "
+                "WHERE c.owner_id=? ORDER BY c.name,v.version DESC", (self.owner_id,),
+            ).fetchall()
+        return [self.version(row["id"]) for row in rows]
+
+    def verify(self, version_id: str) -> dict[str, Any]:
+        item = self.version(version_id)
+        host = urlsplit(item["base_url"]).hostname or ""
+        addresses = list(dict.fromkeys(self.resolver(host)))
+        if not addresses or len(addresses) > 16 or any(not _public_ip(address) for address in addresses):
+            raise ConnectorSecurityError("connector DNS must resolve only to public addresses")
+        now = _now()
+        with self.db.transaction() as connection:
+            connection.execute("UPDATE trusted_connector_versions SET verified_at=? WHERE id=?", (now, version_id))
+        return {**self.version(version_id), "verified_at": now, "verified_addresses": len(addresses)}
 
     def execute(
         self,

@@ -161,6 +161,47 @@ class SkillPlatform:
     def enabled_versions(self) -> list[dict[str, Any]]:
         return [item for item in self.list() if item["status"] == "ENABLED"]
 
+    def versions(self, skill_id: str) -> list[dict[str, Any]]:
+        with self.db.connection() as connection:
+            skill = connection.execute("SELECT 1 FROM skills WHERE id=? AND owner_id=?", (skill_id, self.owner_id)).fetchone()
+            if skill is None: raise KeyError(skill_id)
+            rows = connection.execute("SELECT id FROM skill_versions WHERE skill_id=? ORDER BY created_at DESC", (skill_id,)).fetchall()
+        return [self.version(row["id"]) for row in rows]
+
+    def grant(self, version_id: str, tools: list[str], *, idempotency_key: str) -> dict[str, Any]:
+        item = self.version(version_id)
+        if not isinstance(tools, list) or any(not isinstance(tool, str) for tool in tools) or not set(tools).issubset(item["requested_tools"]):
+            raise SkillValidationError("grant exceeds requested tools")
+        granted, now = sorted(set(tools)), _now()
+        request_digest = _digest({"version_id": version_id, "granted_tools": granted})
+        with self.db.transaction() as connection:
+            cached = connection.execute("SELECT data_json FROM skill_events WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+            if cached:
+                if json.loads(cached["data_json"]).get("request_digest") != request_digest: raise SkillValidationError("idempotency key binding changed")
+                return self.version(version_id, connection=connection)
+            connection.execute(
+                "UPDATE skill_grants SET granted_tools_json=?,grant_digest=?,status='ACTIVE',version=version+1,updated_at=? "
+                "WHERE owner_id=? AND skill_version_id=?",
+                (_json(granted), _digest(granted), now, self.owner_id, version_id),
+            )
+            self._event(connection, item["skill_id"], version_id, "skill.grant_updated", {"request_digest": request_digest}, idempotency_key)
+            return self.version(version_id, connection=connection)
+
+    def set_enabled(self, version_id: str, enabled: bool, *, idempotency_key: str) -> dict[str, Any]:
+        item = self.version(version_id)
+        if item["status"] == "UNINSTALLED": raise SkillValidationError("uninstalled skill cannot be enabled")
+        status, now = ("ENABLED" if enabled else "DISABLED"), _now()
+        with self.db.transaction() as connection:
+            cached = connection.execute("SELECT 1 FROM skill_events WHERE idempotency_key=?", (idempotency_key,)).fetchone()
+            if cached: return self.version(version_id, connection=connection)
+            connection.execute("UPDATE skill_versions SET status=? WHERE id=?", (status, version_id))
+            if enabled:
+                connection.execute("UPDATE skills SET status='ENABLED',default_version_id=?,updated_at=? WHERE id=?", (version_id, now, item["skill_id"]))
+            elif connection.execute("SELECT default_version_id FROM skills WHERE id=?", (item["skill_id"],)).fetchone()[0] == version_id:
+                connection.execute("UPDATE skills SET status='DISABLED',default_version_id=NULL,updated_at=? WHERE id=?", (now, item["skill_id"]))
+            self._event(connection, item["skill_id"], version_id, "skill.enabled" if enabled else "skill.disabled", {}, idempotency_key)
+            return self.version(version_id, connection=connection)
+
     def default_version(self, name: str) -> dict[str, Any]:
         with self.db.connection() as connection:
             row = connection.execute(

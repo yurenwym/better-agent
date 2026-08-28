@@ -14,6 +14,7 @@ from .memory_v2 import MemoryContextProvider, MemoryStore
 from .memory_archive import ConversationArchiver
 from .model_gateway import ModelGateway, ModelProfile
 from .model_control import ModelControlStore
+from .model_admin import ModelAdminService
 from .costs import CostService
 from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
@@ -74,9 +75,12 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         conversation_model=conversation_model,
     )
     runtime.costs = costs
+    runtime.model_admin = ModelAdminService(db)
     runtime.connectors = connectors
-    from .real_evaluation import RealEvaluator
+    from .real_evaluation import LiveEvaluationRunner, ManagedEvaluationWorker, RealEvaluator
     runtime.real_evaluator = RealEvaluator(root / "evaluations", db=db)
+    runtime.real_evaluator.runner_factory = LiveEvaluationRunner(runtime.model_admin, ModelControlStore(db, events=events, costs=costs)).runners
+    runtime.evaluation_worker = ManagedEvaluationWorker(runtime.real_evaluator)
     from .research.engine import ResearchEngine
     from .research.live import LiveResearchModel
     from .research.service import ResearchService
