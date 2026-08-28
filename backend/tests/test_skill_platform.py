@@ -82,9 +82,39 @@ def test_five_layer_permission_intersection_fails_closed(tmp_path) -> None:
 
     assert platform.effective_tools(
         installed["version_id"], global_tools={"calculator", "read_note"}, role_tools={"calculator"}, phase_tools={"calculator"},
+        phase_name="planner",
     ) == {"calculator"}
-    assert platform.effective_tools(installed["version_id"], global_tools=None, role_tools={"calculator"}, phase_tools={"calculator"}) == set()
-    assert platform.effective_tools(installed["version_id"], global_tools={"calculator"}, role_tools=None, phase_tools={"calculator"}) == set()
+    assert platform.effective_tools(installed["version_id"], global_tools=None, role_tools={"calculator"}, phase_tools={"calculator"}, phase_name="planner") == set()
+    assert platform.effective_tools(installed["version_id"], global_tools={"calculator"}, role_tools=None, phase_tools={"calculator"}, phase_name="planner") == set()
+    assert platform.effective_tools(
+        installed["version_id"], global_tools={"calculator"}, role_tools={"calculator"},
+        phase_tools={"calculator"}, phase_name="executor",
+    ) == set()
+
+
+def test_binding_freezes_grant_snapshot_for_existing_run(tmp_path) -> None:
+    from app.db import Database
+    from app.skill_platform import SkillPlatform
+
+    platform = SkillPlatform(Database(tmp_path / "agent.db"), tmp_path / "skills")
+    manifest = json.loads(zipfile.ZipFile(io.BytesIO(_skill_zip())).read("skill.json"))
+    manifest["requested_tools"] = ["calculator", "read_note"]
+    installed = platform.confirm_install(
+        platform.preview_install(_skill_zip(manifest))["install_token"],
+        granted_tools=["calculator"], idempotency_key="install",
+    )
+    platform.bind("RUN", "run-1", [installed["version_id"]], idempotency_key="bind")
+
+    platform.grant(installed["version_id"], ["calculator", "read_note"], idempotency_key="expand")
+
+    binding = platform.binding("RUN", "run-1")
+    snapshot = binding["grant_snapshots"][installed["version_id"]]
+    assert snapshot["granted_tools"] == ["calculator"]
+    assert platform.effective_tools(
+        installed["version_id"], global_tools={"calculator", "read_note"},
+        role_tools={"calculator", "read_note"}, phase_tools={"calculator", "read_note"},
+        phase_name="planner", grant_snapshot=snapshot,
+    ) == {"calculator"}
 
 
 def test_binding_pins_version_and_uninstall_keeps_tombstone(tmp_path) -> None:
@@ -120,7 +150,7 @@ def test_skill_install_bind_and_uninstall_api(tmp_path) -> None:
     )
     assert preview.status_code == 200
     confirmed = client.post(
-        "/api/skills/confirm-install", json={"install_token": preview.json()["install_token"], "granted_tools": ["calculator"]},
+        f"/api/skills/{preview.json()['install_token']}/confirm-install", json={"granted_tools": ["calculator"]},
         headers={"host": "127.0.0.1:8000", "origin": "http://127.0.0.1:8000", "content-type": "application/json", "x-csrf-token": app.state.csrf_token, "idempotency-key": "api-install"},
     )
     assert confirmed.status_code == 200
@@ -146,7 +176,7 @@ def test_skill_lifecycle_and_connector_admin_api(tmp_path, monkeypatch) -> None:
     runtime = make_runtime(tmp_path, MockModelGateway()); app = create_app(runtime=runtime); client = TestClient(app)
     local = {"host": "127.0.0.1:8000", "origin": "http://127.0.0.1:8000", "content-type": "application/json", "x-csrf-token": app.state.csrf_token}
     preview = client.post("/api/skills/install", content=_skill_zip(), headers={**local, "content-type": "application/zip"}).json()
-    installed = client.post("/api/skills/confirm-install", json={"install_token": preview["install_token"], "granted_tools": ["calculator"]}, headers={**local, "idempotency-key": "install"}).json()
+    installed = client.post(f"/api/skills/{preview['install_token']}/confirm-install", json={"granted_tools": ["calculator"]}, headers={**local, "idempotency-key": "install"}).json()
     versions = client.get(f"/api/skills/{installed['skill_id']}/versions", headers={"host": "127.0.0.1:8000"})
     assert versions.json()["versions"][0]["version_id"] == installed["version_id"]
     disabled = client.post(f"/api/skill-versions/{installed['version_id']}/disable", json={}, headers={**local, "idempotency-key": "disable"})
@@ -172,3 +202,41 @@ def test_skill_lifecycle_and_connector_admin_api(tmp_path, monkeypatch) -> None:
     assert verified.status_code == 200 and verified.json()["verified_addresses"] == 1
     listed = client.get("/api/trusted-connectors", headers={"host": "127.0.0.1:8000"})
     assert listed.json()["connectors"][0]["request_schema"] == {"type": "object"}
+
+
+@pytest.mark.asyncio
+async def test_conversation_pins_skill_version_and_applies_its_snapshot_after_update(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+    from test_runtime import make_runtime
+
+    class CapturingConversationModel:
+        def __init__(self) -> None:
+            self.history = []
+
+        async def route_and_respond(self, *, history, on_text_delta, **_kwargs):
+            self.history = history
+            response = '{"v":1,"policy":"answer","content_shape":"text","reason_code":"content_only"}\n完成'
+            on_text_delta(response)
+            return type("Response", (), {"message": response, "tool_calls": []})()
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    model = CapturingConversationModel()
+    runtime.conversation.route_model = model
+    v1_preview = runtime.skill_platform.preview_install(_skill_zip(document="# Travel v1\n\n## Purpose\nV1 only"))
+    v1 = runtime.skill_platform.confirm_install(v1_preview["install_token"], granted_tools=[], idempotency_key="v1")
+    thread = runtime.conversation.create_thread("Skill pin")
+    submitted = runtime.conversation.accept_turn(thread.id, "client-1", "help", ["travel-planner"])
+
+    manifest_v2 = {**json.loads(zipfile.ZipFile(io.BytesIO(_skill_zip())).read("skill.json")), "version": "2.0.0"}
+    v2_preview = runtime.skill_platform.preview_install(_skill_zip(manifest_v2, document="# Travel v2\n\n## Purpose\nV2 only"))
+    runtime.skill_platform.confirm_install(v2_preview["install_token"], granted_tools=[], idempotency_key="v2")
+
+    assert await runtime.turn_worker.run_once() is True
+    binding = runtime.skill_platform.binding("THREAD", thread.id)
+    assert binding["version_ids"] == [v1["version_id"]]
+    assert "V1 only" in model.history[0]["content"]
+    assert "V2 only" not in model.history[0]["content"]
+    events = runtime.conversation.events.list(thread.id)
+    snapshot = next(event for event in events if event.type == "skill.snapshot_applied")
+    assert snapshot.turn_id == submitted.turn_id
+    assert snapshot.data["skill_version_ids"] == [v1["version_id"]]

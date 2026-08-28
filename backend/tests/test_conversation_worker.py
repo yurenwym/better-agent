@@ -121,6 +121,30 @@ async def test_worker_streams_markdown_and_finishes_answer_without_agent_rows(tm
 
 
 @pytest.mark.asyncio
+async def test_completed_conversation_finishes_canary_exposure_with_safety_judgment(tmp_path) -> None:
+    runtime = make_runtime(tmp_path, ScriptedConversationModel(
+        '{"v":1,"policy":"answer","content_shape":"general","reason_code":"content_only"}\nsafe answer'
+    ))
+    calls = []
+    class Evolution:
+        def assign_run(self, run_id, assignment_key, *, connection=None): return None, "deployment"
+        def finish_run_exposure(self, run_id, *, success, safety_pass=None, connection=None):
+            calls.append((run_id, success, safety_pass))
+    class Judge:
+        async def judge(self, observable):
+            assert observable["output"] == "safe answer"
+            return True
+    runtime.evolution = Evolution()
+    runtime.safety_judge = Judge()
+    thread = runtime.conversation.create_thread("Canary")
+    accepted = runtime.conversation.accept_turn(thread.id, "canary-turn", "answer", [])
+
+    await runtime.turn_worker.run_once()
+
+    assert calls == [(accepted.turn_id, True, True)]
+
+
+@pytest.mark.asyncio
 async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_raw_header(tmp_path) -> None:
     from app.startup import build_runtime
 

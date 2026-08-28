@@ -17,6 +17,17 @@ class RoutingError(ValueError):
     pass
 
 
+class InvocationReplayError(RuntimeError):
+    def __init__(self, invocation_id: str, status: str) -> None:
+        super().__init__(f"model invocation already exists: {invocation_id} ({status})")
+        self.invocation_id = invocation_id
+        self.status = status
+
+
+class InvocationIdempotencyConflict(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class ModelCandidate:
     profile_version_id: str
@@ -54,6 +65,7 @@ class ModelCallContext:
     context_snapshot_digest: str = ""
     idempotency_key: str | None = None
     invocation_id: str | None = None
+    price_snapshot_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -123,12 +135,15 @@ class ModelControlStore:
                     profile.context_window, profile.max_output_tokens, profile.timeout_seconds, profile.max_attempts, config_digest, now,
                 ),
             )
-            existing = connection.execute("SELECT id FROM model_invocations WHERE idempotency_key=?", (key,)).fetchone()
+            existing = connection.execute(
+                "SELECT id,request_digest,status FROM model_invocations WHERE idempotency_key=?", (key,)
+            ).fetchone()
             if existing:
-                row = connection.execute("SELECT route_snapshot_json FROM model_invocations WHERE id=?", (existing["id"],)).fetchone()
-                snapshot = json.loads(row["route_snapshot_json"])
-                existing_profile = snapshot.get("profile_version_id") or snapshot["profile_sequence"][0]
-                return ModelCallHandle(existing["id"], existing_profile, context)
+                if existing["request_digest"] != request_digest:
+                    raise InvocationIdempotencyConflict(
+                        f"idempotency key is already bound to a different request: {key}"
+                    )
+                raise InvocationReplayError(existing["id"], existing["status"])
             connection.execute(
                 "INSERT INTO model_invocations("
                 "id,owner_id,run_id,thread_id,turn_id,agent_task_id,role,purpose,runtime_bundle_id,routing_policy_id,"
@@ -142,6 +157,11 @@ class ModelControlStore:
                 ),
             )
             self._event(connection, context, "model.invocation.created", {"model_invocation_id": invocation_id, "role": context.role})
+            self._event(connection, context, "model.route.selected", {
+                "model_invocation_id": invocation_id,
+                "routing_policy_digest": context.routing_policy_digest,
+                "profile_version_ids": route_snapshot.get("profile_sequence", [profile_version_id]),
+            })
         return ModelCallHandle(invocation_id, profile_version_id, context)
 
     def start_attempt(self, handle: ModelCallHandle, ordinal: int, reason: str) -> str:
@@ -162,6 +182,14 @@ class ModelControlStore:
                 )
                 if self.costs is not None:
                     self.costs.reserve_attempt(connection, handle, attempt_id)
+                    reserved = connection.execute(
+                        "SELECT COALESCE(SUM(amount_microusd),0) amount FROM cost_ledger "
+                        "WHERE attempt_id=? AND entry_type='RESERVE'", (attempt_id,),
+                    ).fetchone()["amount"]
+                    self._event(connection, handle.context, "cost.budget_reserved", {
+                        "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id,
+                        "amount_microusd": int(reserved),
+                    })
                 self._event(connection, handle.context, "model.attempt.started", {
                     "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id, "attempt": ordinal, "reason": reason,
                 })
@@ -169,6 +197,11 @@ class ModelControlStore:
             from .costs import BudgetExceeded
 
             if isinstance(exc, BudgetExceeded):
+                with self.db.transaction() as connection:
+                    self._event(connection, handle.context, "cost.budget_blocked", {
+                        "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id,
+                        "reason": str(exc),
+                    })
                 self.finish_invocation(handle, "budget_blocked")
             raise
         return attempt_id
@@ -215,6 +248,11 @@ class ModelControlStore:
                 "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id,
                 "attempt": ordinal, "status": status, "error_kind": error_kind,
             })
+            if cost is not None:
+                self._event(connection, handle.context, "cost.settled", {
+                    "model_invocation_id": handle.invocation_id, "model_attempt_id": attempt_id,
+                    "cost_status": cost.status, "cost_microusd": cost.microusd,
+                })
 
     def finish_invocation(self, handle: ModelCallHandle, status: str, selected_ordinal: int | None = None) -> None:
         db_status = status.upper()
@@ -248,8 +286,9 @@ class RoutedModelGateway:
 
     FALLBACK_ERRORS = {"timeout", "rate_limit", "server", "provider_unavailable"}
     supports_intent_classification = True
+    supports_role_routing = True
     ROLE_CAPABILITIES = {
-        "conversation": {"text", "streaming"}, "ask": {"text", "json_object"},
+        "conversation": {"text", "streaming"}, "ask": {"text", "tool_calling"},
         "planner": {"text", "json_object"}, "executor": {"text", "tool_calling"},
         "reflector": {"text", "json_object"}, "researcher": {"text", "streaming"},
         "expert": {"text"}, "coordinator": {"text", "json_object"},
@@ -339,6 +378,10 @@ class RoutedModelGateway:
                         raise GatewayError(str(error), error.kind, ordinal) from error
                     retryable = error.kind in self.FALLBACK_ERRORS or error.kind in {"structure", "context_overflow"}
                     if retry + 1 < retries and retryable:
+                        self.control_store.record_event(active, "model.attempt.retry_scheduled", {
+                            "model_invocation_id": active.invocation_id, "after_attempt": ordinal,
+                            "next_attempt": ordinal + 1, "error_kind": error.kind,
+                        })
                         continue
                     can_fallback = (
                         profile_index + 1 < len(profiles)

@@ -473,7 +473,24 @@ class LiveConversationModel:
                 if len(tool_calls) != 1:
                     raise GatewayError("conversation supports one ask tool call at a time", "structure")
                 try:
-                    return parse_ask_tool_call(tool_calls[0]), True
+                    request = parse_ask_tool_call(tool_calls[0])
+                    if getattr(self.gateway, "supports_role_routing", False):
+                        ask_response = await self.gateway.complete(
+                            ModelRequest(
+                                messages=[*request_messages, {
+                                    "role": "system",
+                                    "content": "已确认当前请求需要用户补充关键信息。调用 ask_user，生成一到四个最少且相关的问题；不要输出正文。",
+                                }],
+                                tools=[ASK_TOOL_SCHEMA], temperature=0, max_tokens=800,
+                                role="ask", purpose="generate_clarification",
+                            ),
+                            cancel_event=cancel_event,
+                        )
+                        ask_calls = getattr(ask_response, "tool_calls", []) or []
+                        if len(ask_calls) != 1:
+                            raise GatewayError("ask role must return one ask_user call", "structure")
+                        request = parse_ask_tool_call(ask_calls[0])
+                    return request, True
                 except AskValidationError as exc:
                     raise GatewayError(str(exc), "structure") from exc
             message = getattr(response, "message", None)

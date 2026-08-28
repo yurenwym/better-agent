@@ -82,4 +82,4 @@ def test_selected_skill_tools_are_intersected_with_the_runtime_allowlist(tmp_pat
     run = asyncio.run(runtime.create_goal("Goal", "Description"))
     selected = asyncio.run(runtime.handle_message(run.id, "Start", ["reflection"]))
 
-    assert runtime._skill_tools_for_run(selected, "react") == {"local_time", "calculator", "read_note"}
+    assert runtime._skill_tools_for_run(selected, "react") == set()

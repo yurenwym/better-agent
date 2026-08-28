@@ -8,6 +8,7 @@ import re
 import stat
 import uuid
 import zipfile
+import contextlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
@@ -267,7 +268,8 @@ class SkillPlatform:
 
     def effective_tools(
         self, version_id: str, *, global_tools: set[str] | None,
-        role_tools: set[str] | None, phase_tools: set[str] | None,
+        role_tools: set[str] | None, phase_tools: set[str] | None, phase_name: str,
+        grant_snapshot: dict[str, Any] | None = None,
     ) -> set[str]:
         if global_tools is None or role_tools is None or phase_tools is None:
             return set()
@@ -275,9 +277,12 @@ class SkillPlatform:
             item = self.version(version_id)
         except (KeyError, ValueError, json.JSONDecodeError):
             return set()
-        if item["status"] != "ENABLED" or not item.get("grant_digest"):
+        snapshot = grant_snapshot or {
+            "grant_digest": item.get("grant_digest"), "granted_tools": item.get("granted_tools", []),
+        }
+        if item["status"] != "ENABLED" or not snapshot.get("grant_digest") or phase_name not in item["phases"]:
             return set()
-        return set(global_tools) & set(item["requested_tools"]) & set(item["granted_tools"]) & set(role_tools) & set(phase_tools)
+        return set(global_tools) & set(item["requested_tools"]) & set(snapshot["granted_tools"]) & set(role_tools) & set(phase_tools)
 
     def tool_authorization(
         self,
@@ -289,6 +294,7 @@ class SkillPlatform:
         global_tools: set[str] | None,
         role_tools: set[str] | None,
         phase_tools: set[str] | None,
+        phase_name: str,
         routing_policy_digest: str,
     ) -> dict[str, str] | None:
         try:
@@ -296,8 +302,10 @@ class SkillPlatform:
         except KeyError:
             return None
         for version_id in binding["version_ids"]:
+            grant_snapshot = binding["grant_snapshots"].get(version_id)
             if tool_name not in self.effective_tools(
                 version_id, global_tools=global_tools, role_tools=role_tools, phase_tools=phase_tools,
+                phase_name=phase_name, grant_snapshot=grant_snapshot,
             ):
                 continue
             item = self.version(version_id)
@@ -316,27 +324,39 @@ class SkillPlatform:
             return {
                 "skill_version_id": version_id,
                 "package_digest": item["package_digest"],
-                "grant_snapshot_digest": item["grant_digest"],
+                "grant_snapshot_digest": grant_snapshot["grant_digest"],
                 "routing_policy_digest": routing_policy_digest,
                 "binding_snapshot_digest": binding["snapshot_digest"],
             }
         return None
 
-    def bind(self, binding_type: str, binding_id: str, version_ids: list[str], *, idempotency_key: str) -> dict[str, Any]:
+    def bind(
+        self, binding_type: str, binding_id: str, version_ids: list[str], *,
+        idempotency_key: str, connection: Any | None = None,
+    ) -> dict[str, Any]:
         if binding_type not in {"THREAD", "RUN"} or not binding_id or not isinstance(version_ids, list):
             raise SkillValidationError("invalid skill binding")
         unique = list(dict.fromkeys(version_ids))
         now = _now()
         snapshot = []
+        grant_snapshots = {}
         for version_id in unique:
             item = self.version(version_id)
             if item["status"] != "ENABLED":
                 raise SkillValidationError("skill version is not enabled")
             snapshot.append({"version_id": version_id, "package_digest": item["package_digest"], "grant_digest": item["grant_digest"]})
+            grant_snapshots[version_id] = {
+                "grant_digest": item["grant_digest"], "granted_tools": item["granted_tools"],
+            }
         digest = _digest(snapshot)
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else contextlib.nullcontext(connection)) as connection:
             cached = connection.execute("SELECT * FROM skill_bindings WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if cached:
+                if (
+                    cached["owner_id"] != self.owner_id or cached["binding_type"] != binding_type
+                    or cached["binding_id"] != binding_id or json.loads(cached["version_ids_json"]) != unique
+                ):
+                    raise SkillValidationError("idempotency key binding changed")
                 return self._binding(cached)
             prior = connection.execute(
                 "SELECT * FROM skill_bindings WHERE owner_id=? AND binding_type=? AND binding_id=?",
@@ -346,9 +366,9 @@ class SkillPlatform:
                 raise SkillValidationError("binding is already frozen")
             binding_id_value = f"skill_binding_{uuid.uuid4().hex}"
             connection.execute(
-                "INSERT INTO skill_bindings(id,owner_id,binding_type,binding_id,version_ids_json,snapshot_digest,idempotency_key,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
-                (binding_id_value, self.owner_id, binding_type, binding_id, _json(unique), digest, idempotency_key, now, now),
+                "INSERT INTO skill_bindings(id,owner_id,binding_type,binding_id,version_ids_json,snapshot_digest,idempotency_key,created_at,updated_at,grant_snapshots_json) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (binding_id_value, self.owner_id, binding_type, binding_id, _json(unique), digest, idempotency_key, now, now, _json(grant_snapshots)),
             )
             return self._binding(connection.execute("SELECT * FROM skill_bindings WHERE id=?", (binding_id_value,)).fetchone())
 
@@ -434,6 +454,7 @@ class SkillPlatform:
         return {
             "id": row["id"], "binding_type": row["binding_type"], "binding_id": row["binding_id"],
             "version_ids": json.loads(row["version_ids_json"]), "snapshot_digest": row["snapshot_digest"],
+            "grant_snapshots": json.loads(row["grant_snapshots_json"] or "{}"),
         }
 
     def _event(self, connection: Any, skill_id: str | None, version_id: str | None, event_type: str, data: dict[str, Any], key: str) -> None:

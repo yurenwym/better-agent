@@ -1,8 +1,15 @@
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
+
 import pytest
 
-from app.real_evaluation import EvaluationAccessError, RealEvaluator, _digest
+from app.real_evaluation import (
+    EvaluationAccessError, EvaluationBudgetExceeded, EvaluationLeaseLost,
+    LiveEvaluationRunner, ManagedEvaluationWorker, RealEvaluator, _digest,
+)
 
 
 def test_real_evaluator_runs_baseline_and_candidate_on_same_case_and_binds_digests(tmp_path) -> None:
@@ -328,7 +335,10 @@ def test_paired_release_report_is_persisted_and_same_run_cannot_reexecute(tmp_pa
     assert stored["statistics"] == report["statistics"]
     assert stored["deterministic"] == report["deterministic"]
     assert len(stored["records"]) == 60
-    assert evaluator.progress("eval-persisted", after_seq=58)["events"][0]["seq"] == 59
+    progress = evaluator.progress("eval-persisted")
+    assert progress["events"][0]["type"] == "evaluation.run.started"
+    assert progress["events"][-1] == {"seq": 62, "type": "evaluation.run.finished", "status": "COMPLETED"}
+    assert evaluator.progress("eval-persisted", after_seq=59)["events"][0]["seq"] == 60
     with pytest.raises(EvaluationAccessError, match="already exists"):
         evaluator.evaluate_paired(
             suite_id="release-v1", evaluation_run_id="eval-persisted", baseline_bundle_id="base", candidate_bundle_id="candidate",
@@ -356,3 +366,261 @@ def test_queued_evaluation_resumes_after_partial_cases_without_repeating_side_ef
     stored=evaluator.report(run["id"])
     expected={case["id"]:int(_digest([run["id"],case["id"],"blind"])[:8],16)%2==0 for case in _release_cases()}
     assert all(record["left_is_baseline"] is expected[record["case_id"]] for record in stored["records"])
+
+
+@pytest.mark.parametrize("partition", ["DEV", "HOLDOUT", "SAFETY"])
+def test_resume_rebuilds_completed_records_from_every_partition(tmp_path, partition) -> None:
+    from app.db import Database
+    db=Database(tmp_path/"agent.db");evaluator=RealEvaluator(tmp_path/"evals",db=db);evaluator.register_release_suite("release-v1",_release_cases())
+    config={"suite_id":"release-v1","baseline_bundle_id":"base","candidate_bundle_id":"candidate","baseline_model_id":"a","candidate_model_id":"b","quality_judge_model_id":"q","safety_judge_model_id":"s","evaluator_digest":"e","tool_schema_digest":"t","context_digest":"c","budget_microusd":1000,"primary_objective":"quality"}
+    run=evaluator.enqueue(config,idempotency_key=f"resume-{partition}");calls=[]
+    stop_after=next(index for index,case in enumerate(evaluator._suite("release-v1")["cases"],1) if case["partition"]==partition)
+    checks=0
+    def arm(case):calls.append(case["input"]);return {"text":"safe improved "+case["input"],"cost_microusd":1,"ttft_seconds":.1}
+    def cancel():
+        nonlocal checks;checks+=1;return checks>stop_after
+    with pytest.raises(Exception,match="cancelled"):
+        evaluator.evaluate_paired(**config,evaluation_run_id=run["id"],baseline=arm,candidate=arm,quality_judge=lambda _:{"winner":"tie"},safety_judge=lambda _:{"left_safe":True,"right_safe":True},existing_run=True,cancel_check=cancel)
+    completed=len(evaluator.progress(run["id"])["events"])
+    evaluator.evaluate_paired(**config,evaluation_run_id=run["id"],baseline=arm,candidate=arm,quality_judge=lambda _:{"winner":"tie"},safety_judge=lambda _:{"left_safe":True,"right_safe":True},existing_run=True)
+    report=evaluator.report(run["id"])
+    assert len(report["records"])==60
+    assert len(calls)==120
+    assert any(record["partition"]==partition for record in report["records"][:completed])
+
+
+def test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls(tmp_path) -> None:
+    from app.db import Database
+    db=Database(tmp_path/"agent.db");evaluator=RealEvaluator(tmp_path/"evals",db=db);evaluator.register_release_suite("release-v1",_release_cases())
+    config={"suite_id":"release-v1","baseline_bundle_id":"base","candidate_bundle_id":"candidate","baseline_model_id":"a","candidate_model_id":"b","quality_judge_model_id":"q","safety_judge_model_id":"s","evaluator_digest":"e","tool_schema_digest":"t","context_digest":"c","budget_microusd":6,"primary_objective":"quality"}
+    run=evaluator.enqueue(config,idempotency_key="budget-resume");calls=[]
+    def measured(name,result):
+        def invoke(_):calls.append(name);return dict(result)
+        invoke.budget_reservation_microusd=1
+        return invoke
+    baseline=measured("baseline",{"text":"safe baseline","cost_microusd":1,"ttft_seconds":.1})
+    candidate=measured("candidate",{"text":"safe improved","cost_microusd":1,"ttft_seconds":.1})
+    quality=measured("quality",{"winner":"tie","_cost_microusd":1})
+    safety=measured("safety",{"left_safe":True,"right_safe":True,"_cost_microusd":1})
+    with pytest.raises(EvaluationBudgetExceeded):
+        evaluator.evaluate_paired(**config,evaluation_run_id=run["id"],baseline=baseline,candidate=candidate,quality_judge=quality,safety_judge=safety,existing_run=True)
+    assert calls==["baseline","candidate","quality","safety"] or calls==["candidate","baseline","quality","safety"]
+    assert len(evaluator.progress(run["id"])["events"])==1
+    with db.transaction() as connection:
+        connection.execute("UPDATE evaluation_runs SET status='BUDGET_BLOCKED' WHERE id=?", (run["id"],))
+    resumed=evaluator.resume_with_budget(run["id"],1000)
+    assert resumed["status"]=="QUEUED"
+    evaluator.evaluate_paired(**{**config,"budget_microusd":1000},evaluation_run_id=run["id"],baseline=baseline,candidate=candidate,quality_judge=quality,safety_judge=safety,existing_run=True)
+    assert len(calls)==240
+    assert evaluator.report(run["id"])["cost_microusd"]==240
+
+
+def test_live_judges_pin_evaluator_bundle_and_use_its_routing_digest(tmp_path) -> None:
+    from app.behavior import BehaviorBundleService
+    from app.db import Database
+    from app.model_control import ModelControlStore
+    db=Database(tmp_path/"agent.db")
+    bundle=BehaviorBundleService(db).ensure({"model_routing":{"policy_id":"policy-eval","digest":"routing-eval"}})
+    runner=LiveEvaluationRunner(None,ModelControlStore(db))
+    quality=runner._context("judge_quality","paired_evaluation_judgment","quality",bundle.id)
+    safety=runner._context("judge_safety","paired_evaluation_judgment","safety",bundle.id)
+    assert quality.runtime_bundle_id==safety.runtime_bundle_id==bundle.id
+    assert quality.routing_policy_id==safety.routing_policy_id=="policy-eval"
+    assert quality.routing_policy_digest==safety.routing_policy_digest=="routing-eval"
+    assert quality.routing_policy_digest!="evaluator-digest"
+
+
+@pytest.mark.asyncio
+async def test_evaluation_worker_renews_lease_during_a_slow_model_call(tmp_path) -> None:
+    from app.db import Database
+
+    db = Database(tmp_path / "agent.db")
+    evaluator = RealEvaluator(tmp_path / "evals", db=db)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    config = {
+        "suite_id":"release-v1", "baseline_bundle_id":"base", "candidate_bundle_id":"candidate",
+        "baseline_model_id":"a", "candidate_model_id":"b", "quality_judge_model_id":"q", "safety_judge_model_id":"s",
+        "evaluator_digest":"e", "tool_schema_digest":"t", "context_digest":"c",
+        "budget_microusd":1000, "primary_objective":"quality",
+    }
+    evaluator.enqueue(config, idempotency_key="slow-worker")
+    started = threading.Event()
+    first = True
+    def baseline(case):
+        nonlocal first
+        if first:
+            first = False
+            started.set()
+            time.sleep(.2)
+        return {"text":"safe baseline", "cost_microusd":1, "ttft_seconds":.1}
+    evaluator.runner_factory = lambda _: {
+        "baseline": baseline,
+        "candidate": lambda case: {"text":"safe candidate", "cost_microusd":1, "ttft_seconds":.1},
+        "quality_judge": lambda payload: {"winner":"tie"},
+        "safety_judge": lambda payload: {"left_safe":True, "right_safe":True},
+    }
+    worker = ManagedEvaluationWorker(evaluator, lease_seconds=.09)
+
+    task = asyncio.create_task(worker.run_once())
+    assert await asyncio.to_thread(started.wait, 1)
+    await asyncio.sleep(.12)
+    assert evaluator.claim_next("takeover", 1) is None
+    assert await task is True
+
+
+def test_stale_evaluation_worker_cannot_persist_after_lease_takeover(tmp_path) -> None:
+    from app.db import Database
+
+    db = Database(tmp_path / "agent.db")
+    evaluator = RealEvaluator(tmp_path / "evals", db=db)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    run = evaluator.enqueue({
+        "suite_id":"release-v1", "baseline_bundle_id":"base", "candidate_bundle_id":"candidate",
+        "baseline_model_id":"a", "candidate_model_id":"b", "quality_judge_model_id":"q", "safety_judge_model_id":"s",
+        "evaluator_digest":"e", "tool_schema_digest":"t", "context_digest":"c",
+        "budget_microusd":1000, "primary_objective":"quality",
+    }, idempotency_key="lease-fence")
+    evaluator.claim_next("old-worker", 30)
+    with db.transaction() as connection:
+        connection.execute("UPDATE evaluation_runs SET lease_until='2000-01-01T00:00:00+00:00' WHERE id=?", (run["id"],))
+    assert evaluator.claim_next("new-worker", 30)["id"] == run["id"]
+    case = _release_cases()[0]
+    record = {
+        "order":"AB", "baseline":{"text":"safe", "cost_microusd":1, "ttft_seconds":.1},
+        "candidate":{"text":"safe", "cost_microusd":1, "ttft_seconds":.1},
+        "baseline_deterministic_pass":True, "candidate_deterministic_pass":True,
+        "left_is_baseline":True, "winner":"tie", "candidate_won":False, "candidate_safe":True,
+    }
+    bindings = {
+        "baseline_bundle_id":"base", "candidate_bundle_id":"candidate", "baseline_model_id":"a",
+        "candidate_model_id":"b", "quality_judge_model_id":"q", "safety_judge_model_id":"s",
+    }
+
+    with pytest.raises(EvaluationLeaseLost):
+        evaluator._persist_case(run["id"], bindings=bindings, case=case, record=record, lease_owner="old-worker")
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM evaluation_case_pairs WHERE evaluation_run_id=?", (run["id"],)).fetchone()[0] == 0
+
+
+def _authoritative_evaluation_setup(tmp_path):
+    from app.behavior import BehaviorBundleService
+    from app.costs import CostService, PriceSnapshot
+    from app.db import Database
+
+    db = Database(tmp_path / "agent.db")
+    evaluator = RealEvaluator(tmp_path / "evals", db=db)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    roles = ("baseline", "candidate", "quality_judge", "safety_judge")
+    models = {role: f"model-{role}" for role in roles}
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO model_profiles(id,owner_id,name,status,created_at,updated_at) "
+            "VALUES ('evaluation-prices','local-user','evaluation prices','ACTIVE','now','now')"
+        )
+        for version, model_id in enumerate(models.values(), 1):
+            connection.execute(
+                "INSERT INTO model_profile_versions("
+                "id,profile_id,version,provider_protocol,provider_name,base_url,model_name,credential_env_ref,"
+                "capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at"
+                ") VALUES (?,'evaluation-prices',?,'openai_compatible','test','https://provider.test/v1',?,'TEST_KEY',"
+                "'{}',100,20,30,1,?,'now')",
+                (model_id, version, model_id, f"config-{version}"),
+            )
+        policies = {
+            "baseline": {"conversation": {"primary": models["baseline"], "fallback": []}},
+            "candidate": {"conversation": {"primary": models["candidate"], "fallback": []}},
+            "evaluator": {
+                "judge_quality": {"primary": models["quality_judge"], "fallback": []},
+                "judge_safety": {"primary": models["safety_judge"], "fallback": []},
+            },
+        }
+        for version, (name, policy_roles) in enumerate(policies.items(), 1):
+            connection.execute(
+                "INSERT INTO model_routing_policies(id,owner_id,version,name,roles_json,policy_digest,created_at) "
+                "VALUES (?,'local-user',?,?,?,?,'now')",
+                (f"policy-{name}", version, name, __import__("json").dumps(policy_roles), f"digest-{name}"),
+            )
+    bundles = BehaviorBundleService(db)
+    common = {"tools": "tools-v1", "context": {"renderer": "v1"}}
+    baseline_bundle = bundles.ensure({
+        **common, "model_routing": {"policy_id": "policy-baseline", "digest": "digest-baseline"},
+    })
+    candidate_bundle = bundles.ensure({
+        **common, "model_routing": {"policy_id": "policy-candidate", "digest": "digest-candidate"},
+    })
+    evaluator_bundle = bundles.ensure({
+        "model_routing": {"policy_id": "policy-evaluator", "digest": "digest-evaluator"},
+    })
+    costs = CostService(db)
+    for role, model_id in models.items():
+        costs.register_price(
+            model_id, PriceSnapshot(f"price-{role}-frozen", 1_000_000, 0, 0, 2_000_000, 0),
+            "2026-01-01T00:00:00+00:00",
+        )
+    payload = {
+        "suite_id": "release-v1",
+        "baseline_bundle_id": baseline_bundle.id,
+        "candidate_bundle_id": candidate_bundle.id,
+        "evaluator_bundle_id": evaluator_bundle.id,
+        **{f"{role}_model_id": model_id for role, model_id in models.items()},
+        "budget_microusd": 100_000,
+        "primary_objective": "quality",
+    }
+    return db, evaluator, costs, models, payload, baseline_bundle
+
+
+def test_authoritative_evaluation_config_freezes_four_price_snapshot_ids(tmp_path) -> None:
+    from app.costs import PriceSnapshot
+    from app.model_control import ModelControlStore
+
+    db, evaluator, costs, models, payload, baseline_bundle = _authoritative_evaluation_setup(tmp_path)
+    config = evaluator.authoritative_config(payload)
+
+    for role, model_id in models.items():
+        costs.register_price(
+            model_id, PriceSnapshot(f"price-{role}-new", 10_000_000, 0, 0, 20_000_000, 0),
+            "2026-02-01T00:00:00+00:00",
+        )
+
+    expected = {role: f"price-{role}-frozen" for role in models}
+    assert config["price_snapshot_ids"] == expected
+    assert config["price_snapshot_digest"] == _digest(expected)
+    runner = LiveEvaluationRunner(None, ModelControlStore(db))
+    assert runner._reservation(models["baseline"], expected["baseline"]) == 140
+    context = runner._context(
+        "conversation", "evaluation_baseline", "eval-price-context", baseline_bundle.id,
+        expected["baseline"],
+    )
+    assert context.price_snapshot_id == expected["baseline"]
+
+
+@pytest.mark.parametrize("field,replacement", [
+    ("baseline_model_id", "candidate"),
+    ("candidate_model_id", "baseline"),
+    ("quality_judge_model_id", "safety_judge"),
+    ("safety_judge_model_id", "quality_judge"),
+])
+def test_authoritative_evaluation_rejects_models_not_bound_as_bundle_role_primaries(tmp_path, field, replacement) -> None:
+    _, evaluator, _, models, payload, _ = _authoritative_evaluation_setup(tmp_path)
+
+    with pytest.raises(EvaluationAccessError, match="routing primary bindings do not match"):
+        evaluator.authoritative_config({**payload, field: models[replacement]})
+
+
+def test_release_approvable_requires_auditable_price_snapshot_binding(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    report = evaluator.evaluate_paired(
+        suite_id="release-v1", evaluation_run_id="auditable-prices", baseline_bundle_id="base", candidate_bundle_id="candidate",
+        baseline=lambda case: {"text": "safe baseline", "cost_microusd": 1, "ttft_seconds": 1},
+        candidate=lambda case: {"text": "safe improved", "cost_microusd": 1, "ttft_seconds": .9},
+        quality_judge=lambda payload: {"winner": "right" if "improved" in payload["right"] else "left"},
+        safety_judge=lambda payload: {"left_safe": True, "right_safe": True},
+        baseline_model_id="a", candidate_model_id="b", quality_judge_model_id="q", safety_judge_model_id="s",
+        evaluator_digest="e", tool_schema_digest="t", context_digest="c", budget_microusd=1000, primary_objective="quality",
+    )
+    report["bindings"].pop("price_snapshot_ids")
+    report["report_digest"] = _digest({key: value for key, value in report.items() if key != "report_digest"})
+
+    with pytest.raises(EvaluationAccessError, match="price snapshot bindings are incomplete"):
+        RealEvaluator.assert_release_approvable(report)

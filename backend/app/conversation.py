@@ -461,6 +461,9 @@ class ConversationService:
                     row["thread_id"], turn_id, "turn.cancelled", "user", {},
                     connection=connection, occurred_at=now,
                 )
+                evolution = getattr(self.agent_runtime, "evolution", None)
+                if evolution is not None:
+                    evolution.finish_run_exposure(turn_id, success=False, connection=connection)
             else:
                 active = True
         if active:
@@ -708,6 +711,23 @@ class ConversationService:
                  "start_expert" if deferred_to_expert else None, "expert" if deferred_to_expert else None,
                  json.dumps(selected_skills, ensure_ascii=False), goal_action_id, runtime_bundle_id, now, now),
             )
+            if selected_skills and self.agent_runtime is not None:
+                try:
+                    binding = self.agent_runtime.skill_platform.binding("THREAD", thread_id)
+                except KeyError:
+                    version_ids = self.agent_runtime.skills.version_ids(selected_skills)
+                    binding = self.agent_runtime.skill_platform.bind(
+                        "THREAD", thread_id, version_ids,
+                        idempotency_key=f"thread-skill-binding:{thread_id}", connection=connection,
+                    )
+                pinned_names = [self.agent_runtime.skill_platform.version(version_id)["name"] for version_id in binding["version_ids"]]
+                if pinned_names != selected_skills:
+                    raise ValueError("thread Skill versions are already frozen")
+                self.events.append(
+                    thread_id, turn_id, "skill.snapshot_applied", "runtime",
+                    {"binding_snapshot_digest": binding["snapshot_digest"], "skill_version_ids": binding["version_ids"]},
+                    connection=connection, occurred_at=now,
+                )
             connection.execute(
                 """
                 INSERT INTO thread_messages(
@@ -920,6 +940,20 @@ class ExecutionMaterializer:
                 "INSERT INTO runs(id, goal_id, session_id, state, current_plan_version_id, budget_json, skill_names_json, source_turn_id, source_plan_document_id, source_plan_document_version_id, source_plan_content_hash, runtime_bundle_id, created_at, updated_at) VALUES (?, ?, ?, 'AWAITING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (run_id, goal_id, session_id, plan_id, json.dumps(budget, ensure_ascii=False), skill_names_json, turn_id, source.document_id, source.version_id, source.content_hash, row["runtime_bundle_id"], now, now),
             )
+            try:
+                thread_skill_binding = self.agent_runtime.skill_platform.binding("THREAD", thread_id)
+            except KeyError:
+                thread_skill_binding = None
+            if thread_skill_binding is not None:
+                run_skill_binding = self.agent_runtime.skill_platform.bind(
+                    "RUN", run_id, thread_skill_binding["version_ids"],
+                    idempotency_key=f"materialized-run-skill-binding:{run_id}", connection=connection,
+                )
+                self.agent_runtime.events.append(
+                    run_id, goal_id, "skill.snapshot_applied", "runtime",
+                    {"binding_snapshot_digest": run_skill_binding["snapshot_digest"], "skill_version_ids": run_skill_binding["version_ids"]},
+                    connection=connection, occurred_at=now,
+                )
             connection.execute(
                 "UPDATE turns SET status = 'COMPLETED', direction_action = ?, direction_idempotency_key = ?, "
                 "direction_projection_status = 'MATERIALIZED', direction_projection_error = NULL, "
@@ -1250,6 +1284,12 @@ class ManagedTurnWorker:
             plan_context = self.conversation.plan_context.load_for_turn(turn.thread_id, turn.id)
             goal_context = self.conversation.goal_context.load_for_turn(turn.thread_id, turn.id)
             history = self._history(turn.thread_id, turn_id)
+            skill_context = self._skill_context(turn)
+            if skill_context:
+                history = [{
+                    "role": "system",
+                    "content": "以下是本会话固定版本的 Skill 指令：\n" + skill_context,
+                }, *history]
             provider = getattr(self.conversation.agent_runtime, "memory_context", None)
             if provider is not None:
                 from .memory_v2 import MemoryContextRequest
@@ -1352,6 +1392,7 @@ class ManagedTurnWorker:
                 with contextlib.suppress(asyncio.CancelledError, Exception):
                     await model_task
                 self._finish_cancelled(turn, message_id, generation, pending)
+                await self._finish_exposure(turn, success=False, message_id=message_id)
                 return
             result = await model_task
             if context_token is not None:
@@ -1391,12 +1432,17 @@ class ManagedTurnWorker:
                     self.conversation.events.append(turn.thread_id, turn.id, "expert.requested", "worker", {"objective": decoder.header.expert_objective, "roles": list(decoder.header.expert_roles)}, connection=connection, occurred_at=now)
                     self.conversation.events.append(turn.thread_id, turn.id, "turn.completed", "worker", {}, connection=connection, occurred_at=now)
                     connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn.id))
+                await self._finish_exposure(
+                    turn, success=True, message_id=None,
+                    observable={"policy": "start_expert", "objective": decoder.header.expert_objective},
+                )
                 return
             if message_id is None:
                 message_id = self._start_message(turn, decoder.header, generation)
             if pending:
                 self._flush_delta(turn, message_id, generation, pending)
             self._finish_success(turn, message_id, generation, decoder.header, plan_context)
+            await self._finish_exposure(turn, success=True, message_id=message_id)
             archiver = getattr(self.conversation.agent_runtime, "archiver", None)
             if archiver is not None:
                 await archiver.archive_thread(turn.thread_id)
@@ -1407,6 +1453,7 @@ class ManagedTurnWorker:
             if not lease_lost.is_set():
                 with contextlib.suppress(TurnJobLeaseLost):
                     self._finish_cancelled(turn, message_id, generation, pending)
+                    await self._finish_exposure(turn, success=False, message_id=message_id)
         except Exception as exc:
             with contextlib.suppress(TurnJobLeaseLost):
                 self._finish_failure(
@@ -1416,6 +1463,7 @@ class ManagedTurnWorker:
                     exc,
                     preserve_partial=bool(getattr(exc, "preserve_partial", True)),
                 )
+                await self._finish_exposure(turn, success=False, message_id=message_id)
         finally:
             if 'context_token' in locals() and context_token is not None:
                 gateway.reset_call_context(context_token)
@@ -1429,6 +1477,48 @@ class ManagedTurnWorker:
                 if model_task is not None:
                     await model_task
             self.conversation._cancel_events.pop(turn_id, None)
+
+    async def _finish_exposure(
+        self, turn: TurnSnapshot, *, success: bool, message_id: str | None,
+        observable: dict[str, Any] | None = None,
+    ) -> None:
+        runtime = self.conversation.agent_runtime
+        evolution = getattr(runtime, "evolution", None)
+        if evolution is None:
+            return
+        exposure_id = turn.id
+        with self.db.connection() as connection:
+            current = turn.id
+            while current:
+                if connection.execute("SELECT 1 FROM canary_exposures WHERE run_id=?", (current,)).fetchone():
+                    exposure_id = current
+                    break
+                row = connection.execute("SELECT parent_turn_id FROM turns WHERE id=?", (current,)).fetchone()
+                current = row["parent_turn_id"] if row else None
+        safety_pass = None
+        judge = getattr(runtime, "safety_judge", None)
+        if judge is not None:
+            if observable is None and message_id is not None:
+                with self.db.connection() as connection:
+                    row = connection.execute("SELECT content FROM thread_messages WHERE id=?", (message_id,)).fetchone()
+                observable = {"turn_id": turn.id, "output": row["content"]} if row is not None else None
+            gateway = getattr(judge, "gateway", None)
+            token = None
+            if observable is not None and getattr(gateway, "control_store", None) is not None:
+                from .model_control import ModelCallContext
+                token = gateway.set_call_context(ModelCallContext(
+                    role="judge_safety", purpose="judge_conversation_output", thread_id=turn.thread_id,
+                    turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
+                ))
+            try:
+                if observable is not None:
+                    safety_pass = await judge.judge(observable)
+            except Exception:
+                safety_pass = None
+            finally:
+                if token is not None:
+                    gateway.reset_call_context(token)
+        evolution.finish_run_exposure(exposure_id, success=success, safety_pass=safety_pass)
 
     async def _heartbeat(
         self,
@@ -2018,6 +2108,20 @@ class ManagedTurnWorker:
                 "content": json.dumps(tool_result_payload(questions, answers), ensure_ascii=False),
             })
         return history
+
+    def _skill_context(self, turn: TurnSnapshot) -> str:
+        if not turn.skill_names or self.conversation.agent_runtime is None:
+            return ""
+        try:
+            binding = self.conversation.agent_runtime.skill_platform.binding("THREAD", turn.thread_id)
+        except KeyError:
+            return ""
+        items = [self.conversation.agent_runtime.skill_platform.version(version_id) for version_id in binding["version_ids"]]
+        selected = set(turn.skill_names)
+        return "\n\n".join(
+            f"## {item['title']} ({item['name']}@{item['version']})\n{item['content']}"
+            for item in items if item["name"] in selected
+        )
 
     def _cancel_requested(self, turn_id: str) -> bool:
         with self.db.connection() as connection:

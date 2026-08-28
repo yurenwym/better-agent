@@ -53,6 +53,31 @@ async def test_runtime_runs_received_planning_approval_execution_reflection_loop
 
 
 @pytest.mark.asyncio
+async def test_completed_goal_run_finishes_canary_exposure_with_safety_judgment(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(tmp_path, MockModelGateway(
+        plan_steps=[{"id": "step-1", "title": "done"}],
+        decisions=[ModelDecision.complete("safe result")],
+    ))
+    calls = []
+    class Evolution:
+        def assign_run(self, run_id, assignment_key, *, connection=None): return None, "deployment"
+        def finish_run_exposure(self, run_id, *, success, safety_pass=None, connection=None):
+            calls.append((run_id, success, safety_pass))
+    class Judge:
+        async def judge(self, observable): return True
+    runtime.evolution = Evolution()
+    runtime.safety_judge = Judge()
+    run = await runtime.create_goal("goal", "goal")
+    await runtime.handle_message(run.id, "goal")
+
+    await runtime.approve_plan(run.id, 1)
+
+    assert calls == [(run.id, True, True)]
+
+
+@pytest.mark.asyncio
 async def test_react_observation_includes_tool_result_data(tmp_path) -> None:
     from app.runtime import MockModelGateway, ModelDecision
     from app.tools import ToolCall

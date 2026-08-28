@@ -347,6 +347,40 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
 
 
 @pytest.mark.asyncio
+async def test_routed_conversation_regenerates_ask_with_the_dedicated_role() -> None:
+    from app.ask import ASK_TOOL_SCHEMA
+    from app.live_model import LiveConversationModel
+
+    def call(call_id: str, question: str):
+        return {"id": call_id, "function": {"name": "ask_user", "arguments": json.dumps({"questions": [{
+            "id": "context", "header": "关键信息", "question": question, "options": [],
+            "multi_select": False, "allow_free_text": True,
+        }]}, ensure_ascii=False)}}
+
+    class RoutedAskGateway:
+        supports_role_routing = True
+        def __init__(self): self.requests = []
+        async def complete(self, request, **_kwargs):
+            self.requests.append(request)
+            return SimpleNamespace(message="", tool_calls=[call(
+                "ask-final" if request.role == "ask" else "ask-draft",
+                "你希望优先解决哪一项？" if request.role == "ask" else "draft",
+            )])
+
+    gateway = RoutedAskGateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="帮我制定长期成长计划", history=[], skill_names=[],
+        on_text_delta=lambda _: None, on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+
+    assert result.call_id == "ask-final"
+    assert result.questions[0].question == "你希望优先解决哪一项？"
+    assert [request.role for request in gateway.requests[:2]] == ["conversation", "ask"]
+    assert sum(request.role == "ask" for request in gateway.requests) == 1
+    assert gateway.requests[1].tools == [ASK_TOOL_SCHEMA]
+
+
+@pytest.mark.asyncio
 async def test_live_conversation_model_keeps_streaming_a_direct_answer() -> None:
     from app.live_model import LiveConversationModel
 

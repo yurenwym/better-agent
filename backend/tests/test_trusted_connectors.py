@@ -128,7 +128,7 @@ def test_connector_tool_requires_skill_manifest_and_exact_write_approval(tmp_pat
     assert platform.tool_authorization(
         "RUN", "run-denied", "trusted_connector", connector_version_id=version["version_id"],
         global_tools={"trusted_connector"}, role_tools={"trusted_connector"}, phase_tools={"trusted_connector"},
-        routing_policy_digest="policy-1",
+        phase_name="executor", routing_policy_digest="policy-1",
     ) is None
 
     manifest = json.loads(zipfile.ZipFile(io.BytesIO(_connector_skill(["tasks"]))).read("skill.json"))
@@ -144,7 +144,7 @@ def test_connector_tool_requires_skill_manifest_and_exact_write_approval(tmp_pat
     auth = platform.tool_authorization(
         "RUN", "run-allowed", "trusted_connector", connector_version_id=version["version_id"],
         global_tools={"trusted_connector"}, role_tools={"trusted_connector"}, phase_tools={"trusted_connector"},
-        routing_policy_digest="policy-1",
+        phase_name="executor", routing_policy_digest="policy-1",
     )
     assert auth and auth["skill_version_id"] == installed["version_id"]
 

@@ -7,7 +7,7 @@ import SkillsPage from "../pages/SkillsPage";
 
 const api = vi.hoisted(() => ({
   listModelProfiles: vi.fn(), listRoutingPolicies: vi.fn(), createModelProfile: vi.fn(), createRoutingPolicy: vi.fn(), verifyModelVersion: vi.fn(),
-  getCostSummary: vi.fn(), getUsageSummary: vi.fn(), setCostBudget: vi.fn(), listEvaluationSuites: vi.fn(), createEvaluationRun: vi.fn(), getEvaluationRun: vi.fn(), getEvaluationReport: vi.fn(), getEvaluationEvents: vi.fn(), subscribeToEvaluationEvents: vi.fn(), cancelEvaluationRun: vi.fn(),
+  getCostSummary: vi.fn(), getUsageSummary: vi.fn(), setCostBudget: vi.fn(), listEvaluationSuites: vi.fn(), createEvaluationRun: vi.fn(), getEvaluationRun: vi.fn(), getEvaluationReport: vi.fn(), getEvaluationEvents: vi.fn(), subscribeToEvaluationEvents: vi.fn(), cancelEvaluationRun: vi.fn(), resumeEvaluationRun: vi.fn(),
   listSkillVersions: vi.fn(), getSkills: vi.fn(), listInstalledSkills: vi.fn(), listTrustedConnectors: vi.fn(), setSkillVersionEnabled: vi.fn(), uninstallSkill: vi.fn(), previewSkillInstall: vi.fn(), confirmSkillInstall: vi.fn(),
 }));
 vi.mock("../api", () => api);
@@ -28,6 +28,7 @@ beforeEach(() => {
   api.getEvaluationEvents.mockResolvedValue({events:[{seq:1,type:"evaluation.case.finished",case_id:"case-1",partition:"DEV",domain:"plan",execution_order:"baseline_first"}]});
   api.subscribeToEvaluationEvents.mockReturnValue(()=>undefined);
   api.getEvaluationReport.mockRejectedValue(new Error("尚未完成"));
+  api.resumeEvaluationRun.mockResolvedValue({id:"e1",suite_id:"release-v1",baseline_bundle_id:"b",candidate_bundle_id:"c",status:"QUEUED",budget_microusd:20000,attempts:2,created_at:"",updated_at:"",finished_at:null,cancel_requested_at:null});
   api.getSkills.mockResolvedValue({skills:[{skill_id:"s1",name:"travel",title:"旅行计划",description:"生成旅行计划",version_id:"sv1",package_digest:"pkg",enabled:true}]});
   api.listInstalledSkills.mockResolvedValue({skills:[{skill_id:"s1",name:"travel",title:"旅行计划",description:"生成旅行计划",version_id:"sv1",package_digest:"pkg",enabled:true}]});
   api.listSkillVersions.mockResolvedValue({versions:[{skill_id:"s1",version_id:"sv1",name:"travel",version:"1.0.0",title:"旅行计划",description:"生成旅行计划",content:"",package_digest:"pkg",manifest_digest:"m",requested_tools:["calculator"],granted_tools:["calculator"],connectors:[],phases:["planner"],grant_digest:"g",status:"ENABLED"}]});
@@ -107,6 +108,15 @@ describe("control plane pages", () => {
     expect(screen.getByText("1 / 60")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", {name:"取消评测"}));
     expect(screen.getByRole("dialog", {name:"取消评测？"})).toBeTruthy();
+  });
+
+  it("resumes a budget blocked evaluation from an inline form", async () => {
+    api.getEvaluationRun.mockResolvedValueOnce({id:"e1",suite_id:"release-v1",baseline_bundle_id:"b",candidate_bundle_id:"c",status:"BUDGET_BLOCKED",budget_microusd:10000,attempts:1,created_at:"",updated_at:"",finished_at:null,cancel_requested_at:null});
+    render(<EvaluationPage evaluationId="e1" csrfToken="csrf"/>);
+    const input=await screen.findByLabelText(/新预算/);
+    fireEvent.change(input,{target:{value:"20000"}});
+    fireEvent.click(screen.getByRole("button",{name:"追加预算并恢复"}));
+    await waitFor(()=>expect(api.resumeEvaluationRun).toHaveBeenCalledWith("e1",20000,"csrf"));
   });
 
   it("shows installed skills and expands version permissions", async () => {

@@ -120,7 +120,7 @@ def test_events_are_append_only(tmp_path) -> None:
         connection.execute("UPDATE events SET data_json = '{}' WHERE run_id = 'run-1'")
 
 
-def test_database_upgrades_from_migration_12_to_14_and_restarts_idempotently(tmp_path, monkeypatch) -> None:
+def test_database_upgrades_from_migration_12_to_17_and_restarts_idempotently(tmp_path, monkeypatch) -> None:
     import app.db as db_module
 
     path = tmp_path / "migration-12.db"
@@ -137,12 +137,38 @@ def test_database_upgrades_from_migration_12_to_14_and_restarts_idempotently(tmp
         run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
         turn_columns = {row[1] for row in connection.execute("PRAGMA table_info(turns)")}
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
+        binding_columns = {row[1] for row in connection.execute("PRAGMA table_info(skill_bindings)")}
 
-    assert versions == list(range(1, 15))
+    assert versions == list(range(1, 18))
     assert "runtime_bundle_id" in run_columns
     assert "runtime_bundle_id" in turn_columns
     assert "uq_cost_attempt_period_entry" in indexes
     assert "uq_cost_attempt_entry" not in indexes
+    assert "grant_snapshots_json" in binding_columns
+
+
+def test_database_upgrades_from_migration_14_to_15(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "migration-14.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:14])
+    db_module.Database(path)
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(canary_exposures)")}
+
+    assert versions == list(range(1, 18))
+    assert {
+        "quality_outcome", "safety_outcome", "ttft_ms", "ttft_p95_ms",
+        "invocation_count", "attempt_count", "cost_microusd",
+        "routing_policy_digest", "profile_digest", "skill_digest",
+    } <= columns
 
 
 def test_database_recovers_when_control_migration_ddl_landed_without_receipts(tmp_path, monkeypatch) -> None:
@@ -165,6 +191,31 @@ def test_database_recovers_when_control_migration_ddl_landed_without_receipts(tm
     with sqlite3.connect(path) as connection:
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
-    assert versions == list(range(1, 15))
+    assert versions == list(range(1, 18))
     assert "uq_cost_attempt_period_entry" in indexes
+
+
+def test_database_recovers_when_canary_metric_ddl_landed_without_receipt(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "interrupted-canary-migration.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:14])
+    db_module.Database(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE canary_exposures ADD COLUMN quality_outcome TEXT")
+        connection.execute("ALTER TABLE canary_exposures ADD COLUMN safety_outcome TEXT")
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(canary_exposures)")}
+    assert versions == list(range(1, 18))
+    assert {
+        "quality_outcome", "safety_outcome", "ttft_ms", "ttft_p95_ms",
+        "invocation_count", "attempt_count", "cost_microusd",
+        "routing_policy_digest", "profile_digest", "skill_digest",
+    } <= columns
 

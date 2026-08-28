@@ -107,7 +107,13 @@ class ToolRegistry:
         skill_tools: set[str] | None,
         authorization: dict[str, Any] | None = None,
     ) -> ToolResult:
-        spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+        try:
+            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+        except ToolRejected as exc:
+            self._run_event(run_id, "tool.authorization.denied", {
+                "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
+            })
+            raise
         risk = self._risk(spec, call)
         params_hash = normalized_params_hash(call.params)
         existing = self._existing_call(call.id)
@@ -209,6 +215,9 @@ class ToolRegistry:
                     reconciliation_required = True
                 elif row["status"] == "RUNNING" and risk == ToolRisk.WRITE:
                     connection.execute("UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',updated_at=? WHERE logical_action_key=?", (now, logical_key))
+                    self._run_event(run_id, "tool.reconciliation_required", {
+                        "tool_call_id": call.id, "tool_name": call.name,
+                    }, connection=connection)
                     reconciliation_required = True
                 else:
                     raise ToolRejected("tool execution already running")
@@ -226,11 +235,29 @@ class ToolRegistry:
             return
         now = datetime.now().astimezone().isoformat()
         with self.db.transaction() as connection:
-            connection.execute(
+            changed = connection.execute(
                 "UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',error_code=?,updated_at=? "
-                "WHERE logical_action_key=? AND run_id=? AND params_hash=?",
+                "WHERE logical_action_key=? AND run_id=? AND params_hash=? AND status<>'RECONCILIATION_REQUIRED'",
                 (error, now, f"{run_id}:{call.id}", run_id, params_hash),
-            )
+            ).rowcount
+            if changed:
+                self._run_event(run_id, "tool.reconciliation_required", {
+                    "tool_call_id": call.id, "tool_name": call.name,
+                }, connection=connection)
+
+    def _run_event(self, run_id: str, event_type: str, data: dict[str, Any], *, connection=None) -> None:
+        if self.db is None:
+            return
+        def append(active) -> None:
+            row = active.execute("SELECT goal_id FROM runs WHERE id=?", (run_id,)).fetchone()
+            if row is not None:
+                from .events import EventStore
+                EventStore(self.db).append(run_id, row["goal_id"], event_type, "runtime", data, connection=active)
+        if connection is not None:
+            append(connection)
+        else:
+            with self.db.transaction() as active:
+                append(active)
 
     def _record_call(
         self,

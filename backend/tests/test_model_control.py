@@ -60,6 +60,76 @@ def test_router_filters_capabilities_and_uses_stable_priority() -> None:
 
 
 @pytest.mark.asyncio
+async def test_idempotent_replay_never_calls_provider_twice(tmp_path, monkeypatch) -> None:
+    from app.db import Database
+    from app.model_control import InvocationReplayError, ModelCallContext, ModelControlStore
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    db = Database(tmp_path / "agent.db")
+    monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            content=b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        )
+
+    gateway = ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY", max_attempts=1),
+        transport=httpx.MockTransport(handler),
+        control_store=ModelControlStore(db),
+    )
+    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn")
+    request = ModelRequest(messages=[{"role": "user", "content": "hello"}])
+
+    assert (await gateway.complete(request, context=context)).message == "ok"
+    with pytest.raises(InvocationReplayError) as replay:
+        await gateway.complete(request, context=context)
+
+    assert replay.value.invocation_id
+    assert replay.value.status == "SUCCEEDED"
+    assert calls == 1
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_idempotency_key_rejects_a_different_request_digest(tmp_path, monkeypatch) -> None:
+    from app.db import Database
+    from app.model_control import InvocationIdempotencyConflict, ModelCallContext, ModelControlStore
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    db = Database(tmp_path / "agent.db")
+    monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(
+            200,
+            content=b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n',
+        )
+
+    gateway = ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY", max_attempts=1),
+        transport=httpx.MockTransport(handler),
+        control_store=ModelControlStore(db),
+    )
+    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn")
+
+    await gateway.complete(ModelRequest(messages=[{"role": "user", "content": "first"}]), context=context)
+    with pytest.raises(InvocationIdempotencyConflict):
+        await gateway.complete(ModelRequest(messages=[{"role": "user", "content": "changed"}]), context=context)
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_gateway_persists_real_attempts_and_emits_contiguous_run_events(tmp_path, monkeypatch) -> None:
     from app.db import Database
     from app.events import EventStore
@@ -106,8 +176,10 @@ async def test_gateway_persists_real_attempts_and_emits_contiguous_run_events(tm
     assert [event.seq for event in run_events] == list(range(1, len(run_events) + 1))
     assert [event.type for event in run_events] == [
         "model.invocation.created",
+        "model.route.selected",
         "model.attempt.started",
         "model.attempt.finished",
+        "model.attempt.retry_scheduled",
         "model.attempt.started",
         "model.output.started",
         "model.attempt.finished",
@@ -199,3 +271,80 @@ async def test_connect_failure_is_retryable_with_separate_attempts(tmp_path, mon
     with db.connection() as connection:
         attempts = connection.execute("SELECT ordinal,status,error_kind FROM model_attempts ORDER BY ordinal").fetchall()
     assert [tuple(row) for row in attempts] == [(1, "FAILED", "provider_unavailable"), (2, "SUCCEEDED", None)]
+
+
+@pytest.mark.asyncio
+async def test_evaluation_attempt_pins_price_snapshot_while_regular_call_uses_current_price(tmp_path, monkeypatch) -> None:
+    from app.costs import CostService, PriceSnapshot
+    from app.db import Database
+    from app.model_control import ModelCallContext, ModelControlStore
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    db = Database(tmp_path / "agent.db")
+    costs = CostService(db)
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO model_profiles(id,owner_id,name,status,created_at,updated_at) "
+            "VALUES ('price-profile','local-user','prices','ACTIVE','now','now')"
+        )
+        connection.execute(
+            "INSERT INTO model_profile_versions("
+            "id,profile_id,version,provider_protocol,provider_name,base_url,model_name,credential_env_ref,"
+            "capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at"
+            ") VALUES ('price-version','price-profile',1,'openai_compatible','test','https://provider.test/v1','demo',"
+            "'MODEL_TEST_KEY','{}',100,20,30,1,'price-config','now')"
+        )
+    costs.register_price(
+        "price-version", PriceSnapshot("price-frozen", 1_000_000, 0, 0, 2_000_000, 0),
+        "2026-01-01T00:00:00+00:00",
+    )
+    costs.register_price(
+        "price-version", PriceSnapshot("price-current", 10_000_000, 0, 0, 20_000_000, 0),
+        "2026-02-01T00:00:00+00:00",
+    )
+    costs.set_budget("local-user", "DAILY", costs.today_period(), 10_000)
+    monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=(
+            'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n'
+            'data: {"usage":{"prompt_tokens":10,"completion_tokens":5,"cached_tokens":0}}\n\n'
+            'data: [DONE]\n\n'
+        ).encode())
+
+    gateway = ModelGateway(
+        ModelProfile(
+            "https://provider.test/v1", "demo", "MODEL_TEST_KEY", context_window=100, max_output_tokens=20,
+            provider_name="test", registered_profile_version_id="price-version",
+        ),
+        transport=httpx.MockTransport(handler),
+        control_store=ModelControlStore(db, costs=costs),
+    )
+    await gateway.complete(
+        ModelRequest(messages=[]),
+        context=ModelCallContext(
+            "conversation", "evaluation_baseline", invocation_id="eval-priced",
+            price_snapshot_id="price-frozen",
+        ),
+    )
+    await gateway.complete(
+        ModelRequest(messages=[]),
+        context=ModelCallContext("conversation", "answer", invocation_id="regular-priced"),
+    )
+
+    with db.connection() as connection:
+        attempts = connection.execute(
+            "SELECT invocation_id,price_snapshot_id,cost_microusd FROM model_attempts ORDER BY invocation_id"
+        ).fetchall()
+        reserves = connection.execute(
+            "SELECT invocation_id,price_snapshot_id,amount_microusd FROM cost_ledger "
+            "WHERE entry_type='RESERVE' ORDER BY invocation_id"
+        ).fetchall()
+    assert [tuple(row) for row in attempts] == [
+        ("eval-priced", "price-frozen", 20),
+        ("regular-priced", "price-current", 200),
+    ]
+    assert [tuple(row) for row in reserves] == [
+        ("eval-priced", "price-frozen", 140),
+        ("regular-priced", "price-current", 1400),
+    ]

@@ -183,6 +183,7 @@ class AgentRuntime:
         self.research_worker = None
         self.scheduler = None
         self.archiver = None
+        self.safety_judge = None
         self.stats = StatsProjector(db, events)
         self.events.projector = self.stats
         self.context_assembler = ContextAssembler()
@@ -284,6 +285,11 @@ class AgentRuntime:
                         "skills.selected",
                         "user",
                         {"skill_names": list(selected_skills)},
+                    )
+                    binding = self.skill_platform.binding("RUN", run_id)
+                    self.events.append(
+                        run_id, run.goal_id, "skill.snapshot_applied", "runtime",
+                        {"binding_snapshot_digest": binding["snapshot_digest"], "skill_version_ids": binding["version_ids"]},
                     )
                     run = self.get_run(run_id)
             interaction_id = f"interaction_{uuid.uuid4().hex}"
@@ -435,6 +441,7 @@ class AgentRuntime:
                 self._transition(run, AgentState.CANCELLED, {"reason": "user cancelled"})
                 self.events.append(run_id, run.goal_id, "run.cancelled", "user", {})
                 self._save_checkpoint(run_id, "user cancelled")
+                await self._finish_exposure(run_id, success=False)
             active_task = self._active_model_tasks.get(run_id)
             current_task = asyncio.current_task()
             if active_task is not None and active_task is not current_task:
@@ -635,7 +642,13 @@ class AgentRuntime:
                 if result is None:
                     skill_tools = self._skill_tools_for_run(run, "react")
                     authorization = self._tool_authorization(run, "react", call)
-                    self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+                    try:
+                        self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+                    except ToolRejected as exc:
+                        self.events.append(run_id, run.goal_id, "tool.authorization.denied", "runtime", {
+                            "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
+                        })
+                        raise
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -727,7 +740,44 @@ class AgentRuntime:
         if self.get_run(run_id).state == AgentState.REFLECTING:
             self._transition(self.get_run(run_id), AgentState.COMPLETED, {"candidates": len(candidates)})
         self.events.append(run_id, run.goal_id, "run.completed", "runtime", {"candidate_count": len(candidates)})
+        await self._finish_exposure(run_id, success=True)
         return self.get_run(run_id)
+
+    async def _finish_exposure(self, run_id: str, *, success: bool) -> None:
+        evolution = getattr(self, "evolution", None)
+        if evolution is None:
+            return
+        exposure_id = run_id
+        with self.db.connection() as connection:
+            if connection.execute("SELECT 1 FROM canary_exposures WHERE run_id=?", (run_id,)).fetchone() is None:
+                source = connection.execute("SELECT source_turn_id FROM runs WHERE id=?", (run_id,)).fetchone()
+                if source and source["source_turn_id"]:
+                    exposure_id = source["source_turn_id"]
+        safety_pass = None
+        judge = getattr(self, "safety_judge", None)
+        if judge is not None:
+            with self.db.connection() as connection:
+                messages = [row["content"] for row in connection.execute(
+                    "SELECT content FROM messages WHERE run_id=? AND role='assistant' AND content<>'' ORDER BY created_at,id",
+                    (run_id,),
+                )]
+            gateway = getattr(judge, "gateway", None)
+            token = None
+            run = self.get_run(run_id)
+            if getattr(gateway, "control_store", None) is not None:
+                from .model_control import ModelCallContext
+                token = gateway.set_call_context(ModelCallContext(
+                    role="judge_safety", purpose="judge_run_output", run_id=run.id,
+                    goal_id=run.goal_id, runtime_bundle_id=run.runtime_bundle_id,
+                ))
+            try:
+                safety_pass = await judge.judge({"run_id": run_id, "output": "\n\n".join(messages[-8:])})
+            except Exception:
+                safety_pass = None
+            finally:
+                if token is not None:
+                    gateway.reset_call_context(token)
+        evolution.finish_run_exposure(exposure_id, success=success, safety_pass=safety_pass)
 
     def _block(
         self,
@@ -953,6 +1003,7 @@ class AgentRuntime:
                 self._transition(current, AgentState.FAILED, {"reason": reason})
                 self.events.append(run.id, run.goal_id, "run.failed", "runtime", {"reason": reason})
                 self._save_checkpoint(run.id, reason)
+                await self._finish_exposure(run.id, success=False)
             elif current.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
                 self._block(run.id, reason, current.budget, "run.blocked")
             return None
@@ -1251,6 +1302,8 @@ class AgentRuntime:
             for version_id in binding["version_ids"]:
                 selected_tools |= self.skill_platform.effective_tools(
                     version_id, global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+                    phase_name="executor" if phase_name == "react" else phase_name,
+                    grant_snapshot=binding["grant_snapshots"].get(version_id),
                 )
             return allowed & selected_tools
         return allowed
@@ -1264,6 +1317,7 @@ class AgentRuntime:
         return self.skill_platform.tool_authorization(
             "RUN", run.id, call.name, connector_version_id=connector_version_id,
             global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+            phase_name="executor" if phase_name == "react" else phase_name,
             routing_policy_digest=str(run.budget.get("routing_policy_digest", "direct")),
         )
 

@@ -139,6 +139,9 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         db, runtime.behavior, evaluator=runtime.real_evaluator,
         behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,
     )
+    if runtime.research_worker is not None:
+        runtime.research_worker.evolution = runtime.evolution
+        runtime.research_worker.safety_judge = LiveSafetyJudge(gateway) if gateway else None
     prompt_policy = lambda: runtime.behavior.active("stable").manifest.get("prompts", runtime.behavior.active("stable").manifest.get("prompt"))
     if gateway:
         model.runtime_prompt_policy = prompt_policy
@@ -155,6 +158,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None,
         safety_judge=LiveSafetyJudge(gateway) if gateway else None,
     )
+    runtime.safety_judge = LiveSafetyJudge(gateway) if gateway else None
     runtime.expert_advisor = ExpertAdvisoryService(runtime.agent_tasks, runtime.behavior) if gateway else None
     if runtime.expert_advisor is not None:
         runtime.goal_programs.expert_advisor = runtime.expert_advisor

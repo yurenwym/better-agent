@@ -964,6 +964,37 @@ MIGRATIONS = (
       attempt_id,period_kind,period_key,entry_type,COALESCE(price_snapshot_id,'')
     );
     """),
+    (15, r"""
+    ALTER TABLE canary_exposures ADD COLUMN quality_outcome TEXT;
+    ALTER TABLE canary_exposures ADD COLUMN safety_outcome TEXT;
+    ALTER TABLE canary_exposures ADD COLUMN ttft_ms INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN ttft_p95_ms INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN invocation_count INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN attempt_count INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN cost_microusd INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN routing_policy_digest TEXT;
+    ALTER TABLE canary_exposures ADD COLUMN profile_digest TEXT;
+    ALTER TABLE canary_exposures ADD COLUMN skill_digest TEXT;
+    """),
+    (16, r"""
+    ALTER TABLE skill_bindings ADD COLUMN grant_snapshots_json TEXT NOT NULL DEFAULT '{}';
+    """),
+    (17, r"""
+    CREATE TABLE IF NOT EXISTS evaluation_events (
+      row_id INTEGER PRIMARY KEY AUTOINCREMENT,
+      evaluation_run_id TEXT NOT NULL REFERENCES evaluation_runs(id),
+      seq INTEGER NOT NULL,
+      type TEXT NOT NULL,
+      data_json TEXT NOT NULL DEFAULT '{}',
+      idempotency_key TEXT NOT NULL UNIQUE,
+      occurred_at TEXT NOT NULL,
+      UNIQUE(evaluation_run_id,seq)
+    );
+    CREATE TRIGGER IF NOT EXISTS evaluation_events_append_only_update BEFORE UPDATE ON evaluation_events
+    BEGIN SELECT RAISE(ABORT,'evaluation events are append-only'); END;
+    CREATE TRIGGER IF NOT EXISTS evaluation_events_append_only_delete BEFORE DELETE ON evaluation_events
+    BEGIN SELECT RAISE(ABORT,'evaluation events are append-only'); END;
+    """),
 )
 
 
@@ -1022,6 +1053,12 @@ class Database:
                         self._recover_migration_13(connection)
                     elif version == 14:
                         self._recover_migration_14(connection)
+                    elif version == 15:
+                        self._recover_migration_15(connection)
+                    elif version == 16:
+                        self._recover_migration_16(connection)
+                    elif version == 17:
+                        self._recover_migration_17(connection)
                     else:
                         connection.executescript(sql)
                     connection.execute(
@@ -1190,6 +1227,27 @@ class Database:
             "CREATE UNIQUE INDEX IF NOT EXISTS uq_cost_attempt_period_entry ON cost_ledger("
             "attempt_id,period_kind,period_key,entry_type,COALESCE(price_snapshot_id,''))"
         )
+
+    @staticmethod
+    def _recover_migration_15(connection: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(canary_exposures)")}
+        for definition in (
+            "quality_outcome TEXT", "safety_outcome TEXT", "ttft_ms INTEGER", "ttft_p95_ms INTEGER",
+            "invocation_count INTEGER", "attempt_count INTEGER", "cost_microusd INTEGER",
+            "routing_policy_digest TEXT", "profile_digest TEXT", "skill_digest TEXT",
+        ):
+            if definition.split()[0] not in columns:
+                connection.execute(f"ALTER TABLE canary_exposures ADD COLUMN {definition}")
+
+    @staticmethod
+    def _recover_migration_16(connection: sqlite3.Connection) -> None:
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(skill_bindings)")}
+        if "grant_snapshots_json" not in columns:
+            connection.execute("ALTER TABLE skill_bindings ADD COLUMN grant_snapshots_json TEXT NOT NULL DEFAULT '{}'")
+
+    @staticmethod
+    def _recover_migration_17(connection: sqlite3.Connection) -> None:
+        connection.executescript(MIGRATIONS[16][1])
 
     @staticmethod
     def _add_column(connection: sqlite3.Connection, table: str, definition: str) -> None:

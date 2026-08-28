@@ -4,6 +4,7 @@ import asyncio
 import hashlib
 import inspect
 import json
+import math
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Callable
@@ -638,9 +639,21 @@ class EvolutionService:
         ).fetchone()
         if exposure is None:
             return
+        if exposure["finished_at"] is not None:
+            return
+        metrics = self._run_exposure_metrics(connection, run_id, exposure["bundle_id"])
         connection.execute(
-            "UPDATE canary_exposures SET success=?,safety_pass=?,finished_at=? WHERE deployment_id=? AND run_id=?",
-            (int(success), None if safety_pass is None else int(safety_pass), _now(), exposure["deployment_id"], run_id),
+            "UPDATE canary_exposures SET success=?,safety_pass=?,quality_outcome=?,safety_outcome=?,ttft_ms=?,ttft_p95_ms=?,"
+            "invocation_count=?,attempt_count=?,cost_microusd=?,routing_policy_digest=?,profile_digest=?,skill_digest=?,finished_at=? "
+            "WHERE deployment_id=? AND run_id=?",
+            (
+                int(success), None if safety_pass is None else int(safety_pass),
+                "success" if success else "failure",
+                "unknown" if safety_pass is None else "passed" if safety_pass else "failed",
+                metrics["ttft_ms"], metrics["ttft_p95_ms"], metrics["invocation_count"],
+                metrics["attempt_count"], metrics["cost_microusd"], metrics["routing_policy_digest"],
+                metrics["profile_digest"], metrics["skill_digest"], _now(), exposure["deployment_id"], run_id,
+            ),
         )
         if safety_pass is not False or exposure["cohort"] != "challenger" or exposure["deployment_status"] != "ACTIVE":
             return
@@ -658,11 +671,55 @@ class EvolutionService:
             connection, "canary", exposure["champion_bundle_id"],
             f"auto-safety-rollback-channel:{exposure['deployment_id']}",
         )
+        self._switch_channel(
+            connection, "stable", exposure["champion_bundle_id"],
+            f"auto-safety-rollback-stable:{exposure['deployment_id']}",
+        )
         self._event(
             connection, exposure["candidate_id"], "evolution.canary.auto_rolled_back", "safety-gate",
             {"deployment_id": exposure["deployment_id"], "run_id": run_id},
             f"auto-safety-rollback:{exposure['deployment_id']}",
         )
+
+    @staticmethod
+    def _run_exposure_metrics(connection, run_id: str, bundle_id: str) -> dict[str, Any]:
+        rows = connection.execute(
+            "SELECT i.routing_policy_digest,a.profile_version_id,p.config_digest,a.cost_microusd,"
+            "a.started_at,a.first_token_at FROM model_invocations i "
+            "LEFT JOIN model_attempts a ON a.invocation_id=i.id "
+            "LEFT JOIN model_profile_versions p ON p.id=a.profile_version_id "
+            "WHERE i.run_id=? ORDER BY i.id,a.ordinal",
+            (run_id,),
+        ).fetchall()
+        invocation_count = connection.execute(
+            "SELECT COUNT(*) FROM model_invocations WHERE run_id=?", (run_id,)
+        ).fetchone()[0]
+        ttfts = []
+        for row in rows:
+            if row["started_at"] and row["first_token_at"]:
+                started = datetime.fromisoformat(row["started_at"].replace("Z", "+00:00"))
+                first = datetime.fromisoformat(row["first_token_at"].replace("Z", "+00:00"))
+                ttfts.append(max(0, round((first - started).total_seconds() * 1000)))
+        charges = connection.execute(
+            "SELECT MAX(amount_microusd) amount_microusd FROM cost_ledger "
+            "WHERE invocation_id IN (SELECT id FROM model_invocations WHERE run_id=?) AND entry_type='CHARGE' "
+            "GROUP BY attempt_id",
+            (run_id,),
+        ).fetchall()
+        routing = sorted({row["routing_policy_digest"] for row in rows if row["routing_policy_digest"]})
+        profiles = sorted({row["config_digest"] for row in rows if row["config_digest"]})
+        bundle = connection.execute("SELECT manifest_json FROM runtime_bundles WHERE id=?", (bundle_id,)).fetchone()
+        skills = json.loads(bundle["manifest_json"]).get("skills", {}) if bundle else {}
+        return {
+            "ttft_ms": round(sum(ttfts) / len(ttfts)) if ttfts else None,
+            "ttft_p95_ms": sorted(ttfts)[math.ceil(len(ttfts) * 0.95) - 1] if ttfts else None,
+            "invocation_count": int(invocation_count),
+            "attempt_count": sum(row["profile_version_id"] is not None for row in rows),
+            "cost_microusd": sum(row["amount_microusd"] for row in charges) if charges else None,
+            "routing_policy_digest": _digest(routing),
+            "profile_digest": _digest(profiles),
+            "skill_digest": _digest(skills),
+        }
 
     def promote(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
         request_digest = _digest({"candidate_id": candidate_id, "expected_version": expected_version})

@@ -24,6 +24,7 @@ test-results/
 playwright-report/
 
 # Local runtime data
+data/
 data/*.db
 data/*.db-*
 data/*.log

@@ -201,6 +201,7 @@ async def test_run_and_ask_continuation_keep_their_creation_bundle(tmp_path, mon
     monkeypatch.setenv("AGENT_MODEL_API_KEY", "secret")
     monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://model.test/v1")
     monkeypatch.setenv("AGENT_MODEL_ID", "demo")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
     runtime = build_runtime(tmp_path)
     original = runtime.behavior.active("stable")
 

@@ -17,13 +17,17 @@ ROLES = {
     "expert", "coordinator", "judge_quality", "judge_safety",
 }
 ROLE_CAPABILITIES = {
-    "conversation": {"text", "streaming"}, "ask": {"text", "json_object"},
+    "conversation": {"text", "streaming"}, "ask": {"text", "tool_calling"},
     "planner": {"text", "json_object"}, "executor": {"text", "tool_calling"},
     "reflector": {"text", "json_object"}, "researcher": {"text", "streaming"},
     "expert": {"text"}, "coordinator": {"text", "json_object"},
     "judge_quality": {"text", "json_object"}, "judge_safety": {"text", "json_object"},
 }
 PROTOCOLS = {"openai_compatible", "anthropic", "gemini"}
+MODEL_CAPABILITIES = {
+    "text", "streaming", "tool_calling", "json_object", "json_schema",
+    "vision", "cache_usage", "reasoning_usage",
+}
 
 
 class ModelAdminError(ValueError):
@@ -161,10 +165,13 @@ class ModelAdminService:
 
     def ensure_profile(self, profile: Any) -> Any:
         """Register a legacy environment profile once and return its immutable version binding."""
-        capabilities = {
-            "text": True, "streaming": True, "tool_calling": True, "json_object": True,
-            "json_schema": False, "vision": False, "cache_usage": False, "reasoning_usage": False,
+        configured = {
+            item.strip() for item in os.getenv("AGENT_MODEL_CAPABILITIES", "").split(",") if item.strip()
         }
+        unknown = configured - MODEL_CAPABILITIES
+        if unknown:
+            raise ModelAdminError(f"unknown AGENT_MODEL_CAPABILITIES: {', '.join(sorted(unknown))}")
+        capabilities = {name: name == "text" or name in configured for name in MODEL_CAPABILITIES}
         payload = {
             "provider_protocol": profile.provider_protocol, "provider_name": profile.provider_name,
             "base_url": profile.base_url, "model_name": profile.model,

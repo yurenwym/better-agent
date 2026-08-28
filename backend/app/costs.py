@@ -100,7 +100,10 @@ class CostService:
         with self.db.transaction() as connection:
             return self._reserve(connection, owner_id, period_kind, period_key, invocation_id, attempt_id, amount_microusd, idempotency_key)
 
-    def _reserve(self, connection: Any, owner_id: str, period_kind: str, period_key: str, invocation_id: str, attempt_id: str, amount_microusd: int, idempotency_key: str) -> dict[str, Any]:
+    def _reserve(
+        self, connection: Any, owner_id: str, period_kind: str, period_key: str, invocation_id: str,
+        attempt_id: str, amount_microusd: int, idempotency_key: str, price_snapshot_id: str | None = None,
+    ) -> dict[str, Any]:
         cached = connection.execute("SELECT * FROM cost_ledger WHERE idempotency_key=?", (idempotency_key,)).fetchone()
         if cached:
             return _ledger(cached)
@@ -118,9 +121,9 @@ class CostService:
         )
         entry_id = f"cost_{uuid.uuid4().hex}"
         connection.execute(
-            "INSERT INTO cost_ledger(id,owner_id,period_kind,period_key,invocation_id,attempt_id,entry_type,amount_microusd,cost_status,reason,idempotency_key,created_at) "
-            "VALUES (?,?,?,?,?,?,'RESERVE',?,'RESERVED','attempt budget',?,?)",
-            (entry_id, owner_id, period_kind, period_key, invocation_id, attempt_id, amount_microusd, idempotency_key, _now()),
+            "INSERT INTO cost_ledger(id,owner_id,period_kind,period_key,invocation_id,attempt_id,price_snapshot_id,entry_type,amount_microusd,cost_status,reason,idempotency_key,created_at) "
+            "VALUES (?,?,?,?,?,?,?,'RESERVE',?,'RESERVED','attempt budget',?,?)",
+            (entry_id, owner_id, period_kind, period_key, invocation_id, attempt_id, price_snapshot_id, amount_microusd, idempotency_key, _now()),
         )
         return _ledger(connection.execute("SELECT * FROM cost_ledger WHERE id=?", (entry_id,)).fetchone())
 
@@ -229,10 +232,7 @@ class CostService:
         periods = self._configured_attempt_periods(connection, handle)
         if not periods:
             return
-        price = connection.execute(
-            "SELECT * FROM model_price_snapshots WHERE profile_version_id=? AND effective_at<=? ORDER BY effective_at DESC,id DESC LIMIT 1",
-            (handle.profile_version_id, _now()),
-        ).fetchone()
+        price = self._attempt_price(connection, handle)
         if price is None:
             raise BudgetExceeded("model price is unavailable")
         profile = connection.execute("SELECT context_window,max_output_tokens FROM model_profile_versions WHERE id=?", (handle.profile_version_id,)).fetchone()
@@ -246,20 +246,23 @@ class CostService:
             self._reserve(
                 connection, handle.context.owner_id, period_kind, period_key,
                 handle.invocation_id, attempt_id, worst.microusd,
-                f"reserve:{attempt_id}:{period_kind}:{period_key}",
+                f"reserve:{attempt_id}:{period_kind}:{period_key}", price["id"],
             )
 
     def settle_attempt(self, connection: Any, handle: Any, attempt_id: str, usage: UsageBuckets | None) -> CostEstimate:
         reservations = connection.execute(
-            "SELECT period_kind,period_key,amount_microusd FROM cost_ledger "
+            "SELECT period_kind,period_key,amount_microusd,price_snapshot_id FROM cost_ledger "
             "WHERE attempt_id=? AND entry_type='RESERVE' ORDER BY period_kind,period_key",
             (attempt_id,),
         ).fetchall()
         if not reservations:
             return CostEstimate(None, "UNAVAILABLE")
+        price_snapshot_ids = {row["price_snapshot_id"] for row in reservations}
+        if len(price_snapshot_ids) != 1 or None in price_snapshot_ids:
+            raise BudgetExceeded("attempt price reservation is invalid")
         price_row = connection.execute(
-            "SELECT * FROM model_price_snapshots WHERE profile_version_id=? AND effective_at<=? ORDER BY effective_at DESC,id DESC LIMIT 1",
-            (handle.profile_version_id, _now()),
+            "SELECT * FROM model_price_snapshots WHERE id=? AND profile_version_id=?",
+            (price_snapshot_ids.pop(), handle.profile_version_id),
         ).fetchone()
         if usage is None:
             result = CostEstimate(max(int(row["amount_microusd"]) for row in reservations), "ESTIMATED_PARTIAL")
@@ -274,6 +277,18 @@ class CostService:
                 int(result.microusd), result.status,
             )
         return CostEstimateWithPrice(result.microusd, result.status, price_row["id"] if price_row else None)
+
+    def _attempt_price(self, connection: Any, handle: Any):
+        if handle.context.price_snapshot_id is not None:
+            return connection.execute(
+                "SELECT * FROM model_price_snapshots WHERE id=? AND profile_version_id=?",
+                (handle.context.price_snapshot_id, handle.profile_version_id),
+            ).fetchone()
+        return connection.execute(
+            "SELECT * FROM model_price_snapshots WHERE profile_version_id=? AND effective_at<=? "
+            "ORDER BY effective_at DESC,id DESC LIMIT 1",
+            (handle.profile_version_id, _now()),
+        ).fetchone()
 
     def _configured_attempt_periods(self, connection: Any, handle: Any) -> list[tuple[str, str]]:
         today = self.today_period()

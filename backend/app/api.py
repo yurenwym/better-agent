@@ -969,15 +969,22 @@ def register_routes(app) -> None:
         try: return service.skill_platform.preview_install(await request.body())
         except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    @app.post("/api/skills/confirm-install", dependencies=[Depends(mutate)])
-    async def confirm_skill_install(payload: dict[str, Any], request: Request, service=Depends(runtime)):
+    async def _confirm_skill_install(install_token: str, payload: dict[str, Any], request: Request, service):
         from .skill_platform import SkillValidationError
         try:
             return service.skill_platform.confirm_install(
-                _required_text(payload, "install_token"), granted_tools=payload.get("granted_tools", []),
+                install_token, granted_tools=payload.get("granted_tools", []),
                 idempotency_key=idempotency_key(request),
             )
         except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/skills/{install_token}/confirm-install", dependencies=[Depends(mutate)])
+    async def confirm_skill_install(install_token: str, payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        return await _confirm_skill_install(install_token, payload, request, service)
+
+    @app.post("/api/skills/confirm-install", dependencies=[Depends(mutate)], include_in_schema=False)
+    async def confirm_skill_install_legacy(payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        return await _confirm_skill_install(_required_text(payload, "install_token"), payload, request, service)
 
     @app.put("/api/threads/{thread_id}/skills", dependencies=[Depends(mutate)])
     async def bind_thread_skills(thread_id: str, payload: dict[str, Any], request: Request, service=Depends(runtime)):
@@ -1407,7 +1414,7 @@ def register_routes(app) -> None:
     @app.post("/api/evaluation-runs", status_code=202, dependencies=[Depends(mutate)])
     async def create_evaluation_run(payload: dict[str, Any], request: Request, service=Depends(real_evaluator)):
         from .real_evaluation import EvaluationAccessError
-        try: return service.enqueue(payload, idempotency_key=idempotency_key(request))
+        try: return service.enqueue(service.authoritative_config(payload), idempotency_key=idempotency_key(request))
         except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation suite not found") from exc
         except (EvaluationAccessError, ValueError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1429,7 +1436,8 @@ def register_routes(app) -> None:
     @app.get("/api/evaluation-runs/{evaluation_run_id}/events/stream")
     async def stream_evaluation_events(evaluation_run_id: str, request: Request, after_seq: int = 0, service=Depends(real_evaluator)):
         async def generate():
-            cursor = max(after_seq, 0)
+            header_cursor = request.headers.get("last-event-id", "")
+            cursor = max(after_seq, int(header_cursor) if header_cursor.isdigit() else 0, 0)
             while True:
                 try: batch = service.progress(evaluation_run_id, cursor)["events"]
                 except KeyError: return
@@ -1438,7 +1446,7 @@ def register_routes(app) -> None:
                     yield f"id: {cursor}\nevent: evaluation\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
                 with service.db.connection() as connection:
                     row = connection.execute("SELECT status FROM evaluation_runs WHERE id=?", (evaluation_run_id,)).fetchone()
-                if row is None or row["status"] in {"COMPLETED", "FAILED", "CANCELLED"}: return
+                if row is None or row["status"] in {"COMPLETED", "FAILED", "CANCELLED", "BUDGET_BLOCKED"}: return
                 if await request.is_disconnected(): return
                 if not batch: yield ": keep-alive\n\n"
                 await asyncio.sleep(.05)
@@ -1449,6 +1457,13 @@ def register_routes(app) -> None:
         try: return service.cancel(evaluation_run_id)
         except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
         except ValueError as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/evaluation-runs/{evaluation_run_id}/resume", dependencies=[Depends(mutate)])
+    async def resume_evaluation_run(evaluation_run_id: str, payload: dict[str, Any], request: Request, service=Depends(real_evaluator)):
+        from .real_evaluation import EvaluationAccessError
+        try: return service.resume_with_budget(evaluation_run_id, payload.get("budget_microusd"), idempotency_key=idempotency_key(request))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
+        except (ValueError, EvaluationAccessError) as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/evolution/experiences")
     async def list_evolution_experiences(service=Depends(evolution)):

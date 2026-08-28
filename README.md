@@ -25,6 +25,7 @@ python scripts/start.py
 
 ```powershell
 $env:LLM_AP_PATH = "D:\Users\王一鸣\Desktop\直到尽头\LLM_API.txt"
+$env:AGENT_MODEL_CAPABILITIES = "streaming,tool_calling,json_object"
 python scripts/start.py
 ```
 

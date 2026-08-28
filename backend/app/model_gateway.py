@@ -238,6 +238,11 @@ class ModelGateway:
                     if handle is not None:
                         self.control_store.finish_invocation(handle, "failed")
                     raise GatewayError("retry budget exhausted", error.kind, attempt_count) from error
+                if handle is not None:
+                    self.control_store.record_event(handle, "model.attempt.retry_scheduled", {
+                        "model_invocation_id": handle.invocation_id, "after_attempt": attempt_count,
+                        "next_attempt": attempt_count + 1, "error_kind": error.kind,
+                    })
                 delay = self.profile.retry_base_seconds * (2 ** max(network_retry_count - 1, 0))
                 if delay:
                     delay *= 0.8 + self.random_source() * 0.4

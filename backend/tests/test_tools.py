@@ -101,3 +101,35 @@ def test_tool_registry_returns_standard_timeout_result(tmp_path) -> None:
 
     assert result.ok is False
     assert result.error == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_denied_tool_appends_a_run_event_without_parameters(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+    from app.tools import ToolCall, ToolRejected
+    from test_runtime import make_runtime
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = await runtime.create_goal("Tool", "Tool")
+    with pytest.raises(ToolRejected):
+        runtime.tools.execute(ToolCall("denied", "shell", {"secret": "never-store"}), run_id=run.id, skill_tools=None)
+    event = next(item for item in runtime.events.list(run.id) if item.type == "tool.authorization.denied")
+    assert event.data == {"tool_call_id": "denied", "tool_name": "shell", "reason": "unknown tool"}
+
+
+@pytest.mark.asyncio
+async def test_runtime_react_rejection_emits_authorization_denied_event(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+    from app.tools import ToolCall
+    from test_runtime import make_runtime
+
+    runtime = make_runtime(tmp_path, MockModelGateway(
+        plan_steps=[{"id": "step-1", "title": "try"}],
+        decisions=[ModelDecision.tool(ToolCall("denied-react", "shell", {"command": "pwd"}))],
+    ))
+    run = await runtime.create_goal("test", "test")
+    await runtime.handle_message(run.id, "test")
+    await runtime.approve_plan(run.id, 1)
+
+    event = next(item for item in runtime.events.list(run.id) if item.type == "tool.authorization.denied")
+    assert event.data == {"tool_call_id": "denied-react", "tool_name": "shell", "reason": "unknown tool"}
