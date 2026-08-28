@@ -20,6 +20,10 @@ def _is_explicit_research_command(content: str) -> bool:
     return bool(re.search(r"(?:请|帮我|开始|进行|开展|启动|做一份?)?\s*(?:深度|深入)(?:研究|调研)|\b(?:start|do|conduct)\s+(?:a\s+)?deep\s+research\b", content, re.I))
 
 
+def _supports_intent_classification(gateway: Any) -> bool:
+    return isinstance(gateway, ModelGateway) or getattr(gateway, "supports_intent_classification", False) is True
+
+
 class LiveRuntimeModel:
     """Small structured-output adapter around the single V1 ModelGateway."""
 
@@ -333,7 +337,7 @@ class LiveConversationModel:
         except (TypeError,ValueError,json.JSONDecodeError):return False,content
 
     async def _classify_explicit_remember(self,content:str,cancel_event):
-        if not isinstance(self.gateway,ModelGateway):return None
+        if not _supports_intent_classification(self.gateway):return None
         explicit_marker=bool(re.search(r"(?:请|帮我|以后)?\s*(?:记住|记得)|\bremember\b",content,re.I))
         if not explicit_marker:return None
         request=ModelRequest(messages=[{"role":"system","content":"只返回 JSON：{\"remember\":true|false,\"kind\":\"preference|constraint|fact|decision|lesson\",\"scope_type\":\"user|project\",\"scope_id\":\"\",\"content\":\"...\"}。仅当用户明确要求为未来对话记住稳定信息时为 true，例如‘记住我不吃辣’、‘请记住我喜欢简洁明确的回答’、‘以后记得我九点后出发’。没有明确长期记忆指令的普通陈述为 false。content 只保留稳定事实，绝不包含凭据或密钥。"},{"role":"user","content":content}],tools=[],temperature=0,max_tokens=220,role="conversation",purpose="classify_memory_request")
@@ -370,7 +374,7 @@ class LiveConversationModel:
                 if on_text_delta is not None:on_text_delta(header+body)
                 return type("RememberResponse",(),{"message":header+body,"tool_calls":[],"finish_reason":"stop"})()
         explicit_research=_is_explicit_research_command(content)
-        start_research,research_topic=(True,content.strip()[:2000]) if explicit_research else ((await self._classify_explicit_research_request(content,cancel_event)) if isinstance(self.gateway, ModelGateway) else (False,content))
+        start_research,research_topic=(True,content.strip()[:2000]) if explicit_research else ((await self._classify_explicit_research_request(content,cancel_event)) if _supports_intent_classification(self.gateway) else (False,content))
         if start_research:
             header=json.dumps({"v":3,"policy":"start_research","content_shape":"research","reason_code":"explicit_deep_research","research":{"topic":research_topic,"scope":"web"}},ensure_ascii=False)+"\n"
             if on_text_delta is not None:on_text_delta(header)

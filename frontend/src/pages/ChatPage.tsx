@@ -114,7 +114,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [researchJobs, setResearchJobs] = useState<ResearchJob[]>([]);
-  const [goalContextVisible,setGoalContextVisible]=useState(true);
+  const [dismissedGoalActionId,setDismissedGoalActionId]=useState<string|null>(null);
   const [goalContext,setGoalContext]=useState<{action:GoalAction;program:TodayProgramGroup["program"]}|null>(null);
   const [deepProcessing, setDeepProcessing] = useState(false);
   const [expertRun, setExpertRun] = useState<AgentRun | null>(null);
@@ -379,12 +379,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     : telemetry.messages;
   const planReference = latestPlanReference(threadTelemetry.events);
   const goalActionId=activeTurn?.goal_action_id;
-  useEffect(()=>{setGoalContextVisible(true);if(!goalActionId){setGoalContext(null);return;}void getGoalAction(goalActionId).then(setGoalContext).catch(()=>setGoalContext(null));},[goalActionId]);
+  useEffect(()=>{if(!goalActionId){setGoalContext(null);return;}void getGoalAction(goalActionId).then(setGoalContext).catch(()=>setGoalContext(null));},[goalActionId]);
 
   return (
     <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
       <div className="chat-main-column">
-        {goalActionId&&goalContextVisible&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setGoalContextVisible(false)}>关闭</button></aside>}
+        {goalActionId&&dismissedGoalActionId!==goalActionId&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setDismissedGoalActionId(goalActionId)}>关闭</button></aside>}
         <div className={deepProcessing ? "conversation-with-expert-mode expert-mode-active" : "conversation-with-expert-mode"}>
         <ConversationThread
           messages={messages}

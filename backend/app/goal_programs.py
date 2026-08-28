@@ -117,7 +117,7 @@ class GoalProgramService:
                            "source_plan_document_version_id": source["version_id"], "source_plan_content_hash": source["content_hash"],
                            "defaulted_end_date": defaulted}
         try:
-            structure = await self._compile(source["markdown_content"], compile_request)
+            structure = await self._compile(program_id, source["markdown_content"], compile_request)
             structure = validate_program_structure(structure, start.isoformat(), end.isoformat(), daily_minutes)
         except asyncio.CancelledError:
             with self.db.transaction() as connection:
@@ -192,7 +192,7 @@ class GoalProgramService:
                    "start_date": row["start_date"], "end_date": row["end_date"], "timezone": row["timezone"],
                    "daily_minutes": row["daily_minutes"], "requested_end_date": row["end_date"], "defaulted_end_date": False}
         try:
-            structure = validate_program_structure(await self._compile(source["markdown_content"], request), row["start_date"], row["end_date"], row["daily_minutes"])
+            structure = validate_program_structure(await self._compile(program_id, source["markdown_content"], request), row["start_date"], row["end_date"], row["daily_minutes"])
         except asyncio.CancelledError:
             with self.db.transaction() as connection:
                 connection.execute("UPDATE goal_programs SET compile_status='FAILED',compile_error_code='COMPILE_CANCELLED',version=version+1,updated_at=? WHERE id=? AND version=?",
@@ -225,18 +225,20 @@ class GoalProgramService:
             self._save_receipt(connection, owner_id, "program", program_id, "compile-retry", idempotency_key, request_hash, response)
         return response
 
-    async def _compile(self, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def _compile(self, program_id: str, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
         try:
+            context = self._model_context(program_id, "planner", "compile_goal_program")
             if self.expert_advisor is not None:
                 advice = await self.expert_advisor.advise(
                     purpose="plan", source_id=str(request["source_plan_document_version_id"]),
                     objective="审阅计划并提出可执行性、风险和遗漏建议",
                     context={"request": request, "plan_markdown": source_markdown}, roles=("planner", "critic"),
+                    thread_id=context.thread_id, runtime_bundle_id=context.runtime_bundle_id,
                 )
                 if advice is not None:
                     request = {**request, "expert_advice": advice}
             return await asyncio.wait_for(
-                self.compiler.compile(source_markdown, request),
+                self._call_model(context, self.compiler.compile(source_markdown, request)),
                 timeout=self.compile_timeout_seconds,
             )
         except asyncio.TimeoutError as exc:
@@ -486,6 +488,33 @@ class GoalProgramService:
         row=connection.execute("SELECT * FROM goal_programs WHERE id=? AND owner_id=?",(program_id,owner_id)).fetchone()
         if row is None:raise GoalProgramNotFound(program_id)
         return row
+
+    def _model_context(self, program_id: str, role: str, purpose: str):
+        from .model_control import ModelCallContext
+
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT p.source_thread_id,v.source_turn_id,t.runtime_bundle_id FROM goal_programs p "
+                "JOIN plan_document_versions v ON v.id=p.source_plan_document_version_id "
+                "LEFT JOIN turns t ON t.id=v.source_turn_id WHERE p.id=? AND p.owner_id=?",
+                (program_id, OWNER_ID),
+            ).fetchone()
+        if row is None:
+            raise GoalProgramNotFound(program_id)
+        return ModelCallContext(
+            role=role, purpose=purpose, thread_id=row["source_thread_id"], turn_id=row["source_turn_id"],
+            runtime_bundle_id=row["runtime_bundle_id"],
+        )
+
+    async def _call_model(self, context, invocation):
+        gateway = getattr(self.compiler, "gateway", None)
+        if getattr(gateway, "control_store", None) is None:
+            return await invocation
+        token = gateway.set_call_context(context)
+        try:
+            return await invocation
+        finally:
+            gateway.reset_call_context(token)
 
     def _owned_action(self, connection, action_id, owner_id):
         action=connection.execute("SELECT a.* FROM goal_actions a JOIN goal_programs p ON p.id=a.program_id WHERE a.id=? AND p.owner_id=?",(action_id,owner_id)).fetchone()

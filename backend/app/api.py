@@ -1231,6 +1231,10 @@ def register_routes(app) -> None:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="cost budget not found") from exc
 
+    @app.get("/api/usage/summary")
+    async def get_usage_summary(service=Depends(runtime)) -> dict[str, Any]:
+        return service.costs.usage_summary("local-user")
+
     @app.get("/api/cost/export")
     async def export_cost_ledger(service=Depends(runtime)):
         from .control_exports import cost_export

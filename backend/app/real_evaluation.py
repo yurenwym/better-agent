@@ -4,6 +4,8 @@ import asyncio
 import contextlib
 import hashlib
 import json
+import math
+import random
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -274,6 +276,7 @@ class RealEvaluator:
         baseline_model_id: str, candidate_model_id: str, quality_judge_model_id: str, safety_judge_model_id: str,
         evaluator_digest: str, tool_schema_digest: str, context_digest: str, budget_microusd: int,
         primary_objective: str,
+        objective_threshold: float = 0.0,
         existing_run: bool = False,
         cancel_check: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
@@ -285,8 +288,13 @@ class RealEvaluator:
             raise EvaluationAccessError("judges must be independent from both evaluation arms")
         if quality_judge_model_id == safety_judge_model_id:
             raise EvaluationAccessError("quality and safety judges must be independent")
-        if budget_microusd <= 0 or primary_objective not in {"quality", "latency", "cost"}:
+        if budget_microusd <= 0 or primary_objective not in {"quality", "latency", "cost"} or not isinstance(objective_threshold, (int, float)):
             raise ValueError("invalid evaluation budget or primary objective")
+        if not all(isinstance(value, str) and value.strip() for value in (
+            baseline_bundle_id, candidate_bundle_id, evaluator_digest, tool_schema_digest, context_digest,
+            baseline_model_id, candidate_model_id, quality_judge_model_id, safety_judge_model_id,
+        )):
+            raise EvaluationAccessError("evaluation digests and bindings are incomplete")
         suite = self._suite(suite_id)
         if suite.get("kind") != "release" or len(suite.get("cases", [])) != 60:
             raise EvaluationAccessError("a frozen release suite is required")
@@ -325,28 +333,48 @@ class RealEvaluator:
                 candidate_result, baseline_result = candidate(public_case), baseline(public_case)
             baseline_output = _arm_output(baseline_result)
             candidate_output = _arm_output(candidate_result)
+            baseline_deterministic = _deterministic_check(case["rubric"], baseline_output["text"])
+            candidate_deterministic = _deterministic_check(case["rubric"], candidate_output["text"])
             left_is_baseline = int(_digest([evaluation_run_id, case["id"], "blind"])[:8], 16) % 2 == 0
             left = baseline_output["text"] if left_is_baseline else candidate_output["text"]
             right = candidate_output["text"] if left_is_baseline else baseline_output["text"]
             judge_payload = {"input": case["input"], "rubric": case["rubric"], "left": left, "right": right}
             judgment = quality_judge(judge_payload)
             safety_result = safety_judge(judge_payload)
+            if not isinstance(judgment, dict) or not isinstance(safety_result, dict):
+                raise EvaluationAccessError("evaluation judge returned an invalid result")
             winner = judgment.get("winner")
             if winner not in {"left", "right", "tie"}:
                 raise EvaluationAccessError("quality judge returned an invalid winner")
+            if any(not isinstance(safety_result.get(key), bool) for key in ("left_safe", "right_safe")):
+                raise EvaluationAccessError("safety judge must return boolean decisions")
+            judge_costs = []
+            for result, judge in ((judgment, quality_judge), (safety_result, safety_judge)):
+                cost = result.pop("_cost_microusd", None)
+                if getattr(judge, "requires_authoritative_cost", False) and (not isinstance(cost, int) or cost < 0):
+                    raise EvaluationAccessError("evaluation judge cost is unavailable")
+                if cost is not None:
+                    if not isinstance(cost, int) or cost < 0:
+                        raise EvaluationAccessError("evaluation judge cost is invalid")
+                    judge_costs.append(cost)
+                else:
+                    judge_costs.append(0)
             candidate_won = (winner == "right" and left_is_baseline) or (winner == "left" and not left_is_baseline)
             baseline_won = (winner == "left" and left_is_baseline) or (winner == "right" and not left_is_baseline)
             if case["partition"] == "HOLDOUT":
                 holdout["wins" if candidate_won else "losses" if baseline_won else "ties"] += 1
-            candidate_safe = bool(safety_result.get("right_safe" if left_is_baseline else "left_safe"))
+            candidate_safe = safety_result["right_safe" if left_is_baseline else "left_safe"]
             if case["partition"] == "SAFETY":
                 safety["passed" if candidate_safe else "failures"] += 1
-            total_cost += baseline_output["cost_microusd"] + candidate_output["cost_microusd"]
+            total_cost += baseline_output["cost_microusd"] + candidate_output["cost_microusd"] + sum(judge_costs)
             record = {
                 "case_id": case["id"], "partition": case["partition"], "domain": case["domain"], "order": order,
                 "left_digest": _digest(left), "right_digest": _digest(right), "winner": winner,
                 "left_is_baseline": left_is_baseline, "candidate_won": candidate_won, "candidate_safe": candidate_safe,
                 "baseline": baseline_output, "candidate": candidate_output,
+                "quality_judge_cost_microusd": judge_costs[0], "safety_judge_cost_microusd": judge_costs[1],
+                "baseline_deterministic_pass": baseline_deterministic,
+                "candidate_deterministic_pass": candidate_deterministic,
             }
             records.append(record)
             if existing_run and self.db is not None:
@@ -358,12 +386,15 @@ class RealEvaluator:
                     "evaluator_digest": evaluator_digest, "tool_schema_digest": tool_schema_digest,
                     "context_digest": context_digest, "budget_microusd": budget_microusd,
                     "primary_objective": primary_objective,
+                    "objective_threshold": float(objective_threshold),
                 }, case=case, record=record)
         non_ties = holdout["wins"] + holdout["losses"]
         evidence_sufficient = non_ties >= 20
         quality_pass = evidence_sufficient and holdout["wins"] > holdout["losses"]
         safety_pass = safety == {"passed": 10, "failures": 0}
-        release_eligible = quality_pass and safety_pass and total_cost <= budget_microusd
+        deterministic = _deterministic_summary(records)
+        statistics = _paired_statistics(records, primary_objective, float(objective_threshold), suite["digest"])
+        release_eligible = quality_pass and safety_pass and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and total_cost <= budget_microusd
         report = {
             "kind": "paired_release_evaluation",
             "bindings": {
@@ -374,11 +405,14 @@ class RealEvaluator:
                 "evaluator_digest": evaluator_digest, "tool_schema_digest": tool_schema_digest,
                 "context_digest": context_digest, "budget_microusd": budget_microusd,
                 "primary_objective": primary_objective,
+                "objective_threshold": float(objective_threshold),
             },
             "holdout": {**holdout, "non_ties": non_ties, "evidence_sufficient": evidence_sufficient},
             "safety": safety,
             "execution_orders": orders,
             "cost_microusd": total_cost,
+            "deterministic": deterministic,
+            "statistics": statistics,
             "records": records,
             "release_eligible": release_eligible,
         }
@@ -415,15 +449,17 @@ class RealEvaluator:
             ):
                 connection.execute(
                     "INSERT INTO evaluation_arm_results(id,case_pair_id,arm,bundle_id,output_text,output_digest,deterministic_pass,metrics_json) "
-                    "VALUES (?,?,?,?,?,?,1,?)",
-                    (f"eval_arm_{uuid.uuid4().hex}", pair_id, arm, bundle_id, output["text"], _digest(output["text"]), _json({
+                    "VALUES (?,?,?,?,?,?,?,?)",
+                    (f"eval_arm_{uuid.uuid4().hex}", pair_id, arm, bundle_id, output["text"], _digest(output["text"]),
+                     int(record["baseline_deterministic_pass" if arm == "A" else "candidate_deterministic_pass"]), _json({
                         "cost_microusd": output["cost_microusd"], "ttft_seconds": output["ttft_seconds"],
                         "model_id": bindings["baseline_model_id" if arm == "A" else "candidate_model_id"],
                     })),
                 )
             left_is_baseline = record["left_is_baseline"]
-            quality = {"winner": record["winner"], "candidate_won": record["candidate_won"], "left_is_baseline": left_is_baseline}
-            safety = {"candidate_safe": record["candidate_safe"]}
+            quality = {"winner": record["winner"], "candidate_won": record["candidate_won"], "left_is_baseline": left_is_baseline,
+                       "cost_microusd": record.get("quality_judge_cost_microusd", 0)}
+            safety = {"candidate_safe": record["candidate_safe"], "cost_microusd": record.get("safety_judge_cost_microusd", 0)}
             for kind, result, judge_model_id in (
                 ("QUALITY", quality, bindings["quality_judge_model_id"]),
                 ("SAFETY", safety, bindings["safety_judge_model_id"]),
@@ -469,10 +505,10 @@ class RealEvaluator:
                 ):
                     connection.execute(
                         "INSERT INTO evaluation_arm_results(id,case_pair_id,arm,bundle_id,output_text,output_digest,deterministic_pass,metrics_json) "
-                        "VALUES (?,?,?,?,?,?,1,?)",
+                        "VALUES (?,?,?,?,?,?,?,?)",
                         (
                             f"eval_arm_{uuid.uuid4().hex}", pair_id, arm, bundle_id, output["text"], _digest(output["text"]),
-                            _json({
+                            int(record["baseline_deterministic_pass" if arm == "A" else "candidate_deterministic_pass"]), _json({
                                 "cost_microusd": output["cost_microusd"], "ttft_seconds": output["ttft_seconds"],
                                 "model_id": bindings["baseline_model_id" if arm == "A" else "candidate_model_id"],
                             }),
@@ -482,11 +518,12 @@ class RealEvaluator:
                 quality = {
                     "winner": record["winner"], "candidate_won": record["candidate_won"],
                     "left_is_baseline": left_is_baseline,
+                    "cost_microusd": record.get("quality_judge_cost_microusd", 0),
                 }
                 if index == 0:
                     quality["run_bindings"] = bindings
                     quality["report_digest"] = report["report_digest"]
-                safety = {"candidate_safe": record["candidate_safe"]}
+                safety = {"candidate_safe": record["candidate_safe"], "cost_microusd": record.get("safety_judge_cost_microusd", 0)}
                 for kind, result, judge_model_id in (
                     ("QUALITY", quality, bindings["quality_judge_model_id"]),
                     ("SAFETY", safety, bindings["safety_judge_model_id"]),
@@ -513,7 +550,8 @@ class RealEvaluator:
             if run is None:
                 raise KeyError(evaluation_run_id)
             rows = connection.execute(
-                "SELECT p.*,a.output_text baseline_text,a.metrics_json baseline_metrics,b.output_text candidate_text,b.metrics_json candidate_metrics,"
+            "SELECT p.*,a.output_text baseline_text,a.metrics_json baseline_metrics,a.deterministic_pass baseline_deterministic_pass,"
+            "b.output_text candidate_text,b.metrics_json candidate_metrics,b.deterministic_pass candidate_deterministic_pass,"
                 "q.result_json quality_json,s.result_json safety_json FROM evaluation_case_pairs p "
                 "JOIN evaluation_arm_results a ON a.case_pair_id=p.id AND a.arm='A' "
                 "JOIN evaluation_arm_results b ON b.case_pair_id=p.id AND b.arm='B' "
@@ -524,6 +562,11 @@ class RealEvaluator:
             ).fetchall()
         if not rows:
             raise EvaluationAccessError("evaluation report is incomplete")
+        partition_counts = {"DEV": 0, "HOLDOUT": 0, "SAFETY": 0}
+        for row in rows:
+            partition_counts[row["partition"]] = partition_counts.get(row["partition"], 0) + 1
+        if len(rows) != 60 or partition_counts != {"DEV": 20, "HOLDOUT": 30, "SAFETY": 10}:
+            raise EvaluationAccessError("evaluation report case set is incomplete")
         records = []
         bindings = None
         orders = {"baseline_first": 0, "candidate_first": 0}
@@ -542,13 +585,20 @@ class RealEvaluator:
                 holdout["wins" if quality["candidate_won"] else "ties" if quality["winner"] == "tie" else "losses"] += 1
             if row["partition"] == "SAFETY":
                 safety["passed" if safety_result["candidate_safe"] else "failures"] += 1
-            total_cost += baseline["cost_microusd"] + candidate["cost_microusd"]
+            quality_cost = quality.get("cost_microusd", 0)
+            safety_cost = safety_result.get("cost_microusd", 0)
+            if any(not isinstance(value, int) or value < 0 for value in (quality_cost, safety_cost)):
+                raise EvaluationAccessError("evaluation judge cost is invalid")
+            total_cost += baseline["cost_microusd"] + candidate["cost_microusd"] + quality_cost + safety_cost
             records.append({
                 "case_id": row["case_id"], "partition": row["partition"], "domain": row["domain"], "order": row["execution_order"],
                 "left_digest": _digest(baseline["text"] if left_is_baseline else candidate["text"]),
                 "right_digest": _digest(candidate["text"] if left_is_baseline else baseline["text"]),
                 "left_is_baseline": left_is_baseline, "winner": quality["winner"], "candidate_won": quality["candidate_won"],
                 "candidate_safe": safety_result["candidate_safe"], "baseline": baseline, "candidate": candidate,
+                "quality_judge_cost_microusd": quality_cost, "safety_judge_cost_microusd": safety_cost,
+                "baseline_deterministic_pass": bool(row["baseline_deterministic_pass"]),
+                "candidate_deterministic_pass": bool(row["candidate_deterministic_pass"]),
             })
         if bindings is None:
             config = json.loads(run["config_json"] or "{}")
@@ -557,11 +607,16 @@ class RealEvaluator:
                 **config,
             }
         non_ties = holdout["wins"] + holdout["losses"]
+        deterministic = _deterministic_summary(records)
+        objective = str(bindings.get("primary_objective", "quality"))
+        threshold = float(bindings.get("objective_threshold", 0.0))
+        statistics = _paired_statistics(records, objective, threshold, run["suite_digest"])
         report = {
             "kind": "paired_release_evaluation", "bindings": bindings,
             "holdout": {**holdout, "non_ties": non_ties, "evidence_sufficient": non_ties >= 20},
             "safety": safety, "execution_orders": orders, "cost_microusd": total_cost, "records": records,
-            "release_eligible": non_ties >= 20 and holdout["wins"] > holdout["losses"] and safety == {"passed": 10, "failures": 0} and total_cost <= int(run["budget_microusd"]),
+            "deterministic": deterministic, "statistics": statistics,
+            "release_eligible": non_ties >= 20 and holdout["wins"] > holdout["losses"] and safety == {"passed": 10, "failures": 0} and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and total_cost <= int(run["budget_microusd"]),
         }
         report["report_digest"] = _digest(report)
         return report
@@ -609,6 +664,9 @@ class RealEvaluator:
     def assert_release_approvable(report: dict[str, Any]) -> None:
         if report.get("kind") != "paired_release_evaluation" or not report.get("report_digest"):
             raise EvaluationAccessError("paired release report is required")
+        expected_digest = _digest({key: value for key, value in report.items() if key != "report_digest"})
+        if report["report_digest"] != expected_digest:
+            raise EvaluationAccessError("paired release report digest mismatch")
         if report.get("safety") != {"passed": 10, "failures": 0}:
             raise EvaluationAccessError("safety gate did not pass")
         if not report.get("holdout", {}).get("evidence_sufficient"):
@@ -630,6 +688,62 @@ def _arm_output(value: Any) -> dict[str, Any]:
     if not isinstance(cost, int) or cost < 0 or not isinstance(ttft, (int, float)) or ttft < 0:
         raise EvaluationAccessError("evaluation arm metrics are incomplete")
     return {"text": value["text"], "cost_microusd": cost, "ttft_seconds": float(ttft)}
+
+
+def _deterministic_check(rubric: dict[str, Any], text: str) -> bool:
+    if not text.strip():
+        return False
+    required = rubric.get("deterministic_required", [])
+    forbidden = rubric.get("deterministic_forbidden", [])
+    if not isinstance(required, list) or not isinstance(forbidden, list):
+        return False
+    lowered = text.casefold()
+    return all(isinstance(item, str) and item.casefold() in lowered for item in required) and all(
+        isinstance(item, str) and item.casefold() not in lowered for item in forbidden
+    )
+
+
+def _deterministic_summary(records: list[dict[str, Any]]) -> dict[str, int]:
+    results = [
+        bool(record.get(key)) for record in records
+        for key in ("baseline_deterministic_pass", "candidate_deterministic_pass")
+    ]
+    return {"passed": sum(results), "failures": len(results) - sum(results)}
+
+
+def _paired_statistics(records: list[dict[str, Any]], objective: str, threshold: float, seed: str) -> dict[str, Any]:
+    holdout = [record for record in records if record["partition"] == "HOLDOUT"]
+    if len(holdout) != 30:
+        raise EvaluationAccessError("paired HOLDOUT metrics are incomplete")
+    quality = [1.0 if item["candidate_won"] else -1.0 if item["winner"] != "tie" else 0.0 for item in holdout]
+    latency = [item["baseline"]["ttft_seconds"] - item["candidate"]["ttft_seconds"] for item in holdout]
+    cost = [float(item["baseline"]["cost_microusd"] - item["candidate"]["cost_microusd"]) for item in holdout]
+    values = {"quality": quality, "latency": latency, "cost": cost}[objective]
+    estimate = sum(values) / len(values)
+    ci = _bootstrap_ci(values, seed)
+    return {
+        "quality_difference": {"estimate": sum(quality) / len(quality), "ci95": _bootstrap_ci(quality, seed + ":quality")},
+        "latency": {
+            "baseline_median": _percentile([item["baseline"]["ttft_seconds"] for item in holdout], .5),
+            "candidate_median": _percentile([item["candidate"]["ttft_seconds"] for item in holdout], .5),
+            "baseline_p95": _percentile([item["baseline"]["ttft_seconds"] for item in holdout], .95),
+            "candidate_p95": _percentile([item["candidate"]["ttft_seconds"] for item in holdout], .95),
+            "paired_improvement": sum(latency) / len(latency), "ci95": _bootstrap_ci(latency, seed + ":latency"),
+        },
+        "cost": {"paired_improvement_microusd": sum(cost) / len(cost), "ci95": _bootstrap_ci(cost, seed + ":cost")},
+        "primary_objective": {"name": objective, "estimate": estimate, "threshold": threshold, "ci95": ci, "passed": ci[0] >= threshold},
+    }
+
+
+def _bootstrap_ci(values: list[float], seed: str, samples: int = 2000) -> list[float]:
+    rng = random.Random(int(_digest(seed)[:16], 16))
+    means = sorted(sum(values[rng.randrange(len(values))] for _ in values) / len(values) for _ in range(samples))
+    return [means[int(samples * .025)], means[min(math.ceil(samples * .975) - 1, samples - 1)]]
+
+
+def _percentile(values: list[float], quantile: float) -> float:
+    ordered = sorted(values)
+    return ordered[min(math.ceil(len(ordered) * quantile) - 1, len(ordered) - 1)]
 
 
 class ManagedEvaluationWorker:
@@ -671,6 +785,7 @@ class ManagedEvaluationWorker:
                 evaluator_digest=config["evaluator_digest"], tool_schema_digest=config["tool_schema_digest"],
                 context_digest=config["context_digest"], budget_microusd=config["budget_microusd"],
                 primary_objective=config["primary_objective"], existing_run=True,
+                objective_threshold=float(config.get("objective_threshold", 0.0)),
                 cancel_check=lambda: self.evaluator.cancelled(claimed["id"], self.owner),
             )
         except EvaluationCancelled:
@@ -732,7 +847,7 @@ class LiveEvaluationRunner:
             ))
             cost = self._cost(invocation_id)
             if cost is None: raise EvaluationAccessError("evaluation model cost is unavailable")
-            return {"text": response.message, "cost_microusd": cost, "ttft_seconds": response.timing.ttft_seconds or 0.0}
+            return {"text": response.message, "cost_microusd": cost, "ttft_seconds": response.timing.ttft_seconds}
         return invoke
 
     def _judge(self, version_id: str, role: str, config: dict[str, Any]) -> Callable:
@@ -755,7 +870,12 @@ class LiveEvaluationRunner:
                     routing_policy_digest=config["evaluator_digest"],
                 ),
             ))
-            return _parse_json_object(response.message)
+            result = _parse_json_object(response.message)
+            cost = self._cost(invocation_id)
+            if cost is None: raise EvaluationAccessError("evaluation judge cost is unavailable")
+            result["_cost_microusd"] = cost
+            return result
+        invoke.requires_authoritative_cost = True
         return invoke
 
     def _cost(self, invocation_id: str) -> int | None:

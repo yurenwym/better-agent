@@ -6,8 +6,8 @@ import EvaluationPage from "../pages/EvaluationPage";
 import SkillsPage from "../pages/SkillsPage";
 
 const api = vi.hoisted(() => ({
-  listModelProfiles: vi.fn(), listRoutingPolicies: vi.fn(), createModelProfile: vi.fn(), verifyModelVersion: vi.fn(),
-  getCostSummary: vi.fn(), setCostBudget: vi.fn(), listEvaluationSuites: vi.fn(), createEvaluationRun: vi.fn(), getEvaluationRun: vi.fn(), getEvaluationReport: vi.fn(), getEvaluationEvents: vi.fn(), subscribeToEvaluationEvents: vi.fn(), cancelEvaluationRun: vi.fn(),
+  listModelProfiles: vi.fn(), listRoutingPolicies: vi.fn(), createModelProfile: vi.fn(), createRoutingPolicy: vi.fn(), verifyModelVersion: vi.fn(),
+  getCostSummary: vi.fn(), getUsageSummary: vi.fn(), setCostBudget: vi.fn(), listEvaluationSuites: vi.fn(), createEvaluationRun: vi.fn(), getEvaluationRun: vi.fn(), getEvaluationReport: vi.fn(), getEvaluationEvents: vi.fn(), subscribeToEvaluationEvents: vi.fn(), cancelEvaluationRun: vi.fn(),
   listSkillVersions: vi.fn(), getSkills: vi.fn(), listInstalledSkills: vi.fn(), listTrustedConnectors: vi.fn(), setSkillVersionEnabled: vi.fn(), uninstallSkill: vi.fn(), previewSkillInstall: vi.fn(), confirmSkillInstall: vi.fn(),
 }));
 vi.mock("../api", () => api);
@@ -18,7 +18,9 @@ beforeEach(() => {
   api.listModelProfiles.mockResolvedValue({profiles:[{id:"p1",name:"主模型",status:"ACTIVE",created_at:"",updated_at:"",versions:[{id:"pv1",profile_id:"p1",profile_name:"主模型",version:1,provider_protocol:"anthropic",provider_name:"Anthropic",base_url:"https://api.anthropic.com",model_name:"claude",credential_env_ref:"ANTHROPIC_API_KEY",credential_configured:true,capabilities:{text:true,streaming:true,tool_calling:true,json_object:true},context_window:100000,max_output_tokens:4096,timeout_seconds:30,max_attempts:2,config_digest:"digest",status:"ACTIVE",verified_at:null,verification_status:"UNVERIFIED",verification_error_kind:null,created_at:""}]}]});
   api.listRoutingPolicies.mockResolvedValue({policies:[]});
   api.createModelProfile.mockResolvedValue({id:"p2",name:"规划模型",status:"ACTIVE",created_at:"",updated_at:"",versions:[]});
+  api.createRoutingPolicy.mockResolvedValue({id:"route",name:"默认策略",version:1,roles:{},policy_digest:"digest",created_at:""});
   api.getCostSummary.mockResolvedValue({limit_microusd:100000,reserved_microusd:1000,charged_microusd:2500});
+  api.getUsageSummary.mockResolvedValue({groups:[{role:"planner",provider:"供应商",profile_version_id:"pv1",attempts:2,succeeded:2,fallbacks:1,cost_microusd:2500,unknown_cost_attempts:1,success_rate:1,fallback_rate:.5,ttft_seconds:.2,tps:30,p95_latency_seconds:1.2}]});
   api.setCostBudget.mockResolvedValue({limit_microusd:200000,reserved_microusd:1000,charged_microusd:2500});
   api.listEvaluationSuites.mockResolvedValue({suites:[{id:"release-v1",digest:"suite-digest",kind:"release",case_count:60}]});
   api.createEvaluationRun.mockResolvedValue({id:"e2",suite_id:"release-v1",baseline_bundle_id:"stable",candidate_bundle_id:"candidate",status:"QUEUED",budget_microusd:10000,attempts:0,created_at:"",updated_at:"",finished_at:null,cancel_requested_at:null});
@@ -58,14 +60,32 @@ describe("control plane pages", () => {
     expect(screen.queryByLabelText(/API Key/)).toBeNull();
   });
 
+  it("creates a complete immutable role routing policy", async () => {
+    render(<ModelsPage csrfToken="csrf"/>);
+    await screen.findByRole("heading", {name:"模型控制台"});
+    expect(document.querySelector(".route-policy-form")).toBeTruthy();
+    expect(document.querySelectorAll(".route-field")).toHaveLength(10);
+    fireEvent.change(screen.getByLabelText("策略名称"), {target:{value:"默认策略"}});
+    for(const role of ["conversation","ask","planner","executor","reflector","researcher","expert","coordinator","judge_quality","judge_safety"]){
+      fireEvent.change(screen.getByLabelText(`${role} 主模型`), {target:{value:"pv1"}});
+    }
+    fireEvent.click(screen.getByRole("button", {name:"保存路由策略"}));
+    await waitFor(()=>expect(api.createRoutingPolicy).toHaveBeenCalledWith(expect.objectContaining({name:"默认策略",roles:expect.objectContaining({conversation:{primary:"pv1",fallback:[]},judge_safety:{primary:"pv1",fallback:[]}})}),"csrf"));
+  });
+
   it("renders authoritative cost without recomputing unknown values", async () => {
     render(<UsagePage csrfToken="csrf"/>);
     expect(await screen.findByRole("heading", {name:"用量与预算"})).toBeTruthy();
-    expect(screen.getByText("$0.002500")).toBeTruthy();
+    expect(document.querySelectorAll(".budget-layer-grid .inline-control-form")).toHaveLength(3);
+    expect(screen.getByRole("table").classList.contains("usage-table")).toBe(true);
+    expect(screen.getAllByRole("row")).toHaveLength(2);
+    expect(screen.getAllByText("$0.002500").length).toBeGreaterThan(0);
     expect(screen.getByText("$0.001000")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("每日上限（microusd）"), {target:{value:"200000"}});
-    fireEvent.click(screen.getByRole("button", {name:"保存预算"}));
-    await waitFor(()=>expect(api.setCostBudget).toHaveBeenCalledWith(200000,"csrf"));
+    expect(screen.getByText("planner")).toBeTruthy();
+    expect(screen.getByText("1 次不可用")).toBeTruthy();
+    fireEvent.change(screen.getByLabelText("DAILY 上限（microusd）"), {target:{value:"200000"}});
+    fireEvent.click(screen.getAllByRole("button", {name:"保存预算"})[1]);
+    await waitFor(()=>expect(api.setCostBudget).toHaveBeenCalledWith(200000,"csrf","DAILY",expect.any(String)));
   });
 
   it("starts a frozen release evaluation from the console", async () => {

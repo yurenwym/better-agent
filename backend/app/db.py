@@ -952,6 +952,18 @@ MIGRATIONS = (
          OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at
     BEGIN SELECT RAISE(ABORT,'trusted connector version is frozen'); END;
     """),
+    (13, r"""
+    ALTER TABLE runs ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id);
+    ALTER TABLE turns ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id);
+    CREATE INDEX idx_runs_runtime_bundle ON runs(runtime_bundle_id);
+    CREATE INDEX idx_turns_runtime_bundle ON turns(runtime_bundle_id);
+    """),
+    (14, r"""
+    DROP INDEX uq_cost_attempt_entry;
+    CREATE UNIQUE INDEX uq_cost_attempt_period_entry ON cost_ledger(
+      attempt_id,period_kind,period_key,entry_type,COALESCE(price_snapshot_id,'')
+    );
+    """),
 )
 
 
@@ -1006,7 +1018,12 @@ class Database:
                 if row and row["checksum"] != checksum:
                     raise RuntimeError(f"schema migration {version} checksum mismatch")
                 if not row:
-                    connection.executescript(sql)
+                    if version == 13:
+                        self._recover_migration_13(connection)
+                    elif version == 14:
+                        self._recover_migration_14(connection)
+                    else:
+                        connection.executescript(sql)
                     connection.execute(
                         "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES (?,?,datetime('now'))",
                         (version, checksum),
@@ -1154,6 +1171,25 @@ class Database:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _recover_migration_13(connection: sqlite3.Connection) -> None:
+        run_columns = {row["name"] for row in connection.execute("PRAGMA table_info(runs)")}
+        turn_columns = {row["name"] for row in connection.execute("PRAGMA table_info(turns)")}
+        if "runtime_bundle_id" not in run_columns:
+            connection.execute("ALTER TABLE runs ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id)")
+        if "runtime_bundle_id" not in turn_columns:
+            connection.execute("ALTER TABLE turns ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_runtime_bundle ON runs(runtime_bundle_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_turns_runtime_bundle ON turns(runtime_bundle_id)")
+
+    @staticmethod
+    def _recover_migration_14(connection: sqlite3.Connection) -> None:
+        connection.execute("DROP INDEX IF EXISTS uq_cost_attempt_entry")
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_cost_attempt_period_entry ON cost_ledger("
+            "attempt_id,period_kind,period_key,entry_type,COALESCE(price_snapshot_id,''))"
+        )
 
     @staticmethod
     def _add_column(connection: sqlite3.Connection, table: str, definition: str) -> None:

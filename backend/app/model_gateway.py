@@ -112,6 +112,7 @@ TextDeltaCallback = Callable[[str], None]
 TextResetCallback = Callable[[], None]
 AttemptStartedCallback = Callable[[int, str], None]
 AttemptFinishedCallback = Callable[[int, str, str | None, "ModelResponse | None"], None]
+OutputStartedCallback = Callable[[str], None]
 
 
 class ModelGateway:
@@ -144,6 +145,7 @@ class ModelGateway:
         on_text_reset: TextResetCallback | None = None,
         on_attempt_started: AttemptStartedCallback | None = None,
         on_attempt_finished: AttemptFinishedCallback | None = None,
+        on_output_started: OutputStartedCallback | None = None,
         context: Any | None = None,
     ) -> ModelResponse:
         effective_context = context or self._call_context.get()
@@ -197,7 +199,7 @@ class ModelGateway:
                     if on_text_delta is not None:
                         on_text_delta(value)
 
-                response = await self._attempt(request, api_key, cancel_event, emit_delta)
+                response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
                 response = ModelResponse(**{**response.__dict__, "attempts": attempt_count})
                 if handle is not None:
                     self.control_store.finish_attempt(handle, attempt_count, "succeeded", None, response)
@@ -248,14 +250,15 @@ class ModelGateway:
         api_key: str,
         cancel_event: asyncio.Event | None,
         on_text_delta: TextDeltaCallback | None,
+        on_output_started: OutputStartedCallback | None = None,
     ) -> ModelResponse:
         if self.profile.provider_protocol == "anthropic":
-            return await self._attempt_anthropic(request, api_key, cancel_event, on_text_delta)
+            return await self._attempt_anthropic(request, api_key, cancel_event, on_text_delta, on_output_started)
         if self.profile.provider_protocol == "gemini":
-            return await self._attempt_gemini(request, api_key, cancel_event, on_text_delta)
+            return await self._attempt_gemini(request, api_key, cancel_event, on_text_delta, on_output_started)
         if self.profile.provider_protocol != "openai_compatible":
             raise GatewayError("unsupported model provider protocol", "configuration")
-        return await self._attempt_openai(request, api_key, cancel_event, on_text_delta)
+        return await self._attempt_openai(request, api_key, cancel_event, on_text_delta, on_output_started)
 
     async def _attempt_openai(
         self,
@@ -263,6 +266,7 @@ class ModelGateway:
         api_key: str,
         cancel_event: asyncio.Event | None,
         on_text_delta: TextDeltaCallback | None,
+        on_output_started: OutputStartedCallback | None = None,
     ) -> ModelResponse:
         started = time.perf_counter()
         content: list[str] = []
@@ -327,6 +331,8 @@ class ModelGateway:
                                 if on_text_delta is not None:
                                     on_text_delta(token)
                             if delta.get("tool_calls"):
+                                if on_output_started is not None:
+                                    on_output_started("tool_call")
                                 for fragment in delta["tool_calls"]:
                                     index = int(fragment.get("index", len(tool_call_fragments)))
                                     current = tool_call_fragments.setdefault(index, {"index": index, "function": {"arguments": ""}})
@@ -359,6 +365,7 @@ class ModelGateway:
         api_key: str,
         cancel_event: asyncio.Event | None,
         on_text_delta: TextDeltaCallback | None,
+        on_output_started: OutputStartedCallback | None = None,
     ) -> ModelResponse:
         started = time.perf_counter()
         first_token_at: float | None = None
@@ -407,6 +414,8 @@ class ModelGateway:
                         elif event_type == "content_block_start":
                             block = event.get("content_block") or {}
                             if block.get("type") == "tool_use":
+                                if on_output_started is not None:
+                                    on_output_started("tool_call")
                                 index = int(event.get("index", len(tool_calls)))
                                 tool_calls[index] = {"index": index, "id": block.get("id"), "function": {"name": block.get("name"), "arguments": ""}}
                         elif event_type == "content_block_delta":
@@ -436,6 +445,7 @@ class ModelGateway:
         api_key: str,
         cancel_event: asyncio.Event | None,
         on_text_delta: TextDeltaCallback | None,
+        on_output_started: OutputStartedCallback | None = None,
     ) -> ModelResponse:
         started = time.perf_counter()
         first_token_at: float | None = None
@@ -498,6 +508,8 @@ class ModelGateway:
                                 if on_text_delta is not None:
                                     on_text_delta(token)
                             if part.get("functionCall"):
+                                if on_output_started is not None:
+                                    on_output_started("tool_call")
                                 call = part["functionCall"]
                                 index = len(tool_calls)
                                 tool_calls.append({

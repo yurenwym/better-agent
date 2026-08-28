@@ -95,6 +95,18 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
   const data = event.data;
 
   switch (event.type) {
+    case "model.invocation.created":
+      return make(event, "model", "模型任务已创建", `角色：${text(data, "role", "conversation")}`);
+    case "model.attempt.started":
+      return make(event, "model", `模型请求第 ${text(data, "attempt", "1")} 次尝试`, text(data, "reason") === "fallback" ? "正在使用显式备用模型" : "正在等待模型响应");
+    case "model.output.started":
+      return make(event, "model", "模型开始输出", "首段内容已到达，后续不会跨模型切换");
+    case "model.fallback.selected":
+      return make(event, "model", "已切换到备用模型", `主模型因 ${text(data, "error_kind", "临时故障")} 未完成，正在使用策略中明确配置的 fallback`);
+    case "model.attempt.finished":
+      return make(event, "model", text(data, "status") === "succeeded" ? "模型尝试完成" : "模型尝试未完成", text(data, "error_kind", "用量与状态已写入账本"));
+    case "model.invocation.finished":
+      return make(event, "model", text(data, "status") === "succeeded" ? "模型阶段完成" : "模型阶段结束", `状态：${text(data, "status", "unknown")}`);
     case "run.created":
       return make(event, "run", "Run 已创建", "目标已进入本地运行时");
     case "run.completed":

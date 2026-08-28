@@ -34,7 +34,19 @@ class ManagedResearchWorker:
         cancel = asyncio.Event(); self._active_cancel = cancel
         heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel))
         report = None
+        gateway = getattr(getattr(self.service.engine, "model", None), "gateway", None)
+        context_token = None
         try:
+            if getattr(gateway, "control_store", None) is not None:
+                from ..model_control import ModelCallContext
+                with self.service.db.connection() as connection:
+                    turn = connection.execute(
+                        "SELECT runtime_bundle_id FROM turns WHERE id=?", (job.source_turn_id,)
+                    ).fetchone()
+                context_token = gateway.set_call_context(ModelCallContext(
+                    role="researcher", purpose="research", thread_id=job.thread_id,
+                    turn_id=job.source_turn_id, runtime_bundle_id=turn["runtime_bundle_id"] if turn else None,
+                ))
             sections,sources,evidence,plan=self.service.recovery_context(job.id)
             request = ResearchRequest(job.id, job.topic, job.source_scopes, ResearchLimits(), cancel, sections, sources, evidence, plan)
             async for event in self.service.engine.run_research(request):
@@ -45,10 +57,12 @@ class ManagedResearchWorker:
             if self.service.get(job.id).cancel_requested_at: raise ResearchCancelled("research cancelled")
             if not report: raise RuntimeError("research report missing")
             if self.expert_advisor is not None:
+                with self.service.db.connection() as connection:
+                    source_turn = connection.execute("SELECT runtime_bundle_id FROM turns WHERE id=?", (job.source_turn_id,)).fetchone()
                 advice = await self.expert_advisor.advise(
                     purpose="research", source_id=job.id, objective="审阅研究报告的证据覆盖、结论边界和关键风险",
                     context={"topic": job.topic, "report": report["markdown"]}, roles=("researcher", "critic"),
-                    thread_id=job.thread_id,
+                    thread_id=job.thread_id, runtime_bundle_id=source_turn["runtime_bundle_id"] if source_turn else None,
                 )
                 if advice is not None:
                     self.service.events.append(job.thread_id, job.source_turn_id, "research.expert_reviewed", "coordinator", {
@@ -75,6 +89,8 @@ class ManagedResearchWorker:
             retryable=bool(getattr(exc,"retryable",False)) or isinstance(exc,(TimeoutError,ConnectionError,asyncio.TimeoutError)) or getattr(exc,"kind","") in {"timeout","rate_limit","server"}
             with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, reason,retryable,diagnostics)
         finally:
+            if context_token is not None:
+                gateway.reset_call_context(context_token)
             heartbeat.cancel()
             with contextlib.suppress(asyncio.CancelledError): await heartbeat
             self._active_cancel = None

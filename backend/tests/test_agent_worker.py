@@ -61,6 +61,29 @@ def test_worker_uses_requested_expert_roles(tmp_path):
     assert [item["role"] for item in result["experts"]] == ["critic", "planner"]
 
 
+def test_live_worker_routes_coordinator_synthesis_with_pinned_context(tmp_path):
+    from types import SimpleNamespace
+    from app.agents import LiveExpertModel
+
+    class Gateway:
+        control_store = object()
+        def __init__(self): self.contexts=[]
+        def set_call_context(self, context): self.contexts.append(context);return context
+        def reset_call_context(self, token): pass
+        async def complete(self, request, **kwargs):
+            if request.role == "coordinator": return SimpleNamespace(message="综合结论")
+            return SimpleNamespace(message='{"summary":"专家结论","findings":[],"risks":[],"open_questions":[]}')
+
+    db=Database(tmp_path/"coordinator.db");bundle=BehaviorBundleService(db).ensure({"code":"test"})
+    service=AgentTaskService(db);run=service.create_run("local-user","目标",{},bundle.id,idempotency_key="coordinator")
+    gateway=Gateway();worker=ManagedAgentWorker(service,LiveExpertModel(gateway))
+    for _ in range(5): assert asyncio.run(worker.run_once()) is True
+    result=service.artifact(service.get_task(run["coordinator_task_id"])["result_artifact_id"])["content"]
+    assert result["summary"]=="综合结论"
+    context=gateway.contexts[-1]
+    assert (context.role,context.agent_task_id,context.runtime_bundle_id)==("coordinator",run["coordinator_task_id"],bundle.id)
+
+
 def test_worker_without_model_fails_children_without_faking_results(tmp_path):
     db = Database(tmp_path / "agent.db")
     bundle = BehaviorBundleService(db).ensure({"code":"test"})

@@ -136,8 +136,142 @@ def test_paired_evaluation_balances_order_blinds_judges_and_enforces_safety(tmp_
     assert report["safety"]["passed"] == 10
     assert report["execution_orders"] == {"baseline_first": 30, "candidate_first": 30}
     assert report["bindings"]["quality_judge_model_id"] == "judge-quality"
+    assert report["statistics"]["quality_difference"]["estimate"] == 1.0
+    assert report["statistics"]["primary_objective"]["ci95"] == [1.0, 1.0]
+    assert report["statistics"]["latency"]["baseline_p95"] == 1.0
+    assert report["statistics"]["latency"]["candidate_p95"] == .8
+    assert report["deterministic"] == {"passed": 120, "failures": 0}
     RealEvaluator.assert_release_approvable(report)
     assert len(seen_judge_payloads) == 60
+
+
+def test_release_evaluation_fails_closed_on_deterministic_fixture_violation(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    cases=_release_cases()
+    cases[0]["rubric"]["deterministic_required"]=["required-marker"]
+    evaluator.register_release_suite("release-v1", cases)
+    report = evaluator.evaluate_paired(
+        suite_id="release-v1", evaluation_run_id="fixture-failure", baseline_bundle_id="base", candidate_bundle_id="candidate",
+        baseline=lambda case:{"text":"safe conversation plan research tool memory","cost_microusd":1,"ttft_seconds":1},
+        candidate=lambda case:{"text":"unrelated output","cost_microusd":1,"ttft_seconds":.5},
+        quality_judge=lambda payload:{"winner":"right"}, safety_judge=lambda payload:{"left_safe":True,"right_safe":True},
+        baseline_model_id="a",candidate_model_id="b",quality_judge_model_id="q",safety_judge_model_id="s",
+        evaluator_digest="e",tool_schema_digest="t",context_digest="c",budget_microusd=1000,primary_objective="latency",
+    )
+    assert report["deterministic"]["failures"] > 0
+    assert report["release_eligible"] is False
+
+
+@pytest.mark.parametrize("field", ["evaluator_digest", "tool_schema_digest", "context_digest"])
+def test_release_evaluation_fails_closed_on_empty_binding_digest(tmp_path, field) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    kwargs = {
+        "suite_id": "release-v1", "evaluation_run_id": f"empty-{field}",
+        "baseline_bundle_id": "base", "candidate_bundle_id": "candidate",
+        "baseline": lambda case: {"text": "safe", "cost_microusd": 1, "ttft_seconds": .1},
+        "candidate": lambda case: {"text": "safe", "cost_microusd": 1, "ttft_seconds": .1},
+        "quality_judge": lambda payload: {"winner": "tie"},
+        "safety_judge": lambda payload: {"left_safe": True, "right_safe": True},
+        "baseline_model_id": "a", "candidate_model_id": "b",
+        "quality_judge_model_id": "q", "safety_judge_model_id": "s",
+        "evaluator_digest": "e", "tool_schema_digest": "t", "context_digest": "c",
+        "budget_microusd": 1000, "primary_objective": "quality",
+    }
+    kwargs[field] = "   "
+
+    with pytest.raises(EvaluationAccessError, match="bindings are incomplete"):
+        evaluator.evaluate_paired(**kwargs)
+
+
+def test_release_evaluation_fails_closed_when_live_ttft_is_missing(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+
+    with pytest.raises(EvaluationAccessError, match="metrics are incomplete"):
+        evaluator.evaluate_paired(
+            suite_id="release-v1", evaluation_run_id="missing-ttft",
+            baseline_bundle_id="base", candidate_bundle_id="candidate",
+            baseline=lambda case: {"text": "safe", "cost_microusd": 1, "ttft_seconds": None},
+            candidate=lambda case: {"text": "safe", "cost_microusd": 1, "ttft_seconds": .1},
+            quality_judge=lambda payload: {"winner": "tie"},
+            safety_judge=lambda payload: {"left_safe": True, "right_safe": True},
+            baseline_model_id="a", candidate_model_id="b",
+            quality_judge_model_id="q", safety_judge_model_id="s",
+            evaluator_digest="e", tool_schema_digest="t", context_digest="c",
+            budget_microusd=1000, primary_objective="quality",
+        )
+
+
+@pytest.mark.parametrize("bad", ["false", 0, None, [], {}])
+def test_release_evaluation_rejects_non_boolean_safety_judgments(tmp_path, bad) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    with pytest.raises(EvaluationAccessError, match="boolean decisions"):
+        evaluator.evaluate_paired(
+            suite_id="release-v1", evaluation_run_id=f"bad-safety-{type(bad).__name__}",
+            baseline_bundle_id="base", candidate_bundle_id="candidate",
+            baseline=lambda case:{"text":"safe","cost_microusd":1,"ttft_seconds":.1},
+            candidate=lambda case:{"text":"safe","cost_microusd":1,"ttft_seconds":.1},
+            quality_judge=lambda payload:{"winner":"tie"},
+            safety_judge=lambda payload:{"left_safe":bad,"right_safe":bad},
+            baseline_model_id="a",candidate_model_id="b",quality_judge_model_id="q",safety_judge_model_id="s",
+            evaluator_digest="e",tool_schema_digest="t",context_digest="c",budget_microusd=1000,primary_objective="quality",
+        )
+
+
+def test_release_report_digest_cannot_be_reused_after_tampering(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    report = evaluator.evaluate_paired(
+        suite_id="release-v1",evaluation_run_id="tamper",baseline_bundle_id="base",candidate_bundle_id="candidate",
+        baseline=lambda case:{"text":"safe baseline","cost_microusd":1,"ttft_seconds":1},
+        candidate=lambda case:{"text":"safe improved","cost_microusd":1,"ttft_seconds":.9},
+        quality_judge=lambda payload:{"winner":"right" if "improved" in payload["right"] else "left"},
+        safety_judge=lambda payload:{"left_safe":True,"right_safe":True},baseline_model_id="a",candidate_model_id="b",
+        quality_judge_model_id="q",safety_judge_model_id="s",evaluator_digest="e",tool_schema_digest="t",context_digest="c",
+        budget_microusd=1000,primary_objective="quality",
+    )
+    report["cost_microusd"] = 0
+    with pytest.raises(EvaluationAccessError, match="digest mismatch"):
+        RealEvaluator.assert_release_approvable(report)
+
+
+def test_judge_cost_is_included_in_release_budget(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    def quality(payload): return {"winner":"right" if "candidate" in payload["right"] else "left", "_cost_microusd":2}
+    def safety(payload): return {"left_safe":True,"right_safe":True,"_cost_microusd":3}
+    report=evaluator.evaluate_paired(
+        suite_id="release-v1",evaluation_run_id="judge-cost",baseline_bundle_id="base",candidate_bundle_id="candidate",
+        baseline=lambda case:{"text":"baseline","cost_microusd":1,"ttft_seconds":1},
+        candidate=lambda case:{"text":"candidate","cost_microusd":1,"ttft_seconds":.9},quality_judge=quality,safety_judge=safety,
+        baseline_model_id="a",candidate_model_id="b",quality_judge_model_id="q",safety_judge_model_id="s",
+        evaluator_digest="e",tool_schema_digest="t",context_digest="c",budget_microusd=400,primary_objective="quality",
+    )
+    assert report["cost_microusd"] == 420
+    assert report["release_eligible"] is False
+
+
+def test_primary_objective_threshold_and_bootstrap_are_predeclared_and_reproducible(tmp_path) -> None:
+    evaluator = RealEvaluator(tmp_path)
+    evaluator.register_release_suite("release-v1", _release_cases())
+    kwargs=dict(
+        suite_id="release-v1", baseline_bundle_id="base", candidate_bundle_id="candidate",
+        baseline=lambda case:{"text":"safe "+case["input"],"cost_microusd":10,"ttft_seconds":1},
+        candidate=lambda case:{"text":"safe improved "+case["input"],"cost_microusd":8,"ttft_seconds":.9},
+        quality_judge=lambda payload:{"winner":"right" if "improved" in payload["right"] else "left"},
+        safety_judge=lambda payload:{"left_safe":True,"right_safe":True},baseline_model_id="a",candidate_model_id="b",
+        quality_judge_model_id="q",safety_judge_model_id="s",evaluator_digest="e",tool_schema_digest="t",context_digest="c",
+        budget_microusd=1000,primary_objective="latency",objective_threshold=.2,
+    )
+    first=evaluator.evaluate_paired(**kwargs,evaluation_run_id="threshold-a")
+    second=evaluator.evaluate_paired(**kwargs,evaluation_run_id="threshold-a-copy")
+    assert first["statistics"]["primary_objective"]["estimate"] == pytest.approx(.1)
+    assert first["statistics"]["primary_objective"]["threshold"] == .2
+    assert first["statistics"]["primary_objective"]["passed"] is False
+    assert first["release_eligible"] is False
+    assert first["statistics"]["primary_objective"]["ci95"] == second["statistics"]["primary_objective"]["ci95"]
 
 
 def test_paired_evaluation_rejects_non_independent_judge_and_safety_failure(tmp_path) -> None:
@@ -191,6 +325,8 @@ def test_paired_release_report_is_persisted_and_same_run_cannot_reexecute(tmp_pa
 
     assert stored["report_digest"] == report["report_digest"]
     assert stored["holdout"] == report["holdout"]
+    assert stored["statistics"] == report["statistics"]
+    assert stored["deterministic"] == report["deterministic"]
     assert len(stored["records"]) == 60
     assert evaluator.progress("eval-persisted", after_seq=58)["events"][0]["seq"] == 59
     with pytest.raises(EvaluationAccessError, match="already exists"):

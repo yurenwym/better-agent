@@ -448,12 +448,13 @@ class ExpertAdvisoryService:
     def start(
         self, *, purpose: str, source_id: str, objective: str, context: dict[str, Any],
         roles: tuple[str, ...], owner_id: str = "local-user", thread_id: str | None = None,
-        append_thread_message: bool = False,
+        append_thread_message: bool = False, runtime_bundle_id: str | None = None,
     ) -> dict[str, Any]:
-        identity = _hash({"purpose": purpose, "source_id": source_id, "objective": objective, "context": context, "roles": roles})[:24]
+        identity = _hash({"purpose": purpose, "source_id": source_id, "objective": objective, "context": context,
+                          "roles": roles, "runtime_bundle_id": runtime_bundle_id})[:24]
         return self.tasks.create_run(
             owner_id, objective, {"purpose": purpose, "source_id": source_id, **context},
-            self.bundles.active("stable").id, thread_id=thread_id,
+            runtime_bundle_id or self.bundles.active("stable").id, thread_id=thread_id,
             idempotency_key=f"mainflow:{purpose}:{identity}", expert_roles=roles,
             append_thread_message=append_thread_message,
         )
@@ -527,7 +528,23 @@ class ManagedAgentWorker:
                 if not isinstance(result, dict): raise ValueError("expert artifact must be an object")
                 result.pop("safety_pass", None)
                 if self.safety_judge is not None:
-                    result["safety_pass"] = await self.safety_judge.judge(result)
+                    with self.service.db.connection() as connection:
+                        run = connection.execute(
+                            "SELECT runtime_bundle_id,thread_id FROM agent_runs WHERE id=?", (task["agent_run_id"],)
+                        ).fetchone()
+                    gateway = getattr(self.safety_judge, "gateway", None)
+                    token = None
+                    if getattr(gateway, "control_store", None) is not None:
+                        from .model_control import ModelCallContext
+                        token = gateway.set_call_context(ModelCallContext(
+                            role="judge_safety", purpose="judge_expert_output", thread_id=run["thread_id"],
+                            agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
+                        ))
+                    try:
+                        result["safety_pass"] = await self.safety_judge.judge(result)
+                    finally:
+                        if token is not None:
+                            gateway.reset_call_context(token)
                 self.service.complete(task["id"], self.owner, task["lease_epoch"], f"{task['role']}_result", result)
         except (PermissionError, AgentTaskConflict):
             pass
@@ -539,6 +556,18 @@ class ManagedAgentWorker:
     async def _execute_with_heartbeat(
         self, task: dict[str, Any], context: dict[str, Any], inputs: list[dict[str, Any]],
     ) -> dict[str, Any] | None:
+        with self.service.db.connection() as connection:
+            run = connection.execute(
+                "SELECT runtime_bundle_id,thread_id FROM agent_runs WHERE id=?", (task["agent_run_id"],)
+            ).fetchone()
+        gateway = getattr(self.model, "gateway", None)
+        context_token = None
+        if getattr(gateway, "control_store", None) is not None:
+            from .model_control import ModelCallContext
+            context_token = gateway.set_call_context(ModelCallContext(
+                role="expert", purpose=f"expert_{task['role']}", thread_id=run["thread_id"],
+                agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
+            ))
         if hasattr(self.model, "execute_bundle"):
             invocation = self.model.execute_bundle(
                 task["role"], task["objective"], context, inputs, self.service.runtime_bundle(task["id"]),
@@ -561,6 +590,9 @@ class ManagedAgentWorker:
             call.cancel()
             with contextlib.suppress(asyncio.CancelledError): await call
             raise
+        finally:
+            if context_token is not None:
+                gateway.reset_call_context(context_token)
 
     async def _coordinate(self, task: dict[str, Any]) -> None:
         children = self.service.children(task["id"])
@@ -583,13 +615,35 @@ class ManagedAgentWorker:
                 task["id"], self.owner, task["lease_epoch"], "ALL_EXPERTS_FAILED", retryable=False,
             )
             return
-        result = {
-            "summary": "综合多个专家结果。" if experts else "专家任务未能生成可用结果。",
-            "experts": experts,
-            "incomplete": len(experts) != len(children),
-            "failed_roles": [item["role"] for item in children if item["status"] != "SUCCEEDED"],
-        }
+        failed_roles = [item["role"] for item in children if item["status"] != "SUCCEEDED"]
+        result = await self._synthesize(task, experts, failed_roles)
         self.service.complete(task["id"], self.owner, task["lease_epoch"], "expert_synthesis", result)
+
+    async def _synthesize(self, task: dict[str, Any], experts: list[dict[str, Any]], failed_roles: list[str]) -> dict[str, Any]:
+        fallback = {
+            "summary": "综合多个专家结果。", "experts": experts,
+            "incomplete": bool(failed_roles), "failed_roles": failed_roles,
+        }
+        if not hasattr(self.model, "synthesize"):
+            return fallback
+        with self.service.db.connection() as connection:
+            run = connection.execute(
+                "SELECT runtime_bundle_id,thread_id FROM agent_runs WHERE id=?", (task["agent_run_id"],)
+            ).fetchone()
+        gateway = getattr(self.model, "gateway", None)
+        token = None
+        if getattr(gateway, "control_store", None) is not None:
+            from .model_control import ModelCallContext
+            token = gateway.set_call_context(ModelCallContext(
+                role="coordinator", purpose="synthesize_experts", thread_id=run["thread_id"],
+                agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
+            ))
+        try:
+            summary = await self.model.synthesize(task["objective"], experts, failed_roles)
+        finally:
+            if token is not None:
+                gateway.reset_call_context(token)
+        return {"summary": summary, "experts": experts, "incomplete": bool(failed_roles), "failed_roles": failed_roles}
 
 
 class LiveExpertModel:
@@ -605,10 +659,6 @@ class LiveExpertModel:
         self, role: str, objective: str, context: dict[str, Any], inputs: list[dict[str, Any]],
         runtime_manifest: dict[str, Any],
     ) -> dict[str, Any]:
-        pinned_model = runtime_manifest.get("model")
-        configured_model = getattr(getattr(self.gateway, "profile", None), "model", None)
-        if isinstance(pinned_model, dict) and pinned_model.get("model") not in {None, configured_model}:
-            raise GatewayError("pinned runtime model is unavailable", "configuration")
         response = await self.gateway.complete(ModelRequest(
             messages=[
                 {"role":"system","content":expert_system_prompt(runtime_manifest)},
@@ -628,6 +678,18 @@ class LiveExpertModel:
             refs = item.get("source_refs", [])
             normalized.append({"text":str(item["text"]).strip(),"confidence":float(confidence),"source_refs":[str(ref) for ref in refs[:20]] if isinstance(refs,list) else []})
         return {"summary":payload["summary"].strip(),"findings":normalized,"risks":[str(x) for x in risks[:20]],"open_questions":[str(x) for x in questions[:20]]}
+
+    async def synthesize(self, objective: str, experts: list[dict[str, Any]], failed_roles: list[str]) -> str:
+        response = await self.gateway.complete(ModelRequest(
+            messages=[
+                {"role":"system","content":"你是 Better Agent 协调器。基于只读专家产物，输出一段简洁中文综合结论；保留分歧和不确定性，不声称执行了任何副作用。"},
+                {"role":"user","content":_json({"objective":objective,"experts":experts,"failed_roles":failed_roles})},
+            ], tools=[], temperature=0, max_tokens=800, role="coordinator", purpose="synthesize_experts",
+        ))
+        summary = response.message.strip()
+        if not summary:
+            raise GatewayError("coordinator output is empty", "structure")
+        return summary[:4000]
 
 
 def expert_system_prompt(runtime_manifest: dict[str, Any]) -> str:

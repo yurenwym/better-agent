@@ -13,8 +13,8 @@ from .memory import MemoryService
 from .memory_v2 import MemoryContextProvider, MemoryStore
 from .memory_archive import ConversationArchiver
 from .model_gateway import ModelGateway, ModelProfile
-from .model_control import ModelControlStore
-from .model_admin import ModelAdminService
+from .model_control import ModelControlStore, RoutedModelGateway
+from .model_admin import ModelAdminService, ROLES
 from .costs import CostService
 from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
@@ -59,7 +59,10 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     if configured_profile is None and os.getenv("AGENT_MODEL_BASE_URL"):
         configured_profile = load_model_profile_from_env()
     costs = CostService(db)
-    gateway = ModelGateway(configured_profile, control_store=ModelControlStore(db, events=events, costs=costs)) if configured_profile else None
+    model_admin = ModelAdminService(db)
+    registered_profile = model_admin.ensure_profile(configured_profile) if configured_profile else None
+    control_store = ModelControlStore(db, events=events, costs=costs)
+    gateway = RoutedModelGateway(db, control_store) if registered_profile else None
     settings = SettingsService(db)
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
     conversation_model = LiveConversationModel(gateway, settings) if gateway else UnavailableConversationModel()
@@ -75,7 +78,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         conversation_model=conversation_model,
     )
     runtime.costs = costs
-    runtime.model_admin = ModelAdminService(db)
+    runtime.model_admin = model_admin
     runtime.connectors = connectors
     from .real_evaluation import LiveEvaluationRunner, ManagedEvaluationWorker, RealEvaluator
     runtime.real_evaluator = RealEvaluator(root / "evaluations", db=db)
@@ -111,9 +114,13 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.research.notifications = runtime.notifications
     runtime.plan_documents.recover_pending_intents()
     runtime.behavior = BehaviorBundleService(db)
-    model_manifest = configured_profile.public_view() if configured_profile else {"configured": False}
+    model_manifest = registered_profile.public_view() if registered_profile else {"configured": False}
     model_manifest.pop("api_key_configured", None)
     skill_manifest = {item.name: __import__("hashlib").sha256(item.content.encode("utf-8")).hexdigest() for item in runtime.skills.list()}
+    routing_policy = model_admin.ensure_policy("默认运行时路由", {
+        role: {"primary": registered_profile.registered_profile_version_id, "fallback": []}
+        for role in ROLES
+    }) if registered_profile else None
     bundle = runtime.behavior.ensure({
         "code": _code_version(),
         "model": model_manifest,
@@ -122,11 +129,15 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         "prompts": "live-model-v1",
         "tools": __import__("hashlib").sha256(__import__("json").dumps(tools.describe(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest(),
         "context": {"renderer": "context-v1", "tokenizer": "estimate-v1"},
+        "model_routing": ({"policy_id": routing_policy["id"], "digest": routing_policy["policy_digest"]}
+                          if routing_policy else {"policy_id": "unconfigured", "digest": "unconfigured"}),
+        "model_role_bindings": routing_policy["roles"] if routing_policy else {},
     })
     try: runtime.behavior.active("stable")
     except KeyError: runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
     runtime.evolution = EvolutionService(
-        db, runtime.behavior, behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,
+        db, runtime.behavior, evaluator=runtime.real_evaluator,
+        behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,
     )
     prompt_policy = lambda: runtime.behavior.active("stable").manifest.get("prompts", runtime.behavior.active("stable").manifest.get("prompt"))
     if gateway:

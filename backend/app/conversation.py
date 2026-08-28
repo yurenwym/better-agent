@@ -222,6 +222,7 @@ class TurnSnapshot:
     materialized_run_id: str | None
     direction_action: str | None
     direction_idempotency_key: str | None
+    runtime_bundle_id: str | None
     created_at: str
     updated_at: str
 
@@ -525,14 +526,15 @@ class ConversationService:
                 answer_message_id = f"message_{uuid.uuid4().hex}"
                 answer_content = format_answer_message(questions, normalized)
                 connection.execute(
-                    "INSERT INTO turns(id, thread_id, client_turn_id, parent_turn_id, status, version, skill_names_json, created_at, updated_at) "
-                    "VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?)",
+                    "INSERT INTO turns(id, thread_id, client_turn_id, parent_turn_id, status, version, skill_names_json, runtime_bundle_id, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?, ?)",
                     (
                         continuation_id,
                         turn_row["thread_id"],
                         client_turn_id,
                         turn_id,
                         turn_row["skill_names_json"],
+                        turn_row["runtime_bundle_id"],
                         now,
                         now,
                     ),
@@ -691,16 +693,20 @@ class ConversationService:
             message_id = f"message_{uuid.uuid4().hex}"
             parent_turn_id = thread["active_turn_id"]
             initial_status = "COMPLETED" if deferred_to_expert else "ACCEPTED"
+            runtime_bundle_id = None
+            evolution = getattr(self.agent_runtime, "evolution", None)
+            if evolution is not None:
+                runtime_bundle_id, _ = evolution.assign_run(turn_id, thread_id, connection=connection)
             connection.execute(
                 """
                 INSERT INTO turns(
                     id, thread_id, client_turn_id, parent_turn_id, status, policy, content_shape, version, skill_names_json, goal_action_id,
-                    created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+                    runtime_bundle_id, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
                 """,
                 (turn_id, thread_id, client_turn_id, parent_turn_id, initial_status,
                  "start_expert" if deferred_to_expert else None, "expert" if deferred_to_expert else None,
-                 json.dumps(selected_skills, ensure_ascii=False), goal_action_id, now, now),
+                 json.dumps(selected_skills, ensure_ascii=False), goal_action_id, runtime_bundle_id, now, now),
             )
             connection.execute(
                 """
@@ -863,11 +869,25 @@ class ExecutionMaterializer:
                 self._renew_projection_claim(turn_id, idempotency_key, renew_stop)
             )
             try:
+                gateway = getattr(self.agent_runtime.model, "gateway", None)
+                context_token = None
+                if getattr(gateway, "control_store", None) is not None:
+                    from .model_control import ModelCallContext
+                    with self.db.connection() as connection:
+                        pinned = connection.execute(
+                            "SELECT runtime_bundle_id FROM turns WHERE id=?", (turn_id,)
+                        ).fetchone()
+                    context_token = gateway.set_call_context(ModelCallContext(
+                        role="planner", purpose="project_plan_for_execution", thread_id=thread_id,
+                        turn_id=turn_id, runtime_bundle_id=pinned["runtime_bundle_id"],
+                    ))
                 draft = await PlanExecutionCompiler(self.agent_runtime.model).compile(source=source)
             except Exception as exc:
                 self._fail_projection(turn_id, idempotency_key, str(exc), thread_id)
                 raise
             finally:
+                if 'context_token' in locals() and context_token is not None:
+                    gateway.reset_call_context(context_token)
                 renew_stop.set()
                 renew_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
@@ -897,8 +917,8 @@ class ExecutionMaterializer:
             version = 1
             self.agent_runtime.plans._insert(connection, plan_id, run_id, goal_id, version, draft.summary, None, draft.steps, source.version_id)
             connection.execute(
-                "INSERT INTO runs(id, goal_id, session_id, state, current_plan_version_id, budget_json, skill_names_json, source_turn_id, source_plan_document_id, source_plan_document_version_id, source_plan_content_hash, created_at, updated_at) VALUES (?, ?, ?, 'AWAITING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (run_id, goal_id, session_id, plan_id, json.dumps(budget, ensure_ascii=False), skill_names_json, turn_id, source.document_id, source.version_id, source.content_hash, now, now),
+                "INSERT INTO runs(id, goal_id, session_id, state, current_plan_version_id, budget_json, skill_names_json, source_turn_id, source_plan_document_id, source_plan_document_version_id, source_plan_content_hash, runtime_bundle_id, created_at, updated_at) VALUES (?, ?, ?, 'AWAITING_APPROVAL', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (run_id, goal_id, session_id, plan_id, json.dumps(budget, ensure_ascii=False), skill_names_json, turn_id, source.document_id, source.version_id, source.content_hash, row["runtime_bundle_id"], now, now),
             )
             connection.execute(
                 "UPDATE turns SET status = 'COMPLETED', direction_action = ?, direction_idempotency_key = ?, "
@@ -1270,6 +1290,14 @@ class ManagedTurnWorker:
             def on_reset() -> None:
                 queue.put_nowait(("reset", None))
 
+            gateway = getattr(self.conversation.route_model, "gateway", None)
+            context_token = None
+            if getattr(gateway, "control_store", None) is not None:
+                from .model_control import ModelCallContext
+                context_token = gateway.set_call_context(ModelCallContext(
+                    role="conversation", purpose="route_and_respond", thread_id=turn.thread_id,
+                    turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
+                ))
             model_task = asyncio.create_task(
                 self.conversation.route_model.route_and_respond(
                     content=user_message.content,
@@ -1326,6 +1354,9 @@ class ManagedTurnWorker:
                 self._finish_cancelled(turn, message_id, generation, pending)
                 return
             result = await model_task
+            if context_token is not None:
+                gateway.reset_call_context(context_token)
+                context_token = None
             if isinstance(result, AskRequest):
                 if decoder.header is not None or decoder._buffer or message_id is not None or pending:
                     raise RouteProtocolError("ask cannot be combined with a streamed response")
@@ -1386,6 +1417,8 @@ class ManagedTurnWorker:
                     preserve_partial=bool(getattr(exc, "preserve_partial", True)),
                 )
         finally:
+            if 'context_token' in locals() and context_token is not None:
+                gateway.reset_call_context(context_token)
             heartbeat_stop.set()
             heartbeat_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
@@ -2018,6 +2051,7 @@ def _turn_from_row(row: Any) -> TurnSnapshot:
         materialized_run_id=row["materialized_run_id"],
         direction_action=row["direction_action"],
         direction_idempotency_key=row["direction_idempotency_key"],
+        runtime_bundle_id=row["runtime_bundle_id"],
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

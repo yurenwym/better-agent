@@ -293,13 +293,16 @@ class ManagedGoalReviewWorker:
         try:
             evidence = self.service.evidence(review["id"], self.owner)
             if self.expert_advisor is not None:
+                context = self.service.programs._model_context(evidence["program_id"], "reflector", "daily_review")
                 advice = await self.expert_advisor.advise(
                     purpose="review", source_id=review["id"], objective="审阅每日执行证据并提出是否需要调整的建议",
                     context={"daily_evidence": evidence}, roles=("planner", "critic"),
+                    thread_id=context.thread_id, runtime_bundle_id=context.runtime_bundle_id,
                 )
                 if advice is not None:
                     evidence = {**evidence, "expert_advice": advice}
-            result = await self.service.compiler.review(evidence)
+            context = self.service.programs._model_context(evidence["program_id"], "reflector", "daily_review")
+            result = await self.service.programs._call_model(context, self.service.compiler.review(evidence))
             proposal_id = None
             if evidence["signals"] and result["needs_adjustment"]:
                 program = self.service.programs.get(evidence["program_id"])

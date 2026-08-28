@@ -39,7 +39,8 @@ class GoalAdjustmentService:
             snapshot=[dict(row) for row in affected]
             protected_keys={row["logical_key"] for row in connection.execute("SELECT logical_key FROM goal_actions WHERE program_id=? AND status IN ('COMPLETED','SKIPPED','DEFERRED')",(program_id,)).fetchall()}
         async def generate(adjustment_reason: str):
-            raw_candidate=await self.compiler.adjust(current,adjustment_reason)
+            context=self.programs._model_context(program_id,"planner","adjust_goal_program")
+            raw_candidate=await self.programs._call_model(context,self.compiler.adjust(current,adjustment_reason))
             if isinstance(raw_candidate,dict) and isinstance(raw_candidate.get("actions"),list):
                 original={item["logical_key"]:item for item in current["actions"]}
                 candidate_by_key={item.get("logical_key"):item for item in raw_candidate["actions"] if isinstance(item,dict)}

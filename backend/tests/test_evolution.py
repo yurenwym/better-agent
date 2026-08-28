@@ -321,7 +321,8 @@ def test_policy_candidate_enters_existing_approval_and_canary_with_paired_report
         },
         permission_diff={"added": []}, reason="evaluated route", idempotency_key="policy-positive",
     )
-    evaluator = RealEvaluator(tmp_path / "release")
+    evaluator = RealEvaluator(tmp_path / "release", db=service.db)
+    service.evaluator = evaluator
     evaluator.register_release_suite("release-v1", _release_cases())
     report = evaluator.evaluate_paired(
         suite_id="release-v1", evaluation_run_id="release-policy", baseline_bundle_id=base.id, candidate_bundle_id=target.id,
@@ -333,6 +334,12 @@ def test_policy_candidate_enters_existing_approval_and_canary_with_paired_report
         evaluator_digest="paired-v1", tool_schema_digest="tools", context_digest="context", budget_microusd=1000,
         primary_objective="quality",
     )
+    forged = {**report, "cost_microusd": 0}
+    with pytest.raises(EvolutionGateError, match="authoritative|mismatch|digest"):
+        service.evaluate_release(
+            item["id"], expected_version=item["version"], paired_report=forged,
+            idempotency_key="policy-forged-release-eval",
+        )
     evaluation = service.evaluate_release(
         item["id"], expected_version=item["version"], paired_report=report, idempotency_key="policy-release-eval",
     )
@@ -361,6 +368,26 @@ def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):
     with pytest.raises(EvolutionConflict, match="not ready"):
         service.evaluate_builtin(item["id"], expected_version=1, idempotency_key="cannot-overwrite-passed-evaluation")
     assert evaluation["checks"]["real_evaluation_pass"] is True
+
+
+def test_live_behavior_runner_pins_each_arm_to_its_bundle() -> None:
+    import asyncio
+    from types import SimpleNamespace
+    from app.evolution import LiveBehaviorRunner
+
+    class Gateway:
+        def __init__(self): self.contexts=[];self.current=None
+        def set_call_context(self, context): self.current=context;self.contexts.append(context);return context
+        def reset_call_context(self, token): self.current=None
+        async def complete(self, request, **kwargs):
+            return SimpleNamespace(message="helpful" if request.role=="judge_quality" else "可执行答案")
+
+    gateway=Gateway()
+    result=asyncio.run(LiveBehaviorRunner(gateway)._run({"prompts":"candidate"},"制定计划","bundle-candidate"))
+
+    assert result=="helpful"
+    assert gateway.contexts[0].runtime_bundle_id=="bundle-candidate"
+    assert gateway.contexts[0].role=="conversation"
 
 
 def test_builtin_evaluation_fails_closed_without_behavior_runner(tmp_path):

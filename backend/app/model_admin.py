@@ -5,6 +5,7 @@ import inspect
 import json
 import os
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from typing import Any, Callable
 
@@ -157,6 +158,60 @@ class ModelAdminService:
                 (policy_id, self.owner_id, version, name, _json(normalized), _digest(payload), _now()),
             )
         return self.policy(policy_id)
+
+    def ensure_profile(self, profile: Any) -> Any:
+        """Register a legacy environment profile once and return its immutable version binding."""
+        capabilities = {
+            "text": True, "streaming": True, "tool_calling": True, "json_object": True,
+            "json_schema": False, "vision": False, "cache_usage": False, "reasoning_usage": False,
+        }
+        payload = {
+            "provider_protocol": profile.provider_protocol, "provider_name": profile.provider_name,
+            "base_url": profile.base_url, "model_name": profile.model,
+            "credential_env_ref": profile.api_key_env, "capabilities": capabilities,
+            "context_window": max(int(profile.context_window), 1),
+            "max_output_tokens": max(int(profile.max_output_tokens), 1),
+            "timeout_seconds": profile.timeout_seconds, "max_attempts": profile.max_attempts,
+        }
+        config = {
+            "provider_protocol": payload["provider_protocol"], "provider_name": payload["provider_name"],
+            "base_url": payload["base_url"].rstrip("/"), "model_name": payload["model_name"],
+            "credential_env_ref": payload["credential_env_ref"], "capabilities": capabilities,
+            "context_window": payload["context_window"], "max_output_tokens": payload["max_output_tokens"],
+            "timeout_seconds": float(payload["timeout_seconds"]), "max_attempts": payload["max_attempts"],
+        }
+        digest = _digest(config)
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT v.id FROM model_profile_versions v JOIN model_profiles p ON p.id=v.profile_id "
+                "WHERE p.owner_id=? AND v.config_digest=? ORDER BY v.created_at DESC LIMIT 1",
+                (self.owner_id, digest),
+            ).fetchone()
+        if row is None:
+            base_name = f"{profile.provider_name}:{profile.model}"
+            with self.db.connection() as connection:
+                existing = connection.execute(
+                    "SELECT id FROM model_profiles WHERE owner_id=? AND name=?", (self.owner_id, base_name)
+                ).fetchone()
+            if existing is None:
+                created = self.create_profile({"name": base_name, **payload})
+                version_id = created["versions"][0]["id"]
+            else:
+                version_id = self.add_version(existing["id"], payload)["id"]
+        else:
+            version_id = row["id"]
+        return replace(profile, registered_profile_version_id=version_id)
+
+    def ensure_policy(self, name: str, roles: dict[str, Any]) -> dict[str, Any]:
+        normalized = self._validate_roles(roles)
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT id,roles_json FROM model_routing_policies WHERE owner_id=? AND name=? ORDER BY version DESC LIMIT 1",
+                (self.owner_id, name),
+            ).fetchone()
+        if row is not None and json.loads(row["roles_json"]) == normalized:
+            return self.policy(row["id"])
+        return self.create_policy(name, normalized)
 
     def list_policies(self) -> list[dict[str, Any]]:
         with self.db.connection() as connection:

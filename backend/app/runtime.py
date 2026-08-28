@@ -125,6 +125,7 @@ class RunSnapshot:
     source_plan_document_id: str | None = None
     source_plan_document_version_id: str | None = None
     source_plan_content_hash: str | None = None
+    runtime_bundle_id: str | None = None
 
 
 class AgentRuntime:
@@ -198,6 +199,10 @@ class AgentRuntime:
         now = _now()
         budget = self.initial_budget()
         with self.db.transaction() as connection:
+            bundle_id = None
+            evolution = getattr(self, "evolution", None)
+            if evolution is not None:
+                bundle_id, _ = evolution.assign_run(run_id, project_id or goal_id, connection=connection)
             connection.execute(
                 "INSERT INTO goals(id, title, description, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (goal_id, title, description, project_id, now, now),
@@ -207,9 +212,9 @@ class AgentRuntime:
                 (session_id, goal_id, now, now),
             )
             connection.execute(
-                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, created_at, updated_at) "
-                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?)",
-                (run_id, goal_id, session_id, json.dumps(budget), now, now),
+                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, runtime_bundle_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?)",
+                (run_id, goal_id, session_id, json.dumps(budget), bundle_id, now, now),
             )
         self.events.append(run_id, goal_id, "run.created", "runtime", {})
         return self.get_run(run_id)
@@ -246,6 +251,7 @@ class AgentRuntime:
             source_plan_document_id=row["source_plan_document_id"],
             source_plan_document_version_id=row["source_plan_document_version_id"],
             source_plan_content_hash=row["source_plan_content_hash"],
+            runtime_bundle_id=row["runtime_bundle_id"],
         )
 
     def recoverable_runs(self) -> list[RunSnapshot]:
@@ -850,12 +856,19 @@ class AgentRuntime:
             from .model_control import ModelCallContext
 
             role = {"clarification": "ask", "planning": "planner", "react": "executor", "reflection": "reflector"}.get(kind, kind)
+            thread_id = None
+            if run.source_turn_id:
+                with self.db.connection() as connection:
+                    source_turn = connection.execute("SELECT thread_id FROM turns WHERE id=?", (run.source_turn_id,)).fetchone()
+                thread_id = source_turn["thread_id"] if source_turn else None
             call_context_token = gateway.set_call_context(ModelCallContext(
                 role=role,
                 purpose=kind,
                 run_id=run.id,
                 goal_id=run.goal_id,
+                thread_id=thread_id,
                 turn_id=run.source_turn_id,
+                runtime_bundle_id=run.runtime_bundle_id,
             ))
         self._prepare_model_context(run, kind, args)
         message_id = self._create_model_message(run)

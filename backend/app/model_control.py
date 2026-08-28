@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
+from contextvars import ContextVar
+from dataclasses import replace
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -66,7 +69,10 @@ class ModelControlStore:
         self.events = events
         self.costs = costs
 
-    def begin_invocation(self, profile: Any, request: Any, context: ModelCallContext) -> ModelCallHandle:
+    def begin_invocation(
+        self, profile: Any, request: Any, context: ModelCallContext,
+        route_snapshot: dict[str, Any] | None = None,
+    ) -> ModelCallHandle:
         now = _now()
         config = {
             "protocol": profile.provider_protocol,
@@ -91,11 +97,12 @@ class ModelControlStore:
         }
         request_digest = _digest(request_payload)
         tool_schema_digest = _digest(request.tools or [])
-        route_snapshot = {
+        route_snapshot = route_snapshot or {
             "profile_version_id": profile_version_id,
             "provider_protocol": profile.provider_protocol,
             "model": profile.model,
         }
+        profile_version_id = route_snapshot.get("profile_version_id") or route_snapshot.get("profile_sequence", [profile_version_id])[0]
         key = context.idempotency_key or invocation_id
         with self.db.transaction() as connection:
             connection.execute(
@@ -112,14 +119,15 @@ class ModelControlStore:
                 (
                     profile_version_id, profile_id, int(current) + 1, profile.provider_protocol, profile.provider_name,
                     profile.base_url.rstrip("/"), profile.model, profile.api_key_env,
-                    _json({"text": True, "streaming": True, "tool_calling": True, "json_object": True}),
+                    _json({"text": True}),
                     profile.context_window, profile.max_output_tokens, profile.timeout_seconds, profile.max_attempts, config_digest, now,
                 ),
             )
             existing = connection.execute("SELECT id FROM model_invocations WHERE idempotency_key=?", (key,)).fetchone()
             if existing:
                 row = connection.execute("SELECT route_snapshot_json FROM model_invocations WHERE id=?", (existing["id"],)).fetchone()
-                existing_profile = json.loads(row["route_snapshot_json"])["profile_version_id"]
+                snapshot = json.loads(row["route_snapshot_json"])
+                existing_profile = snapshot.get("profile_version_id") or snapshot["profile_sequence"][0]
                 return ModelCallHandle(existing["id"], existing_profile, context)
             connection.execute(
                 "INSERT INTO model_invocations("
@@ -142,11 +150,15 @@ class ModelControlStore:
         try:
             with self.db.transaction() as connection:
                 row = connection.execute("SELECT request_digest,route_snapshot_json FROM model_invocations WHERE id=?", (handle.invocation_id,)).fetchone()
-                route = json.loads(row["route_snapshot_json"])
+                profile = connection.execute(
+                    "SELECT provider_protocol FROM model_profile_versions WHERE id=?", (handle.profile_version_id,)
+                ).fetchone()
+                if profile is None:
+                    raise KeyError(handle.profile_version_id)
                 connection.execute(
                     "INSERT OR IGNORE INTO model_attempts(id,invocation_id,ordinal,reason,profile_version_id,provider_protocol,request_digest,status,started_at) "
                     "VALUES (?,?,?,?,?,?,?,'STARTED',?)",
-                    (attempt_id, handle.invocation_id, ordinal, reason, handle.profile_version_id, route["provider_protocol"], row["request_digest"], now),
+                    (attempt_id, handle.invocation_id, ordinal, reason, handle.profile_version_id, profile["provider_protocol"], row["request_digest"], now),
                 )
                 if self.costs is not None:
                     self.costs.reserve_attempt(connection, handle, attempt_id)
@@ -216,9 +228,208 @@ class ModelControlStore:
                 "model_invocation_id": handle.invocation_id, "status": status,
             })
 
+    def record_event(self, handle: ModelCallHandle, event_type: str, data: dict[str, Any]) -> None:
+        with self.db.transaction() as connection:
+            self._event(connection, handle.context, event_type, data)
+
     def _event(self, connection: Any, context: ModelCallContext, event_type: str, data: dict[str, Any]) -> None:
         if self.events is not None and context.run_id and context.goal_id:
             self.events.append(context.run_id, context.goal_id, event_type, "runtime", data, connection=connection)
+        if context.thread_id and context.turn_id:
+            from .events import ThreadEventStore
+            ThreadEventStore(self.db).append(
+                context.thread_id, context.turn_id, event_type, "runtime", data,
+                connection=connection,
+            )
+
+
+class RoutedModelGateway:
+    """Shared data-plane gateway: immutable Bundle route, one Invocation, many Attempts."""
+
+    FALLBACK_ERRORS = {"timeout", "rate_limit", "server", "provider_unavailable"}
+    supports_intent_classification = True
+    ROLE_CAPABILITIES = {
+        "conversation": {"text", "streaming"}, "ask": {"text", "json_object"},
+        "planner": {"text", "json_object"}, "executor": {"text", "tool_calling"},
+        "reflector": {"text", "json_object"}, "researcher": {"text", "streaming"},
+        "expert": {"text"}, "coordinator": {"text", "json_object"},
+        "judge_quality": {"text", "json_object"}, "judge_safety": {"text", "json_object"},
+    }
+
+    def __init__(self, db: Database, control_store: ModelControlStore, *, execute_attempt=None) -> None:
+        self.db = db
+        self.control_store = control_store
+        self._execute_attempt = execute_attempt or self._execute_http_attempt
+        self._call_context: ContextVar[ModelCallContext | None] = ContextVar("routed_model_call_context", default=None)
+
+    def set_call_context(self, context: ModelCallContext):
+        return self._call_context.set(context)
+
+    def reset_call_context(self, token: Any) -> None:
+        self._call_context.reset(token)
+
+    async def complete(
+        self, request: Any, cancel_event=None, on_text_delta=None, on_text_reset=None,
+        on_attempt_started=None, on_attempt_finished=None, context: ModelCallContext | None = None,
+    ) -> Any:
+        from .model_gateway import GatewayError, ModelResponse
+
+        context = context or self._call_context.get() or ModelCallContext(
+            request.role or "conversation", request.purpose or "complete"
+        )
+        role = request.role or context.role
+        context = replace(context, role=role, purpose=request.purpose or context.purpose)
+        route, profiles, context = self._route(context)
+        handle = self.control_store.begin_invocation(profiles[0], request, context, route)
+        if cancel_event is not None and cancel_event.is_set():
+            self.control_store.finish_invocation(handle, "cancelled")
+            raise GatewayError("model request cancelled", "cancelled")
+        ordinal = 0
+        output_started = False
+        last_error = None
+        for profile_index, profile in enumerate(profiles):
+            retries = max(int(profile.max_attempts), 1)
+            for retry in range(retries):
+                ordinal += 1
+                reason = "primary" if ordinal == 1 else ("fallback" if retry == 0 else "retry")
+                active = replace(handle, profile_version_id=profile.registered_profile_version_id)
+                if ordinal > 1 and on_text_reset is not None:
+                    on_text_reset()
+                if on_attempt_started is not None:
+                    on_attempt_started(ordinal, reason)
+                try:
+                    try:
+                        self.control_store.start_attempt(active, ordinal, reason)
+                    except Exception as exc:
+                        from .costs import BudgetExceeded
+                        if isinstance(exc, BudgetExceeded):
+                            raise GatewayError(str(exc), "budget", ordinal) from exc
+                        raise
+                    def text_delta(value: str) -> None:
+                        nonlocal output_started
+                        output_started = True
+                        self.control_store.mark_output_started(active, ordinal)
+                        if on_text_delta is not None:
+                            on_text_delta(value)
+                    def output(kind: str) -> None:
+                        nonlocal output_started
+                        output_started = True
+                        self.control_store.mark_output_started(active, ordinal)
+                    response = await self._execute_attempt(
+                        profile, request, cancel_event=cancel_event,
+                        on_text_delta=text_delta, on_output_started=output,
+                    )
+                    response = ModelResponse(**{**response.__dict__, "attempts": ordinal})
+                    self.control_store.finish_attempt(active, ordinal, "succeeded", None, response)
+                    self.control_store.finish_invocation(active, "succeeded", ordinal)
+                    if on_attempt_finished is not None:
+                        on_attempt_finished(ordinal, "succeeded", None, response)
+                    return response
+                except GatewayError as error:
+                    last_error = error
+                    status = "cancelled" if error.kind == "cancelled" else "failed"
+                    if error.kind != "budget":
+                        self.control_store.finish_attempt(active, ordinal, status, error.kind, None)
+                    if on_attempt_finished is not None:
+                        on_attempt_finished(ordinal, status, error.kind, None)
+                    if error.kind == "cancelled":
+                        self.control_store.finish_invocation(active, "cancelled")
+                        raise GatewayError(str(error), error.kind, ordinal) from error
+                    if error.kind == "budget":
+                        raise GatewayError(str(error), error.kind, ordinal) from error
+                    retryable = error.kind in self.FALLBACK_ERRORS or error.kind in {"structure", "context_overflow"}
+                    if retry + 1 < retries and retryable:
+                        continue
+                    can_fallback = (
+                        profile_index + 1 < len(profiles)
+                        and error.kind in self.FALLBACK_ERRORS
+                        and not output_started
+                    )
+                    if can_fallback:
+                        self.control_store.record_event(active, "model.fallback.selected", {
+                            "model_invocation_id": active.invocation_id,
+                            "from_profile_version_id": active.profile_version_id,
+                            "to_profile_version_id": profiles[profile_index + 1].registered_profile_version_id,
+                            "error_kind": error.kind,
+                        })
+                        break
+                    self.control_store.finish_invocation(active, "failed")
+                    raise GatewayError(str(error), error.kind, ordinal) from error
+        self.control_store.finish_invocation(handle, "failed")
+        raise GatewayError(str(last_error or "model routing failed"), getattr(last_error, "kind", "unknown"), ordinal)
+
+    def _route(self, context: ModelCallContext):
+        bundle_id = context.runtime_bundle_id
+        with self.db.connection() as connection:
+            if not bundle_id:
+                row = connection.execute("SELECT bundle_id FROM runtime_channels WHERE name='stable'").fetchone()
+                if row is None:
+                    raise RoutingError("stable runtime bundle is not configured")
+                bundle_id = row["bundle_id"]
+            bundle = connection.execute("SELECT manifest_json FROM runtime_bundles WHERE id=?", (bundle_id,)).fetchone()
+            if bundle is None:
+                raise RoutingError("runtime bundle does not exist")
+            manifest = json.loads(bundle["manifest_json"])
+            routing = manifest.get("model_routing") or {}
+            policy_id, digest = routing.get("policy_id"), routing.get("digest")
+            policy = connection.execute(
+                "SELECT roles_json,policy_digest FROM model_routing_policies WHERE id=? AND owner_id=?",
+                (policy_id, context.owner_id),
+            ).fetchone()
+            if policy is None or policy["policy_digest"] != digest:
+                raise RoutingError("runtime bundle routing policy is missing or changed")
+            route = json.loads(policy["roles_json"]).get(context.role)
+            if not route:
+                raise RoutingError(f"runtime bundle has no route for role {context.role}")
+            ids = [route["primary"], *route.get("fallback", [])]
+            profiles, eligible_ids = [], []
+            required = self.ROLE_CAPABILITIES.get(context.role)
+            if required is None:
+                raise RoutingError("unsupported model role")
+            for version_id in ids:
+                row = connection.execute(
+                    "SELECT v.*,p.status AS profile_status FROM model_profile_versions v "
+                    "JOIN model_profiles p ON p.id=v.profile_id WHERE v.id=? AND p.owner_id=?",
+                    (version_id, context.owner_id),
+                ).fetchone()
+                if row is None or row["status"] != "ACTIVE" or row["profile_status"] != "ACTIVE":
+                    continue
+                capabilities = json.loads(row["capabilities_json"])
+                if not all(capabilities.get(item) is True for item in required):
+                    continue
+                profiles.append(self._profile(row))
+                eligible_ids.append(version_id)
+            if not profiles:
+                raise RoutingError("no routed model satisfies availability and capability requirements")
+        snapshot = {
+            "runtime_bundle_id": bundle_id, "routing_policy_id": policy_id,
+            "routing_policy_digest": digest, "role": context.role,
+            "required_capabilities": sorted(required), "configured_profile_sequence": ids,
+            "profile_sequence": eligible_ids, "profile_version_id": eligible_ids[0],
+            "provider_protocol": profiles[0].provider_protocol, "fallback_enabled": len(eligible_ids) > 1,
+        }
+        return snapshot, profiles, replace(
+            context, runtime_bundle_id=bundle_id, routing_policy_id=policy_id, routing_policy_digest=digest
+        )
+
+    @staticmethod
+    def _profile(row: Any):
+        from .model_gateway import ModelProfile
+        return ModelProfile(
+            row["base_url"], row["model_name"], row["credential_env_ref"],
+            float(row["timeout_seconds"]), int(row["max_attempts"]),
+            provider_protocol=row["provider_protocol"], provider_name=row["provider_name"],
+            context_window=int(row["context_window"]), max_output_tokens=int(row["max_output_tokens"]),
+            registered_profile_version_id=row["id"],
+        )
+
+    @staticmethod
+    async def _execute_http_attempt(profile: Any, request: Any, *, cancel_event=None, on_text_delta=None, on_output_started=None):
+        from .model_gateway import GatewayError, ModelGateway
+        api_key = os.getenv(profile.api_key_env)
+        if not api_key:
+            raise GatewayError("model API key missing", "configuration")
+        return await ModelGateway(profile)._attempt(request, api_key, cancel_event, on_text_delta, on_output_started)
 
 
 def _json(value: Any) -> str:

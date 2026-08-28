@@ -130,12 +130,16 @@ class CostService:
 
     def _settle(self, connection: Any, owner_id: str, period_kind: str, period_key: str, invocation_id: str, attempt_id: str, price_snapshot_id: str, amount_microusd: int, status: str) -> dict[str, Any]:
         cached = connection.execute(
-            "SELECT * FROM cost_ledger WHERE attempt_id=? AND entry_type='CHARGE' AND price_snapshot_id=?",
-            (attempt_id, price_snapshot_id),
+            "SELECT * FROM cost_ledger WHERE attempt_id=? AND period_kind=? AND period_key=? "
+            "AND entry_type='CHARGE' AND price_snapshot_id=?",
+            (attempt_id, period_kind, period_key, price_snapshot_id),
         ).fetchone()
         if cached:
             return _ledger(cached)
-        reserved = connection.execute("SELECT amount_microusd FROM cost_ledger WHERE attempt_id=? AND entry_type='RESERVE'", (attempt_id,)).fetchone()
+        reserved = connection.execute(
+            "SELECT amount_microusd FROM cost_ledger WHERE attempt_id=? AND period_kind=? AND period_key=? AND entry_type='RESERVE'",
+            (attempt_id, period_kind, period_key),
+        ).fetchone()
         reserved_amount = int(reserved["amount_microusd"]) if reserved else 0
         charged = min(amount_microusd, reserved_amount) if reserved else amount_microusd
         release = max(reserved_amount - charged, 0)
@@ -148,13 +152,21 @@ class CostService:
         connection.execute(
             "INSERT INTO cost_ledger(id,owner_id,period_kind,period_key,invocation_id,attempt_id,price_snapshot_id,entry_type,amount_microusd,cost_status,reason,idempotency_key,created_at) "
             "VALUES (?,?,?,?,?,?,?,'CHARGE',?,?, 'attempt settled',?,?)",
-            (charge_id, owner_id, period_kind, period_key, invocation_id, attempt_id, price_snapshot_id, charged, status, f"charge:{attempt_id}:{price_snapshot_id}", _now()),
+            (
+                charge_id, owner_id, period_kind, period_key, invocation_id, attempt_id,
+                price_snapshot_id, charged, status,
+                f"charge:{attempt_id}:{period_kind}:{period_key}:{price_snapshot_id}", _now(),
+            ),
         )
         if release:
             connection.execute(
                 "INSERT INTO cost_ledger(id,owner_id,period_kind,period_key,invocation_id,attempt_id,price_snapshot_id,entry_type,amount_microusd,cost_status,reason,idempotency_key,created_at) "
                 "VALUES (?,?,?,?,?,?,?,'RELEASE',?,'RELEASED','unused reservation',?,?)",
-                (f"cost_{uuid.uuid4().hex}", owner_id, period_kind, period_key, invocation_id, attempt_id, price_snapshot_id, release, f"release:{attempt_id}:{price_snapshot_id}", _now()),
+                (
+                    f"cost_{uuid.uuid4().hex}", owner_id, period_kind, period_key,
+                    invocation_id, attempt_id, price_snapshot_id, release,
+                    f"release:{attempt_id}:{period_kind}:{period_key}:{price_snapshot_id}", _now(),
+                ),
             )
         return _ledger(connection.execute("SELECT * FROM cost_ledger WHERE id=?", (charge_id,)).fetchone())
 
@@ -168,13 +180,54 @@ class CostService:
             raise KeyError("cost budget is not configured")
         return {key: int(row[key]) for key in ("limit_microusd", "reserved_microusd", "charged_microusd")}
 
+    def usage_summary(self, owner_id: str) -> dict[str, Any]:
+        """Authoritative observability aggregate; unknown cost and timing stay explicit."""
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT i.role,v.provider_name,a.profile_version_id,a.reason,a.status,a.cost_status,a.cost_microusd,"
+                "a.started_at,a.first_token_at,a.finished_at,a.output_tokens FROM model_attempts a "
+                "JOIN model_invocations i ON i.id=a.invocation_id "
+                "JOIN model_profile_versions v ON v.id=a.profile_version_id WHERE i.owner_id=? ORDER BY a.started_at,a.id",
+                (owner_id,),
+            ).fetchall()
+        groups: dict[tuple[str, str, str], dict[str, Any]] = {}
+        for row in rows:
+            key = (row["role"], row["provider_name"], row["profile_version_id"])
+            item = groups.setdefault(key, {
+                "role": key[0], "provider": key[1], "profile_version_id": key[2], "attempts": 0,
+                "succeeded": 0, "fallbacks": 0, "cost_microusd": 0, "unknown_cost_attempts": 0,
+                "ttft_seconds": [], "latency_seconds": [], "tps": [],
+            })
+            item["attempts"] += 1
+            item["succeeded"] += row["status"] == "SUCCEEDED"
+            item["fallbacks"] += row["reason"] == "fallback"
+            if row["cost_microusd"] is None:
+                item["unknown_cost_attempts"] += 1
+            else:
+                item["cost_microusd"] += int(row["cost_microusd"])
+            started, first, finished = (_parse_time(row[name]) for name in ("started_at", "first_token_at", "finished_at"))
+            if started is not None and finished is not None:
+                item["latency_seconds"].append(max(finished - started, 0.0))
+            if started is not None and first is not None:
+                item["ttft_seconds"].append(max(first - started, 0.0))
+            if first is not None and finished is not None and row["output_tokens"] is not None and finished > first:
+                item["tps"].append(int(row["output_tokens"]) / (finished - first))
+        result = []
+        for item in groups.values():
+            attempts = item["attempts"]
+            result.append({
+                **{key: item[key] for key in ("role","provider","profile_version_id","attempts","succeeded","fallbacks","cost_microusd","unknown_cost_attempts")},
+                "success_rate": item["succeeded"] / attempts,
+                "fallback_rate": item["fallbacks"] / attempts,
+                "ttft_seconds": _average(item["ttft_seconds"]),
+                "tps": _average(item["tps"]),
+                "p95_latency_seconds": _percentile(item["latency_seconds"], .95),
+            })
+        return {"groups": sorted(result, key=lambda item: (item["role"], item["provider"], item["profile_version_id"]))}
+
     def reserve_attempt(self, connection: Any, handle: Any, attempt_id: str) -> None:
-        period = self.today_period()
-        budget = connection.execute(
-            "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind='DAILY' AND period_key=?",
-            (handle.context.owner_id, period),
-        ).fetchone()
-        if budget is None:
+        periods = self._configured_attempt_periods(connection, handle)
+        if not periods:
             return
         price = connection.execute(
             "SELECT * FROM model_price_snapshots WHERE profile_version_id=? AND effective_at<=? ORDER BY effective_at DESC,id DESC LIMIT 1",
@@ -189,31 +242,67 @@ class CostService:
         )
         if worst.microusd is None:
             raise BudgetExceeded("model cost cannot be reserved")
-        self._reserve(connection, handle.context.owner_id, "DAILY", period, handle.invocation_id, attempt_id, worst.microusd, f"reserve:{attempt_id}")
+        for period_kind, period_key in periods:
+            self._reserve(
+                connection, handle.context.owner_id, period_kind, period_key,
+                handle.invocation_id, attempt_id, worst.microusd,
+                f"reserve:{attempt_id}:{period_kind}:{period_key}",
+            )
 
     def settle_attempt(self, connection: Any, handle: Any, attempt_id: str, usage: UsageBuckets | None) -> CostEstimate:
-        period = self.today_period()
-        reserved = connection.execute(
-            "SELECT amount_microusd FROM cost_ledger WHERE attempt_id=? AND entry_type='RESERVE'",
+        reservations = connection.execute(
+            "SELECT period_kind,period_key,amount_microusd FROM cost_ledger "
+            "WHERE attempt_id=? AND entry_type='RESERVE' ORDER BY period_kind,period_key",
             (attempt_id,),
-        ).fetchone()
-        if reserved is None:
+        ).fetchall()
+        if not reservations:
             return CostEstimate(None, "UNAVAILABLE")
         price_row = connection.execute(
             "SELECT * FROM model_price_snapshots WHERE profile_version_id=? AND effective_at<=? ORDER BY effective_at DESC,id DESC LIMIT 1",
             (handle.profile_version_id, _now()),
         ).fetchone()
         if usage is None:
-            result = CostEstimate(int(reserved["amount_microusd"]), "ESTIMATED_PARTIAL")
+            result = CostEstimate(max(int(row["amount_microusd"]) for row in reservations), "ESTIMATED_PARTIAL")
         else:
             result = estimate_cost(usage, _price(price_row) if price_row else None)
             if result.microusd is None:
-                result = CostEstimate(int(reserved["amount_microusd"]), "ESTIMATED_PARTIAL")
-        self._settle(
-            connection, handle.context.owner_id, "DAILY", period, handle.invocation_id, attempt_id,
-            price_row["id"] if price_row else "unavailable", int(result.microusd), result.status,
-        )
+                result = CostEstimate(max(int(row["amount_microusd"]) for row in reservations), "ESTIMATED_PARTIAL")
+        for reservation in reservations:
+            self._settle(
+                connection, handle.context.owner_id, reservation["period_kind"], reservation["period_key"],
+                handle.invocation_id, attempt_id, price_row["id"] if price_row else "unavailable",
+                int(result.microusd), result.status,
+            )
         return CostEstimateWithPrice(result.microusd, result.status, price_row["id"] if price_row else None)
+
+    def _configured_attempt_periods(self, connection: Any, handle: Any) -> list[tuple[str, str]]:
+        today = self.today_period()
+        invocation = connection.execute(
+            "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind='INVOCATION' AND period_key=?",
+            (handle.context.owner_id, handle.invocation_id),
+        ).fetchone()
+        if invocation is None:
+            template = connection.execute(
+                "SELECT limit_microusd FROM cost_budgets WHERE owner_id=? AND period_kind='INVOCATION' AND period_key='default'",
+                (handle.context.owner_id,),
+            ).fetchone()
+            if template is not None:
+                connection.execute(
+                    "INSERT INTO cost_budgets(owner_id,period_kind,period_key,limit_microusd,updated_at) VALUES (?,'INVOCATION',?,?,?)",
+                    (handle.context.owner_id, handle.invocation_id, int(template["limit_microusd"]), _now()),
+                )
+        candidates = (
+            ("INVOCATION", handle.invocation_id),
+            ("DAILY", today),
+            ("MONTHLY", today[:7]),
+        )
+        return [
+            (kind, key) for kind, key in candidates
+            if connection.execute(
+                "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind=? AND period_key=?",
+                (handle.context.owner_id, kind, key),
+            ).fetchone() is not None
+        ]
 
 
 def _price(row: Any) -> PriceSnapshot:
@@ -231,3 +320,23 @@ def _ledger(row: Any) -> dict[str, Any]:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _parse_time(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def _average(values: list[float]) -> float | None:
+    return sum(values) / len(values) if values else None
+
+
+def _percentile(values: list[float], quantile: float) -> float | None:
+    if not values:
+        return None
+    ordered = sorted(values)
+    return ordered[min(math.ceil(len(ordered) * quantile) - 1, len(ordered) - 1)]

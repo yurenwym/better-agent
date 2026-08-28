@@ -119,3 +119,52 @@ def test_events_are_append_only(tmp_path) -> None:
     with db.connection() as connection, pytest.raises(sqlite3.IntegrityError):
         connection.execute("UPDATE events SET data_json = '{}' WHERE run_id = 'run-1'")
 
+
+def test_database_upgrades_from_migration_12_to_14_and_restarts_idempotently(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "migration-12.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:12])
+    db_module.Database(path)
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        turn_columns = {row[1] for row in connection.execute("PRAGMA table_info(turns)")}
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
+
+    assert versions == list(range(1, 15))
+    assert "runtime_bundle_id" in run_columns
+    assert "runtime_bundle_id" in turn_columns
+    assert "uq_cost_attempt_period_entry" in indexes
+    assert "uq_cost_attempt_entry" not in indexes
+
+
+def test_database_recovers_when_control_migration_ddl_landed_without_receipts(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "interrupted-control-migrations.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:12])
+    db_module.Database(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE runs ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id)")
+        connection.execute("ALTER TABLE turns ADD COLUMN runtime_bundle_id TEXT REFERENCES runtime_bundles(id)")
+        connection.execute("CREATE INDEX idx_runs_runtime_bundle ON runs(runtime_bundle_id)")
+        connection.execute("DROP INDEX uq_cost_attempt_entry")
+        connection.execute("CREATE UNIQUE INDEX uq_cost_attempt_period_entry ON cost_ledger(attempt_id,period_kind,period_key,entry_type,COALESCE(price_snapshot_id,''))")
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
+    assert versions == list(range(1, 15))
+    assert "uq_cost_attempt_period_entry" in indexes
+
