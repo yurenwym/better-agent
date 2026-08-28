@@ -12,7 +12,7 @@ def test_migration_10_creates_append_only_cost_tables(tmp_path) -> None:
     with db.connection() as connection:
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert versions[-1] == 10
+    assert 10 in versions and versions[-1] >= 10
     assert {"model_price_snapshots", "cost_budgets", "cost_ledger"} <= tables
 
 

@@ -17,6 +17,7 @@ from .model_control import ModelControlStore
 from .costs import CostService
 from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
+from .trusted_connectors import TrustedConnectorService
 from .settings import SettingsService
 from .notifications import NotificationService
 from .agents import AgentTaskService, ExpertAdvisoryService, LiveExpertModel, ManagedAgentWorker
@@ -48,7 +49,8 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     db = Database(root / "agent.db", workspace=root / "artifacts")
     events = EventStore(db)
     approvals = ApprovalService(db)
-    tools = create_default_registry(root / "artifacts", db=db, approval_service=approvals)
+    connectors = TrustedConnectorService(db)
+    tools = create_default_registry(root / "artifacts", db=db, approval_service=approvals, connectors=connectors)
     configured_profile = profile
     configured_path = llm_ap_path or os.getenv("LLM_AP_PATH")
     if configured_profile is None and configured_path:
@@ -72,6 +74,9 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         conversation_model=conversation_model,
     )
     runtime.costs = costs
+    runtime.connectors = connectors
+    from .real_evaluation import RealEvaluator
+    runtime.real_evaluator = RealEvaluator(root / "evaluations", db=db)
     from .research.engine import ResearchEngine
     from .research.live import LiveResearchModel
     from .research.service import ResearchService

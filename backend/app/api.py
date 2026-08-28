@@ -877,6 +877,47 @@ def register_routes(app) -> None:
         service = runtime(request)
         return {"skills": [skill.public_view() for skill in service.skills.list()]}
 
+    async def skill_zip_mutate(request: Request) -> None:
+        if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/zip":
+            raise HTTPException(status_code=415, detail="ZIP content type required")
+        origin = request.headers.get("origin")
+        if origin and urlparse(origin).hostname not in {"127.0.0.1", "localhost"}:
+            raise HTTPException(status_code=403, detail="local origin required")
+        if request.headers.get("x-csrf-token") != request.app.state.csrf_token:
+            raise HTTPException(status_code=403, detail="CSRF token required")
+
+    @app.post("/api/skills/install", dependencies=[Depends(skill_zip_mutate)])
+    async def preview_skill_install(request: Request, service=Depends(runtime)):
+        from .skill_platform import SkillValidationError
+        try: return service.skill_platform.preview_install(await request.body())
+        except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/skills/confirm-install", dependencies=[Depends(mutate)])
+    async def confirm_skill_install(payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        from .skill_platform import SkillValidationError
+        try:
+            return service.skill_platform.confirm_install(
+                _required_text(payload, "install_token"), granted_tools=payload.get("granted_tools", []),
+                idempotency_key=idempotency_key(request),
+            )
+        except SkillValidationError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.put("/api/threads/{thread_id}/skills", dependencies=[Depends(mutate)])
+    async def bind_thread_skills(thread_id: str, payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        from .skill_platform import SkillValidationError
+        service.conversation.thread(thread_id)
+        try:
+            return service.skill_platform.bind(
+                "THREAD", thread_id, payload.get("version_ids", []), idempotency_key=idempotency_key(request),
+            )
+        except (SkillValidationError, KeyError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/skills/{skill_id}", status_code=204, dependencies=[Depends(mutate)])
+    async def uninstall_skill(skill_id: str, request: Request, service=Depends(runtime)):
+        try: service.skill_platform.uninstall(skill_id, idempotency_key=idempotency_key(request))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="skill not found") from exc
+        return Response(status_code=204)
+
     @app.post("/api/goals", status_code=201, dependencies=[Depends(mutate)])
     async def create_goal(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         if not payload.get("title"):
@@ -1206,6 +1247,50 @@ def register_routes(app) -> None:
     @app.get("/api/evolution/candidates")
     async def list_evolution_candidates(service=Depends(evolution)):
         return {"candidates": service.list_candidates()}
+
+    def real_evaluator(request: Request):
+        value = getattr(runtime(request), "real_evaluator", None)
+        if value is None:
+            raise HTTPException(status_code=503, detail="real evaluator is not configured")
+        return value
+
+    @app.get("/api/evaluation-suites")
+    async def list_evaluation_suites(service=Depends(real_evaluator)):
+        return {"suites": service.list_suites()}
+
+    @app.get("/api/evaluation-runs/{evaluation_run_id}/report")
+    async def get_evaluation_report(evaluation_run_id: str, service=Depends(real_evaluator)):
+        try: return service.report(evaluation_run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
+
+    @app.get("/api/evaluation-runs/{evaluation_run_id}/events")
+    async def get_evaluation_events(evaluation_run_id: str, after_seq: int = 0, service=Depends(real_evaluator)):
+        try: return service.progress(evaluation_run_id, after_seq=max(after_seq, 0))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
+
+    @app.get("/api/evaluation-runs/{evaluation_run_id}/events/stream")
+    async def stream_evaluation_events(evaluation_run_id: str, request: Request, after_seq: int = 0, service=Depends(real_evaluator)):
+        async def generate():
+            cursor = max(after_seq, 0)
+            while True:
+                try: batch = service.progress(evaluation_run_id, cursor)["events"]
+                except KeyError: return
+                for event in batch:
+                    cursor = event["seq"]
+                    yield f"id: {cursor}\nevent: evaluation\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
+                with service.db.connection() as connection:
+                    row = connection.execute("SELECT status FROM evaluation_runs WHERE id=?", (evaluation_run_id,)).fetchone()
+                if row is None or row["status"] in {"COMPLETED", "FAILED", "CANCELLED"}: return
+                if await request.is_disconnected(): return
+                if not batch: yield ": keep-alive\n\n"
+                await asyncio.sleep(.05)
+        return StreamingResponse(generate(), media_type="text/event-stream")
+
+    @app.post("/api/evaluation-runs/{evaluation_run_id}/cancel", dependencies=[Depends(mutate)])
+    async def cancel_evaluation_run(evaluation_run_id: str, service=Depends(real_evaluator)):
+        try: return service.cancel(evaluation_run_id)
+        except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation run not found") from exc
+        except ValueError as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/evolution/experiences")
     async def list_evolution_experiences(service=Depends(evolution)):

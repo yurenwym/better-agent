@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .db import Database
 from .domain import ApprovalRequired, ApprovalService, normalized_params_hash
+from .trusted_connectors import ConnectorReconciliationRequired, ConnectorSecurityError, TrustedConnectorService
 
 
 class ToolRisk(StrEnum):
@@ -104,8 +105,10 @@ class ToolRegistry:
         *,
         run_id: str,
         skill_tools: set[str] | None,
+        authorization: dict[str, Any] | None = None,
     ) -> ToolResult:
-        spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools)
+        spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+        risk = self._risk(spec, call)
         params_hash = normalized_params_hash(call.params)
         existing = self._existing_call(call.id)
         if existing:
@@ -113,28 +116,33 @@ class ToolRegistry:
                 raise ToolRejected("tool_call_id binding changed")
             if existing["status"] == "completed":
                 return ToolResult(**json.loads(existing["result_json"]))
-        if spec.risk == ToolRisk.WRITE:
+        if risk == ToolRisk.WRITE:
             if self.approval_service is None:
                 raise ApprovalRequired("WRITE tool requires approval")
-            self.approval_service.require_granted(run_id, call.id, call.params)
-        claimed = self._claim_execution(call, run_id, params_hash, spec.risk)
+            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
+        claimed = self._claim_execution(call, run_id, params_hash, risk)
         if isinstance(claimed, ToolResult):
             return claimed
         executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="better-agent-tool")
         future = executor.submit(spec.handler, call.params)
         try:
             result = future.result(timeout=spec.timeout_seconds)
+        except ConnectorReconciliationRequired as exc:
+            future.cancel()
+            executor.shutdown(wait=False, cancel_futures=True)
+            self._mark_reconciliation(call, run_id, params_hash, str(exc))
+            raise ToolRejected("tool execution requires reconciliation") from exc
         except FutureTimeout:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
             timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
-            self._record_call(call, run_id, params_hash, spec.risk, timeout_result)
+            self._record_call(call, run_id, params_hash, risk, timeout_result)
             return timeout_result
         else:
             executor.shutdown(wait=True)
         if not isinstance(result, ToolResult):
             raise TypeError("tool handler must return ToolResult")
-        self._record_call(call, run_id, params_hash, spec.risk, result)
+        self._record_call(call, run_id, params_hash, risk, result)
         return result
 
     def authorize(
@@ -143,6 +151,7 @@ class ToolRegistry:
         *,
         run_id: str,
         skill_tools: set[str] | None,
+        authorization: dict[str, Any] | None = None,
     ) -> ToolSpec:
         spec = self._tools.get(call.name)
         if spec is None:
@@ -152,11 +161,17 @@ class ToolRegistry:
         _validate_schema(spec.schema, call.params)
         for field_name in spec.path_fields:
             self.safe_path(call.params[field_name])
-        if spec.risk == ToolRisk.WRITE:
+        if self._risk(spec, call) == ToolRisk.WRITE:
             if self.approval_service is None:
                 raise ApprovalRequired("WRITE tool requires approval")
-            self.approval_service.require_granted(run_id, call.id, call.params)
+            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
         return spec
+
+    @staticmethod
+    def _risk(spec: ToolSpec, call: ToolCall) -> ToolRisk:
+        if spec.name == "trusted_connector":
+            return ToolRisk.WRITE if str(call.params.get("method", "")).upper() in {"POST", "PUT", "PATCH", "DELETE"} else ToolRisk.READ
+        return spec.risk
 
     def safe_path(self, value: str) -> Path:
         if not isinstance(value, str) or not value.strip():
@@ -190,7 +205,9 @@ class ToolRegistry:
                     raise ToolRejected("tool execution binding changed")
                 if row["status"] == "COMPLETED" and row["result_json"]:
                     return ToolResult(**json.loads(row["result_json"]))
-                if row["status"] == "RUNNING" and risk == ToolRisk.WRITE:
+                if row["status"] == "RECONCILIATION_REQUIRED":
+                    reconciliation_required = True
+                elif row["status"] == "RUNNING" and risk == ToolRisk.WRITE:
                     connection.execute("UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',updated_at=? WHERE logical_action_key=?", (now, logical_key))
                     reconciliation_required = True
                 else:
@@ -203,6 +220,17 @@ class ToolRegistry:
         if reconciliation_required:
             raise ToolRejected("tool execution requires reconciliation")
         return None
+
+    def _mark_reconciliation(self, call: ToolCall, run_id: str, params_hash: str, error: str) -> None:
+        if self.db is None:
+            return
+        now = datetime.now().astimezone().isoformat()
+        with self.db.transaction() as connection:
+            connection.execute(
+                "UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',error_code=?,updated_at=? "
+                "WHERE logical_action_key=? AND run_id=? AND params_hash=?",
+                (error, now, f"{run_id}:{call.id}", run_id, params_hash),
+            )
 
     def _record_call(
         self,
@@ -232,6 +260,7 @@ def create_default_registry(
     *,
     db: Database | None = None,
     approval_service: ApprovalService | None = None,
+    connectors: TrustedConnectorService | None = None,
 ) -> ToolRegistry:
     registry = ToolRegistry(workspace, db, approval_service)
     registry.register(
@@ -291,7 +320,39 @@ def create_default_registry(
             path_fields=("path",),
         )
     )
+    if connectors is not None:
+        registry.register(
+            ToolSpec(
+                "trusted_connector",
+                "通过项目注册并验证的可信 HTTPS 连接器访问外部服务。",
+                {
+                    "type": "object",
+                    "required": ["connector_version_id", "method", "path"],
+                    "properties": {
+                        "connector_version_id": {"type": "string"},
+                        "method": {"type": "string"},
+                        "path": {"type": "string"},
+                        "query": {"type": "object"},
+                        "body": {"type": "object"},
+                    },
+                    "additionalProperties": False,
+                },
+                ToolRisk.WRITE,
+                lambda params: _trusted_connector(connectors, params),
+            )
+        )
     return registry
+
+
+def _trusted_connector(connectors: TrustedConnectorService, params: dict[str, Any]) -> ToolResult:
+    try:
+        result = connectors.execute(
+            params["connector_version_id"], params["method"], params["path"],
+            query=params.get("query"), body=params.get("body"),
+        )
+    except ConnectorSecurityError as exc:
+        return ToolResult(False, "可信连接器请求被拒绝", error="connector_rejected", meta={"reason": str(exc)})
+    return ToolResult(True, "可信连接器请求完成", result, meta={"untrusted_external_data": True})
 
 
 def _read_note(registry: ToolRegistry, params: dict[str, Any]) -> ToolResult:

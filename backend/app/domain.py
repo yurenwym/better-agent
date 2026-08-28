@@ -306,13 +306,16 @@ class ApprovalService:
         tool_name: str,
         params: dict[str, Any],
         expires_at: str | None = None,
+        binding: dict[str, Any] | None = None,
     ) -> Approval:
         approval_id = f"approval_{uuid.uuid4().hex}"
         params_hash = normalized_params_hash(params)
+        binding_json = json.dumps(binding or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        binding_digest = hashlib.sha256(binding_json.encode("utf-8")).hexdigest()
         with self.db.transaction() as connection:
             existing = connection.execute(
-                "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND params_hash = ?",
-                (run_id, tool_call_id, params_hash),
+                "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND params_hash = ? AND binding_digest = ?",
+                (run_id, tool_call_id, params_hash, binding_digest),
             ).fetchone()
             if existing is not None:
                 if existing["status"] == "rejected" or _expired(existing["expires_at"]):
@@ -323,25 +326,27 @@ class ApprovalService:
                     return Approval(existing["id"], run_id, tool_call_id, params_hash, "pending")
                 return Approval(existing["id"], run_id, tool_call_id, params_hash, existing["status"])
             connection.execute(
-                "INSERT INTO approvals(id, run_id, tool_call_id, params_hash, params_json, status, created_at, expires_at) "
-                "VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)",
-                (approval_id, run_id, tool_call_id, params_hash, json.dumps(params, ensure_ascii=False, sort_keys=True), _now(), expires_at),
+                "INSERT INTO approvals(id, run_id, tool_call_id, params_hash, params_json, binding_json, binding_digest, status, created_at, expires_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?)",
+                (approval_id, run_id, tool_call_id, params_hash, json.dumps(params, ensure_ascii=False, sort_keys=True), binding_json, binding_digest, _now(), expires_at),
             )
         return Approval(approval_id, run_id, tool_call_id, params_hash, "pending")
 
-    def grant(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any]) -> Approval:
-        return self._act(approval_id, run_id, tool_call_id, params, "granted")
+    def grant(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> Approval:
+        return self._act(approval_id, run_id, tool_call_id, params, "granted", binding)
 
-    def reject(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any]) -> Approval:
-        return self._act(approval_id, run_id, tool_call_id, params, "rejected")
+    def reject(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> Approval:
+        return self._act(approval_id, run_id, tool_call_id, params, "rejected", binding)
 
-    def require_granted(self, run_id: str, tool_call_id: str, params: dict[str, Any]) -> None:
+    def require_granted(self, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> None:
         params_hash = normalized_params_hash(params)
+        binding_json = json.dumps(binding or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        binding_digest = hashlib.sha256(binding_json.encode("utf-8")).hexdigest()
         with self.db.connection() as connection:
             row = connection.execute(
                 "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND params_hash = ? "
-                "AND status = 'granted' ORDER BY created_at DESC LIMIT 1",
-                (run_id, tool_call_id, params_hash),
+                "AND binding_digest = ? AND status = 'granted' ORDER BY created_at DESC LIMIT 1",
+                (run_id, tool_call_id, params_hash, binding_digest),
             ).fetchone()
         if row is None or _expired(row["expires_at"]):
             raise ApprovalRequired("valid approval required")
@@ -353,8 +358,11 @@ class ApprovalService:
         tool_call_id: str,
         params: dict[str, Any],
         status: str,
+        binding: dict[str, Any] | None,
     ) -> Approval:
         params_hash = normalized_params_hash(params)
+        binding_json = json.dumps(binding or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        binding_digest = hashlib.sha256(binding_json.encode("utf-8")).hexdigest()
         with self.db.transaction() as connection:
             row = connection.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
             if (
@@ -362,6 +370,7 @@ class ApprovalService:
                 or row["run_id"] != run_id
                 or row["tool_call_id"] != tool_call_id
                 or row["params_hash"] != params_hash
+                or row["binding_digest"] != binding_digest
                 or row["status"] != "pending"
                 or _expired(row["expires_at"])
             ):

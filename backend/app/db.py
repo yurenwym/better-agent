@@ -853,6 +853,70 @@ MIGRATIONS = (
       created_at TEXT NOT NULL, UNIQUE(case_pair_id,kind)
     );
     """),
+    (11, r"""
+    CREATE TABLE skills (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('INSTALLED','ENABLED','DISABLED','UNINSTALLED')),
+      default_version_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, uninstalled_at TEXT,
+      UNIQUE(owner_id,name)
+    );
+    CREATE TABLE skill_versions (
+      id TEXT PRIMARY KEY, skill_id TEXT NOT NULL REFERENCES skills(id), version TEXT NOT NULL,
+      package_digest TEXT NOT NULL, manifest_digest TEXT NOT NULL, manifest_json TEXT NOT NULL,
+      title TEXT NOT NULL, description TEXT NOT NULL, content TEXT NOT NULL, requested_tools_json TEXT NOT NULL,
+      connectors_json TEXT NOT NULL, phases_json TEXT NOT NULL, storage_path TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('INSTALLED','ENABLED','DISABLED','UNINSTALLED')),
+      created_at TEXT NOT NULL, UNIQUE(skill_id,version), UNIQUE(package_digest)
+    );
+    CREATE TRIGGER skill_versions_frozen BEFORE UPDATE ON skill_versions
+    WHEN OLD.skill_id<>NEW.skill_id OR OLD.version<>NEW.version OR OLD.package_digest<>NEW.package_digest OR
+         OLD.manifest_digest<>NEW.manifest_digest OR OLD.manifest_json<>NEW.manifest_json OR
+         OLD.title<>NEW.title OR OLD.description<>NEW.description OR OLD.content<>NEW.content OR
+         OLD.requested_tools_json<>NEW.requested_tools_json OR OLD.connectors_json<>NEW.connectors_json OR
+         OLD.phases_json<>NEW.phases_json OR OLD.storage_path<>NEW.storage_path OR OLD.created_at<>NEW.created_at
+    BEGIN SELECT RAISE(ABORT,'skill version is frozen'); END;
+    CREATE TRIGGER skill_versions_no_delete BEFORE DELETE ON skill_versions
+    BEGIN SELECT RAISE(ABORT,'skill version is frozen'); END;
+    CREATE TABLE skill_grants (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, skill_version_id TEXT NOT NULL REFERENCES skill_versions(id),
+      granted_tools_json TEXT NOT NULL, grant_digest TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('ACTIVE','REVOKED')),
+      version INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(owner_id,skill_version_id)
+    );
+    CREATE TABLE skill_bindings (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, binding_type TEXT NOT NULL CHECK(binding_type IN ('THREAD','RUN')),
+      binding_id TEXT NOT NULL, version_ids_json TEXT NOT NULL, snapshot_digest TEXT NOT NULL,
+      idempotency_key TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(owner_id,binding_type,binding_id)
+    );
+    CREATE TABLE trusted_connectors (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('ENABLED','DISABLED')),
+      current_version_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE(owner_id,name)
+    );
+    CREATE TABLE trusted_connector_versions (
+      id TEXT PRIMARY KEY, connector_id TEXT NOT NULL REFERENCES trusted_connectors(id), version INTEGER NOT NULL,
+      base_url TEXT NOT NULL, methods_json TEXT NOT NULL, paths_json TEXT NOT NULL, credential_env_ref TEXT,
+      request_schema_json TEXT NOT NULL DEFAULT '{}', timeout_seconds REAL NOT NULL, max_response_bytes INTEGER NOT NULL,
+      risk TEXT NOT NULL, config_digest TEXT NOT NULL UNIQUE, verified_at TEXT,
+      created_at TEXT NOT NULL, UNIQUE(connector_id,version)
+    );
+    CREATE TRIGGER trusted_connector_versions_frozen BEFORE UPDATE ON trusted_connector_versions
+    BEGIN SELECT RAISE(ABORT,'trusted connector version is frozen'); END;
+    CREATE TRIGGER trusted_connector_versions_no_delete BEFORE DELETE ON trusted_connector_versions
+    BEGIN SELECT RAISE(ABORT,'trusted connector version is frozen'); END;
+    CREATE TABLE skill_events (
+      row_id INTEGER PRIMARY KEY AUTOINCREMENT, event_id TEXT NOT NULL UNIQUE, owner_id TEXT NOT NULL,
+      skill_id TEXT, skill_version_id TEXT, type TEXT NOT NULL, actor TEXT NOT NULL,
+      data_json TEXT NOT NULL DEFAULT '{}', idempotency_key TEXT NOT NULL UNIQUE, occurred_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_skill_events_skill ON skill_events(skill_id,row_id);
+    CREATE TRIGGER skill_events_append_only_update BEFORE UPDATE ON skill_events
+    BEGIN SELECT RAISE(ABORT,'skill events are append-only'); END;
+    CREATE TRIGGER skill_events_append_only_delete BEFORE DELETE ON skill_events
+    BEGIN SELECT RAISE(ABORT,'skill events are append-only'); END;
+    ALTER TABLE approvals ADD COLUMN binding_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE approvals ADD COLUMN binding_digest TEXT NOT NULL DEFAULT '';
+    """),
 )
 
 

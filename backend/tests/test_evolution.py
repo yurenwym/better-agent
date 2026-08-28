@@ -256,12 +256,97 @@ def test_online_canary_rejects_candidate_types_without_a_runtime_adapter(tmp_pat
     _, bundles, service, base, _ = setup_service(tmp_path)
     target = bundles.ensure({**base.manifest, "skills":{"new":"digest"}})
     evidence = experiences(service, base.id)
-    with pytest.raises(EvolutionGateError, match="only prompt"):
+    with pytest.raises(EvolutionGateError, match="runtime adapter"):
         service.propose_candidate(
             candidate_type="skill", experience_ids=[entry["id"] for entry in evidence],
             base_bundle_id=base.id, target_bundle_id=target.id, proposed_content={"skills":{"new":"digest"}},
             permission_diff={"added":[]}, reason="skill", idempotency_key="skill-candidate",
         )
+
+
+def test_policy_candidate_reuses_existing_canary_without_permission_expansion(tmp_path):
+    _, bundles, service, base, _ = setup_service(tmp_path)
+    target = bundles.ensure({
+        **base.manifest,
+        "model_routing": {"policy_id": "route-v2", "digest": "route-digest-v2"},
+        "model_role_bindings": {"planner": "profile-v2"},
+    })
+    evidence = experiences(service, base.id)
+    item = service.propose_candidate(
+        candidate_type="policy", experience_ids=[entry["id"] for entry in evidence],
+        base_bundle_id=base.id, target_bundle_id=target.id,
+        proposed_content={
+            "model_role_bindings": {"planner": "profile-v2"},
+            "model_routing": {"policy_id": "route-v2", "digest": "route-digest-v2"},
+        },
+        permission_diff={"added": []}, reason="route planner to evaluated model", idempotency_key="policy-candidate",
+    )
+    assert item["candidate_type"] == "policy"
+
+    with pytest.raises(EvolutionGateError, match="paired release"):
+        service.evaluate(
+            item["id"], expected_version=item["version"], deterministic_checks={"safe": True}, metrics={},
+            eval_set_digest="legacy", evaluator_digest="legacy", idempotency_key="legacy-policy-eval",
+        )
+
+
+def test_policy_candidate_rejects_tool_or_permission_changes(tmp_path):
+    _, bundles, service, base, _ = setup_service(tmp_path)
+    target = bundles.ensure({**base.manifest, "tools": "changed", "model_routing": {"policy_id": "x", "digest": "x"}})
+    with pytest.raises(EvolutionGateError, match="routing"):
+        service.propose_candidate(
+            candidate_type="policy", experience_ids=[entry["id"] for entry in experiences(service, base.id)],
+            base_bundle_id=base.id, target_bundle_id=target.id,
+            proposed_content={"model_routing": {"policy_id": "x", "digest": "x"}, "tools": "changed"},
+            permission_diff={"added": []}, reason="invalid expansion", idempotency_key="invalid-policy",
+        )
+
+
+def test_policy_candidate_enters_existing_approval_and_canary_with_paired_report(tmp_path):
+    from app.real_evaluation import RealEvaluator
+    from test_real_evaluation import _release_cases
+
+    _, bundles, service, base, _ = setup_service(tmp_path)
+    target = bundles.ensure({
+        **base.manifest,
+        "model_routing": {"policy_id": "route-v2", "digest": "route-digest-v2"},
+        "model_role_bindings": {"planner": "profile-v2"},
+    })
+    item = service.propose_candidate(
+        candidate_type="policy", experience_ids=[entry["id"] for entry in experiences(service, base.id)],
+        base_bundle_id=base.id, target_bundle_id=target.id,
+        proposed_content={
+            "model_role_bindings": {"planner": "profile-v2"},
+            "model_routing": {"policy_id": "route-v2", "digest": "route-digest-v2"},
+        },
+        permission_diff={"added": []}, reason="evaluated route", idempotency_key="policy-positive",
+    )
+    evaluator = RealEvaluator(tmp_path / "release")
+    evaluator.register_release_suite("release-v1", _release_cases())
+    report = evaluator.evaluate_paired(
+        suite_id="release-v1", evaluation_run_id="release-policy", baseline_bundle_id=base.id, candidate_bundle_id=target.id,
+        baseline=lambda case: {"text": "safe baseline", "cost_microusd": 2, "ttft_seconds": .2},
+        candidate=lambda case: {"text": "safe improved", "cost_microusd": 1, "ttft_seconds": .1},
+        quality_judge=lambda payload: {"winner": "right" if "improved" in payload["right"] else "left"},
+        safety_judge=lambda payload: {"left_safe": True, "right_safe": True},
+        baseline_model_id="a", candidate_model_id="b", quality_judge_model_id="q", safety_judge_model_id="s",
+        evaluator_digest="paired-v1", tool_schema_digest="tools", context_digest="context", budget_microusd=1000,
+        primary_objective="quality",
+    )
+    evaluation = service.evaluate_release(
+        item["id"], expected_version=item["version"], paired_report=report, idempotency_key="policy-release-eval",
+    )
+    assert evaluation["metrics"]["kind"] == "paired_release_evaluation"
+    approval = service.approve_current(
+        item["id"], expires_at=(datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(), idempotency_key="policy-approval",
+    )
+    approved = service.get_candidate(item["id"])
+    deployment = service.start_canary(
+        item["id"], expected_version=approved["version"], approval_id=approval["id"], allocation_percent=10,
+        assignment_unit="run", idempotency_key="policy-canary",
+    )
+    assert deployment["challenger_bundle_id"] == target.id
+    assert service.get_candidate(item["id"])["status"] == "CANARY"
 
 
 def test_builtin_evaluation_binds_real_baseline_candidate_report(tmp_path):

@@ -25,6 +25,7 @@ from .domain import (
 from .events import EventStore
 from .memory import MemoryService
 from .skill_registry import SkillCatalog
+from .skill_platform import SkillPlatform
 from .stats import StatsProjector
 from .tools import ToolCall, ToolRegistry, ToolRejected, ToolResult
 
@@ -151,7 +152,8 @@ class AgentRuntime:
         self.tools = tools
         self.model = model
         self.config = config or RuntimeConfig()
-        self.skills = skill_catalog or SkillCatalog()
+        self.skill_platform = SkillPlatform(db, db.path.parent / "skills")
+        self.skills = skill_catalog or SkillCatalog(platform=self.skill_platform)
         from .conversation import ConversationService, ManagedTurnWorker
 
         self.conversation = ConversationService(
@@ -263,6 +265,10 @@ class AgentRuntime:
             if skill_names is not None:
                 selected_skills = self.skills.validate(skill_names)
                 if selected_skills != run.skill_names:
+                    self.skill_platform.bind(
+                        "RUN", run_id, self.skills.version_ids(selected_skills),
+                        idempotency_key=f"run-skill-binding:{run_id}:{','.join(selected_skills)}",
+                    )
                     self._set_run_fields(run_id, skill_names_json=json.dumps(selected_skills, ensure_ascii=False))
                     self.events.append(
                         run_id,
@@ -376,7 +382,8 @@ class AgentRuntime:
         async with self._lock(lock_run_id):
             approval = self._approval_row(approval_id)
             params = json.loads(approval["params_json"])
-            self.approvals.grant(approval_id, approval["run_id"], approval["tool_call_id"], params)
+            binding = json.loads(approval["binding_json"] or "{}")
+            self.approvals.grant(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding)
             run = self.get_run(approval["run_id"])
             self.events.append(
                 run.id,
@@ -392,7 +399,8 @@ class AgentRuntime:
         async with self._lock(run_id):
             approval = self._approval_row(approval_id)
             params = json.loads(approval["params_json"])
-            self.approvals.reject(approval_id, approval["run_id"], approval["tool_call_id"], params)
+            binding = json.loads(approval["binding_json"] or "{}")
+            self.approvals.reject(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding)
             run = self.get_run(run_id)
             self.events.append(run_id, run.goal_id, "approval.rejected", "user", {"approval_id": approval_id})
             return await self._execute_locked(run_id)
@@ -618,7 +626,8 @@ class AgentRuntime:
                 result = self.checkpoints.completed_tool_result(run_id, call.id)
                 if result is None:
                     skill_tools = self._skill_tools_for_run(run, "react")
-                    self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools)
+                    authorization = self._tool_authorization(run, "react", call)
+                    self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -626,7 +635,9 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "name": call.name},
                     )
-                    tool_result = self.tools.execute(call, run_id=run_id, skill_tools=skill_tools)
+                    tool_result = self.tools.execute(
+                        call, run_id=run_id, skill_tools=skill_tools, authorization=authorization,
+                    )
                     self.events.append(
                         run_id,
                         run.goal_id,
@@ -639,7 +650,10 @@ class AgentRuntime:
                 else:
                     tool_result = ToolResult(**result)
             except ApprovalRequired:
-                approval = self.approvals.request(run_id, call.id, call.name, call.params)
+                approval = self.approvals.request(
+                    run_id, call.id, call.name, call.params,
+                    binding=self._tool_authorization(run, "react", call),
+                )
                 self.events.append(
                     run_id,
                     run.goal_id,
@@ -1209,20 +1223,34 @@ class AgentRuntime:
         if skill_name in {"goal-planning", "planning", "reflection"}:
             return {"local_time", "calculator", "read_note"}
         if skill_name == "react":
-            return {"local_time", "calculator", "read_note", "write_note"}
+            return {"local_time", "calculator", "read_note", "write_note", "trusted_connector"}
         return set()
 
     def _skill_tools_for_run(self, run: RunSnapshot, phase_name: str) -> set[str]:
         allowed = self._skill_tools_for(phase_name)
-        selected_policies = [
-            policy
-            for name in run.skill_names
-            if (policy := self.skills.allowed_tools(name)) is not None
-        ]
-        if selected_policies:
-            selected_tools = set().union(*(set(policy) for policy in selected_policies))
+        if run.skill_names:
+            try: binding = self.skill_platform.binding("RUN", run.id)
+            except KeyError: return set()
+            global_tools = {item["function"]["name"] for item in self.tools.describe()}
+            selected_tools: set[str] = set()
+            for version_id in binding["version_ids"]:
+                selected_tools |= self.skill_platform.effective_tools(
+                    version_id, global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+                )
             return allowed & selected_tools
         return allowed
+
+    def _tool_authorization(self, run: RunSnapshot, phase_name: str, call: ToolCall) -> dict[str, str] | None:
+        if not run.skill_names:
+            return None
+        allowed = self._skill_tools_for(phase_name)
+        global_tools = {item["function"]["name"] for item in self.tools.describe()}
+        connector_version_id = call.params.get("connector_version_id") if call.name == "trusted_connector" else None
+        return self.skill_platform.tool_authorization(
+            "RUN", run.id, call.name, connector_version_id=connector_version_id,
+            global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+            routing_policy_digest=str(run.budget.get("routing_policy_digest", "direct")),
+        )
 
 
 def _model_result_payload(kind: str, result: Any) -> dict[str, Any]:

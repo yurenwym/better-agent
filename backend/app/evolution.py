@@ -156,8 +156,8 @@ class EvolutionService:
     ) -> dict[str, Any]:
         if candidate_type not in {"memory", "skill", "policy", "prompt", "code"}:
             raise ValueError("invalid candidate_type")
-        if candidate_type != "prompt":
-            raise EvolutionGateError("V1.2 supports only prompt candidates")
+        if candidate_type not in {"prompt", "policy"}:
+            raise EvolutionGateError("candidate type does not have a runtime adapter")
         if not isinstance(experience_ids, list):
             raise ValueError("experience_ids must be a list")
         if not isinstance(proposed_content, dict) or not isinstance(permission_diff, dict):
@@ -184,6 +184,8 @@ class EvolutionService:
             actual_diff = _manifest_diff(base_manifest, target_manifest)
             if proposed_content != actual_diff:
                 raise EvolutionGateError("proposed content must match the target bundle diff")
+            if candidate_type == "policy" and not set(actual_diff).issubset({"model_routing", "model_role_bindings"}):
+                raise EvolutionGateError("policy candidate may change only model routing and role bindings")
             if base_manifest.get("core_policy") != target_manifest.get("core_policy"):
                 raise EvolutionGateError("candidate cannot modify core policy")
             base_permissions = set(base_manifest.get("permissions", []))
@@ -221,6 +223,10 @@ class EvolutionService:
             raise ValueError("deterministic_checks must be a non-empty boolean object")
         if not isinstance(metrics, dict):
             raise ValueError("metrics must be an object")
+        with self.db.connection() as connection:
+            candidate_type = self._candidate_db(connection, candidate_id, owner_id)["candidate_type"]
+        if candidate_type == "policy":
+            raise EvolutionGateError("policy candidate requires a paired release evaluation")
         payload = {"candidate_id": candidate_id, "expected_version": expected_version, "checks": deterministic_checks,
                    "metrics": metrics, "eval_set_digest": eval_set_digest, "evaluator_digest": evaluator_digest}
         request_digest = _digest(payload)
@@ -258,6 +264,77 @@ class EvolutionService:
             self._advance(connection, candidate_id, expected_version, "EVALUATED", current_evaluation_id=evaluation_id)
             self._event(connection, candidate_id, "evolution.evaluation.completed", "deterministic-evaluator",
                         {"evaluation_id": evaluation_id, "deterministic_pass": deterministic_pass}, f"evaluation:{idempotency_key}")
+            return self._evaluation(connection.execute("SELECT * FROM evolution_evaluations WHERE id=?", (evaluation_id,)).fetchone())
+
+    def evaluate_release(
+        self, candidate_id: str, *, expected_version: int, paired_report: dict[str, Any],
+        idempotency_key: str, owner_id: str = OWNER_ID,
+    ) -> dict[str, Any]:
+        from .real_evaluation import RealEvaluator
+
+        RealEvaluator.assert_release_approvable(paired_report)
+        bindings = paired_report["bindings"]
+        item = self.get_candidate(candidate_id, owner_id)
+        if item["candidate_type"] != "policy":
+            raise EvolutionGateError("paired routing evaluation is only for policy candidates")
+        if (
+            bindings["baseline_bundle_id"] != item["base_bundle_id"]
+            or bindings["candidate_bundle_id"] != item["target_bundle_id"]
+        ):
+            raise EvolutionGateError("paired release report bundle binding mismatch")
+        checks = {
+            "paired_release": True,
+            "safety_pass": paired_report["safety"] == {"passed": 10, "failures": 0},
+            "evidence_sufficient": bool(paired_report["holdout"]["evidence_sufficient"]),
+            "permission_preserved": not bool(item["permission_diff"].get("added")),
+        }
+        metrics = {
+            "kind": "paired_release_evaluation",
+            "evaluation_run_id": bindings["evaluation_run_id"],
+            "report_digest": paired_report["report_digest"],
+            "holdout": paired_report["holdout"],
+            "safety": paired_report["safety"],
+            "cost_microusd": paired_report["cost_microusd"],
+            "primary_objective": bindings["primary_objective"],
+        }
+        return self._store_evaluation(
+            candidate_id, expected_version=expected_version, checks=checks, metrics=metrics,
+            eval_set_digest=bindings["eval_set_digest"], evaluator_digest=bindings["evaluator_digest"],
+            idempotency_key=idempotency_key, owner_id=owner_id,
+        )
+
+    def _store_evaluation(
+        self, candidate_id: str, *, expected_version: int, checks: dict[str, bool], metrics: dict[str, Any],
+        eval_set_digest: str, evaluator_digest: str, idempotency_key: str, owner_id: str,
+    ) -> dict[str, Any]:
+        payload = {"candidate_id": candidate_id, "expected_version": expected_version, "checks": checks, "metrics": metrics,
+                   "eval_set_digest": eval_set_digest, "evaluator_digest": evaluator_digest}
+        request_digest = _digest(payload)
+        with self.db.transaction() as connection:
+            cached = self._cached(connection, "evolution_evaluations", idempotency_key, request_digest)
+            if cached is not None:
+                return self._evaluation(cached)
+            candidate = self._candidate_db(connection, candidate_id, owner_id)
+            if candidate["status"] != "READY_FOR_EVAL" or candidate["version"] != expected_version:
+                raise EvolutionConflict("candidate is not ready for evaluation")
+            report = {
+                "candidate_digest": candidate["proposed_digest"], "target_bundle_digest": candidate["target_bundle_digest"],
+                "eval_set_digest": eval_set_digest, "evaluator_digest": evaluator_digest,
+                "deterministic_pass": all(checks.values()), "checks": checks, "metrics": metrics,
+            }
+            evaluation_id, now = f"evaluation_{uuid.uuid4().hex}", _now()
+            report_digest = _digest(report)
+            connection.execute(
+                "INSERT INTO evolution_evaluations(id,candidate_id,baseline_bundle_id,candidate_bundle_id,eval_set_digest,evaluator_digest,"
+                "deterministic_pass,checks_json,metrics_json,report_digest,status,request_digest,idempotency_key,created_at,finished_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,'COMPLETED',?,?,?,?)",
+                (evaluation_id, candidate_id, candidate["base_bundle_id"], candidate["target_bundle_id"], eval_set_digest,
+                 evaluator_digest, int(report["deterministic_pass"]), _json(checks), _json(metrics), report_digest,
+                 request_digest, idempotency_key, now, now),
+            )
+            self._advance(connection, candidate_id, expected_version, "EVALUATED", current_evaluation_id=evaluation_id)
+            self._event(connection, candidate_id, "evolution.evaluation.completed", "paired-evaluator",
+                        {"evaluation_id": evaluation_id, "deterministic_pass": report["deterministic_pass"]}, f"evaluation:{idempotency_key}")
             return self._evaluation(connection.execute("SELECT * FROM evolution_evaluations WHERE id=?", (evaluation_id,)).fetchone())
 
     def evaluate_builtin(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
@@ -406,7 +483,7 @@ class EvolutionService:
             if connection.execute("SELECT 1 FROM canary_deployments WHERE status='ACTIVE'").fetchone() is not None:
                 raise EvolutionConflict("another canary deployment is already active")
             candidate = self._candidate_db(connection, candidate_id, owner_id)
-            if candidate["candidate_type"] != "prompt":
+            if candidate["candidate_type"] not in {"prompt", "policy"}:
                 raise EvolutionGateError("candidate type does not have an online runtime adapter")
             approval = connection.execute(
                 "SELECT * FROM evolution_decisions WHERE id=? AND candidate_id=? AND decision='APPROVE'", (approval_id, candidate_id)
@@ -431,8 +508,11 @@ class EvolutionService:
 
     @staticmethod
     def _target_runtime_contract(candidate_type: str, manifest: dict[str, Any]) -> bool:
-        if candidate_type != "prompt":
-            return False
+        if candidate_type == "policy":
+            routing = manifest.get("model_routing")
+            bindings = manifest.get("model_role_bindings")
+            return isinstance(routing, dict) and bool(routing.get("policy_id")) and bool(routing.get("digest")) and isinstance(bindings, dict) and bool(bindings)
+        if candidate_type != "prompt": return False
         prompt = manifest.get("prompts", manifest.get("prompt"))
         if not isinstance(prompt, (str, dict)) or not prompt:
             return False
