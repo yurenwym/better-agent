@@ -302,7 +302,17 @@ class RealEvaluator:
                 (_digest([evaluation_run_id, case["id"], "order"]), case["id"]) for case in suite["cases"]
             ))
         }
+        completed_case_ids: set[str] = set()
+        if existing_run and self.db is not None:
+            with self.db.connection() as connection:
+                completed_case_ids = {
+                    row["case_id"] for row in connection.execute(
+                        "SELECT case_id FROM evaluation_case_pairs WHERE evaluation_run_id=?", (evaluation_run_id,),
+                    )
+                }
         for case in suite["cases"]:
+            if case["id"] in completed_case_ids:
+                continue
             if cancel_check and cancel_check():
                 raise EvaluationCancelled("evaluation cancelled")
             baseline_first = execution_rank[case["id"]] < len(suite["cases"]) // 2
@@ -332,12 +342,23 @@ class RealEvaluator:
             if case["partition"] == "SAFETY":
                 safety["passed" if candidate_safe else "failures"] += 1
             total_cost += baseline_output["cost_microusd"] + candidate_output["cost_microusd"]
-            records.append({
+            record = {
                 "case_id": case["id"], "partition": case["partition"], "domain": case["domain"], "order": order,
                 "left_digest": _digest(left), "right_digest": _digest(right), "winner": winner,
-                "candidate_won": candidate_won, "candidate_safe": candidate_safe,
+                "left_is_baseline": left_is_baseline, "candidate_won": candidate_won, "candidate_safe": candidate_safe,
                 "baseline": baseline_output, "candidate": candidate_output,
-            })
+            }
+            records.append(record)
+            if existing_run and self.db is not None:
+                self._persist_case(evaluation_run_id, bindings={
+                    "evaluation_run_id": evaluation_run_id, "suite_id": suite_id, "eval_set_digest": suite["digest"],
+                    "baseline_bundle_id": baseline_bundle_id, "candidate_bundle_id": candidate_bundle_id,
+                    "baseline_model_id": baseline_model_id, "candidate_model_id": candidate_model_id,
+                    "quality_judge_model_id": quality_judge_model_id, "safety_judge_model_id": safety_judge_model_id,
+                    "evaluator_digest": evaluator_digest, "tool_schema_digest": tool_schema_digest,
+                    "context_digest": context_digest, "budget_microusd": budget_microusd,
+                    "primary_objective": primary_objective,
+                }, case=case, record=record)
         non_ties = holdout["wins"] + holdout["losses"]
         evidence_sufficient = non_ties >= 20
         quality_pass = evidence_sufficient and holdout["wins"] > holdout["losses"]
@@ -362,9 +383,56 @@ class RealEvaluator:
             "release_eligible": release_eligible,
         }
         report["report_digest"] = _digest(report)
+        if existing_run and self.db is not None:
+            now = _now()
+            with self.db.transaction() as connection:
+                connection.execute(
+                    "UPDATE evaluation_runs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,updated_at=?,finished_at=? WHERE id=?",
+                    (now, now, evaluation_run_id),
+                )
+            return self.report(evaluation_run_id)
         if self.db is not None:
             self._persist_report(report, suite, existing_run=existing_run)
         return report
+
+    def _persist_case(self, evaluation_run_id: str, *, bindings: dict[str, Any], case: dict[str, Any], record: dict[str, Any]) -> None:
+        now = _now()
+        with self.db.transaction() as connection:
+            if connection.execute(
+                "SELECT 1 FROM evaluation_case_pairs WHERE evaluation_run_id=? AND case_id=?",
+                (evaluation_run_id, case["id"]),
+            ).fetchone():
+                return
+            pair_id = f"eval_pair_{uuid.uuid4().hex}"
+            connection.execute(
+                "INSERT INTO evaluation_case_pairs(id,evaluation_run_id,case_id,partition,domain,input_digest,fixture_digest,execution_order) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (pair_id, evaluation_run_id, case["id"], case["partition"], case["domain"], _digest(case["input"]), _digest(case["rubric"]), record["order"]),
+            )
+            for arm, bundle_id, output in (
+                ("A", bindings["baseline_bundle_id"], record["baseline"]),
+                ("B", bindings["candidate_bundle_id"], record["candidate"]),
+            ):
+                connection.execute(
+                    "INSERT INTO evaluation_arm_results(id,case_pair_id,arm,bundle_id,output_text,output_digest,deterministic_pass,metrics_json) "
+                    "VALUES (?,?,?,?,?,?,1,?)",
+                    (f"eval_arm_{uuid.uuid4().hex}", pair_id, arm, bundle_id, output["text"], _digest(output["text"]), _json({
+                        "cost_microusd": output["cost_microusd"], "ttft_seconds": output["ttft_seconds"],
+                        "model_id": bindings["baseline_model_id" if arm == "A" else "candidate_model_id"],
+                    })),
+                )
+            left_is_baseline = record["left_is_baseline"]
+            quality = {"winner": record["winner"], "candidate_won": record["candidate_won"], "left_is_baseline": left_is_baseline}
+            safety = {"candidate_safe": record["candidate_safe"]}
+            for kind, result, judge_model_id in (
+                ("QUALITY", quality, bindings["quality_judge_model_id"]),
+                ("SAFETY", safety, bindings["safety_judge_model_id"]),
+            ):
+                result["judge_model_id"] = judge_model_id
+                connection.execute(
+                    "INSERT INTO evaluation_judgments(id,case_pair_id,kind,result_json,judgment_digest,created_at) VALUES (?,?,?,?,?,?)",
+                    (f"eval_judgment_{uuid.uuid4().hex}", pair_id, kind, _json(result), _digest([pair_id, kind, result]), now),
+                )
 
     def _persist_report(self, report: dict[str, Any], suite: dict[str, Any], *, existing_run: bool = False) -> None:
         bindings = report["bindings"]
@@ -410,7 +478,7 @@ class RealEvaluator:
                             }),
                         ),
                     )
-                left_is_baseline = record["left_digest"] == _digest(record["baseline"]["text"])
+                left_is_baseline = record["left_is_baseline"]
                 quality = {
                     "winner": record["winner"], "candidate_won": record["candidate_won"],
                     "left_is_baseline": left_is_baseline,
@@ -479,9 +547,15 @@ class RealEvaluator:
                 "case_id": row["case_id"], "partition": row["partition"], "domain": row["domain"], "order": row["execution_order"],
                 "left_digest": _digest(baseline["text"] if left_is_baseline else candidate["text"]),
                 "right_digest": _digest(candidate["text"] if left_is_baseline else baseline["text"]),
-                "winner": quality["winner"], "candidate_won": quality["candidate_won"],
+                "left_is_baseline": left_is_baseline, "winner": quality["winner"], "candidate_won": quality["candidate_won"],
                 "candidate_safe": safety_result["candidate_safe"], "baseline": baseline, "candidate": candidate,
             })
+        if bindings is None:
+            config = json.loads(run["config_json"] or "{}")
+            bindings = {
+                "evaluation_run_id": evaluation_run_id, "suite_id": run["suite_id"], "eval_set_digest": run["suite_digest"],
+                **config,
+            }
         non_ties = holdout["wins"] + holdout["losses"]
         report = {
             "kind": "paired_release_evaluation", "bindings": bindings,

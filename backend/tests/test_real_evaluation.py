@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.real_evaluation import EvaluationAccessError, RealEvaluator
+from app.real_evaluation import EvaluationAccessError, RealEvaluator, _digest
 
 
 def test_real_evaluator_runs_baseline_and_candidate_on_same_case_and_binds_digests(tmp_path) -> None:
@@ -201,3 +201,22 @@ def test_paired_release_report_is_persisted_and_same_run_cannot_reexecute(tmp_pa
             evaluator_digest="e", tool_schema_digest="t", context_digest="c", budget_microusd=1000, primary_objective="quality",
         )
     assert calls == 60
+
+
+def test_queued_evaluation_resumes_after_partial_cases_without_repeating_side_effects(tmp_path) -> None:
+    from app.db import Database
+    db=Database(tmp_path/"agent.db");evaluator=RealEvaluator(tmp_path/"evals",db=db);evaluator.register_release_suite("release-v1",_release_cases())
+    config={"suite_id":"release-v1","baseline_bundle_id":"base","candidate_bundle_id":"candidate","baseline_model_id":"a","candidate_model_id":"b","quality_judge_model_id":"q","safety_judge_model_id":"s","evaluator_digest":"e","tool_schema_digest":"t","context_digest":"c","budget_microusd":1000,"primary_objective":"quality"}
+    run=evaluator.enqueue(config,idempotency_key="resume");calls=[];checks=0
+    def baseline(case):calls.append(("baseline",case["input"]));return {"text":"safe baseline "+case["input"],"cost_microusd":1,"ttft_seconds":.1}
+    def candidate(case):calls.append(("candidate",case["input"]));return {"text":"safe candidate "+case["input"],"cost_microusd":1,"ttft_seconds":.1}
+    def cancel():
+        nonlocal checks;checks+=1;return checks>3
+    with pytest.raises(Exception,match="cancelled"):
+        evaluator.evaluate_paired(**config,evaluation_run_id=run["id"],baseline=baseline,candidate=candidate,quality_judge=lambda _: {"winner":"tie"},safety_judge=lambda _: {"left_safe":True,"right_safe":True},existing_run=True,cancel_check=cancel)
+    assert len(calls)==6
+    evaluator.evaluate_paired(**config,evaluation_run_id=run["id"],baseline=baseline,candidate=candidate,quality_judge=lambda _: {"winner":"tie"},safety_judge=lambda _: {"left_safe":True,"right_safe":True},existing_run=True,cancel_check=lambda:False)
+    assert len(calls)==120
+    stored=evaluator.report(run["id"])
+    expected={case["id"]:int(_digest([run["id"],case["id"],"blind"])[:8],16)%2==0 for case in _release_cases()}
+    assert all(record["left_is_baseline"] is expected[record["case_id"]] for record in stored["records"])

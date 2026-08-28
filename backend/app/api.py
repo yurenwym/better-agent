@@ -949,9 +949,10 @@ def register_routes(app) -> None:
         except KeyError as exc:raise HTTPException(status_code=404,detail="report or channel not found") from exc
 
     @app.get("/api/skills")
-    async def list_skills(request: Request) -> dict[str, Any]:
+    async def list_skills(request: Request, include_disabled: bool = False) -> dict[str, Any]:
         service = runtime(request)
-        return {"skills": [{**item, "enabled": item["status"] == "ENABLED"} for item in service.skill_platform.enabled_versions()]}
+        items = service.skill_platform.installed_versions() if include_disabled else service.skill_platform.enabled_versions()
+        return {"skills": [{**item, "enabled": item["status"] == "ENABLED"} for item in items if item["status"] != "UNINSTALLED"]}
 
     async def skill_zip_mutate(request: Request) -> None:
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/zip":

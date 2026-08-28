@@ -151,6 +151,11 @@ def test_skill_lifecycle_and_connector_admin_api(tmp_path, monkeypatch) -> None:
     assert versions.json()["versions"][0]["version_id"] == installed["version_id"]
     disabled = client.post(f"/api/skill-versions/{installed['version_id']}/disable", json={}, headers={**local, "idempotency-key": "disable"})
     assert disabled.json()["status"] == "DISABLED"
+    conversation_skills = client.get("/api/skills", headers={"host": "127.0.0.1:8000"}).json()["skills"]
+    assert all(item["name"] != "travel-planner" for item in conversation_skills)
+    installed_skills = client.get("/api/skills?include_disabled=true", headers={"host": "127.0.0.1:8000"}).json()["skills"]
+    managed = next(item for item in installed_skills if item["name"] == "travel-planner")
+    assert managed["enabled"] is False
     enabled = client.post(f"/api/skill-versions/{installed['version_id']}/enable", json={}, headers={**local, "idempotency-key": "enable"})
     assert enabled.json()["status"] == "ENABLED"
     grant = client.put(f"/api/skill-versions/{installed['version_id']}/grant", json={"granted_tools": []}, headers={**local, "idempotency-key": "grant"})

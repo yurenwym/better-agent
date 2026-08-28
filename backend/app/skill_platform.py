@@ -161,6 +161,15 @@ class SkillPlatform:
     def enabled_versions(self) -> list[dict[str, Any]]:
         return [item for item in self.list() if item["status"] == "ENABLED"]
 
+    def installed_versions(self) -> list[dict[str, Any]]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT COALESCE(s.default_version_id,(SELECT v.id FROM skill_versions v WHERE v.skill_id=s.id ORDER BY v.created_at DESC,v.id DESC LIMIT 1)) version_id "
+                "FROM skills s WHERE s.owner_id=? AND s.status<>'UNINSTALLED' ORDER BY s.name",
+                (self.owner_id,),
+            ).fetchall()
+        return [self.version(row["version_id"]) for row in rows if row["version_id"]]
+
     def versions(self, skill_id: str) -> list[dict[str, Any]]:
         with self.db.connection() as connection:
             skill = connection.execute("SELECT 1 FROM skills WHERE id=? AND owner_id=?", (skill_id, self.owner_id)).fetchone()
