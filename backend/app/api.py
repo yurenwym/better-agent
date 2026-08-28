@@ -198,6 +198,23 @@ def register_routes(app) -> None:
         try: return service.policy(policy_id)
         except KeyError as exc: raise HTTPException(status_code=404, detail="routing policy not found") from exc
 
+    @app.post("/api/model-routing-policies/{policy_id}/candidate", status_code=201, dependencies=[Depends(mutate)])
+    async def create_routing_policy_candidate(policy_id: str, payload: dict[str, Any], request: Request, service=Depends(runtime)):
+        try:
+            policy = service.model_admin.policy(policy_id)
+            base = service.behavior.active("stable")
+            routing = {"policy_id": policy["id"], "digest": policy["policy_digest"]}
+            bindings = {role: route["primary"] for role, route in policy["roles"].items()}
+            target = service.behavior.ensure({**base.manifest, "model_routing": routing, "model_role_bindings": bindings})
+            return _evolution_call(lambda: service.evolution.propose_candidate(
+                candidate_type="policy", experience_ids=payload.get("experience_ids", []),
+                base_bundle_id=base.id, target_bundle_id=target.id,
+                proposed_content={"model_routing": routing, "model_role_bindings": bindings},
+                permission_diff={"added": []}, reason=_required_text(payload, "reason"),
+                idempotency_key=idempotency_key(request),
+            ))
+        except KeyError as exc: raise HTTPException(status_code=404, detail="routing policy not found") from exc
+
     @app.get("/api/workspaces/{resource_id}")
     async def get_goal_workspace(resource_id: str, request: Request):
         from .goal_workspace import GoalWorkspaceService
@@ -934,7 +951,7 @@ def register_routes(app) -> None:
     @app.get("/api/skills")
     async def list_skills(request: Request) -> dict[str, Any]:
         service = runtime(request)
-        return {"skills": [skill.public_view() for skill in service.skills.list()]}
+        return {"skills": [{**item, "enabled": item["status"] == "ENABLED"} for item in service.skill_platform.enabled_versions()]}
 
     async def skill_zip_mutate(request: Request) -> None:
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/zip":
@@ -1212,6 +1229,21 @@ def register_routes(app) -> None:
             return service.costs.summary("local-user", period_kind, period_key)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="cost budget not found") from exc
+
+    @app.get("/api/cost/export")
+    async def export_cost_ledger(service=Depends(runtime)):
+        from .control_exports import cost_export
+        return PlainTextResponse(cost_export(service.db), media_type="application/x-ndjson")
+
+    @app.get("/api/model-invocations/export")
+    async def export_model_invocations(service=Depends(runtime)):
+        from .control_exports import invocation_export
+        return PlainTextResponse(invocation_export(service.db), media_type="application/x-ndjson")
+
+    @app.get("/api/skills/audit/export")
+    async def export_skill_audit(service=Depends(runtime)):
+        from .control_exports import skill_audit_export
+        return PlainTextResponse(skill_audit_export(service.db), media_type="application/x-ndjson")
 
     @app.get("/api/model-invocations/{invocation_id}")
     async def get_model_invocation(invocation_id: str, service=Depends(runtime)) -> dict[str, Any]:

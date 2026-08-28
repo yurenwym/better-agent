@@ -59,8 +59,9 @@ test("golden journey completes the durable goal loop", async ({ page, request })
   await page.getByRole("button", { name: "接受调整" }).click();
   await expect(page.getByRole("button", { name: "接受调整" })).toBeHidden();
 
-  for (const details of await page.locator("details").all()) {
-    if ((await details.getAttribute("open")) === null) await details.locator("summary").click();
+  const schedule = page.getByRole("region", { name: "完整执行日程" });
+  for (const details of await schedule.locator("details").all()) {
+    await details.evaluate((element: HTMLDetailsElement) => { element.open = true; });
   }
   while (await page.getByRole("checkbox", { name: /^标记完成：/ }).count()) {
     const checkbox = page.getByRole("checkbox", { name: /^标记完成：/ }).first();

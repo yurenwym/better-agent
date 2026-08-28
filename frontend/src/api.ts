@@ -38,6 +38,8 @@ import type {
   AgentTask,
   EvolutionCandidate,
   GrowthProfile,
+  ModelProfileRecord, RoutingPolicy, CostSummary, EvaluationRunRecord, EvaluationProgressEvent,
+  EvaluationReport, SkillVersionRecord, TrustedConnectorRecord,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -93,6 +95,22 @@ function mutationHeaders(csrfToken: string): HeadersInit {
 export async function getBootstrap(fetcher: Fetcher = fetch): Promise<Bootstrap> {
   return json<Bootstrap>(await fetcher("/api/bootstrap"));
 }
+
+function idempotentHeaders(csrfToken:string):HeadersInit { return {...mutationHeaders(csrfToken),"Idempotency-Key":crypto.randomUUID()}; }
+
+export async function listModelProfiles(fetcher:Fetcher=fetch):Promise<{profiles:ModelProfileRecord[]}>{return json(await fetcher("/api/model-profiles"));}
+export async function listRoutingPolicies(fetcher:Fetcher=fetch):Promise<{policies:RoutingPolicy[]}>{return json(await fetcher("/api/model-routing-policies"));}
+export async function createModelProfile(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ModelProfileRecord>{return json(await fetcher("/api/model-profiles",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function verifyModelVersion(id:string,csrf:string,fetcher:Fetcher=fetch){return json(await fetcher(`/api/model-profile-versions/${id}/verify`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
+export async function getCostSummary(periodKind="DAILY",periodKey=new Date().toISOString().slice(0,10),fetcher:Fetcher=fetch):Promise<CostSummary>{return json(await fetcher(`/api/cost/summary?period_kind=${encodeURIComponent(periodKind)}&period_key=${encodeURIComponent(periodKey)}`));}
+export async function getEvaluationRun(id:string,fetcher:Fetcher=fetch):Promise<EvaluationRunRecord>{return json(await fetcher(`/api/evaluation-runs/${id}`));}
+export async function getEvaluationEvents(id:string,after=0,fetcher:Fetcher=fetch):Promise<{events:EvaluationProgressEvent[]}>{return json(await fetcher(`/api/evaluation-runs/${id}/events?after_seq=${after}`));}
+export async function getEvaluationReport(id:string,fetcher:Fetcher=fetch):Promise<EvaluationReport>{return json(await fetcher(`/api/evaluation-runs/${id}/report`));}
+export async function cancelEvaluationRun(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<EvaluationRunRecord>{return json(await fetcher(`/api/evaluation-runs/${id}/cancel`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
+export async function listSkillVersions(id:string,fetcher:Fetcher=fetch):Promise<{versions:SkillVersionRecord[]}>{return json(await fetcher(`/api/skills/${id}/versions`));}
+export async function listTrustedConnectors(fetcher:Fetcher=fetch):Promise<{connectors:TrustedConnectorRecord[]}>{return json(await fetcher("/api/trusted-connectors"));}
+export async function setSkillVersionEnabled(id:string,enabled:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<SkillVersionRecord>{return json(await fetcher(`/api/skill-versions/${id}/${enabled?"enable":"disable"}`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
+export async function uninstallSkill(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/skills/${id}`,{method:"DELETE",headers:idempotentHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("卸载 Skill 失败");}
 
 export async function getGoalWorkspace(resourceId: string, fetcher: Fetcher = fetch): Promise<GoalWorkspace> {
   return json<GoalWorkspace>(await fetcher(`/api/workspaces/${encodeURIComponent(resourceId)}`));

@@ -13,6 +13,10 @@ import SchedulesPage from "./pages/SchedulesPage";
 import TodayPage from "./pages/TodayPage";
 import GrowthPage from "./pages/GrowthPage";
 import GoalWorkspacePage from "./pages/GoalWorkspacePage";
+import ModelsPage from "./pages/ModelsPage";
+import UsagePage from "./pages/UsagePage";
+import EvaluationPage from "./pages/EvaluationPage";
+import SkillsPage from "./pages/SkillsPage";
 import type { AgentRun } from "./types";
 import "./index.css";
 
@@ -26,6 +30,10 @@ const headings: Record<WorkspacePage, string> = {
   schedules: "定时研究",
   memory: "长期记忆",
   growth: "受控成长",
+  models: "模型控制台",
+  usage: "用量与预算",
+  evaluation: "真实配对评测",
+  skills: "Skill 平台",
 };
 
 const stateLabels: Record<string, string> = {
@@ -42,8 +50,9 @@ const stateLabels: Record<string, string> = {
   CANCELLED: "已取消",
 };
 
-function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/workspace"||/^\/workspace\//.test(path))return "workspace";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";if(path==="/memory")return "memory";if(path==="/growth")return "growth";return "chat"; }
+function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/workspace"||/^\/workspace\//.test(path))return "workspace";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";if(path==="/memory")return "memory";if(path==="/growth")return "growth";if(path==="/models")return "models";if(path==="/usage")return "usage";if(path==="/skills")return "skills";if(path==="/evaluations"||/^\/evaluations\//.test(path))return "evaluation";return "chat"; }
 function threadFromPath(): string|null { const match=typeof window!=="undefined"?window.location.pathname.match(/^\/threads\/([^/]+)$/):null;return match?.[1]??null; }
+function evaluationFromPath():string|null {const match=typeof window!=="undefined"?window.location.pathname.match(/^\/evaluations\/([^/]+)$/):null;return match?.[1]??null;}
 export default function App() {
   const [page, setPage] = useState<WorkspacePage>(pageFromPath);
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
@@ -62,11 +71,12 @@ export default function App() {
     const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/workspace\/([^/]+)$/) : null;
     return match?.[1] ?? null;
   });
+  const [evaluationId,setEvaluationId]=useState<string|null>(evaluationFromPath);
 
   useEffect(() => {
     getBootstrap().then(setBootstrap).catch(() => undefined);
     listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);
-    const pop=()=>{setPage(pageFromPath());setThreadId(threadFromPath());};window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
+    const pop=()=>{setPage(pageFromPath());setThreadId(threadFromPath());setEvaluationId(evaluationFromPath());};window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
   }, []);
 
   useEffect(() => {
@@ -95,10 +105,10 @@ export default function App() {
 
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
-  const widePage = page === "chat" || page === "workspace" || page === "trajectory" || page === "plan" || page === "research" || page === "growth";
+  const widePage = page === "chat" || page === "workspace" || page === "trajectory" || page === "plan" || page === "research" || page === "growth" || page === "models" || page === "usage" || page === "evaluation" || page === "skills";
   const fluidPage = page === "chat" || page === "research" || page === "today";
   const showTopbar = page !== "chat";
-  const showPageHeader = page !== "chat" && page !== "research" && page !== "today" && page !== "plan";
+  const showPageHeader = !["chat","research","today","plan","models","usage","evaluation","skills"].includes(page);
 
   return (
     <div className="workspace-app">
@@ -108,7 +118,7 @@ export default function App() {
         bootstrap={bootstrap}
         run={run}
         threads={threads}
-        onNavigate={(next)=>{setPage(next);const paths:Partial<Record<WorkspacePage,string>>={workspace:"/workspace",today:"/today",plan:"/plans",research:"/research",schedules:"/schedules",memory:"/memory",growth:"/growth"};if(next==="workspace")setWorkspaceResourceId(planId??threadId);if(paths[next])window.history.pushState({},"",next==="workspace"&&(planId??threadId)?`/workspace/${planId??threadId}`:paths[next]);}}
+        onNavigate={(next)=>{setPage(next);const paths:Partial<Record<WorkspacePage,string>>={workspace:"/workspace",today:"/today",plan:"/plans",research:"/research",schedules:"/schedules",memory:"/memory",growth:"/growth",models:"/models",usage:"/usage",evaluation:"/evaluations",skills:"/skills"};if(next==="workspace")setWorkspaceResourceId(planId??threadId);if(paths[next])window.history.pushState({},"",next==="workspace"&&(planId??threadId)?`/workspace/${planId??threadId}`:paths[next]);}}
         onNewConversation={() => { setRun(null); setExpertRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
         onSelectThread={(nextThreadId)=>{setRun(null);setThreadId(nextThreadId);setPlanId(null);window.history.pushState({},"",`/threads/${nextThreadId}`);setPage("chat");}}
         onDeleteThread={(deleteThreadId)=>setThreadToDelete(threads.find(item=>item.id===deleteThreadId)??null)}
@@ -146,6 +156,10 @@ export default function App() {
           {page === "research" && <ResearchPage csrfToken={csrfToken} />}
           {page === "schedules" && <SchedulesPage csrfToken={csrfToken} />}
           {page === "growth" && <GrowthPage csrfToken={csrfToken} />}
+          {page === "models" && <ModelsPage csrfToken={csrfToken} />}
+          {page === "usage" && <UsagePage />}
+          {page === "evaluation" && <EvaluationPage evaluationId={evaluationId} csrfToken={csrfToken} />}
+          {page === "skills" && <SkillsPage csrfToken={csrfToken} />}
         </div>
       </main>
       <ConfirmDialog open={Boolean(threadToDelete)} title="删除会话？" description={`确定删除“${threadToDelete?.title??""}”吗？已保存的计划、研究和目标不会被删除。`} busy={deletingThread} onCancel={()=>setThreadToDelete(null)} onConfirm={()=>void confirmThreadDelete()} />

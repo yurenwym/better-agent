@@ -67,3 +67,20 @@ def test_routing_policy_rejects_unknown_role_and_incapable_model(tmp_path) -> No
         "name": "坏路由", "roles": {"executor": {"primary": version_id, "fallback": []}},
     }, headers=_headers(app, "bad-policy"))
     assert bad.status_code == 422
+
+
+def test_routing_policy_candidate_enters_existing_evolution_loop(tmp_path) -> None:
+    from app.main import create_app
+    from app.startup import build_runtime
+
+    runtime=build_runtime(tmp_path);app=create_app(runtime=runtime);client=TestClient(app)
+    profile=client.post("/api/model-profiles",json=_profile_payload(),headers=_headers(app,"profile")).json()
+    version_id=profile["versions"][0]["id"]
+    policy=client.post("/api/model-routing-policies",json={"name":"候选路由","roles":{"planner":{"primary":version_id,"fallback":[]}}},headers=_headers(app,"policy")).json()
+    base=runtime.behavior.active("stable")
+    evidence=[]
+    for index in range(3):
+        item=runtime.evolution.record_experience(task_type="plan",outcome="quality issue",lineage_group_hash=f"l{index}",source_content_hash=f"s{index}",runtime_bundle_id=base.id,dataset_partition="DISCOVERY",idempotency_key=f"e{index}")
+        evidence.append(item["id"])
+    candidate=client.post(f"/api/model-routing-policies/{policy['id']}/candidate",json={"experience_ids":evidence,"reason":"规划质量需要改进"},headers=_headers(app,"candidate"))
+    assert candidate.status_code==201 and candidate.json()["candidate_type"]=="policy"

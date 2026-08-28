@@ -41,11 +41,24 @@ export interface GrowthProfile {
 }
 
 export interface SkillDefinition {
+  skill_id?: string;
   name: string;
   title: string;
   description: string;
   enabled: boolean;
+  version_id?: string;
+  package_digest?: string;
 }
+
+export interface ModelProfileVersion { id:string;profile_id:string;profile_name:string;version:number;provider_protocol:"openai_compatible"|"anthropic"|"gemini";provider_name:string;base_url:string;model_name:string;credential_env_ref:string;credential_configured:boolean;capabilities:Record<string,boolean>;context_window:number;max_output_tokens:number;timeout_seconds:number;max_attempts:number;config_digest:string;status:"ACTIVE"|"DISABLED";verified_at:string|null;verification_status:"UNVERIFIED"|"VERIFIED"|"FAILED";verification_error_kind:string|null;created_at:string; }
+export interface ModelProfileRecord {id:string;name:string;status:string;created_at:string;updated_at:string;versions:ModelProfileVersion[];}
+export interface RoutingPolicy {id:string;name:string;version:number;roles:Record<string,{primary:string;fallback:string[]}>;policy_digest:string;created_at:string;}
+export interface CostSummary {limit_microusd:number;reserved_microusd:number;charged_microusd:number;}
+export interface EvaluationRunRecord {id:string;suite_id:string;baseline_bundle_id:string;candidate_bundle_id:string;status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED"|"CANCELLED";budget_microusd:number;attempts:number;created_at:string;updated_at:string|null;finished_at:string|null;cancel_requested_at:string|null;}
+export interface EvaluationProgressEvent {seq:number;type:string;case_id:string;partition:"DEV"|"HOLDOUT"|"SAFETY";domain:string;execution_order:string;}
+export interface EvaluationReport {release_eligible:boolean;report_digest:string;cost_microusd:number;holdout:{wins:number;ties:number;losses:number;non_ties:number;evidence_sufficient:boolean};safety:{passed:number;failures:number};execution_orders:{baseline_first:number;candidate_first:number};records:Array<{case_id:string;partition:string;domain:string;winner:string;candidate_safe:boolean}>;}
+export interface SkillVersionRecord {skill_id:string;version_id:string;name:string;version:string;title:string;description:string;content:string;package_digest:string;manifest_digest:string;requested_tools:string[];granted_tools:string[];connectors:string[];phases:string[];grant_digest:string;status:string;}
+export interface TrustedConnectorRecord {connector_id:string;version_id:string;name:string;version:number;base_url:string;methods:string[];paths:string[];request_schema:Record<string,unknown>;credential_env_ref:string|null;timeout_seconds:number;max_response_bytes:number;risk:string;config_digest:string;status:string;verified_at?:string|null;}
 
 export interface Run {
   id: string;
