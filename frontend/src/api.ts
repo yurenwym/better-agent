@@ -39,7 +39,7 @@ import type {
   EvolutionCandidate,
   GrowthProfile,
   ModelProfileRecord, RoutingPolicy, CostSummary, EvaluationRunRecord, EvaluationProgressEvent,
-  EvaluationReport, SkillVersionRecord, TrustedConnectorRecord,
+  EvaluationReport, SkillInstallPreview, SkillVersionRecord, TrustedConnectorRecord,
 } from "./types";
 
 export type Fetcher = typeof fetch;
@@ -103,14 +103,21 @@ export async function listRoutingPolicies(fetcher:Fetcher=fetch):Promise<{polici
 export async function createModelProfile(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ModelProfileRecord>{return json(await fetcher("/api/model-profiles",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify(payload)}));}
 export async function verifyModelVersion(id:string,csrf:string,fetcher:Fetcher=fetch){return json(await fetcher(`/api/model-profile-versions/${id}/verify`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
 export async function getCostSummary(periodKind="DAILY",periodKey=new Date().toISOString().slice(0,10),fetcher:Fetcher=fetch):Promise<CostSummary>{return json(await fetcher(`/api/cost/summary?period_kind=${encodeURIComponent(periodKind)}&period_key=${encodeURIComponent(periodKey)}`));}
+export async function setCostBudget(limit_microusd:number,csrf:string,periodKind="DAILY",periodKey=new Date().toISOString().slice(0,10),fetcher:Fetcher=fetch):Promise<CostSummary>{return json(await fetcher("/api/cost/budgets",{method:"PUT",headers:idempotentHeaders(csrf),body:JSON.stringify({period_kind:periodKind,period_key:periodKey,limit_microusd})}));}
+export async function createEvaluationRun(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<EvaluationRunRecord>{return json(await fetcher("/api/evaluation-runs",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function listEvaluationSuites(fetcher:Fetcher=fetch):Promise<{suites:Array<{id:string;digest:string;kind:string;case_count:number}>}>{return json(await fetcher("/api/evaluation-suites"));}
 export async function getEvaluationRun(id:string,fetcher:Fetcher=fetch):Promise<EvaluationRunRecord>{return json(await fetcher(`/api/evaluation-runs/${id}`));}
 export async function getEvaluationEvents(id:string,after=0,fetcher:Fetcher=fetch):Promise<{events:EvaluationProgressEvent[]}>{return json(await fetcher(`/api/evaluation-runs/${id}/events?after_seq=${after}`));}
 export async function getEvaluationReport(id:string,fetcher:Fetcher=fetch):Promise<EvaluationReport>{return json(await fetcher(`/api/evaluation-runs/${id}/report`));}
 export async function cancelEvaluationRun(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<EvaluationRunRecord>{return json(await fetcher(`/api/evaluation-runs/${id}/cancel`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
+export function subscribeToEvaluationEvents(id:string,after:number,onEvent:(event:EvaluationProgressEvent)=>void):()=>void{let cursor=after;const source=new EventSource(`/api/evaluation-runs/${id}/events/stream?after_seq=${encodeURIComponent(after)}`);const handler=(raw:Event)=>{try{const message=raw as MessageEvent<string>,event=JSON.parse(message.data) as EvaluationProgressEvent;if(event.seq<=cursor)return;cursor=event.seq;onEvent(event);}catch{/* malformed SSE is ignored */}};source.addEventListener("evaluation",handler);source.onerror=()=>undefined;return()=>source.close();}
 export async function listSkillVersions(id:string,fetcher:Fetcher=fetch):Promise<{versions:SkillVersionRecord[]}>{return json(await fetcher(`/api/skills/${id}/versions`));}
 export async function listTrustedConnectors(fetcher:Fetcher=fetch):Promise<{connectors:TrustedConnectorRecord[]}>{return json(await fetcher("/api/trusted-connectors"));}
 export async function setSkillVersionEnabled(id:string,enabled:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<SkillVersionRecord>{return json(await fetcher(`/api/skill-versions/${id}/${enabled?"enable":"disable"}`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
 export async function uninstallSkill(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/skills/${id}`,{method:"DELETE",headers:idempotentHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("卸载 Skill 失败");}
+export async function previewSkillInstall(file:File,csrf:string,fetcher:Fetcher=fetch):Promise<SkillInstallPreview>{return json(await fetcher("/api/skills/install",{method:"POST",headers:{"Content-Type":"application/zip","X-CSRF-Token":csrf},body:file}));}
+export async function confirmSkillInstall(token:string,tools:string[],csrf:string,fetcher:Fetcher=fetch):Promise<SkillVersionRecord>{return json(await fetcher("/api/skills/confirm-install",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify({install_token:token,granted_tools:tools})}));}
+export async function listInstalledSkills(fetcher:Fetcher=fetch):Promise<{skills:SkillDefinition[]}>{return json(await fetcher("/api/skills?include_disabled=true"));}
 
 export async function getGoalWorkspace(resourceId: string, fetcher: Fetcher = fetch): Promise<GoalWorkspace> {
   return json<GoalWorkspace>(await fetcher(`/api/workspaces/${encodeURIComponent(resourceId)}`));

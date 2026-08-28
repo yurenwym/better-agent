@@ -58,6 +58,7 @@ export interface EvaluationRunRecord {id:string;suite_id:string;baseline_bundle_
 export interface EvaluationProgressEvent {seq:number;type:string;case_id:string;partition:"DEV"|"HOLDOUT"|"SAFETY";domain:string;execution_order:string;}
 export interface EvaluationReport {release_eligible:boolean;report_digest:string;cost_microusd:number;holdout:{wins:number;ties:number;losses:number;non_ties:number;evidence_sufficient:boolean};safety:{passed:number;failures:number};execution_orders:{baseline_first:number;candidate_first:number};records:Array<{case_id:string;partition:string;domain:string;winner:string;candidate_safe:boolean}>;}
 export interface SkillVersionRecord {skill_id:string;version_id:string;name:string;version:string;title:string;description:string;content:string;package_digest:string;manifest_digest:string;requested_tools:string[];granted_tools:string[];connectors:string[];phases:string[];grant_digest:string;status:string;}
+export interface SkillInstallPreview {install_token:string;name:string;version:string;title:string;description:string;requested_tools:string[];connectors:string[];phases:string[];manifest_digest:string;package_digest:string;}
 export interface TrustedConnectorRecord {connector_id:string;version_id:string;name:string;version:number;base_url:string;methods:string[];paths:string[];request_schema:Record<string,unknown>;credential_env_ref:string|null;timeout_seconds:number;max_response_bytes:number;risk:string;config_digest:string;status:string;verified_at?:string|null;}
 
 export interface Run {

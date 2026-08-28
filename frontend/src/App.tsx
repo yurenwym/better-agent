@@ -157,7 +157,7 @@ export default function App() {
           {page === "schedules" && <SchedulesPage csrfToken={csrfToken} />}
           {page === "growth" && <GrowthPage csrfToken={csrfToken} />}
           {page === "models" && <ModelsPage csrfToken={csrfToken} />}
-          {page === "usage" && <UsagePage />}
+          {page === "usage" && <UsagePage csrfToken={csrfToken} />}
           {page === "evaluation" && <EvaluationPage evaluationId={evaluationId} csrfToken={csrfToken} />}
           {page === "skills" && <SkillsPage csrfToken={csrfToken} />}
         </div>

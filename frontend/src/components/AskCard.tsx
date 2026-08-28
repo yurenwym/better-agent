@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { AskAnswer, PendingAsk } from "../types";
 
 interface AskCardProps {
@@ -14,11 +14,6 @@ type TextState = Record<string, string>;
 export default function AskCard({ ask, busy = false, onSubmit, onCancel }: AskCardProps) {
   const [selected, setSelected] = useState<SelectionState>({});
   const [freeText, setFreeText] = useState<TextState>({});
-
-  useEffect(() => {
-    setSelected({});
-    setFreeText({});
-  }, [ask.id]);
 
   const answers = useMemo<AskAnswer[]>(
     () => ask.questions.map((question) => ({

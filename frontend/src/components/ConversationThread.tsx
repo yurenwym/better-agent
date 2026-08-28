@@ -160,7 +160,7 @@ export default function ConversationThread({ messages, busy = false, title = "æŽ
         </div>
 
         {pendingAsk && onAskAnswer && onAskCancel && (
-          <AskCard ask={pendingAsk} busy={askBusy} onSubmit={onAskAnswer} onCancel={onAskCancel} />
+          <AskCard key={pendingAsk.id} ask={pendingAsk} busy={askBusy} onSubmit={onAskAnswer} onCancel={onAskCancel} />
         )}
 
         {decision && (
