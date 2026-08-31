@@ -3,6 +3,7 @@ import { cancelEvaluationRun, createEvaluationRun, getEvaluationEvents, getEvalu
 import type { EvaluationProgressEvent, EvaluationReport, EvaluationRunRecord, ModelProfileVersion } from "../types";
 import ConfirmDialog from "../components/ConfirmDialog";
 import AppToast from "../components/AppToast";
+import { localizedCode } from "../localization";
 
 const emptyForm = {
   suite_id: "",
@@ -149,9 +150,9 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
       <section className="control-page">
         <header className="control-hero">
           <div>
-            <span className="eyebrow">REAL EVALUATION</span>
+            <span className="eyebrow">真实评测</span>
             <h2>真实配对评测</h2>
-            <p>冻结 60 个 Case，以匿名 A/B、独立质量 Judge 和安全 Judge 判断候选能否进入审批。</p>
+            <p>冻结 60 个用例，以匿名 A/B、独立质量评审和安全评审判断候选能否进入审批。</p>
           </div>
         </header>
         {error && (
@@ -162,7 +163,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
         <section className="control-panel control-create">
           <div className="control-panel-head">
             <div>
-              <span className="eyebrow">NEW RUN</span>
+              <span className="eyebrow">新建评测</span>
               <h3>启动冻结评测</h3>
             </div>
           </div>
@@ -174,25 +175,25 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
                 <option value="">请选择</option>
                 {suites.map((item) => (
                   <option key={item.id} value={item.id}>
-                    {item.id} · {item.case_count} Case
+                    {item.id} · {item.case_count} 个用例
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              基线 Bundle
+              基线配置包
               <input required value={form.baseline_bundle_id} onChange={choose("baseline_bundle_id")} />
             </label>
             <label>
-              候选 Bundle
+              候选配置包
               <input required value={form.candidate_bundle_id} onChange={choose("candidate_bundle_id")} />
             </label>
             {(
               [
                 ["基线模型", "baseline_model_id"],
                 ["候选模型", "candidate_model_id"],
-                ["质量 Judge", "quality_judge_model_id"],
-                ["安全 Judge", "safety_judge_model_id"],
+                ["质量评审模型", "quality_judge_model_id"],
+                ["安全评审模型", "safety_judge_model_id"],
               ] as const
             ).map(([label, key]) => (
               <label key={key}>
@@ -236,13 +237,13 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
     <section className="control-page">
       <header className="control-hero">
         <div>
-          <span className="eyebrow">PAIRED RELEASE</span>
+          <span className="eyebrow">配对发布评测</span>
           <h2>真实配对评测</h2>
-          <p>{run?.suite_id ?? "正在读取评测配置"} · 匿名双臂 · 独立质量与安全 Judge</p>
+          <p>{run?.suite_id ?? "正在读取评测配置"} · 匿名双臂 · 独立质量与安全评审</p>
         </div>
         {run && (
           <div className="control-actions">
-            <span className={`status-chip status-${run.status.toLowerCase()}`}>{run.status}</span>
+            <span className={`status-chip status-${run.status.toLowerCase()}`}>{localizedCode(run.status)}</span>
             {["QUEUED", "RUNNING"].includes(run.status) && (
               <button className="button button-danger" onClick={() => setConfirm(true)}>
                 取消评测
@@ -260,14 +261,14 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
         <>
           <div className="metric-grid">
             <article>
-              <span>完成 Case</span>
+              <span>完成用例</span>
               <strong>{caseEvents.length} / 60</strong>
-              <small>DEV 20 · HOLDOUT 30 · SAFETY 10</small>
+              <small>开发集 20 · 留出集 30 · 安全集 10</small>
             </article>
             <article>
               <span>运行尝试</span>
               <strong>{run.attempts}</strong>
-              <small>lease 恢复不会重复已完成 Case</small>
+              <small>租约恢复不会重复已完成用例</small>
             </article>
             <article>
               <span>安全门禁</span>
@@ -284,8 +285,8 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
             <section className="control-panel">
               <div className="control-panel-head">
                 <div>
-                  <span className="eyebrow">PROGRESS</span>
-                  <h3>Case 进度</h3>
+                  <span className="eyebrow">评测进度</span>
+                  <h3>用例进度</h3>
                 </div>
                 <span className="control-count">{caseEvents.length}</span>
               </div>
@@ -295,7 +296,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
                   {["conversation", "plan", "research", "tool", "memory"].map((d) => (
                     <span key={d}>
                       <strong>{caseEvents.filter((e) => e.domain === d).length}</strong>
-                      {d}
+                      {localizedCode(d, d)}
                     </span>
                   ))}
                 </div>
@@ -304,15 +305,15 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
             <section className="control-panel">
               <div className="control-panel-head">
                 <div>
-                  <span className="eyebrow">GATES</span>
+                  <span className="eyebrow">发布门禁</span>
                   <h3>发布门禁</h3>
                 </div>
               </div>
               {report ? (
                 <div className="gate-list">
                   <span className={report.deterministic.failures === 0 ? "gate-pass" : "gate-fail"}>确定性硬检查 {report.deterministic.passed}/120</span>
-                  <span className={report.holdout.evidence_sufficient ? "gate-pass" : "gate-wait"}>HOLDOUT 非平局证据 {report.holdout.non_ties}/20</span>
-                  <span className={report.safety.failures === 0 ? "gate-pass" : "gate-fail"}>SAFETY {report.safety.passed}/10</span>
+                  <span className={report.holdout.evidence_sufficient ? "gate-pass" : "gate-wait"}>留出集非平局证据 {report.holdout.non_ties}/20</span>
+                  <span className={report.safety.failures === 0 ? "gate-pass" : "gate-fail"}>安全用例 {report.safety.passed}/10</span>
                   <span className={report.statistics.primary_objective.passed ? "gate-pass" : "gate-fail"}>
                     主要目标 {report.statistics.primary_objective.name}：{report.statistics.primary_objective.estimate.toFixed(3)}
                     ，95% CI [{report.statistics.primary_objective.ci95.map((v) => v.toFixed(3)).join(", ")}
@@ -337,7 +338,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
         <section className="control-panel control-create">
           <div className="control-panel-head">
             <div>
-              <span className="eyebrow">BUDGET BLOCKED</span>
+                  <span className="eyebrow">预算不足，已暂停</span>
               <h3>追加预算后从断点恢复</h3>
             </div>
           </div>

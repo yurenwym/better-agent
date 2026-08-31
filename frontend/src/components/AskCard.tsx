@@ -43,7 +43,7 @@ export default function AskCard({ ask, busy = false, onSubmit, onCancel }: AskCa
     <section className="ask-card" role="region" aria-label="等待你的回答">
       <div className="ask-card-heading">
         <div>
-          <span className="eyebrow">NEED YOUR INPUT</span>
+          <span className="eyebrow">需要你的补充</span>
           <h3>先回答几个问题</h3>
           <p>选择或补充信息后，我会继续当前目标。</p>
         </div>

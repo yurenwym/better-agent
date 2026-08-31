@@ -158,7 +158,7 @@ describe("REST client", () => {
     expect(fetcher).toHaveBeenCalledWith("/api/turns/turn-1/ask");
   });
 
-  it("unwraps FastAPI detail errors instead of exposing the raw JSON body", async () => {
+  it("replaces internal English API errors with a Chinese user-facing fallback", async () => {
     const fetcher = vi.fn().mockResolvedValue({
       ok: false,
       text: async () => JSON.stringify({ detail: "answer the pending ask before sending another message" }),
@@ -168,7 +168,7 @@ describe("REST client", () => {
       client_turn_id: "client-1",
       content: "新的目标",
       skill_names: [],
-    }, "csrf", fetcher)).rejects.toThrow("answer the pending ask before sending another message");
+    }, "csrf", fetcher)).rejects.toThrow("请求失败");
   });
 
   it("keeps the event stream in follow mode and stops reconnecting after a terminal event", () => {

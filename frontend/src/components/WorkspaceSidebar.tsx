@@ -62,7 +62,7 @@ export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[
       <div className="sidebar-brand-row">
         <div className="sidebar-brand">
           <span className="sidebar-brand-mark" aria-hidden="true">BA</span>
-          <div><strong>Better Agent</strong><span>LOCAL WORKSPACE</span></div>
+          <div><strong>Better Agent</strong><span>本地工作区</span></div>
         </div>
         <button className="sidebar-new-session" type="button" onClick={onNewConversation}>
           <span className="sidebar-plus" aria-hidden="true">+</span>
@@ -82,7 +82,7 @@ export default function WorkspaceSidebar({ activePage, bootstrap, run, threads=[
           >
             <NavGlyph name={item.glyph} />
             <span>{item.label}</span>
-            {item.id === "trajectory" && run && <span aria-hidden="true" className="sidebar-nav-meta">LIVE</span>}
+            {item.id === "trajectory" && run && <span aria-hidden="true" className="sidebar-nav-meta">实时</span>}
             {item.id === "chat" && run?.pending_approvals.length ? <span className="sidebar-badge">{run.pending_approvals.length}</span> : null}
           </button>
         ))}

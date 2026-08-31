@@ -15,6 +15,7 @@ from .events import export_jsonl
 from .goal_program_compiler import GoalCompilationError
 from .goal_programs import GoalProgramConflict, GoalProgramNotFound
 from .plan_documents import PlanDocumentConflict, PlanDocumentValidationError
+from .public_text import public_budget
 
 
 DEFAULT_PLAN_HISTORY_LIMIT = 50
@@ -73,58 +74,58 @@ def register_routes(app) -> None:
     async def mutate(request: Request) -> None:
         content_type = request.headers.get("content-type", "")
         if not content_type.lower().startswith("application/json"):
-            raise HTTPException(status_code=415, detail="JSON content type required")
+            raise HTTPException(status_code=415, detail="请求必须使用 JSON 内容类型")
         origin = request.headers.get("origin")
         if origin:
             parsed = urlparse(origin)
             if parsed.hostname not in {"127.0.0.1", "localhost"}:
-                raise HTTPException(status_code=403, detail="local origin required")
+                raise HTTPException(status_code=403, detail="仅允许从本机页面发起请求")
         if request.headers.get("x-csrf-token") != request.app.state.csrf_token:
-            raise HTTPException(status_code=403, detail="CSRF token required")
+            raise HTTPException(status_code=403, detail="缺少有效的安全校验令牌")
 
     def runtime(request: Request):
         value = getattr(request.app.state, "runtime", None)
         if value is None:
-            raise HTTPException(status_code=503, detail="runtime is not configured")
+            raise HTTPException(status_code=503, detail="Agent 运行时尚未配置")
         return value
 
     def conversation(request: Request):
         service = runtime(request)
         value = getattr(service, "conversation", None)
         if value is None:
-            raise HTTPException(status_code=503, detail="conversation runtime is not configured")
+            raise HTTPException(status_code=503, detail="对话运行时尚未配置")
         return value
 
     def goal_programs(request: Request):
         service = runtime(request)
         value = getattr(service, "goal_programs", None)
         if value is None:
-            raise HTTPException(status_code=503, detail="goal programs are not configured")
+            raise HTTPException(status_code=503, detail="目标执行服务尚未配置")
         return value
 
     def goal_adjustments(request: Request):
         service = runtime(request)
         value = getattr(service, "goal_adjustments", None)
-        if value is None: raise HTTPException(status_code=503, detail="goal adjustments are not configured")
+        if value is None: raise HTTPException(status_code=503, detail="目标调整服务尚未配置")
         return value
 
     def goal_reviews(request: Request):
         service = runtime(request)
         value = getattr(service, "goal_reviews", None)
         if value is None:
-            raise HTTPException(status_code=503, detail="goal reviews are not configured")
+            raise HTTPException(status_code=503, detail="目标复盘服务尚未配置")
         return value
 
     def agent_tasks(request: Request):
         service = runtime(request)
         value = getattr(service, "agent_tasks", None)
-        if value is None: raise HTTPException(status_code=503, detail="expert runtime is not configured")
+        if value is None: raise HTTPException(status_code=503, detail="专家协作运行时尚未配置")
         return value
 
     def idempotency_key(request: Request) -> str:
         key = request.headers.get("idempotency-key", "")
         if not key.strip():
-            raise HTTPException(status_code=422, detail="Idempotency-Key header is required")
+            raise HTTPException(status_code=422, detail="缺少 Idempotency-Key 请求头")
         return key
 
     @app.get("/api/bootstrap")
@@ -956,12 +957,12 @@ def register_routes(app) -> None:
 
     async def skill_zip_mutate(request: Request) -> None:
         if request.headers.get("content-type", "").split(";", 1)[0].strip().lower() != "application/zip":
-            raise HTTPException(status_code=415, detail="ZIP content type required")
+            raise HTTPException(status_code=415, detail="请求必须使用 ZIP 内容类型")
         origin = request.headers.get("origin")
         if origin and urlparse(origin).hostname not in {"127.0.0.1", "localhost"}:
-            raise HTTPException(status_code=403, detail="local origin required")
+            raise HTTPException(status_code=403, detail="仅允许从本机页面发起请求")
         if request.headers.get("x-csrf-token") != request.app.state.csrf_token:
-            raise HTTPException(status_code=403, detail="CSRF token required")
+            raise HTTPException(status_code=403, detail="缺少有效的安全校验令牌")
 
     @app.post("/api/skills/install", dependencies=[Depends(skill_zip_mutate)])
     async def preview_skill_install(request: Request, service=Depends(runtime)):
@@ -1862,10 +1863,7 @@ def _memory_version_json(version) -> dict[str, Any]:
 
 
 def _public_budget(budget: dict[str, Any]) -> dict[str, Any]:
-    visible = {key: value for key, value in budget.items() if key != "identical_actions"}
-    if "identical_actions" in budget:
-        visible["identical_action_count"] = len(budget["identical_actions"])
-    return visible
+    return public_budget(budget)
 
 
 def _event_json(event) -> dict[str, Any]:

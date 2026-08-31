@@ -50,7 +50,7 @@ export default function EventStream({ events, threadEvents = [], mode = "run", l
     <section className="event-panel" aria-label={title}>
       <div className="panel-toolbar timeline-toolbar">
         <div>
-          <span className="eyebrow">{mode === "thread" ? "TRACE / CONVERSATION" : "TRACE / HUMAN READABLE"}</span>
+          <span className="eyebrow">{mode === "thread" ? "对话轨迹" : "可读轨迹"}</span>
           <h3>{title}</h3>
           <p className="panel-caption">{eventCount} 条事件，按发生顺序实时更新</p>
         </div>

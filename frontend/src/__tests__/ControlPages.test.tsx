@@ -67,7 +67,7 @@ describe("control plane pages", () => {
     expect(document.querySelector(".route-policy-form")).toBeTruthy();
     expect(document.querySelectorAll(".route-field")).toHaveLength(10);
     fireEvent.change(screen.getByLabelText("策略名称"), {target:{value:"默认策略"}});
-    for(const role of ["conversation","ask","planner","executor","reflector","researcher","expert","coordinator","judge_quality","judge_safety"]){
+    for(const role of ["对话","询问","规划","执行","复盘","研究","专家协作","协调","质量评审","安全评审"]){
       fireEvent.change(screen.getByLabelText(`${role} 主模型`), {target:{value:"pv1"}});
     }
     fireEvent.click(screen.getByRole("button", {name:"保存路由策略"}));
@@ -82,9 +82,9 @@ describe("control plane pages", () => {
     expect(screen.getAllByRole("row")).toHaveLength(2);
     expect(screen.getAllByText("$0.002500").length).toBeGreaterThan(0);
     expect(screen.getByText("$0.001000")).toBeTruthy();
-    expect(screen.getByText("planner")).toBeTruthy();
+    expect(screen.getByText("规划")).toBeTruthy();
     expect(screen.getByText("1 次不可用")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("DAILY 上限（microusd）"), {target:{value:"200000"}});
+    fireEvent.change(screen.getByLabelText("每日上限（microusd）"), {target:{value:"200000"}});
     fireEvent.click(screen.getAllByRole("button", {name:"保存预算"})[1]);
     await waitFor(()=>expect(api.setCostBudget).toHaveBeenCalledWith(200000,"csrf","DAILY",expect.any(String)));
   });
@@ -93,11 +93,11 @@ describe("control plane pages", () => {
     api.listModelProfiles.mockResolvedValue({profiles:[{id:"p",name:"模型",status:"ACTIVE",created_at:"",updated_at:"",versions:["a","b","q","s"].map((id,index)=>({id,profile_id:"p",profile_name:"模型",version:index+1,provider_protocol:"openai_compatible",provider_name:"供应商",base_url:"https://api.example.com/v1",model_name:id,credential_env_ref:`KEY_${id}`,credential_configured:true,capabilities:{text:true,json_object:true,streaming:true,tool_calling:true},context_window:32000,max_output_tokens:4096,timeout_seconds:30,max_attempts:2,config_digest:id,status:"ACTIVE",verified_at:"",verification_status:"VERIFIED",verification_error_kind:null,created_at:""}))}]});
     render(<EvaluationPage evaluationId={null} csrfToken="csrf"/>);
     await screen.findByRole("heading", {name:"真实配对评测"});
-    for (const [label,value] of [["基线 Bundle","stable"],["候选 Bundle","candidate"]]) fireEvent.change(screen.getByLabelText(label), {target:{value}});
+    for (const [label,value] of [["基线配置包","stable"],["候选配置包","candidate"]]) fireEvent.change(screen.getByLabelText(label), {target:{value}});
     fireEvent.change(screen.getByLabelText("基线模型"), {target:{value:"a"}});
     fireEvent.change(screen.getByLabelText("候选模型"), {target:{value:"b"}});
-    fireEvent.change(screen.getByLabelText("质量 Judge"), {target:{value:"q"}});
-    fireEvent.change(screen.getByLabelText("安全 Judge"), {target:{value:"s"}});
+    fireEvent.change(screen.getByLabelText("质量评审模型"), {target:{value:"q"}});
+    fireEvent.change(screen.getByLabelText("安全评审模型"), {target:{value:"s"}});
     fireEvent.click(screen.getByRole("button", {name:"启动真实评测"}));
     await waitFor(()=>expect(api.createEvaluationRun).toHaveBeenCalled());
   });
@@ -106,6 +106,9 @@ describe("control plane pages", () => {
     render(<EvaluationPage evaluationId="e1" csrfToken="csrf"/>);
     expect(await screen.findByRole("heading", {name:"真实配对评测"})).toBeTruthy();
     expect(screen.getByText("1 / 60")).toBeTruthy();
+    expect(screen.getByText("执行中")).toBeTruthy();
+    expect(screen.getByText("计划")).toBeTruthy();
+    expect(screen.queryByText("RUNNING")).toBeNull();
     fireEvent.click(screen.getByRole("button", {name:"取消评测"}));
     expect(screen.getByRole("dialog", {name:"取消评测？"})).toBeTruthy();
   });

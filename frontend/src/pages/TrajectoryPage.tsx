@@ -50,7 +50,7 @@ export default function TrajectoryPage({ run, threadId = null, expertRun = null,
   if (!run && !threadId && !expertRun) {
     return (
       <section className="empty-panel">
-        <span className="eyebrow">TRACE / OBSERVE</span>
+        <span className="eyebrow">执行轨迹</span>
         <h2>运行轨迹</h2>
         <p>创建目标并发送消息后，这里会把运行时的每个阶段翻译成可读的时间线。</p>
       </section>
@@ -66,7 +66,7 @@ export default function TrajectoryPage({ run, threadId = null, expertRun = null,
       <div className="page-stack">
         <section className="hero-panel trajectory-hero">
           <div>
-            <span className="eyebrow">TRACE / CONVERSATION</span>
+            <span className="eyebrow">对话轨迹</span>
             <h2>看懂这轮对话发生了什么</h2>
             <p>消息、模型路由、Ask 询问和回答结果都按 seq 进入同一条可读时间线。</p>
           </div>
@@ -78,7 +78,7 @@ export default function TrajectoryPage({ run, threadId = null, expertRun = null,
           <div className="stat-cell"><span className="stat-label">已记录事件</span><strong className="stat-value">{threadTelemetry.events.length}</strong></div>
         </section>
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
-        {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">EXPERT MILESTONES</span><h3>专家协同里程碑</h3><p>仅展示任务事实和已提交成果，不展示模型内部推理。</p></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
+        {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">专家里程碑</span><h3>专家协同里程碑</h3><p>仅展示任务事实和已提交成果，不展示模型内部推理。</p></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
         <EventStream events={[]} threadEvents={threadTelemetry.events} mode="thread" loading={threadTelemetry.loading} />
       </div>
     );
@@ -88,14 +88,14 @@ export default function TrajectoryPage({ run, threadId = null, expertRun = null,
     <div className="page-stack">
       <section className="hero-panel trajectory-hero">
         <div>
-          <span className="eyebrow">TRACE / OBSERVE</span>
+          <span className="eyebrow">执行轨迹</span>
           <h2>看懂每一步发生了什么</h2>
           <p>交互、上下文、模型、计划、工具和检查点都按 seq 进入同一条可读时间线。原始 JSON 只在需要审计时展开。</p>
         </div>
         <a className="button button-secondary" href={`/api/runs/${run.id}/export?mode=redacted`}>导出脱敏 JSONL</a>
       </section>
       <StatsBar stats={telemetry.stats} run={run} />
-      {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">EXPERT MILESTONES</span><h3>专家协同里程碑</h3></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
+      {expertRun && <><ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /><section className="expert-milestones" aria-label="专家里程碑"><div className="section-heading"><span className="eyebrow">专家里程碑</span><h3>专家协同里程碑</h3></div>{expertEvents.map((event) => <article key={event.event_id}><span>{event.seq}</span><div><strong>{expertMilestones[event.type] ?? "专家任务状态更新"}</strong><time dateTime={event.occurred_at}>{new Date(event.occurred_at).toLocaleString("zh-CN")}</time></div></article>)}</section></>}
       {telemetry.error && <p className="error-message" role="alert">{telemetry.error}</p>}
       <EventStream events={telemetry.events} />
     </div>

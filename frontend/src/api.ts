@@ -60,10 +60,12 @@ function readableError(raw: string, fallback: string): string {
   if (!raw) return fallback;
   try {
     const payload = JSON.parse(raw) as { detail?: unknown };
-    if (typeof payload.detail === "string" && payload.detail.trim()) return payload.detail;
+    if (typeof payload.detail === "string" && payload.detail.trim()) {
+      return /[\u3400-\u9fff]/.test(payload.detail) ? payload.detail : fallback;
+    }
     return fallback;
   } catch {
-    return raw;
+    return /[\u3400-\u9fff]/.test(raw) ? raw : fallback;
   }
 }
 
@@ -80,9 +82,10 @@ async function planJson<T>(response: Response): Promise<T> {
     const detail = await response.text();
     let payload: unknown = detail;
     try { payload = JSON.parse(detail) as unknown; } catch { /* keep text */ }
-    const message = payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).detail === "string"
+    const rawMessage = payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).detail === "string"
       ? String((payload as Record<string, unknown>).detail)
-      : `Plan request failed (${response.status})`;
+      : "";
+    const message = /[\u3400-\u9fff]/.test(rawMessage) ? rawMessage : `计划请求失败（${response.status}）`;
     throw new ApiError(message, response.status, payload);
   }
   return response.json() as Promise<T>;
@@ -321,7 +324,7 @@ export async function getPlanVersion(planDocumentId: string, version: number, fe
 
 export async function getPlanFile(planDocumentId: string, fetcher: Fetcher = fetch): Promise<string> {
   const response = await fetcher(`/api/plans/${planDocumentId}/file`);
-  if (!response.ok) throw new Error(`plan file request failed (${response.status})`);
+  if (!response.ok) throw new Error(`计划文件请求失败（${response.status}）`);
   return response.text();
 }
 

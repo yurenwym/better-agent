@@ -117,7 +117,31 @@ def test_budget_route_rejects_recovery_outside_react_budget_block(tmp_path) -> N
     )
 
     assert response.status_code == 409
-    assert "budget recovery" in response.json()["detail"]
+    assert "只有执行轮次用完后" in response.json()["detail"]
+
+
+def test_run_route_localizes_legacy_english_budget_reason(tmp_path) -> None:
+    import asyncio
+    from app.domain import AgentState
+    from app.main import create_app
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = asyncio.run(runtime.create_goal("兼容旧任务", "不要暴露历史英文原因"))
+    runtime._set_run_fields(
+        run.id,
+        state=AgentState.BLOCKED,
+        resume_state=AgentState.EXECUTING,
+        budget={"react_iterations_remaining": 0, "blocked_reason": "react iteration budget exhausted"},
+    )
+    client = TestClient(create_app(runtime=runtime), raise_server_exceptions=False)
+
+    response = client.get(f"/api/runs/{run.id}", headers={"host": "127.0.0.1:8000"})
+
+    assert response.status_code == 200
+    assert response.json()["budget"]["blocked_reason_code"] == "REACT_ITERATION_BUDGET_EXHAUSTED"
+    assert response.json()["budget"]["blocked_message"] == "本步骤的执行轮次已用完"
+    assert "react iteration" not in response.text
 
 
 def test_stats_route_returns_projected_event_metrics(tmp_path) -> None:

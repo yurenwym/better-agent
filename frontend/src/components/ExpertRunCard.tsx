@@ -38,7 +38,7 @@ export default function ExpertRunCard({ run, tasks, artifacts, busy = false, onC
   return (
     <section className="expert-run-card" aria-busy={!terminal} aria-label="专家协同任务">
       <header className="expert-run-heading">
-        <div><span className="eyebrow">EXPERT COLLABORATION</span><h3>{runLabels[run.status]}</h3><p>{run.objective}</p></div>
+        <div><span className="eyebrow">专家协同</span><h3>{runLabels[run.status]}</h3><p>{run.objective}</p></div>
         <span className={`expert-status status-${run.status.toLowerCase()}`} role="status">{runLabels[run.status]}</span>
       </header>
       <div className="expert-task-list" aria-label="专家任务进度">

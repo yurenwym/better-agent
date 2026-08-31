@@ -58,9 +58,44 @@ const stageMeta: Record<TrajectoryStage, { label: string; tone: TrajectoryTone }
   run: { label: "Run", tone: "neutral" },
 };
 
+const runtimeReasonLabels: Record<string, string> = {
+  STEP_WALL_TIME_EXHAUSTED: "当前步骤执行超时",
+  REACT_ITERATION_BUDGET_EXHAUSTED: "本步骤的执行轮次已用完",
+  IDENTICAL_ACTION_BUDGET_EXHAUSTED: "模型重复执行了相同操作，任务已暂停",
+  CONSECUTIVE_TOOL_ERRORS_EXHAUSTED: "工具连续执行失败，任务已暂停",
+  INVALID_MODEL_ACTION: "模型返回了无法识别的操作",
+  MODEL_REQUESTED_BLOCK: "模型请求暂停当前任务",
+  TOOL_AUTHORIZATION_DENIED: "工具调用未通过安全授权",
+  MODEL_AUTHENTICATION: "模型凭证未通过验证",
+  MODEL_RATE_LIMIT: "模型服务当前请求过多，请稍后重试",
+  MODEL_REQUEST: "模型服务拒绝了当前请求格式",
+  MODEL_SERVER: "模型服务暂时不可用",
+  MODEL_TIMEOUT: "模型响应超时",
+};
+
+const legacyRuntimeReasonLabels: Record<string, string> = {
+  "step wall time exhausted": "当前步骤执行超时",
+  "react iteration budget exhausted": "本步骤的执行轮次已用完",
+  "identical action budget exhausted": "模型重复执行了相同操作，任务已暂停",
+  "consecutive tool errors exhausted": "工具连续执行失败，任务已暂停",
+  "invalid model action": "模型返回了无法识别的操作",
+  "model requested block": "模型请求暂停当前任务",
+};
+
 function text(data: Record<string, unknown>, key: string, fallback = ""): string {
   const value = data[key];
   return typeof value === "string" || typeof value === "number" ? String(value) : fallback;
+}
+
+function publicRuntimeMessage(data: Record<string, unknown>, fallback: string): string {
+  const code = text(data, "reason_code");
+  const message = text(data, "message");
+  const legacyReason = text(data, "reason");
+  if (message && /[\u3400-\u9fff]/.test(message)) return message;
+  if (runtimeReasonLabels[code]) return runtimeReasonLabels[code];
+  if (legacyRuntimeReasonLabels[legacyReason]) return legacyRuntimeReasonLabels[legacyReason];
+  if (legacyReason && /[\u3400-\u9fff]/.test(legacyReason)) return legacyReason;
+  return fallback;
 }
 
 function planVersion(data: Record<string, unknown>): string {
@@ -108,13 +143,13 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
     case "model.invocation.finished":
       return make(event, "model", text(data, "status") === "succeeded" ? "模型阶段完成" : "模型阶段结束", `状态：${text(data, "status", "unknown")}`);
     case "run.created":
-      return make(event, "run", "Run 已创建", "目标已进入本地运行时");
+      return make(event, "run", "执行任务已创建", "目标已进入本地运行时");
     case "run.completed":
       return make(event, "run", "目标已完成", "运行结果已保存，可以查看计划、轨迹和记忆");
     case "run.failed":
-      return make(event, "run", "Run 失败", text(data, "reason", "运行时遇到未完成的请求"));
+      return make(event, "run", "运行失败", publicRuntimeMessage(data, "运行时遇到未完成的请求"));
     case "run.blocked":
-      return make(event, "run", "Run 暂停等待处理", text(data, "reason", "需要补充预算、审批或结果"));
+      return make(event, "run", "任务暂停等待处理", publicRuntimeMessage(data, "需要补充预算、审批或结果"));
     case "run.cancelled":
       return make(event, "run", "Run 已取消", "已停止后续执行，之前的轨迹仍然保留");
     case "run.resumed":
@@ -197,7 +232,7 @@ export function describeEvent(event: EventRecord): TrajectoryItem {
     case "budget.warning":
       return make(event, "state", "预算即将耗尽", `已追加 ${text(data, "added", "0")} 轮预算`);
     case "budget.exhausted":
-      return make(event, "state", "执行预算已耗尽", "可以追加预算后从检查点恢复");
+      return make(event, "state", "执行预算已耗尽", publicRuntimeMessage(data, "可以追加预算后从检查点恢复"));
     case "state.transitioned": {
       const target = text(data, "to", text(data, "target", "UNKNOWN"));
       return make(event, "state", `已进入${stateLabel(target)}`, `${stateLabel(text(data, "from", "上一状态"))} → ${stateLabel(target)}`);
@@ -224,7 +259,7 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
     case "plan.document_ready":
       return make(event, "plan", "计划已保存", `已保存到计划 · v${planVersion(data)}，可以打开计划页面查看`);
     case "plan.document_failed":
-      return make(event, "plan", "计划保存失败", text(data, "reason", "计划文件写入未完成，可以重试"), "danger");
+      return make(event, "plan", "计划保存失败", publicRuntimeMessage(data, "计划文件写入未完成，可以重试"), "danger");
     case "plan.document_conflict":
       return make(event, "plan", "计划文件存在冲突", "检测到计划页面或本地文件有并发修改，请比较后再保存", "danger");
     case "plan.context_loaded":
@@ -236,7 +271,7 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
     case "plan.execution_projection_created":
       return make(event, "plan", "执行预览已生成", `已基于计划 v${planVersion(data)} 创建预览，等待你的确认`);
     case "plan.execution_projection_failed":
-      return make(event, "plan", "执行预览生成失败", text(data, "reason", "计划无法编译为可执行步骤"), "danger");
+      return make(event, "plan", "执行预览生成失败", publicRuntimeMessage(data, "计划无法编译为可执行步骤"), "danger");
     case "message.started":
       return make(event, "model", "正在生成回答", "模型回答会实时显示在左侧对话框");
     case "message.delta":

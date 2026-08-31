@@ -48,7 +48,8 @@ interface ChatPageProps {
 
 function isReactBudgetBlocked(run: Run): boolean {
   return run.state === "BLOCKED"
-    && run.budget.blocked_reason === "react iteration budget exhausted";
+    && (run.budget.blocked_reason_code === "REACT_ITERATION_BUDGET_EXHAUSTED"
+      || run.budget.blocked_reason === "react iteration budget exhausted");
 }
 
 function clientTurnId(): string {
@@ -418,7 +419,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
 
         {run && run.pending_approvals.length > 0 && (
           <section className="approval-stack" aria-label="待审批操作">
-            <div className="section-heading"><span className="eyebrow">CONTROL GATE</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，批准后才会产生副作用。</p></div>
+            <div className="section-heading"><span className="eyebrow">安全审批</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，批准后才会产生副作用。</p></div>
             {run.pending_approvals.map((approvalId) => (
               <ApprovalCard
                 key={approvalId}
@@ -432,7 +433,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
 
         {run && (
           <div className="action-bar">
-            {isReactBudgetBlocked(run) && <p className="budget-guard-message" role="status">Agent 已达到当前步骤的安全保护阈值</p>}
+            {isReactBudgetBlocked(run) && <p className="budget-guard-message" role="status">{typeof run.budget.blocked_message === "string" ? run.budget.blocked_message : "本步骤的执行轮次已用完"}</p>}
             {run.state === "BLOCKED" && !isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => resumeRun(run.id, csrfToken))}>继续执行</button>}
             {isReactBudgetBlocked(run) && <button className="button button-primary" type="button" onClick={() => void runAction(() => recoverFromReactBudget(run))}>继续执行一次</button>}
             {run.state === "AWAITING_OUTCOME" && <button className="button button-primary" type="button" onClick={() => void runAction(() => continueOutcome(run.id, true, csrfToken))}>目标已完成</button>}

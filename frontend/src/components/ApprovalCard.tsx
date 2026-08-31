@@ -21,7 +21,7 @@ export default function ApprovalCard({ approvalId, onGrant, onReject }: Approval
   return (
     <article className="approval-card">
       <div>
-        <span className="eyebrow risk-label">WRITE / APPROVAL REQUIRED</span>
+        <span className="eyebrow risk-label">写入操作 · 需要审批</span>
         <h3>需要你的决策</h3>
         <p>一次写入操作已暂停，批准后才会产生文件副作用。</p>
         <details className="approval-reference">

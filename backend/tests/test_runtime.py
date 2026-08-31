@@ -163,6 +163,25 @@ async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path) -> None:
+    from app.domain import AgentState
+    from app.runtime import MockModelGateway
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = await runtime.create_goal("兼容旧任务", "恢复历史预算阻塞任务")
+    runtime._set_run_fields(
+        run.id,
+        state=AgentState.BLOCKED,
+        resume_state=AgentState.EXECUTING,
+        budget={"react_iterations_remaining": 0, "blocked_reason": "react iteration budget exhausted"},
+    )
+
+    recovered = await runtime.add_budget(run.id, 1)
+
+    assert recovered.budget["react_iterations_remaining"] == 1
+
+
+@pytest.mark.asyncio
 async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 

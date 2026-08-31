@@ -30,7 +30,7 @@ class JsonBodySizeLimitMiddleware:
         host_header = headers.get(b"host", b"").decode("latin-1")
         hostname = host_header.rsplit("]", 1)[0].lstrip("[") if host_header.startswith("[") else host_header.split(":", 1)[0]
         if hostname not in self.allowed_hosts:
-            await self._send_json(send, 400, b'{"detail":"local host required"}')
+            await self._send_json(send, 400, '{"detail":"仅允许从本机访问"}'.encode("utf-8"))
             return
         content_type = headers.get(b"content-type", b"").lower()
         if scope.get("method") not in {"POST", "PUT", "PATCH"} or not content_type.startswith(b"application/json"):
@@ -44,7 +44,7 @@ class JsonBodySizeLimitMiddleware:
             except ValueError:
                 content_length = self.max_bytes + 1
             if content_length < 0 or content_length > self.max_bytes:
-                await self._send_json(send, 413, b'{"detail":"JSON request body is too large"}')
+                await self._send_json(send, 413, '{"detail":"JSON 请求体过大"}'.encode("utf-8"))
                 return
 
         total = 0
@@ -68,7 +68,7 @@ class JsonBodySizeLimitMiddleware:
 
         await self.app(scope, limited_receive, buffered_send)
         if too_large:
-            await self._send_json(send, 413, b'{"detail":"JSON request body is too large"}')
+            await self._send_json(send, 413, '{"detail":"JSON 请求体过大"}'.encode("utf-8"))
             return
         for message in buffered_messages:
             await send(message)
@@ -78,7 +78,7 @@ class JsonBodySizeLimitMiddleware:
         await send({
             "type": "http.response.start",
             "status": status,
-            "headers": [(b"content-type", b"application/json")],
+            "headers": [(b"content-type", b"application/json; charset=utf-8")],
         })
         await send({
             "type": "http.response.body",

@@ -358,7 +358,8 @@ describe("ChatPage streaming bootstrap", () => {
       budget: {
         react_iterations_remaining: 0,
         react_iteration: 5,
-        blocked_reason: "react iteration budget exhausted",
+        blocked_reason_code: "REACT_ITERATION_BUDGET_EXHAUSTED",
+        blocked_message: "本步骤的执行轮次已用完",
       },
     };
     api.addBudget.mockResolvedValue({ ...blockedRun, budget: { ...blockedRun.budget, react_iterations_remaining: 1 } });
@@ -374,7 +375,7 @@ describe("ChatPage streaming bootstrap", () => {
       />,
     );
 
-    expect(screen.getByText("Agent 已达到当前步骤的安全保护阈值")).toBeTruthy();
+    expect(screen.getByText("本步骤的执行轮次已用完")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "继续执行一次" }));
 
     await waitFor(() => expect(api.resumeRun).toHaveBeenCalledWith(blockedRun.id, "csrf"));

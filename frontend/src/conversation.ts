@@ -40,7 +40,7 @@ function looksLikeStructuredPayload(content: string): boolean {
 }
 
 function safeStructuredFallback(): MessagePresentation {
-  return { summary: "妯″瀷杩斿洖浜嗕竴鏉＄粨鏋勫寲缁撴灉銆?", detail: null, bullets: [] };
+  return { summary: "模型返回了一条结构化结果。", detail: null, bullets: [] };
 }
 
 function rawPresentation(parsed: Record<string, unknown>): MessagePresentation {

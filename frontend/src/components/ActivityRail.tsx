@@ -60,7 +60,7 @@ export default function ActivityRail({ run, events, thread = null, threadEvents 
     <aside className="activity-rail" aria-label={run ? "当前运行进度" : "当前对话轨迹"}>
       <div className="activity-rail-header">
         <div>
-          <span className="eyebrow">{run ? "LIVE RUN" : "LIVE THREAD"}</span>
+          <span className="eyebrow">{run ? "实时执行" : "实时对话"}</span>
           <h3>{run ? "现在发生什么" : "这轮对话发生了什么"}</h3>
         </div>
         <span className={`state-pill state-${state.toLowerCase()}`}>{stateLabel}</span>
@@ -68,7 +68,7 @@ export default function ActivityRail({ run, events, thread = null, threadEvents 
       <div className="activity-current" role="status" aria-live="polite">
         <div className="activity-current-meta"><span>当前阶段</span><span className={`activity-current-dot state-${state.toLowerCase()}`} aria-hidden="true" /></div>
         <strong>{stateLabel}</strong>
-        <p>{run ? "轨迹会随着 Run 实时更新" : "线程事件会随着对话实时更新"}</p>
+        <p>{run ? "轨迹会随着执行任务实时更新" : "对话事件会实时更新"}</p>
       </div>
       <div className="activity-facts">
         {run ? <>

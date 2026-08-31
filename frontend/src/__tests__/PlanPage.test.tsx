@@ -88,7 +88,7 @@ describe("PlanPage document editor", () => {
     const onSelectPlan = vi.fn();
     render(<PlanPage csrfToken="csrf" planId={null} threadId={null} run={null} onRun={vi.fn()} onSelectPlan={onSelectPlan} />);
 
-    const list = await screen.findByRole("navigation", { name: "Saved plans" });
+    const list = await screen.findByRole("navigation", { name: "已保存计划" });
     expect(list.textContent).toContain("Travel plan");
     expect(list.textContent).toContain("Training plan");
     fireEvent.click(screen.getByRole("button", { name: /Training plan/ }));
@@ -293,14 +293,14 @@ describe("PlanPage document editor", () => {
     fireEvent.click(screen.getByRole("button", { name: "保存计划" }));
 
     await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("写入失败"));
-    expect(screen.getByRole("button", { name: "Retry file write" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "重试写入计划文件" })).toBeTruthy();
     expect(within(editor).getByRole("heading", { name: "Local draft" })).toBeTruthy();
   });
 
   it("restores a selected history version as a new revision", async () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
     await enterEditMode();
-    fireEvent.click(screen.getByRole("button", { name: "Restore version 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复版本 1" }));
 
     await waitFor(() => expect(api.restorePlanDocument).toHaveBeenCalledWith(
       "plan-1",

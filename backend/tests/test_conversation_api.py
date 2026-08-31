@@ -225,6 +225,7 @@ def test_json_request_body_has_a_finite_size_limit(tmp_path) -> None:
     )
 
     assert response.status_code == 413
+    assert response.json()["detail"] == "JSON 请求体过大"
 
 
 def test_json_request_body_limit_also_applies_without_content_length(tmp_path) -> None:
@@ -243,6 +244,7 @@ def test_json_request_body_limit_also_applies_without_content_length(tmp_path) -
     )
 
     assert response.status_code == 413
+    assert response.json()["detail"] == "JSON 请求体过大"
 
 
 def test_direction_route_materializes_after_confirmation(tmp_path) -> None:

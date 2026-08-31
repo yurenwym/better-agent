@@ -64,6 +64,17 @@ describe("trajectory view model", () => {
     expect(item.detail).toContain("加入对话");
   });
 
+  it("renders stable runtime reason codes as Chinese instead of exposing internal English", () => {
+    const item = describeEvent(event("run.blocked", {
+      reason_code: "REACT_ITERATION_BUDGET_EXHAUSTED",
+      message: "本步骤的执行轮次已用完",
+      reason: "react iteration budget exhausted",
+    }));
+
+    expect(item.detail).toBe("本步骤的执行轮次已用完");
+    expect(item.detail).not.toContain("react iteration");
+  });
+
   it("summarizes model deltas without putting partial JSON in the trajectory copy", () => {
     const item = describeEvent(event("model.response.delta", {
       kind: "planning",
@@ -96,7 +107,7 @@ describe("trajectory view model", () => {
     })).title).toBe("计划已保存");
     expect(describeThreadEvent(threadEvent("plan.document_failed", {
       reason: "projection unavailable",
-    })).detail).toContain("projection unavailable");
+    })).detail).toBe("计划文件写入未完成，可以重试");
   });
 
   it("describes plan context and execution projection events", () => {

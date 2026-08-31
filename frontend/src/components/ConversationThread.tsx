@@ -79,7 +79,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
     <section className={`conversation-surface${messages.length === 0 ? " conversation-surface-empty" : ""}`} aria-label="当前目标对话">
       <div className="conversation-header">
         <div>
-          <span className="eyebrow">CONVERSATION / LIVE</span>
+          <span className="eyebrow">实时对话</span>
           <h2>{title}</h2>
           <p>{description}</p>
         </div>
@@ -145,7 +145,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
         {pendingUser && (
           <article className="message-row message-user message-pending-user">
             <div className="message-body"><div className="message-meta"><strong>你</strong><span>发送中</span></div><div className="message-card"><MarkdownMessage content={pendingUser} className="message-summary" /></div></div>
-            <div className="message-avatar" aria-hidden="true">YOU</div>
+            <div className="message-avatar" aria-hidden="true">你</div>
           </article>
         )}
         {busy && !messages.some((message) => message.role === "assistant" && message.streaming) && (
@@ -166,7 +166,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
         {decision && (
           <div className="conversation-decision" role="region" aria-label={decision.title}>
             <div>
-              <span className="eyebrow">NEXT DECISION</span>
+              <span className="eyebrow">下一步决定</span>
               <strong>{decision.title}</strong>
               <p>{decision.description}</p>
             </div>

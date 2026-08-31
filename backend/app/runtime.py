@@ -24,6 +24,7 @@ from .domain import (
 )
 from .events import EventStore
 from .memory import MemoryService
+from .public_text import public_message, reason_message
 from .skill_registry import SkillCatalog
 from .skill_platform import SkillPlatform
 from .stats import StatsProjector
@@ -46,23 +47,23 @@ class ModelDecision:
     tool_call: ToolCall | None = None
 
     @classmethod
-    def complete(cls, summary: str = "completed") -> "ModelDecision":
+    def complete(cls, summary: str = "当前步骤已完成") -> "ModelDecision":
         return cls("complete_step", summary=summary)
 
     @classmethod
-    def continue_(cls, observation: str = "continue") -> "ModelDecision":
+    def continue_(cls, observation: str = "继续执行当前步骤") -> "ModelDecision":
         return cls("continue", observation=observation)
 
     @classmethod
-    def tool(cls, tool_call: ToolCall, summary: str = "tool proposed") -> "ModelDecision":
+    def tool(cls, tool_call: ToolCall, summary: str = "模型请求调用工具") -> "ModelDecision":
         return cls("tool_call", summary=summary, tool_call=tool_call)
 
     @classmethod
-    def await_outcome(cls, observation: str = "awaiting outcome") -> "ModelDecision":
+    def await_outcome(cls, observation: str = "正在等待外部结果") -> "ModelDecision":
         return cls("await_outcome", observation=observation)
 
     @classmethod
-    def blocked(cls, summary: str = "blocked") -> "ModelDecision":
+    def blocked(cls, summary: str = "当前任务需要暂停处理") -> "ModelDecision":
         return cls("blocked", summary=summary)
 
 
@@ -421,12 +422,16 @@ class AgentRuntime:
 
     async def add_budget(self, run_id: str, amount: int) -> RunSnapshot:
         if amount <= 0:
-            raise ValueError("budget addition must be positive")
+            raise ValueError("追加的执行轮次必须大于零")
         lock = self._lock(run_id)
         async with lock:
             run = self.get_run(run_id)
-            if run.state != AgentState.BLOCKED or run.budget.get("blocked_reason") != "react iteration budget exhausted":
-                raise ValueError("budget recovery is only available after react iteration budget exhaustion")
+            reason_code = run.budget.get("blocked_reason_code") or run.budget.get("blocked_reason")
+            if run.state != AgentState.BLOCKED or reason_code not in {
+                "REACT_ITERATION_BUDGET_EXHAUSTED",
+                "react iteration budget exhausted",
+            }:
+                raise ValueError("只有执行轮次用完后才能追加轮次并恢复")
             budget = dict(run.budget)
             budget["react_iterations_remaining"] = int(budget.get("react_iterations_remaining", 0)) + amount
             self._set_run_fields(run_id, budget=budget)
@@ -549,13 +554,25 @@ class AgentRuntime:
             budget = dict(run.budget)
             iteration = int(budget.get("react_iteration", 0))
             if time.monotonic() - started > self.config.max_step_wall_time_seconds:
-                return self._block(run_id, "step wall time exhausted", budget, "budget.exhausted")
+                return self._block(
+                    run_id,
+                    "STEP_WALL_TIME_EXHAUSTED",
+                    reason_message("STEP_WALL_TIME_EXHAUSTED"),
+                    budget,
+                    "budget.exhausted",
+                )
             if not pending and int(budget.get("react_iterations_remaining", 0)) <= 0:
-                return self._block(run_id, "react iteration budget exhausted", budget, "budget.exhausted")
+                return self._block(
+                    run_id,
+                    "REACT_ITERATION_BUDGET_EXHAUSTED",
+                    reason_message("REACT_ITERATION_BUDGET_EXHAUSTED"),
+                    budget,
+                    "budget.exhausted",
+                )
             if pending:
                 decision = ModelDecision.tool(
                     ToolCall(pending["id"], pending["name"], pending["params"]),
-                    "resume pending tool",
+                    "正在恢复尚未完成的工具调用",
                 )
                 pending = None
             else:
@@ -609,13 +626,25 @@ class AgentRuntime:
                 return "awaiting_outcome"
             if decision.action == "blocked":
                 self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
-                return self._block(run_id, decision.summary or "model requested block", self.get_run(run_id).budget, "run.blocked")
+                return self._block(
+                    run_id,
+                    "MODEL_REQUESTED_BLOCK",
+                    decision.summary or "模型请求暂停当前任务",
+                    self.get_run(run_id).budget,
+                    "run.blocked",
+                )
             if decision.action == "continue":
                 observation = decision.observation
                 self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
                 continue
             if decision.action != "tool_call" or decision.tool_call is None:
-                return self._block(run_id, "invalid model action", self.get_run(run_id).budget, "run.blocked")
+                return self._block(
+                    run_id,
+                    "INVALID_MODEL_ACTION",
+                    reason_message("INVALID_MODEL_ACTION"),
+                    self.get_run(run_id).budget,
+                    "run.blocked",
+                )
             action_key = json.dumps(
                 {"name": decision.tool_call.name, "params": decision.tool_call.params},
                 ensure_ascii=False,
@@ -628,13 +657,19 @@ class AgentRuntime:
                 budget["identical_actions"] = actions
                 self._set_run_fields(run_id, budget=budget)
                 if actions[action_key] > self.config.max_identical_actions:
-                    return self._block(run_id, "identical action budget exhausted", budget, "budget.exhausted")
+                    return self._block(
+                        run_id,
+                        "IDENTICAL_ACTION_BUDGET_EXHAUSTED",
+                        reason_message("IDENTICAL_ACTION_BUDGET_EXHAUSTED"),
+                        budget,
+                        "budget.exhausted",
+                    )
             call = decision.tool_call
             self.events.append(run_id, run.goal_id, "tool.proposed", "model", {**correlation, "tool_call_id": call.id, "name": call.name})
             try:
                 approval_before = self._pending_approval_for(call.id, run_id)
                 if approval_before:
-                    self._save_checkpoint(run_id, "approval pending", [
+                    self._save_checkpoint(run_id, "工具调用正在等待你的批准", [
                         {"id": call.id, "name": call.name, "params": call.params}
                     ])
                     return "approval"
@@ -684,19 +719,31 @@ class AgentRuntime:
                 )
                 self._save_checkpoint(
                     run_id,
-                    "approval pending",
+                    "工具调用正在等待你的批准",
                     [{"id": call.id, "name": call.name, "params": call.params}],
                     [approval.id],
                 )
                 return "approval"
             except ToolRejected as exc:
-                return self._block(run_id, f"tool rejected: {exc}", self.get_run(run_id).budget, "run.blocked")
+                return self._block(
+                    run_id,
+                    "TOOL_AUTHORIZATION_DENIED",
+                    reason_message("TOOL_AUTHORIZATION_DENIED"),
+                    self.get_run(run_id).budget,
+                    "run.blocked",
+                )
             if not tool_result.ok:
                 budget = dict(self.get_run(run_id).budget)
                 budget["consecutive_tool_errors"] = int(budget.get("consecutive_tool_errors", 0)) + 1
                 self._set_run_fields(run_id, budget=budget)
                 if budget["consecutive_tool_errors"] >= self.config.max_consecutive_tool_errors:
-                    return self._block(run_id, "consecutive tool errors exhausted", budget, "budget.exhausted")
+                    return self._block(
+                        run_id,
+                        "CONSECUTIVE_TOOL_ERRORS_EXHAUSTED",
+                        reason_message("CONSECUTIVE_TOOL_ERRORS_EXHAUSTED"),
+                        budget,
+                        "budget.exhausted",
+                    )
             else:
                 budget = dict(self.get_run(run_id).budget)
                 budget["consecutive_tool_errors"] = 0
@@ -782,7 +829,8 @@ class AgentRuntime:
     def _block(
         self,
         run_id: str,
-        reason: str,
+        reason_code: str,
+        message: str,
         budget: dict[str, Any],
         event_type: str,
     ) -> str:
@@ -790,14 +838,22 @@ class AgentRuntime:
             return "cancelled"
         run = self.get_run(run_id)
         budget = dict(budget)
-        budget["blocked_reason"] = reason
+        budget["blocked_reason_code"] = reason_code
+        budget["blocked_message"] = message
+        budget.pop("blocked_reason", None)
         self._set_run_fields(run_id, budget=budget)
         if run.state != AgentState.BLOCKED:
-            self._transition(self.get_run(run_id), AgentState.BLOCKED, {"reason": reason})
+            self._transition(
+                self.get_run(run_id),
+                AgentState.BLOCKED,
+                {"reason_code": reason_code, "message": message},
+            )
+        message = public_message(message, reason_message(reason_code))
+        event_data = {"reason_code": reason_code, "message": message}
         if event_type == "budget.exhausted":
-            self.events.append(run_id, run.goal_id, "budget.exhausted", "runtime", {"reason": reason})
-        self._save_checkpoint(run_id, reason)
-        self.events.append(run_id, run.goal_id, "run.blocked", "runtime", {"reason": reason})
+            self.events.append(run_id, run.goal_id, "budget.exhausted", "runtime", event_data)
+        self._save_checkpoint(run_id, message)
+        self.events.append(run_id, run.goal_id, "run.blocked", "runtime", event_data)
         return "blocked"
 
     def _save_checkpoint(
@@ -998,14 +1054,27 @@ class AgentRuntime:
                     {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
                 )
             current = self.get_run(run.id)
-            reason = f"model {exc.kind}"
+            reason_code = f"MODEL_{exc.kind.upper()}"
+            message = reason_message(reason_code, "模型请求未完成")
             if current.state == AgentState.RECEIVED:
-                self._transition(current, AgentState.FAILED, {"reason": reason})
-                self.events.append(run.id, run.goal_id, "run.failed", "runtime", {"reason": reason})
-                self._save_checkpoint(run.id, reason)
+                self._transition(current, AgentState.FAILED, {"reason_code": reason_code, "message": message})
+                self.events.append(
+                    run.id,
+                    run.goal_id,
+                    "run.failed",
+                    "runtime",
+                    {"reason_code": reason_code, "message": message},
+                )
+                self._save_checkpoint(run.id, message)
                 await self._finish_exposure(run.id, success=False)
             elif current.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
-                self._block(run.id, reason, current.budget, "run.blocked")
+                self._block(
+                    run.id,
+                    reason_code,
+                    message,
+                    current.budget,
+                    "run.blocked",
+                )
             return None
         else:
             clear_callbacks()

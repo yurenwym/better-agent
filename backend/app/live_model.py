@@ -93,11 +93,11 @@ class LiveRuntimeModel:
         )
         steps = payload.get("steps")
         if not isinstance(steps, list) or not steps:
-            raise GatewayError("structured plan output is invalid", "structure")
+            raise GatewayError("模型返回的计划结构无效", "structure")
         normalized = []
         for index, step in enumerate(steps):
             if not isinstance(step, dict) or not str(step.get("title", "")).strip():
-                raise GatewayError("structured plan step is invalid", "structure")
+                raise GatewayError("模型返回的计划步骤无效", "structure")
             normalized.append({
                 "id": str(step.get("id") or f"step-{index + 1}"),
                 "title": str(step["title"]).strip(),
@@ -118,24 +118,24 @@ class LiveRuntimeModel:
         )
         action = str(payload.get("action", "blocked"))
         if action == "complete_step":
-            return ModelDecision.complete(_visible_result(payload, "completed"))
+            return ModelDecision.complete(_visible_result(payload, "当前步骤已完成"))
         if action == "continue":
-            return ModelDecision.continue_(_visible_result(payload, "continue", "observation"))
+            return ModelDecision.continue_(_visible_result(payload, "继续执行当前步骤", "observation"))
         if action == "await_outcome":
-            return ModelDecision.await_outcome(_visible_result(payload, "awaiting outcome", "observation"))
+            return ModelDecision.await_outcome(_visible_result(payload, "正在等待外部结果", "observation"))
         if action == "blocked":
-            return ModelDecision.blocked(_visible_result(payload, "blocked"))
+            return ModelDecision.blocked(_visible_result(payload, "当前任务需要暂停处理"))
         if action == "tool_call":
             tool = payload.get("tool_call")
             if not isinstance(tool, dict) or not isinstance(tool.get("params"), dict) or not tool.get("name"):
-                raise GatewayError("structured tool call is invalid", "structure")
+                raise GatewayError("模型返回的工具调用结构无效", "structure")
             from .tools import ToolCall
 
             return ModelDecision.tool(
                 ToolCall(str(tool.get("id") or f"model-call-{iteration}"), str(tool["name"]), tool["params"]),
-                _visible_result(payload, "tool proposed"),
+                _visible_result(payload, "模型请求调用工具"),
             )
-        raise GatewayError("unknown structured model action", "structure")
+        raise GatewayError("模型返回了未知的结构化操作", "structure")
 
     async def reflect(self, goal: dict[str, Any], plan: Any, run_id: str) -> list[dict[str, Any]]:
         payload = await self._json(

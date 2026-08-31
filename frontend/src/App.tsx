@@ -141,8 +141,8 @@ export default function App() {
 
         {showPageHeader && (
           <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}`}>
-            <div><span className="eyebrow">V1 WORKSPACE</span><h2>{headings[page]}</h2></div>
-            {run && <div className="run-context"><span>ACTIVE RUN</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
+            <div><span className="eyebrow">V1 工作区</span><h2>{headings[page]}</h2></div>
+            {run && <div className="run-context"><span>当前任务</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
           </div>
         )}
 

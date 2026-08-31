@@ -15,7 +15,7 @@ export default function DailyActionCard({ action, busy, overdue = false, onCompl
   return (
     <article className={`daily-action-card${overdue ? " daily-action-overdue" : ""}`} aria-busy={busy}>
       <div className="daily-action-heading">
-        <div><span className="eyebrow">{overdue ? "OVERDUE" : action.required ? "REQUIRED" : "OPTIONAL"}</span><h4>{action.title}</h4></div>
+        <div><span className="eyebrow">{overdue ? "已逾期" : action.required ? "必做" : "可选"}</span><h4>{action.title}</h4></div>
         <span className="daily-action-minutes">{action.estimated_minutes} 分钟</span>
       </div>
       {action.description && <p>{action.description}</p>}
