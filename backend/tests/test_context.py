@@ -62,3 +62,26 @@ def test_context_crops_once_and_preserves_current_instruction_and_snapshot_hash(
         max_chars=180,
     ).snapshot_hash
 
+
+def test_context_hard_cap_includes_protected_blocks() -> None:
+    from app.context import ContextAssembler
+    from app.token_budget import DEFAULT_TOKEN_COUNTER
+
+    result = ContextAssembler().assemble(
+        user_instruction="current request",
+        goal="goal " * 100,
+        plan="plan " * 100,
+        step="step " * 100,
+        skill="skill " * 100,
+        history=["old " * 100],
+        tool_results=[],
+        memories=[],
+        project_id=None,
+        max_tokens=240,
+    )
+
+    assert DEFAULT_TOKEN_COUNTER.count_text(result.text) <= 240
+    assert "current request" in result.text
+    assert result.overflow is False
+    assert result.cropped is True
+

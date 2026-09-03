@@ -47,7 +47,8 @@ def review_services(tmp_path, *, needs_adjustment=True):
     return db, goals, version, compiler, reviews, ManagedGoalReviewWorker(reviews, poll_interval=.01, lease_seconds=1)
 
 
-def test_closed_day_queues_one_review_and_worker_creates_confirmable_adjustment(tmp_path) -> None:
+def test_closed_day_queues_one_review_and_worker_creates_confirmable_adjustment(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("app.goal_reviews._local_date", lambda _timezone_name: "2026-09-02")
     db, goals, version, compiler, reviews, worker = review_services(tmp_path)
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")

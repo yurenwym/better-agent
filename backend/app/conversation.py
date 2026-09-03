@@ -184,6 +184,7 @@ class RouteAndRespondModel(Protocol):
         on_text_delta,
         on_text_reset,
         cancel_event,
+        owner_id: str = "local-user",
     ) -> Any: ...
 
 
@@ -376,6 +377,40 @@ class ConversationService:
             ).fetchone()
             if research is not None:
                 raise ValueError("active research must be stopped before deletion")
+            episode_ids = [row["id"] for row in connection.execute(
+                "SELECT id FROM memory_episodes WHERE thread_id=? AND owner_id=? AND status<>'DELETED'",
+                (thread_id, owner_id),
+            )]
+            pin_ids = {row["pin_invocation_id"] for row in connection.execute(
+                "SELECT pin_invocation_id FROM memory_context_pin_items WHERE "
+                "(source_type='thread' AND source_id=?)",
+                (thread_id,),
+            )}
+            if episode_ids:
+                placeholders = ",".join("?" for _ in episode_ids)
+                pin_ids.update(row["pin_invocation_id"] for row in connection.execute(
+                    f"SELECT pin_invocation_id FROM memory_context_pin_items WHERE source_type='episode' AND source_id IN ({placeholders})",
+                    episode_ids,
+                ))
+                connection.execute(
+                    "UPDATE memory_episodes SET status='DELETED',summary='',synopsis_json='[]',topics_json='[]',"
+                    "decisions_json='[]',outcomes_json='[]',open_loops_json='[]',source_message_ids_json='[]',deleted_at=? "
+                    "WHERE thread_id=? AND owner_id=?",
+                    (now, thread_id, owner_id),
+                )
+            for pin_id in pin_ids:
+                connection.execute(
+                    "UPDATE memory_context_pins SET invalidated_at=?,invalidation_reason='thread_deleted' WHERE model_invocation_id=?",
+                    (now, pin_id),
+                )
+                connection.execute("DELETE FROM memory_context_pin_payloads WHERE pin_invocation_id=?", (pin_id,))
+            connection.execute("DELETE FROM memory_archive_signals WHERE thread_id=?", (thread_id,))
+            connection.execute(
+                "UPDATE memory_archive_jobs SET status='DEAD_LETTER',lease_owner=NULL,lease_until=NULL,"
+                "last_error_code='thread_deleted',finished_at=?,updated_at=? "
+                "WHERE thread_id=? AND status IN ('QUEUED','RUNNING','RETRY_WAIT')",
+                (now, now, thread_id),
+            )
             connection.execute(
                 "UPDATE threads SET deleted_at=?, updated_at=?, version=version+1 WHERE id=?",
                 (now, now, thread_id),
@@ -1263,7 +1298,14 @@ class ManagedTurnWorker:
                     pass
 
     async def _process(self, turn_id: str) -> None:
-        turn = self.conversation.turn(turn_id)
+        with self.db.connection() as connection:
+            scope = connection.execute(
+                "SELECT h.owner_id FROM turns t JOIN threads h ON h.id=t.thread_id "
+                "WHERE t.id=? AND h.deleted_at IS NULL", (turn_id,)
+            ).fetchone()
+        if scope is None:
+            raise KeyError(turn_id)
+        turn = self.conversation.turn(turn_id, scope["owner_id"])
         cancel_event = asyncio.Event()
         lease_lost = asyncio.Event()
         heartbeat_stop = asyncio.Event()
@@ -1343,6 +1385,7 @@ class ManagedTurnWorker:
                     content=user_message.content,
                     history=history,
                     skill_names=list(turn.skill_names),
+                    owner_id=scope["owner_id"],
                     on_text_delta=on_delta,
                     on_text_reset=on_reset,
                     cancel_event=cancel_event,
@@ -1418,8 +1461,14 @@ class ManagedTurnWorker:
                 agent_tasks = getattr(self.conversation.agent_runtime, "agent_tasks", None)
                 if agent_tasks is None:
                     raise RuntimeError("expert runtime is not configured")
+                with self.db.connection() as connection:
+                    thread_scope = connection.execute(
+                        "SELECT owner_id FROM threads WHERE id=? AND deleted_at IS NULL", (turn.thread_id,)
+                    ).fetchone()
+                if thread_scope is None:
+                    raise KeyError(turn.thread_id)
                 agent_tasks.create_run(
-                    "local-user", decoder.header.expert_objective or user_message.content,
+                    thread_scope["owner_id"], decoder.header.expert_objective or user_message.content,
                     {"thread_id": turn.thread_id, "source_turn_id": turn.id, "history": history[-12:]},
                     self.conversation.agent_runtime.behavior.active("stable").id,
                     thread_id=turn.thread_id, idempotency_key=f"conversation-expert:{turn.id}", append_thread_message=False,
@@ -1443,9 +1492,6 @@ class ManagedTurnWorker:
                 self._flush_delta(turn, message_id, generation, pending)
             self._finish_success(turn, message_id, generation, decoder.header, plan_context)
             await self._finish_exposure(turn, success=True, message_id=message_id)
-            archiver = getattr(self.conversation.agent_runtime, "archiver", None)
-            if archiver is not None:
-                await archiver.archive_thread(turn.thread_id)
         except TurnJobLeaseLost:
             return
         except asyncio.CancelledError:
@@ -2070,44 +2116,14 @@ class ManagedTurnWorker:
         return _message_from_row(row)
 
     def _history(self, thread_id: str, turn_id: str) -> list[dict[str, Any]]:
-        with self.db.connection() as connection:
-            rows = connection.execute(
-                "SELECT id, turn_id, role, content FROM thread_messages WHERE thread_id = ? AND turn_id != ? AND message_seq > COALESCE((SELECT archived_through_seq FROM conversation_archive_state WHERE owner_id='local-user' AND thread_id=?),0) ORDER BY message_seq, created_at, id LIMIT 50",
-                (thread_id, turn_id, thread_id),
-            ).fetchall()
-            ask_rows = connection.execute(
-                "SELECT * FROM turn_asks WHERE status = 'ANSWERED' AND turn_id != ? ORDER BY created_at, id",
-                (turn_id,),
-            ).fetchall()
-        asks_by_turn: dict[str, list[Any]] = {}
-        for ask in ask_rows:
-            asks_by_turn.setdefault(ask["turn_id"], []).append(ask)
-        history: list[dict[str, Any]] = []
-        for row in rows:
-            asks = asks_by_turn.get(row["turn_id"], []) if row["role"] == "assistant" else []
-            if not asks:
-                history.append({"role": row["role"], "content": row["content"]})
-                continue
-            questions = questions_from_json(asks[0]["questions_json"])
-            answers = json.loads(asks[0]["answer_json"] or "[]")
-            history.append({
-                "role": "assistant",
-                "content": row["content"],
-                "tool_calls": [{
-                    "id": asks[0]["call_id"],
-                    "type": "function",
-                    "function": {
-                        "name": "ask_user",
-                        "arguments": json.dumps({"questions": [question.as_dict() for question in questions]}, ensure_ascii=False),
-                    },
-                }],
-            })
-            history.append({
-                "role": "tool",
-                "tool_call_id": asks[0]["call_id"],
-                "content": json.dumps(tool_result_payload(questions, answers), ensure_ascii=False),
-            })
-        return history
+        from .transcript import CanonicalTurnTranscriptBuilder
+
+        builder = CanonicalTurnTranscriptBuilder(self.db)
+        transcript = builder.build(thread_id, exclude_turn_id=turn_id)
+        # This is an atomic history budget, not a message-count limit. The final
+        # gateway request is validated again against the routed model profile.
+        transcript = builder.pack_recent(transcript, token_budget=12_000)
+        return builder.render_history(transcript)
 
     def _skill_context(self, turn: TurnSnapshot) -> str:
         if not turn.skill_names or self.conversation.agent_runtime is None:

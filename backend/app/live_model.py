@@ -363,12 +363,19 @@ class LiveConversationModel:
         on_text_delta,
         on_text_reset,
         cancel_event,
+        owner_id: str = "local-user",
     ) -> Any:
         human_mode = bool(self.settings and self.settings.get().human_mode)
         if self.memory_store is not None:
             remember=await self._classify_explicit_remember(content,cancel_event)
             if remember:
-                item=self.memory_store.remember("local-user",remember["kind"],remember["scope_type"],remember.get("scope_id", ""),remember["content"],f"conversation:{hashlib.sha256(content.encode()).hexdigest()}")
+                try:
+                    item=self.memory_store.remember(owner_id,remember["kind"],remember["scope_type"],remember.get("scope_id", ""),remember["content"],f"conversation:{hashlib.sha256((owner_id+":"+content).encode()).hexdigest()}")
+                except (ValueError, KeyError, TypeError, AttributeError):
+                    item = None
+                if item is None:
+                    remember = None
+            if remember and item is not None:
                 header=json.dumps({"v":1,"policy":"answer","content_shape":"text","reason_code":"memory_saved"},ensure_ascii=False)+"\n"
                 body=f"已记住：{item.content}\n\n你可以随时在记忆页面编辑、停用或删除。"
                 if on_text_delta is not None:on_text_delta(header+body)
@@ -401,6 +408,9 @@ class LiveConversationModel:
                 "若无法判断用户要通用解释还是个人计划，先问一个简洁的意图问题。只提本次请求真正需要的最少问题，不使用固定问卷，不询问无关信息。"
                 "一般知识、宽泛攻略、模板，或可通过明确假设直接写出的有用第一版，应直接回答而不是询问偏好。"
                 "ask_user 必须包含一到四个具体问题；同一响应中不要再输出正文或控制头。结构化询问不适用时，clarify 仅用于兼容旧版单问题文本。"
+                "产品身份规则：你面向用户的名称始终是 Better Agent，是帮助用户研究、制定计划、执行、复盘并持续成长的本地个人 Agent。"
+                "底层模型和模型供应商只是运行组件；不得自称 Claude、ChatGPT、DeepSeek、Anthropic、OpenAI 或任何其他底层模型、供应商，也不得虚构产品创建者。"
+                "用户询问‘你是谁’时，应以 Better Agent 的身份简要说明与当前问题相关的能力。只有用户明确询问技术运行配置、当前模型或供应商时，才可以如实说明底层技术信息，并明确区分产品身份与底层模型。"
                 "Markdown 正文中绝不暴露控制头、隐藏推理、工具结构或原始 JSON。使用用户的语言，并在控制头后立即开始有效答案。"
             ), policy),
         }]
@@ -452,9 +462,23 @@ class LiveConversationModel:
                 if on_text_reset is not None:
                     on_text_reset()
 
+            bounded_messages = request_messages
+            input_limit = getattr(self.gateway, "input_limit", None)
+            if callable(input_limit):
+                from .token_budget import pack_messages_newest
+                try:
+                    limit = input_limit(owner_id=owner_id)
+                except TypeError:
+                    # Keep test doubles and older gateway adapters compatible.
+                    limit = input_limit()
+                bounded_messages = pack_messages_newest(
+                    request_messages,
+                    budget=limit,
+                    tools=[ASK_TOOL_SCHEMA] if tools is None else tools,
+                )
             response = await self.gateway.complete(
                 ModelRequest(
-                    messages=request_messages,
+                    messages=bounded_messages,
                     tools=[ASK_TOOL_SCHEMA] if tools is None else tools,
                     temperature=0,
                     role="conversation",
@@ -475,12 +499,21 @@ class LiveConversationModel:
                 try:
                     request = parse_ask_tool_call(tool_calls[0])
                     if getattr(self.gateway, "supports_role_routing", False):
+                        ask_messages = [*bounded_messages, {
+                            "role": "system",
+                            "content": "已确认当前请求需要用户补充关键信息。调用 ask_user，生成一到四个最少且相关的问题；不要输出正文。",
+                        }]
+                        ask_input_limit = getattr(self.gateway, "input_limit", None)
+                        if callable(ask_input_limit):
+                            try:
+                                ask_limit = ask_input_limit(owner_id=owner_id)
+                            except TypeError:
+                                ask_limit = ask_input_limit()
+                            from .token_budget import pack_messages_newest
+                            ask_messages = pack_messages_newest(ask_messages, budget=ask_limit, tools=[ASK_TOOL_SCHEMA])
                         ask_response = await self.gateway.complete(
                             ModelRequest(
-                                messages=[*request_messages, {
-                                    "role": "system",
-                                    "content": "已确认当前请求需要用户补充关键信息。调用 ask_user，生成一到四个最少且相关的问题；不要输出正文。",
-                                }],
+                                messages=ask_messages,
                                 tools=[ASK_TOOL_SCHEMA], temperature=0, max_tokens=800,
                                 role="ask", purpose="generate_clarification",
                             ),

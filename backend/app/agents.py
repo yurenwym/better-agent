@@ -295,14 +295,26 @@ class AgentTaskService:
                 self.evolution.finish_run_exposure(run_id, success=False, connection=connection)
         return self.get_run(run_id)
 
-    def get_run(self, run_id: str) -> dict[str, Any]:
-        with self.db.connection() as connection: return self._run(run_id, connection)
-
-    def latest_run_for_thread(self, thread_id: str) -> dict[str, Any]:
+    def get_run(self, run_id: str, owner_id: str | None = None) -> dict[str, Any]:
         with self.db.connection() as connection:
-            row = connection.execute(
-                "SELECT id FROM agent_runs WHERE thread_id=? ORDER BY created_at DESC,id DESC LIMIT 1", (thread_id,)
-            ).fetchone()
+            if owner_id is None:
+                return self._run(run_id, connection)
+            row = connection.execute("SELECT id FROM agent_runs WHERE id=? AND owner_id=?", (run_id, owner_id)).fetchone()
+            if row is None:
+                raise KeyError(run_id)
+            return self._run(run_id, connection)
+
+    def latest_run_for_thread(self, thread_id: str, owner_id: str | None = None) -> dict[str, Any]:
+        with self.db.connection() as connection:
+            if owner_id is None:
+                row = connection.execute(
+                    "SELECT id FROM agent_runs WHERE thread_id=? ORDER BY created_at DESC,id DESC LIMIT 1", (thread_id,)
+                ).fetchone()
+            else:
+                row = connection.execute(
+                    "SELECT id FROM agent_runs WHERE thread_id=? AND owner_id=? ORDER BY created_at DESC,id DESC LIMIT 1",
+                    (thread_id, owner_id),
+                ).fetchone()
             if row is None: raise KeyError(thread_id)
             return self._run(row["id"], connection)
 
@@ -314,9 +326,15 @@ class AgentTaskService:
             rows = connection.execute("SELECT id FROM agent_tasks WHERE parent_task_id=? ORDER BY child_key,id", (parent_id,)).fetchall()
             return [self._task(row["id"], connection) for row in rows]
 
-    def tasks(self, run_id: str) -> list[dict[str, Any]]:
+    def tasks(self, run_id: str, owner_id: str | None = None) -> list[dict[str, Any]]:
         with self.db.connection() as connection:
-            rows = connection.execute("SELECT id FROM agent_tasks WHERE agent_run_id=? ORDER BY created_at,id", (run_id,)).fetchall()
+            query = "SELECT t.id FROM agent_tasks t JOIN agent_runs r ON r.id=t.agent_run_id WHERE t.agent_run_id=?"
+            args: list[Any] = [run_id]
+            if owner_id is not None:
+                query += " AND r.owner_id=?"
+                args.append(owner_id)
+            query += " ORDER BY t.created_at,t.id"
+            rows = connection.execute(query, args).fetchall()
             return [self._task(row["id"], connection) for row in rows]
 
     def context(self, snapshot_id: str) -> dict[str, Any]:
@@ -342,8 +360,15 @@ class AgentTaskService:
             content = {key: content[key] for key in ("summary", "findings", "risks", "open_questions", "safety_pass") if key in content}
         return {**dict(row), "content": content, "source_refs": json.loads(row["source_refs_json"])}
 
-    def events(self, run_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
-        with self.db.connection() as connection: rows = connection.execute("SELECT * FROM agent_events WHERE agent_run_id=? AND seq>? ORDER BY seq", (run_id, after_seq)).fetchall()
+    def events(self, run_id: str, after_seq: int = 0, owner_id: str | None = None) -> list[dict[str, Any]]:
+        with self.db.connection() as connection:
+            query = "SELECT e.* FROM agent_events e JOIN agent_runs r ON r.id=e.agent_run_id WHERE e.agent_run_id=? AND e.seq>?"
+            args: list[Any] = [run_id, after_seq]
+            if owner_id is not None:
+                query += " AND r.owner_id=?"
+                args.append(owner_id)
+            query += " ORDER BY e.seq"
+            rows = connection.execute(query, args).fetchall()
         return [{**dict(row), "data": json.loads(row["data_json"])} for row in rows]
 
     @staticmethod

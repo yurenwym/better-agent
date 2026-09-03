@@ -139,7 +139,7 @@ def test_database_upgrades_from_migration_12_to_17_and_restarts_idempotently(tmp
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
         binding_columns = {row[1] for row in connection.execute("PRAGMA table_info(skill_bindings)")}
 
-    assert versions == list(range(1, 18))
+    assert versions == list(range(1, len(migrations) + 1))
     assert "runtime_bundle_id" in run_columns
     assert "runtime_bundle_id" in turn_columns
     assert "uq_cost_attempt_period_entry" in indexes
@@ -163,7 +163,7 @@ def test_database_upgrades_from_migration_14_to_15(tmp_path, monkeypatch) -> Non
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         columns = {row[1] for row in connection.execute("PRAGMA table_info(canary_exposures)")}
 
-    assert versions == list(range(1, 18))
+    assert versions == list(range(1, len(migrations) + 1))
     assert {
         "quality_outcome", "safety_outcome", "ttft_ms", "ttft_p95_ms",
         "invocation_count", "attempt_count", "cost_microusd",
@@ -191,7 +191,7 @@ def test_database_recovers_when_control_migration_ddl_landed_without_receipts(tm
     with sqlite3.connect(path) as connection:
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         indexes = {row[1] for row in connection.execute("PRAGMA index_list(cost_ledger)")}
-    assert versions == list(range(1, 18))
+    assert versions == list(range(1, len(migrations) + 1))
     assert "uq_cost_attempt_period_entry" in indexes
 
 
@@ -212,7 +212,7 @@ def test_database_recovers_when_canary_metric_ddl_landed_without_receipt(tmp_pat
     with sqlite3.connect(path) as connection:
         versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
         columns = {row[1] for row in connection.execute("PRAGMA table_info(canary_exposures)")}
-    assert versions == list(range(1, 18))
+    assert versions == list(range(1, len(migrations) + 1))
     assert {
         "quality_outcome", "safety_outcome", "ttft_ms", "ttft_p95_ms",
         "invocation_count", "attempt_count", "cost_microusd",

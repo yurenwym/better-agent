@@ -3,7 +3,7 @@ import json
 import pytest
 
 
-def _configured_control_plane(tmp_path, monkeypatch):
+def _configured_control_plane(tmp_path, monkeypatch, *, context_windows=None):
     from app.behavior import BehaviorBundleService
     from app.db import Database
     from app.model_admin import ModelAdminService
@@ -11,6 +11,7 @@ def _configured_control_plane(tmp_path, monkeypatch):
     db = Database(tmp_path / "agent.db")
     admin = ModelAdminService(db)
     versions = {}
+    context_windows = context_windows or {}
     for name, capabilities in {
         "chat": {"text": True, "streaming": True},
         "planner": {"text": True, "json_object": True},
@@ -26,7 +27,7 @@ def _configured_control_plane(tmp_path, monkeypatch):
             "model_name": name,
             "credential_env_ref": env,
             "capabilities": capabilities,
-            "context_window": 8192,
+            "context_window": context_windows.get(name, 8192),
             "max_output_tokens": 1024,
             "timeout_seconds": 5,
             "max_attempts": 1,
@@ -247,3 +248,68 @@ async def test_routed_budget_block_is_explainable_and_happens_before_transport(t
         await gateway.complete(ModelRequest(messages=[], role="planner"), context=ModelCallContext("planner","plan",runtime_bundle_id=bundle.id))
     assert caught.value.kind == "budget"
     assert called is False
+
+
+@pytest.mark.asyncio
+async def test_routed_context_overflow_before_invocation_does_not_call_transport(tmp_path, monkeypatch) -> None:
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
+    from app.model_gateway import GatewayError, ModelRequest
+
+    db, bundle, versions = _configured_control_plane(
+        tmp_path, monkeypatch, context_windows={"planner": 512}
+    )
+    called = False
+
+    async def execute(*args, **kwargs):
+        nonlocal called
+        called = True
+        raise AssertionError("context overflow must be rejected before transport")
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    with pytest.raises(GatewayError) as caught:
+        await gateway.complete(
+            ModelRequest(messages=[{"role": "planner", "content": "x" * 1000}], role="planner"),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+        )
+
+    assert caught.value.kind == "context_overflow"
+    assert caught.value.attempts == 0
+    assert called is False
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_routed_fallback_context_overflow_fails_existing_invocation_without_fallback_attempt(tmp_path, monkeypatch) -> None:
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
+    from app.model_gateway import GatewayError, ModelRequest
+
+    db, bundle, versions = _configured_control_plane(
+        tmp_path, monkeypatch, context_windows={"fallback": 512}
+    )
+    called = []
+
+    async def execute(profile, request, **kwargs):
+        called.append(profile.registered_profile_version_id)
+        raise GatewayError("primary unavailable", "provider_unavailable", 1)
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    with pytest.raises(GatewayError) as caught:
+        await gateway.complete(
+            ModelRequest(messages=[{"role": "planner", "content": "x" * 1000}], role="planner"),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+        )
+
+    assert caught.value.kind == "context_overflow"
+    assert caught.value.attempts == 1
+    assert called == [versions["planner"]]
+    with db.connection() as connection:
+        invocation = connection.execute("SELECT status FROM model_invocations").fetchone()
+        attempts = connection.execute(
+            "SELECT ordinal,profile_version_id,status,error_kind FROM model_attempts ORDER BY ordinal"
+        ).fetchall()
+    assert invocation["status"] == "FAILED"
+    assert [tuple(row) for row in attempts] == [
+        (1, versions["planner"], "FAILED", "provider_unavailable"),
+    ]

@@ -13,6 +13,8 @@ def test_load_llm_ap_file_maps_external_profile_without_persisting_secret(tmp_pa
     assert profile.model == "test-model"
     assert profile.base_url == "https://provider.test"
     assert profile.api_key_env == "AGENT_MODEL_API_KEY"
+    assert profile.context_window == 32768
+    assert profile.max_output_tokens == 4096
     assert profile.public_view()["api_key_configured"] is True
     assert "test-secret" not in str(profile.public_view())
 
@@ -28,6 +30,8 @@ def test_model_profile_can_be_loaded_from_named_environment_settings(monkeypatch
 
     assert profile.model == "demo"
     assert profile.base_url == "https://provider.test/v1"
+    assert profile.context_window == 32768
+    assert profile.max_output_tokens == 4096
     assert profile.public_view()["api_key_configured"] is True
     assert "secret-value" not in str(profile.public_view())
 
@@ -37,3 +41,19 @@ def test_llm_file_accepts_models_endpoint_but_normalizes_chat_base(tmp_path) -> 
     path = tmp_path / "LLM_API.txt"
     path.write_text("LLM_API_KEY=x\nLLM_BASE_URL=https://provider.test/v1/models\nLLM_MODEL_ID=m\n", encoding="utf-8")
     assert load_llm_ap(path).base_url == "https://provider.test/v1"
+
+
+def test_llm_file_can_override_context_budget(tmp_path) -> None:
+    from app.config import load_llm_ap
+
+    path = tmp_path / "LLM_API.txt"
+    path.write_text(
+        "LLM_API_KEY=x\nLLM_BASE_URL=https://provider.test/v1\nLLM_MODEL_ID=m\n"
+        "LLM_CONTEXT_WINDOW=65536\nLLM_MAX_OUTPUT_TOKENS=8192\n",
+        encoding="utf-8",
+    )
+
+    profile = load_llm_ap(path)
+
+    assert profile.context_window == 65536
+    assert profile.max_output_tokens == 8192

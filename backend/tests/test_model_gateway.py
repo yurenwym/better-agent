@@ -57,6 +57,65 @@ async def test_gateway_normalizes_stream_and_cache_buckets(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_context_overflow_happens_before_transport_and_invocation(tmp_path, monkeypatch) -> None:
+    """A request rejected by the local budget check must be side-effect free."""
+    from app.db import Database
+    from app.model_control import ModelCallContext, ModelControlStore
+    from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
+
+    monkeypatch.setenv("OVERFLOW_MODEL_KEY", "secret-key")
+    db = Database(tmp_path / "agent.db")
+    calls = 0
+
+    async def handler(_: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        raise AssertionError("context overflow must be rejected before transport")
+
+    gateway = ModelGateway(
+        ModelProfile(
+            "https://provider.test/v1",
+            "demo",
+            "OVERFLOW_MODEL_KEY",
+            context_window=1024,
+            max_output_tokens=128,
+            max_attempts=3,
+        ),
+        transport=httpx.MockTransport(handler),
+        control_store=ModelControlStore(db),
+    )
+
+    with pytest.raises(GatewayError) as caught:
+        await gateway.complete(
+            ModelRequest(messages=[{"role": "user", "content": "x" * 2000}]),
+            context=ModelCallContext("conversation", "answer"),
+        )
+
+    assert caught.value.kind == "context_overflow"
+    assert caught.value.attempts == 0
+    assert calls == 0
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+
+
+def test_pack_messages_keeps_latest_user_and_stays_within_budget() -> None:
+    from app.token_budget import DEFAULT_TOKEN_COUNTER, pack_messages_newest
+
+    messages = [
+        {"role": "system", "content": "policy"},
+        {"role": "user", "content": "old" * 100},
+        {"role": "assistant", "content": "answer" * 100},
+        {"role": "user", "content": "current"},
+    ]
+    bounded = pack_messages_newest(messages, budget=180)
+
+    assert bounded[0]["role"] == "system"
+    assert bounded[-1] == {"role": "user", "content": "current"}
+    assert DEFAULT_TOKEN_COUNTER.count_payload(bounded) <= 180
+
+
+@pytest.mark.asyncio
 async def test_gateway_delivers_text_deltas_before_complete_returns(monkeypatch) -> None:
     from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
 

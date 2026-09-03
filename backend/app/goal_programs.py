@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .db import Database
 from .goal_program_compiler import GoalCompilationError, GoalCompiler, validate_program_structure
+from .token_budget import DEFAULT_TOKEN_COUNTER
 
 
 OWNER_ID = "local-user"
@@ -438,10 +439,18 @@ class GoalProgramService:
         summary=f"已完成目标“{row['objective_title']}”。执行周期 {row['start_date']} 至 {row['end_date']}；必做行动完成 {completed}/{required}，选做完成 {optional}，跳过 {skipped}。"
         source_hash=_hash({"program_id":row["id"],"program_version_id":row["current_program_version_id"],"summary":summary})
         episode_id=f"episode_{uuid.uuid4().hex}"
+        structured = _json([{"text": summary, "source_message_ids": []}])
         connection.execute(
-            "INSERT OR IGNORE INTO memory_episodes(id,owner_id,thread_id,project_id,start_message_seq,end_message_seq,source_hash,summary,sensitivity,retrieval_policy,status,created_at) "
-            "VALUES (?,?,?,NULL,0,0,?,?,'normal','thread','ACTIVE',?)",
-            (episode_id,row["owner_id"],row["source_thread_id"],source_hash,summary,_now()),
+            "INSERT OR IGNORE INTO memory_episodes("
+            "id,owner_id,thread_id,project_id,start_message_seq,end_message_seq,source_hash,summary,"
+            "sensitivity,retrieval_policy,status,created_at,schema_version,synopsis_json,outcomes_json,"
+            "source_message_ids_json,source_token_count,summary_token_count,tokenizer_version) "
+            "VALUES (?,?,?,NULL,0,0,?,?,'normal','thread','ACTIVE',?,'episode-v2',?,?,?,0,?,?)",
+            (
+                episode_id, row["owner_id"], row["source_thread_id"], source_hash, summary, _now(),
+                structured, structured, "[]", DEFAULT_TOKEN_COUNTER.count_text(summary),
+                DEFAULT_TOKEN_COUNTER.version,
+            ),
         )
         episode=connection.execute("SELECT id FROM memory_episodes WHERE owner_id=? AND thread_id=? AND start_message_seq=0 AND end_message_seq=0 AND source_hash=?",(row["owner_id"],row["source_thread_id"],source_hash)).fetchone()
         connection.execute("UPDATE goal_programs SET completion_summary=?,completion_episode_id=? WHERE id=?",(summary,episode["id"],row["id"]))

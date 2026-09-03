@@ -68,6 +68,47 @@ def test_runtime_uses_one_configured_profile_without_cross_vendor_fallback(tmp_p
     assert isinstance(runtime.model, LiveRuntimeModel)
 
 
+def test_configured_startup_repairs_an_unroutable_stable_bundle(tmp_path, monkeypatch) -> None:
+    from app.startup import build_runtime
+
+    for name in ("LLM_AP_PATH", "AGENT_MODEL_BASE_URL", "AGENT_MODEL_ID", "AGENT_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    build_runtime(tmp_path)
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://provider.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "demo")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    runtime = build_runtime(tmp_path)
+
+    routing = runtime.behavior.active("stable").manifest["model_routing"]
+    assert routing["policy_id"] != "unconfigured"
+    with runtime.db.connection() as connection:
+        policy = connection.execute(
+            "SELECT policy_digest FROM model_routing_policies WHERE id=?",
+            (routing["policy_id"],),
+        ).fetchone()
+    assert policy is not None
+    assert policy["policy_digest"] == routing["digest"]
+
+
+def test_configured_startup_preserves_an_existing_routable_stable_bundle(tmp_path, monkeypatch) -> None:
+    from app.startup import build_runtime
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://provider-one.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "first")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    first = build_runtime(tmp_path)
+    stable_id = first.behavior.active("stable").id
+
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://provider-two.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "second")
+    second = build_runtime(tmp_path)
+
+    assert second.behavior.active("stable").id == stable_id
+
+
 @pytest.mark.asyncio
 async def test_runtime_without_model_fails_visibly_instead_of_echoing_user_input(tmp_path, monkeypatch) -> None:
     from app.startup import build_runtime

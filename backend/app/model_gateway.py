@@ -30,8 +30,8 @@ class ModelProfile:
     retry_base_seconds: float = 1.0
     provider_protocol: str = "openai_compatible"
     provider_name: str = "openai-compatible"
-    context_window: int = 0
-    max_output_tokens: int = 0
+    context_window: int = 32768
+    max_output_tokens: int = 4096
     registered_profile_version_id: str | None = None
 
     def public_view(self) -> dict[str, Any]:
@@ -137,6 +137,10 @@ class ModelGateway:
     def reset_call_context(self, token: Any) -> None:
         self._call_context.reset(token)
 
+    def input_limit(self, **_: Any) -> int:
+        from .token_budget import request_budget
+        return request_budget(self.profile).input_limit
+
     async def complete(
         self,
         request: ModelRequest,
@@ -148,6 +152,12 @@ class ModelGateway:
         on_output_started: OutputStartedCallback | None = None,
         context: Any | None = None,
     ) -> ModelResponse:
+        from .token_budget import ContextOverflow, assert_request_fits
+
+        try:
+            assert_request_fits(request.messages, request.tools, self.profile)
+        except ContextOverflow as exc:
+            raise GatewayError(str(exc), "context_overflow") from exc
         effective_context = context or self._call_context.get()
         if self.control_store is not None:
             from dataclasses import replace

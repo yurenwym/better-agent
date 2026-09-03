@@ -307,6 +307,14 @@ class RoutedModelGateway:
     def reset_call_context(self, token: Any) -> None:
         self._call_context.reset(token)
 
+    def input_limit(self, context: ModelCallContext | None = None, *, owner_id: str | None = None) -> int:
+        from .token_budget import request_budget
+        active = context or self._call_context.get() or ModelCallContext("conversation", "complete", owner_id=owner_id or "local-user")
+        if owner_id is not None and active.owner_id != owner_id:
+            active = replace(active, owner_id=owner_id)
+        _, profiles, _ = self._route(active)
+        return request_budget(profiles[0]).input_limit
+
     async def complete(
         self, request: Any, cancel_event=None, on_text_delta=None, on_text_reset=None,
         on_attempt_started=None, on_attempt_finished=None, context: ModelCallContext | None = None,
@@ -319,6 +327,11 @@ class RoutedModelGateway:
         role = request.role or context.role
         context = replace(context, role=role, purpose=request.purpose or context.purpose)
         route, profiles, context = self._route(context)
+        from .token_budget import ContextOverflow, assert_request_fits
+        try:
+            assert_request_fits(request.messages, request.tools, profiles[0])
+        except ContextOverflow as exc:
+            raise GatewayError(str(exc), "context_overflow") from exc
         handle = self.control_store.begin_invocation(profiles[0], request, context, route)
         if cancel_event is not None and cancel_event.is_set():
             self.control_store.finish_invocation(handle, "cancelled")
@@ -327,6 +340,11 @@ class RoutedModelGateway:
         output_started = False
         last_error = None
         for profile_index, profile in enumerate(profiles):
+            try:
+                assert_request_fits(request.messages, request.tools, profile)
+            except ContextOverflow as exc:
+                self.control_store.finish_invocation(handle, "failed")
+                raise GatewayError(str(exc), "context_overflow", ordinal) from exc
             retries = max(int(profile.max_attempts), 1)
             for retry in range(retries):
                 ordinal += 1

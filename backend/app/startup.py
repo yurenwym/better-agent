@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import subprocess
 from pathlib import Path
 
@@ -11,7 +12,7 @@ from .events import EventStore
 from .live_model import LiveConversationModel, LiveRuntimeModel
 from .memory import MemoryService
 from .memory_v2 import MemoryContextProvider, MemoryStore
-from .memory_archive import ConversationArchiver
+from .memory_archive import ConversationArchiver, LiveEpisodeSummarizer, ManagedArchiveWorker
 from .model_gateway import ModelGateway, ModelProfile
 from .model_control import ModelControlStore, RoutedModelGateway
 from .model_admin import ModelAdminService, ROLES
@@ -43,6 +44,40 @@ def _code_version() -> str:
         ).stdout.strip() or "local"
     except (OSError, subprocess.SubprocessError):
         return "local"
+
+
+def _has_valid_model_routing(db: Database, bundle) -> bool:
+    routing = bundle.manifest.get("model_routing") or {}
+    policy_id = routing.get("policy_id")
+    digest = routing.get("digest")
+    if not policy_id or policy_id == "unconfigured" or not digest:
+        return False
+    with db.connection() as connection:
+        policy = connection.execute(
+            "SELECT roles_json,policy_digest FROM model_routing_policies WHERE id=? AND owner_id='local-user'",
+            (policy_id,),
+        ).fetchone()
+        if policy is None or policy["policy_digest"] != digest:
+            return False
+        roles = json.loads(policy["roles_json"])
+        version_ids = {
+            version_id
+            for route in roles.values()
+            for version_id in [route.get("primary"), *route.get("fallback", [])]
+            if version_id
+        }
+        if not version_ids:
+            return False
+        placeholders = ",".join("?" for _ in version_ids)
+        profiles = connection.execute(
+            f"SELECT id,status,context_window,max_output_tokens FROM model_profile_versions WHERE id IN ({placeholders})",
+            tuple(version_ids),
+        ).fetchall()
+    return len(profiles) == len(version_ids) and all(
+        row["status"] == "ACTIVE"
+        and int(row["context_window"]) > int(row["max_output_tokens"]) > 0
+        for row in profiles
+    )
 
 
 def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, llm_ap_path: str | Path | None = None) -> AgentRuntime:
@@ -97,7 +132,10 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         conversation_model.memory_store = runtime.memory_store
     runtime.settings = settings
     runtime.memory_context = MemoryContextProvider(db)
-    runtime.archiver = ConversationArchiver(db, runtime.memory_store)
+    runtime.archiver = ConversationArchiver(
+        db, runtime.memory_store, LiveEpisodeSummarizer(gateway) if gateway else None,
+    )
+    runtime.archive_worker = ManagedArchiveWorker(runtime.archiver) if gateway else None
     runtime.memory_store.recover_projections()
     provider=os.getenv("RESEARCH_SEARCH_PROVIDER","duckduckgo").strip().lower()
     if provider=="tavily":web_retriever=TavilySearchRetriever(os.getenv("TAVILY_API_KEY",""))
@@ -133,8 +171,12 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
                           if routing_policy else {"policy_id": "unconfigured", "digest": "unconfigured"}),
         "model_role_bindings": routing_policy["roles"] if routing_policy else {},
     })
-    try: runtime.behavior.active("stable")
-    except KeyError: runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
+    try:
+        stable = runtime.behavior.active("stable")
+    except KeyError:
+        stable = None
+    if stable is None or (registered_profile and not _has_valid_model_routing(db, stable)):
+        runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
     runtime.evolution = EvolutionService(
         db, runtime.behavior, evaluator=runtime.real_evaluator,
         behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,

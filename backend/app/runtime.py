@@ -127,6 +127,7 @@ class RunSnapshot:
     source_plan_document_version_id: str | None = None
     source_plan_content_hash: str | None = None
     runtime_bundle_id: str | None = None
+    source_turn_id: str | None = None
 
 
 class AgentRuntime:
@@ -254,6 +255,7 @@ class AgentRuntime:
             source_plan_document_version_id=row["source_plan_document_version_id"],
             source_plan_content_hash=row["source_plan_content_hash"],
             runtime_bundle_id=row["runtime_bundle_id"],
+            source_turn_id=row["source_turn_id"],
         )
 
     def recoverable_runs(self) -> list[RunSnapshot]:
@@ -763,19 +765,49 @@ class AgentRuntime:
         candidates = await self._model_call(run, "reflection", self.model.reflect, self._goal(run.goal_id), plan, run_id)
         if candidates is None or self._is_cancelled(run_id):
             return self.get_run(run_id)
-        for candidate in candidates:
+        v2_store = getattr(self, "memory_store", None)
+        owner_id = "local-user"
+        source_scope_missing = False
+        if run.source_turn_id:
+            with self.db.connection() as connection:
+                scope = connection.execute(
+                    "SELECT h.owner_id FROM turns t JOIN threads h ON h.id=t.thread_id "
+                    "WHERE t.id=? AND h.deleted_at IS NULL", (run.source_turn_id,),
+                ).fetchone()
+            if scope:
+                owner_id = scope["owner_id"]
+            else:
+                # A materialized run must never fall back to the legacy
+                # default owner when its source turn was deleted or malformed.
+                source_scope_missing = True
+        for index, candidate in enumerate(candidates):
             try:
-                self.memory.create_candidate(
-                    run_id,
-                    run.goal_id,
-                    candidate["kind"],
-                    candidate["content"],
-                    candidate["scope"],
-                    candidate.get("confidence", 0.5),
-                    candidate.get("evidence_event_ids", []),
-                    candidate.get("project_id"),
-                    candidate.get("skill_name"),
-                )
+                if source_scope_missing:
+                    raise ValueError("reflection source scope is unavailable")
+                if v2_store is not None:
+                    source_scope = candidate["scope"]
+                    if source_scope == "skill":
+                        raise ValueError("skill-scoped reflection memory is unsupported")
+                    scope_type = "project" if source_scope == "project" else "user"
+                    scope_id = str(candidate.get("project_id") or run.project_id or "") if scope_type == "project" else ""
+                    if scope_type == "project" and not scope_id:
+                        raise ValueError("project reflection memory requires project_id")
+                    kind = candidate["kind"] if candidate["kind"] in {"preference", "constraint", "fact", "decision", "lesson"} else "preference"
+                    v2_store.propose(
+                        owner_id=owner_id, operation="ADD", kind=kind,
+                        scope_type=scope_type, scope_id=scope_id,
+                        content=candidate["content"], confidence=candidate.get("confidence", 0.5),
+                        evidence_refs=candidate.get("evidence_event_ids", []),
+                        idempotency_key=f"reflection:{run_id}:{index}",
+                        reason="Agent 任务完成后的反思候选",
+                    )
+                else:
+                    self.memory.create_candidate(
+                        run_id, run.goal_id, candidate["kind"], candidate["content"],
+                        candidate["scope"], candidate.get("confidence", 0.5),
+                        candidate.get("evidence_event_ids", []), candidate.get("project_id"),
+                        candidate.get("skill_name"),
+                    )
             except (KeyError, TypeError, ValueError):
                 self.events.append(
                     run_id,
@@ -1120,8 +1152,65 @@ class AgentRuntime:
         provider = getattr(self, "memory_context", None)
         if provider is not None:
             from .memory_v2 import MemoryContextRequest
-            selected = provider.select(MemoryContextRequest("local-user", run.source_turn_id or run.id, run.project_id, interactions[-1] if interactions else "", purpose=kind))
-            memories = [MemoryForContext(id=revision_id, content=selected.rendered, scope="global", status="confirmed", project_id=None, skill_name=None) for revision_id in selected.revision_ids[:1]]
+            if run.source_turn_id:
+                with self.db.connection() as connection:
+                    scope = connection.execute(
+                        "SELECT th.id thread_id,th.owner_id,th.project_id FROM turns t "
+                        "JOIN threads th ON th.id=t.thread_id WHERE t.id=? AND th.deleted_at IS NULL",
+                        (run.source_turn_id,),
+                    ).fetchone()
+            else:
+                scope = None
+            if scope is None:
+                memories = []
+            else:
+                selected = provider.select(MemoryContextRequest(
+                    scope["owner_id"], scope["thread_id"], scope["project_id"],
+                    interactions[-1] if interactions else "", purpose=kind,
+                ))
+                memories = []
+                if selected.revision_ids:
+                    placeholders = ",".join("?" for _ in selected.revision_ids)
+                    with self.db.connection() as connection:
+                        rows = connection.execute(
+                            "SELECT r.id,r.content,e.kind,e.scope_type,e.scope_id FROM memory_revisions r "
+                            "JOIN memory_entries e ON e.id=r.entry_id AND e.current_revision_id=r.id "
+                            f"WHERE r.id IN ({placeholders}) AND e.owner_id=?",
+                            (*selected.revision_ids, scope["owner_id"]),
+                        ).fetchall()
+                    by_id = {row["id"]: row for row in rows}
+                    for revision_id in selected.revision_ids:
+                        row = by_id.get(revision_id)
+                        if row is None:
+                            continue
+                        memories.append(MemoryForContext(
+                            id=revision_id,
+                            content=f"[{row['kind']}/{row['scope_type']}] {row['content']}",
+                            scope="project" if row["scope_type"] == "project" else "global",
+                            status="confirmed",
+                            project_id=row["scope_id"] if row["scope_type"] == "project" else None,
+                            skill_name=None,
+                        ))
+                if selected.episode_ids:
+                    placeholders = ",".join("?" for _ in selected.episode_ids)
+                    with self.db.connection() as connection:
+                        rows = connection.execute(
+                            "SELECT id,summary,project_id FROM memory_episodes "
+                            f"WHERE owner_id=? AND status='ACTIVE' AND id IN ({placeholders})",
+                            (scope["owner_id"], *selected.episode_ids),
+                        ).fetchall()
+                    by_id = {row["id"]: row for row in rows}
+                    for episode_id in selected.episode_ids:
+                        row = by_id.get(episode_id)
+                        if row is not None:
+                            memories.append(MemoryForContext(
+                                id=episode_id,
+                                content=row["summary"],
+                                scope="global",
+                                status="confirmed",
+                                project_id=row["project_id"],
+                                skill_name=None,
+                            ))
         else:
             memories = [MemoryForContext(id=record.id,content=record.content,scope=record.scope,status=record.status,project_id=record.project_id,skill_name=record.skill_name) for record in self.memory.all_records()]
         plan = args[1] if kind == "reflection" and len(args) > 1 else ""

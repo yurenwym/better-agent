@@ -133,7 +133,7 @@ class GoalWorkspaceService:
             return [{"id": item.id, "summary": item.summary, "created_at": item.created_at} for item in store.list_episodes(owner_id, thread_id)]
         with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT id,summary,created_at FROM memory_episodes WHERE owner_id=? AND thread_id=? AND status IN ('ACTIVE','RAW_REFERENCE') ORDER BY created_at DESC,id",
+                "SELECT id,summary,created_at FROM memory_episodes WHERE owner_id=? AND thread_id=? AND status='ACTIVE' ORDER BY created_at DESC,id",
                 (owner_id, thread_id),
             ).fetchall()
         return [dict(row) for row in rows]

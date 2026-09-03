@@ -89,6 +89,15 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=503, detail="Agent 运行时尚未配置")
         return value
 
+    def owner_id(request: Request) -> str:
+        # The current local deployment has no external auth provider yet. Keep
+        # the compatibility identity explicit and injectable for multi-user
+        # deployments/tests instead of scattering the literal through routes.
+        value = request.headers.get("x-owner-id", "local-user").strip()
+        if not value or len(value) > 160:
+            raise HTTPException(status_code=400, detail="invalid owner id")
+        return value
+
     def conversation(request: Request):
         service = runtime(request)
         value = getattr(service, "conversation", None)
@@ -464,58 +473,60 @@ def register_routes(app) -> None:
         return {"plan": _plan_document_json(document, service.plan_documents, limit=limit, offset=offset)}
 
     @app.post("/api/threads/{thread_id}/expert-runs", status_code=202, dependencies=[Depends(mutate)])
-    async def create_expert_run(thread_id: str, payload: dict[str, Any], root=Depends(runtime), service=Depends(agent_tasks)):
-        try: root.conversation.thread(thread_id)
+    async def create_expert_run(thread_id: str, payload: dict[str, Any], request: Request, root=Depends(runtime), service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try: root.conversation.thread(thread_id, current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="thread not found") from exc
         objective = payload.get("objective"); key = payload.get("idempotency_key")
         if not isinstance(objective, str) or not objective.strip() or not isinstance(key, str) or not key.strip():
             raise HTTPException(status_code=422, detail="objective and idempotency_key are required")
         bundle = root.behavior.active("stable")
-        run = service.create_run("local-user", objective, {"objective":objective,"thread_id":thread_id}, bundle.id, thread_id=thread_id, idempotency_key=key)
+        run = service.create_run(current_owner, objective, {"objective":objective,"thread_id":thread_id}, bundle.id, thread_id=thread_id, idempotency_key=key)
         return _agent_run_json(run)
 
     @app.get("/api/threads/{thread_id}/expert-runs/latest")
-    async def latest_expert_run(thread_id: str, root=Depends(runtime), service=Depends(agent_tasks)):
+    async def latest_expert_run(thread_id: str, root=Depends(runtime), service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
         try:
-            root.conversation.thread(thread_id)
-            return _agent_run_json(service.latest_run_for_thread(thread_id))
+            root.conversation.thread(thread_id, current_owner)
+            return _agent_run_json(service.latest_run_for_thread(thread_id, current_owner))
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="expert run not found") from exc
 
     @app.get("/api/agent-runs/{run_id}")
-    async def get_agent_run(run_id: str, service=Depends(agent_tasks)):
-        try: return _agent_run_json(service.get_run(run_id))
+    async def get_agent_run(run_id: str, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try: return _agent_run_json(service.get_run(run_id, current_owner))
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
 
     @app.get("/api/agent-runs/{run_id}/tasks")
-    async def get_agent_tasks(run_id: str, service=Depends(agent_tasks)):
-        try: service.get_run(run_id)
+    async def get_agent_tasks(run_id: str, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try: service.get_run(run_id, current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
-        return {"tasks": [_agent_task_json(item) for item in service.tasks(run_id)]}
+        return {"tasks": [_agent_task_json(item) for item in service.tasks(run_id, current_owner)]}
 
     @app.get("/api/agent-runs/{run_id}/artifacts")
-    async def get_agent_artifacts(run_id: str, service=Depends(agent_tasks)):
+    async def get_agent_artifacts(run_id: str, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
         try:
-            service.get_run(run_id)
-            tasks = service.tasks(run_id)
+            service.get_run(run_id, current_owner)
+            tasks = service.tasks(run_id, current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
         return {"artifacts":[service.artifact(item["result_artifact_id"]) for item in tasks if item.get("result_artifact_id")]}
 
     @app.post("/api/agent-runs/{run_id}/cancel", dependencies=[Depends(mutate)])
-    async def cancel_agent_run(run_id: str, payload: dict[str, Any], service=Depends(agent_tasks)):
-        try: return _agent_run_json(service.cancel_run(run_id, str(payload.get("reason") or "user cancelled")))
+    async def cancel_agent_run(run_id: str, payload: dict[str, Any], service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try:
+            service.get_run(run_id, current_owner)
+            return _agent_run_json(service.cancel_run(run_id, str(payload.get("reason") or "user cancelled")))
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
         except AgentTaskConflict as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.get("/api/agent-runs/{run_id}/events")
-    async def get_agent_events(run_id: str, after_seq: int = 0, service=Depends(agent_tasks)):
-        try: service.get_run(run_id)
+    async def get_agent_events(run_id: str, after_seq: int = 0, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try: service.get_run(run_id, current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
-        return {"events": service.events(run_id, after_seq)}
+        return {"events": service.events(run_id, after_seq, current_owner)}
 
     @app.get("/api/agent-runs/{run_id}/events/stream")
-    async def agent_event_stream(run_id: str, request: Request, follow: bool = True, service=Depends(agent_tasks)):
-        try: service.get_run(run_id)
+    async def agent_event_stream(run_id: str, request: Request, follow: bool = True, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        try: service.get_run(run_id, current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
         raw = request.headers.get("last-event-id") or request.query_params.get("after_seq", "0")
         try: after_seq = int(raw or 0)
@@ -523,11 +534,11 @@ def register_routes(app) -> None:
         async def stream():
             cursor = after_seq
             while True:
-                events = service.events(run_id, cursor)
+                events = service.events(run_id, cursor, current_owner)
                 for event in events:
                     cursor = event["seq"]
                     yield f"id: {cursor}\nevent: expert\ndata: {json.dumps(event,ensure_ascii=False)}\n\n"
-                if not follow or (not events and service.get_run(run_id)["status"] in {"SUCCEEDED","FAILED","CANCELLED"}): return
+                if not follow or (not events and service.get_run(run_id, current_owner)["status"] in {"SUCCEEDED","FAILED","CANCELLED"}): return
                 if await request.is_disconnected(): return
                 if not events: yield ": keep-alive\n\n"
                 await asyncio.sleep(.05)
@@ -1214,7 +1225,7 @@ def register_routes(app) -> None:
         return projector.project(run_id) if projector else {"run_id": run_id, "state": service.get_run(run_id).state.value}
 
     @app.put("/api/cost/budgets", dependencies=[Depends(mutate)])
-    async def put_cost_budget(payload: dict[str, Any], request: Request, service=Depends(runtime)) -> dict[str, Any]:
+    async def put_cost_budget(payload: dict[str, Any], request: Request, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         period_kind = str(payload.get("period_kind", ""))
         period_key = str(payload.get("period_key", ""))
         limit = payload.get("limit_microusd")
@@ -1222,26 +1233,26 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=422, detail="invalid cost budget")
         idempotency_key(request)
         try:
-            service.costs.set_budget("local-user", period_kind, period_key, limit)
+            service.costs.set_budget(current_owner, period_kind, period_key, limit)
         except Exception as exc:
             from .costs import BudgetExceeded
             if isinstance(exc, BudgetExceeded):
                 raise HTTPException(status_code=409, detail=str(exc)) from exc
             raise
-        return service.costs.summary("local-user", period_kind, period_key)
+        return service.costs.summary(current_owner, period_kind, period_key)
 
     @app.get("/api/cost/summary")
-    async def get_cost_summary(period_kind: str, period_key: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_cost_summary(period_kind: str, period_key: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         if period_kind not in {"INVOCATION", "DAILY", "MONTHLY"} or not period_key:
             raise HTTPException(status_code=422, detail="invalid cost period")
         try:
-            return service.costs.summary("local-user", period_kind, period_key)
+            return service.costs.summary(current_owner, period_kind, period_key)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="cost budget not found") from exc
 
     @app.get("/api/usage/summary")
-    async def get_usage_summary(service=Depends(runtime)) -> dict[str, Any]:
-        return service.costs.usage_summary("local-user")
+    async def get_usage_summary(service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        return service.costs.usage_summary(current_owner)
 
     @app.get("/api/cost/export")
     async def export_cost_ledger(service=Depends(runtime)):
@@ -1259,17 +1270,17 @@ def register_routes(app) -> None:
         return PlainTextResponse(skill_audit_export(service.db), media_type="application/x-ndjson")
 
     @app.get("/api/model-invocations/{invocation_id}")
-    async def get_model_invocation(invocation_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_model_invocation(invocation_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         with service.db.connection() as connection:
-            row = connection.execute("SELECT * FROM model_invocations WHERE id=? AND owner_id='local-user'", (invocation_id,)).fetchone()
+            row = connection.execute("SELECT * FROM model_invocations WHERE id=? AND owner_id=?", (invocation_id, current_owner)).fetchone()
         if row is None:
             raise HTTPException(status_code=404, detail="model invocation not found")
         return {key: row[key] for key in row.keys() if key not in {"route_snapshot_json"}}
 
     @app.get("/api/model-invocations/{invocation_id}/attempts")
-    async def get_model_attempts(invocation_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_model_attempts(invocation_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         with service.db.connection() as connection:
-            owner = connection.execute("SELECT 1 FROM model_invocations WHERE id=? AND owner_id='local-user'", (invocation_id,)).fetchone()
+            owner = connection.execute("SELECT 1 FROM model_invocations WHERE id=? AND owner_id=?", (invocation_id, current_owner)).fetchone()
             rows = connection.execute("SELECT * FROM model_attempts WHERE invocation_id=? ORDER BY ordinal", (invocation_id,)).fetchall() if owner else []
         if owner is None:
             raise HTTPException(status_code=404, detail="model invocation not found")
@@ -1284,60 +1295,74 @@ def register_routes(app) -> None:
         return StreamingResponse(iter([body]), media_type="application/x-ndjson")
 
     @app.get("/api/memories")
-    async def list_memories(request: Request) -> dict[str, Any]:
+    async def list_memories(request: Request, current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         service = runtime(request)
         store = getattr(service, "memory_store", None)
         if store is not None:
-            return {"entries": [_memory_entry_json(item) for item in store.list_entries()], "proposals": [_memory_proposal_json(item) for item in store.list_proposals()], "episodes": [_memory_episode_json(item) for item in store.list_episodes()]}
+            return {"entries": [_memory_entry_json(item) for item in store.list_entries(current_owner)], "proposals": [_memory_proposal_json(item) for item in store.list_proposals(current_owner)], "episodes": [_memory_episode_json(item) for item in store.list_episodes(current_owner)]}
+        if current_owner != "local-user":
+            return {"memories": []}
         return {"memories": [_memory_json(record) for record in service.memory.all_records()]}
 
     @app.post("/api/memory/entries", status_code=201, dependencies=[Depends(mutate)])
-    async def create_memory_entry(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def create_memory_entry(payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         try:
-            item=service.memory_store.remember("local-user",payload.get("kind","fact"),payload.get("scope_type","user"),payload.get("scope_id",""),payload.get("content",""),payload.get("idempotency_key") or f"api:{uuid.uuid4().hex}",payload.get("source_refs",[]),pinned=payload.get("pinned",False),importance=float(payload.get("importance",.5)))
+            item=service.memory_store.remember(current_owner,payload.get("kind","fact"),payload.get("scope_type","user"),payload.get("scope_id",""),payload.get("content",""),payload.get("idempotency_key") or f"api:{uuid.uuid4().hex}",payload.get("source_refs",[]),pinned=payload.get("pinned",False),importance=float(payload.get("importance",.5)))
             return _memory_entry_json(item)
         except (ValueError,KeyError) as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.patch("/api/memory/entries/{entry_id}", dependencies=[Depends(mutate)])
-    async def edit_memory_entry(entry_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
-        try:return _memory_entry_json(service.memory_store.edit(entry_id,"local-user",payload.get("content",""),payload.get("base_revision_id","")))
+    async def edit_memory_entry(entry_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return _memory_entry_json(service.memory_store.edit(entry_id,current_owner,payload.get("content",""),payload.get("base_revision_id","")))
         except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
         except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
 
     @app.post("/api/memory/entries/{entry_id}/archive", dependencies=[Depends(mutate)])
-    async def archive_memory_entry(entry_id:str,service=Depends(runtime))->dict[str,Any]:
-        try:return _memory_entry_json(service.memory_store.set_status(entry_id,"local-user","ARCHIVED"))
+    async def archive_memory_entry(entry_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return _memory_entry_json(service.memory_store.set_status(entry_id,current_owner,"ARCHIVED"))
         except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
 
     @app.delete("/api/memory/entries/{entry_id}",status_code=204,dependencies=[Depends(mutate)])
-    async def purge_memory_entry(entry_id:str,service=Depends(runtime))->Response:
-        try:service.memory_store.purge(entry_id,"local-user");return Response(status_code=204)
+    async def purge_memory_entry(entry_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
+        try:service.memory_store.purge(entry_id,current_owner);return Response(status_code=204)
         except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
 
     @app.post("/api/memory/proposals/{proposal_id}/decision",dependencies=[Depends(mutate)])
-    async def decide_memory_proposal(proposal_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
-        try:return _memory_proposal_json(service.memory_store.decide_proposal(proposal_id,"local-user",payload.get("accept") is True,payload.get("idempotency_key") or f"decision:{uuid.uuid4().hex}"))
+    async def decide_memory_proposal(proposal_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return _memory_proposal_json(service.memory_store.decide_proposal(proposal_id,current_owner,payload.get("accept") is True,payload.get("idempotency_key") or f"decision:{uuid.uuid4().hex}"))
         except KeyError as exc:raise HTTPException(status_code=404,detail="proposal not found") from exc
         except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
 
     @app.patch("/api/memory/episodes/{episode_id}",dependencies=[Depends(mutate)])
-    async def edit_memory_episode(episode_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
-        try:return _memory_episode_json(service.memory_store.edit_episode(episode_id,"local-user",payload.get("summary",""),payload.get("retrieval_policy")))
+    async def edit_memory_episode(episode_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return _memory_episode_json(service.memory_store.edit_episode(episode_id,current_owner,payload.get("summary",""),payload.get("retrieval_policy")))
         except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
         except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.delete("/api/memory/episodes/{episode_id}",status_code=204,dependencies=[Depends(mutate)])
-    async def delete_memory_episode(episode_id:str,service=Depends(runtime))->Response:
-        try:service.memory_store.delete_episode(episode_id,"local-user");return Response(status_code=204)
+    async def delete_memory_episode(episode_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
+        try:service.memory_store.delete_episode(episode_id,current_owner);return Response(status_code=204)
         except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
 
     @app.get("/api/memories/{memory_id}/versions")
-    async def list_memory_versions(memory_id: str, request: Request) -> dict[str, Any]:
+    async def list_memory_versions(memory_id: str, request: Request, current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         service = runtime(request)
+        store = getattr(service, "memory_store", None)
+        if store is not None:
+            try:
+                return {"versions": [_memory_revision_json(version) for version in store.revisions(memory_id, current_owner)]}
+            except KeyError:
+                raise HTTPException(status_code=404, detail="memory not found")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return {"versions": [_memory_version_json(version) for version in service.memory.versions(memory_id)]}
 
     @app.post("/api/memories", dependencies=[Depends(mutate)])
-    async def create_memory(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def create_memory(payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/entries")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory API is not available for this owner")
         try:
             record = service.memory.create_candidate(
                 payload.get("run_id", "memory"),
@@ -1355,23 +1380,43 @@ def register_routes(app) -> None:
         return _memory_json(record)
 
     @app.patch("/api/memories/{memory_id}", dependencies=[Depends(mutate)])
-    async def edit_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def edit_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/entries")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return _memory_json(service.memory.edit(memory_id, payload["content"]))
 
     @app.post("/api/memories/{memory_id}/confirm", dependencies=[Depends(mutate)])
-    async def confirm_memory(memory_id: str, payload: dict[str, Any] | None = None, service=Depends(runtime)) -> dict[str, Any]:
+    async def confirm_memory(memory_id: str, payload: dict[str, Any] | None = None, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/proposals/{proposal_id}/decision")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return _memory_json(service.memory.confirm(memory_id, (payload or {}).get("content")))
 
     @app.post("/api/memories/{memory_id}/reject", dependencies=[Depends(mutate)])
-    async def reject_memory(memory_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def reject_memory(memory_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/proposals/{proposal_id}/decision")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return _memory_json(service.memory.reject(memory_id))
 
     @app.post("/api/memories/{memory_id}/disable", dependencies=[Depends(mutate)])
-    async def disable_memory(memory_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def disable_memory(memory_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/entries/{entry_id}/archive")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return _memory_json(service.memory.disable(memory_id))
 
     @app.post("/api/memories/{memory_id}/rollback", dependencies=[Depends(mutate)])
-    async def rollback_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def rollback_memory(memory_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if getattr(service, "memory_store", None) is not None:
+            raise HTTPException(status_code=410, detail="legacy memory API is disabled; use /api/memory/entries/{entry_id}")
+        if current_owner != "local-user":
+            raise HTTPException(status_code=404, detail="memory not found")
         return _memory_json(service.memory.rollback(memory_id, int(payload["version"])))
 
     def evolution(request: Request):
@@ -1878,6 +1923,21 @@ def _event_json(event) -> dict[str, Any]:
         "actor": event.actor,
         "correlation": event.correlation,
         "data": event.data,
+    }
+
+
+def _memory_revision_json(version) -> dict[str, Any]:
+    return {
+        "id": version.id,
+        "entry_id": version.entry_id,
+        "revision_no": version.revision_no,
+        "operation": version.operation,
+        "content": version.content,
+        "base_revision_id": version.base_revision_id,
+        "actor": version.actor,
+        "source_refs": list(version.source_refs),
+        "reason": version.reason,
+        "created_at": version.created_at,
     }
 
 

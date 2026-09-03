@@ -169,6 +169,23 @@ async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_r
 
 
 @pytest.mark.asyncio
+async def test_worker_routes_expert_with_authoritative_non_default_owner(tmp_path) -> None:
+    from app.startup import build_runtime
+
+    class ExpertRouteModel:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            on_text_delta('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"complex_compare","expert":{"objective":"compare","roles":["planner"]}}\n')
+
+    runtime = build_runtime(tmp_path)
+    runtime.conversation.route_model = ExpertRouteModel()
+    thread = runtime.conversation.create_thread("owned", owner_id="alice")
+    accepted = runtime.conversation.accept_turn(thread.id, "alice-turn", "compare", [], owner_id="alice")
+    await runtime.turn_worker.run_once()
+    assert runtime.conversation.turn(accepted.turn_id, "alice").status == "COMPLETED"
+    assert runtime.agent_tasks.latest_run_for_thread(thread.id)["owner_id"] == "alice"
+
+
+@pytest.mark.asyncio
 async def test_propose_execution_waits_for_direction_without_agent_rows(tmp_path) -> None:
     runtime = make_runtime(
         tmp_path,

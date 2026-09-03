@@ -32,7 +32,11 @@ def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY", mode
         if not line or line.startswith("#"):
             continue
         key, separator, value = line.partition("=")
-        if not separator or key not in {"LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_ID", "LLM_MODEL_IDS", "API_KEY", "BASE_URL", "MODEL_ID"}:
+        if not separator or key not in {
+            "LLM_API_KEY", "LLM_BASE_URL", "LLM_MODEL_ID", "LLM_MODEL_IDS",
+            "LLM_CONTEXT_WINDOW", "LLM_MAX_OUTPUT_TOKENS",
+            "API_KEY", "BASE_URL", "MODEL_ID",
+        }:
             raise ValueError("invalid LLM_AP entry")
         values[{"API_KEY":"LLM_API_KEY","BASE_URL":"LLM_BASE_URL","MODEL_ID":"LLM_MODEL_ID"}.get(key,key)] = value
     if not values.get("LLM_API_KEY") or not values.get("LLM_BASE_URL"):
@@ -45,14 +49,21 @@ def load_llm_ap(path: str | Path, api_key_env: str = "AGENT_MODEL_API_KEY", mode
     base_url = values["LLM_BASE_URL"].rstrip("/")
     if base_url.endswith("/models"):
         base_url = base_url[:-7]
+    try:
+        context_window = int(values.get("LLM_CONTEXT_WINDOW", "32768"))
+        max_output_tokens = int(values.get("LLM_MAX_OUTPUT_TOKENS", "4096"))
+    except ValueError as exc:
+        raise ValueError("LLM context budget must use integers") from exc
+    if context_window <= 0 or max_output_tokens <= 0 or max_output_tokens >= context_window:
+        raise ValueError("LLM context budget is invalid")
     return ModelProfile(
         base_url=base_url,
         model=configured_model,
         api_key_env=api_key_env,
         provider_protocol=os.getenv("AGENT_MODEL_PROVIDER_PROTOCOL", "openai_compatible"),
         provider_name=os.getenv("AGENT_MODEL_PROVIDER_NAME", "openai-compatible"),
-        context_window=int(os.getenv("AGENT_MODEL_CONTEXT_WINDOW", "0")),
-        max_output_tokens=int(os.getenv("AGENT_MODEL_MAX_OUTPUT_TOKENS", "0")),
+        context_window=context_window,
+        max_output_tokens=max_output_tokens,
     )
 
 
@@ -76,6 +87,6 @@ def load_model_profile_from_env():
         network_retries=int(os.getenv("AGENT_MODEL_NETWORK_RETRIES", "2")),
         provider_protocol=os.getenv("AGENT_MODEL_PROVIDER_PROTOCOL", "openai_compatible"),
         provider_name=os.getenv("AGENT_MODEL_PROVIDER_NAME", "openai-compatible"),
-        context_window=int(os.getenv("AGENT_MODEL_CONTEXT_WINDOW", "0")),
-        max_output_tokens=int(os.getenv("AGENT_MODEL_MAX_OUTPUT_TOKENS", "0")),
+        context_window=int(os.getenv("AGENT_MODEL_CONTEXT_WINDOW", "32768")),
+        max_output_tokens=int(os.getenv("AGENT_MODEL_MAX_OUTPUT_TOKENS", "4096")),
     )

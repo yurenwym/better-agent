@@ -995,6 +995,98 @@ MIGRATIONS = (
     CREATE TRIGGER IF NOT EXISTS evaluation_events_append_only_delete BEFORE DELETE ON evaluation_events
     BEGIN SELECT RAISE(ABORT,'evaluation events are append-only'); END;
     """),
+    (18, r"""
+    ALTER TABLE conversation_archive_state ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE memory_episodes ADD COLUMN schema_version TEXT NOT NULL DEFAULT 'episode-v1';
+    ALTER TABLE memory_episodes ADD COLUMN synopsis_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE memory_episodes ADD COLUMN outcomes_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE memory_episodes ADD COLUMN source_message_ids_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE memory_episodes ADD COLUMN source_token_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE memory_episodes ADD COLUMN summary_token_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE memory_episodes ADD COLUMN tokenizer_version TEXT NOT NULL DEFAULT 'utf8-upper-bound-v1';
+    ALTER TABLE memory_episodes ADD COLUMN deleted_at TEXT;
+    CREATE TABLE memory_archive_jobs (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      start_message_seq INTEGER NOT NULL,
+      end_message_seq INTEGER NOT NULL,
+      source_hash TEXT NOT NULL,
+      prompt_version TEXT NOT NULL,
+      tokenizer_version TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','RETRY_WAIT','COMPLETED','DEAD_LETTER','LEASE_LOST')),
+      available_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 3,
+      lease_owner TEXT,
+      lease_epoch INTEGER NOT NULL DEFAULT 0,
+      lease_until TEXT,
+      last_error_code TEXT,
+      last_error_json TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      finished_at TEXT,
+      UNIQUE(owner_id,thread_id,start_message_seq,end_message_seq,source_hash,prompt_version)
+    );
+    CREATE INDEX idx_memory_archive_jobs_claim ON memory_archive_jobs(status,available_at,lease_until,created_at);
+    CREATE TABLE memory_context_pin_items (
+      pin_invocation_id TEXT NOT NULL REFERENCES memory_context_pins(model_invocation_id) ON DELETE CASCADE,
+      source_type TEXT NOT NULL CHECK(source_type IN ('revision','episode','thread')),
+      source_id TEXT NOT NULL,
+      source_version TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY(pin_invocation_id,source_type,source_id)
+    );
+    CREATE INDEX idx_memory_context_pin_source ON memory_context_pin_items(source_type,source_id);
+    CREATE TABLE memory_context_pin_payloads (
+      pin_invocation_id TEXT PRIMARY KEY REFERENCES memory_context_pins(model_invocation_id) ON DELETE CASCADE,
+      rendered TEXT NOT NULL,
+      payload_hash TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+    ALTER TABLE memory_context_pins ADD COLUMN binding_hash TEXT NOT NULL DEFAULT '';
+    ALTER TABLE memory_context_pins ADD COLUMN expires_at TEXT;
+    ALTER TABLE memory_context_pins ADD COLUMN invalidation_reason TEXT;
+    CREATE UNIQUE INDEX uq_threads_id_owner ON threads(id,owner_id);
+    CREATE TRIGGER memory_episode_scope_insert BEFORE INSERT ON memory_episodes
+    WHEN NOT EXISTS (
+      SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id
+      AND COALESCE(t.project_id,'')=COALESCE(NEW.project_id,'')
+    )
+    BEGIN SELECT RAISE(ABORT,'memory episode scope mismatch'); END;
+    CREATE TRIGGER memory_episode_scope_update BEFORE UPDATE OF owner_id,thread_id,project_id ON memory_episodes
+    WHEN NOT EXISTS (
+      SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id
+      AND COALESCE(t.project_id,'')=COALESCE(NEW.project_id,'')
+    )
+    BEGIN SELECT RAISE(ABORT,'memory episode scope mismatch'); END;
+    CREATE TRIGGER archive_state_scope_insert BEFORE INSERT ON conversation_archive_state
+    WHEN NOT EXISTS (SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id)
+    BEGIN SELECT RAISE(ABORT,'archive state scope mismatch'); END;
+    """),
+    (19, r"""
+    CREATE TABLE memory_archive_signals (
+      turn_id TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE,
+      thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_memory_archive_signals_created ON memory_archive_signals(created_at,turn_id);
+    CREATE TRIGGER memory_archive_signal_on_completed
+    AFTER UPDATE OF status ON turns
+    WHEN NEW.status='COMPLETED' AND OLD.status<>'COMPLETED'
+    BEGIN
+      INSERT OR IGNORE INTO memory_archive_signals(turn_id,thread_id,created_at)
+      VALUES (NEW.id,NEW.thread_id,datetime('now'));
+    END;
+    """),
+    (20, r"""
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_proposals_owner_request
+      ON memory_proposals(owner_id,request_idempotency_key);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_proposals_owner_decision
+      ON memory_proposals(owner_id,decision_idempotency_key)
+      WHERE decision_idempotency_key IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_audit_owner_key
+      ON memory_audit_events(owner_id,idempotency_key);
+    """),
 )
 
 
@@ -1059,6 +1151,12 @@ class Database:
                         self._recover_migration_16(connection)
                     elif version == 17:
                         self._recover_migration_17(connection)
+                    elif version == 18:
+                        self._recover_migration_18(connection)
+                    elif version == 19:
+                        self._recover_migration_19(connection)
+                    elif version == 20:
+                        self._recover_migration_20(connection)
                     else:
                         connection.executescript(sql)
                     connection.execute(
@@ -1248,6 +1346,143 @@ class Database:
     @staticmethod
     def _recover_migration_17(connection: sqlite3.Connection) -> None:
         connection.executescript(MIGRATIONS[16][1])
+
+    @staticmethod
+    def _recover_migration_18(connection: sqlite3.Connection) -> None:
+        for table, definition in (
+            ("conversation_archive_state", "lease_epoch INTEGER NOT NULL DEFAULT 0"),
+            ("memory_episodes", "schema_version TEXT NOT NULL DEFAULT 'episode-v1'"),
+            ("memory_episodes", "synopsis_json TEXT NOT NULL DEFAULT '[]'"),
+            ("memory_episodes", "outcomes_json TEXT NOT NULL DEFAULT '[]'"),
+            ("memory_episodes", "source_message_ids_json TEXT NOT NULL DEFAULT '[]'"),
+            ("memory_episodes", "source_token_count INTEGER NOT NULL DEFAULT 0"),
+            ("memory_episodes", "summary_token_count INTEGER NOT NULL DEFAULT 0"),
+            ("memory_episodes", "tokenizer_version TEXT NOT NULL DEFAULT 'utf8-upper-bound-v1'"),
+            ("memory_episodes", "deleted_at TEXT"),
+            ("memory_context_pins", "binding_hash TEXT NOT NULL DEFAULT ''"),
+            ("memory_context_pins", "expires_at TEXT"),
+            ("memory_context_pins", "invalidation_reason TEXT"),
+        ):
+            Database._add_column(connection, table, definition)
+        connection.executescript(r"""
+        CREATE TABLE IF NOT EXISTS memory_archive_jobs (
+          id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+          start_message_seq INTEGER NOT NULL, end_message_seq INTEGER NOT NULL, source_hash TEXT NOT NULL,
+          prompt_version TEXT NOT NULL, tokenizer_version TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','RETRY_WAIT','COMPLETED','DEAD_LETTER','LEASE_LOST')),
+          available_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 3,
+          lease_owner TEXT, lease_epoch INTEGER NOT NULL DEFAULT 0, lease_until TEXT,
+          last_error_code TEXT, last_error_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, finished_at TEXT,
+          UNIQUE(owner_id,thread_id,start_message_seq,end_message_seq,source_hash,prompt_version)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_archive_jobs_claim ON memory_archive_jobs(status,available_at,lease_until,created_at);
+        CREATE TABLE IF NOT EXISTS memory_context_pin_items (
+          pin_invocation_id TEXT NOT NULL REFERENCES memory_context_pins(model_invocation_id) ON DELETE CASCADE,
+          source_type TEXT NOT NULL CHECK(source_type IN ('revision','episode','thread')), source_id TEXT NOT NULL,
+          source_version TEXT NOT NULL DEFAULT '', PRIMARY KEY(pin_invocation_id,source_type,source_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_context_pin_source ON memory_context_pin_items(source_type,source_id);
+        CREATE TABLE IF NOT EXISTS memory_context_pin_payloads (
+          pin_invocation_id TEXT PRIMARY KEY REFERENCES memory_context_pins(model_invocation_id) ON DELETE CASCADE,
+          rendered TEXT NOT NULL, payload_hash TEXT NOT NULL, expires_at TEXT NOT NULL
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_threads_id_owner ON threads(id,owner_id);
+        CREATE TRIGGER IF NOT EXISTS memory_episode_scope_insert BEFORE INSERT ON memory_episodes
+        WHEN NOT EXISTS (SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id AND COALESCE(t.project_id,'')=COALESCE(NEW.project_id,''))
+        BEGIN SELECT RAISE(ABORT,'memory episode scope mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS memory_episode_scope_update BEFORE UPDATE OF owner_id,thread_id,project_id ON memory_episodes
+        WHEN NOT EXISTS (SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id AND COALESCE(t.project_id,'')=COALESCE(NEW.project_id,''))
+        BEGIN SELECT RAISE(ABORT,'memory episode scope mismatch'); END;
+        CREATE TRIGGER IF NOT EXISTS archive_state_scope_insert BEFORE INSERT ON conversation_archive_state
+        WHEN NOT EXISTS (SELECT 1 FROM threads t WHERE t.id=NEW.thread_id AND t.owner_id=NEW.owner_id)
+        BEGIN SELECT RAISE(ABORT,'archive state scope mismatch'); END;
+        """)
+
+    @staticmethod
+    def _recover_migration_19(connection: sqlite3.Connection) -> None:
+        connection.executescript(r"""
+        CREATE TABLE IF NOT EXISTS memory_archive_signals (
+          turn_id TEXT PRIMARY KEY REFERENCES turns(id) ON DELETE CASCADE,
+          thread_id TEXT NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_archive_signals_created ON memory_archive_signals(created_at,turn_id);
+        CREATE TRIGGER IF NOT EXISTS memory_archive_signal_on_completed
+        AFTER UPDATE OF status ON turns
+        WHEN NEW.status='COMPLETED' AND OLD.status<>'COMPLETED'
+        BEGIN INSERT OR IGNORE INTO memory_archive_signals(turn_id,thread_id,created_at) VALUES (NEW.id,NEW.thread_id,datetime('now')); END;
+        """)
+
+    @staticmethod
+    def _recover_migration_20(connection: sqlite3.Connection) -> None:
+        """Make memory idempotency keys unique within an owner.
+
+        Older databases encoded these as table-level global UNIQUE constraints.
+        SQLite cannot remove such a constraint in place, so rebuild the two
+        memory tables while preserving all rows. New databases already use the
+        owner-scoped definitions and only need the supporting indexes.
+        """
+        proposal_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_proposals'"
+        ).fetchone()[0]
+        audit_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='memory_audit_events'"
+        ).fetchone()[0]
+        if "UNIQUE(owner_id,request_idempotency_key)" not in proposal_sql:
+            connection.execute("ALTER TABLE memory_proposals RENAME TO memory_proposals_v19")
+            connection.execute(r"""
+            CREATE TABLE memory_proposals (
+              id TEXT PRIMARY KEY, owner_id TEXT NOT NULL,
+              operation TEXT NOT NULL CHECK(operation IN ('ADD','UPDATE','ARCHIVE')),
+              target_entry_id TEXT, base_revision_id TEXT,
+              kind TEXT NOT NULL CHECK(kind IN ('preference','constraint','fact','decision','lesson')),
+              scope_type TEXT NOT NULL CHECK(scope_type IN ('user','project')), scope_id TEXT NOT NULL DEFAULT '',
+              content TEXT NOT NULL, fingerprint TEXT NOT NULL,
+              evidence_refs_json TEXT NOT NULL DEFAULT '[]', evidence_hash TEXT NOT NULL DEFAULT '',
+              origin TEXT NOT NULL, confidence REAL NOT NULL CHECK(confidence BETWEEN 0 AND 1),
+              reason TEXT NOT NULL DEFAULT '',
+              status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','ACCEPTED','REJECTED','SUPERSEDED')),
+              request_idempotency_key TEXT NOT NULL, decision_idempotency_key TEXT,
+              accepted_revision_id TEXT, created_at TEXT NOT NULL, decided_at TEXT,
+              UNIQUE(owner_id,request_idempotency_key), UNIQUE(owner_id,decision_idempotency_key)
+            )
+            """)
+            connection.execute(r"""
+            INSERT INTO memory_proposals(
+              id,owner_id,operation,target_entry_id,base_revision_id,kind,scope_type,scope_id,
+              content,fingerprint,evidence_refs_json,evidence_hash,origin,confidence,reason,status,
+              request_idempotency_key,decision_idempotency_key,accepted_revision_id,created_at,decided_at
+            )
+            SELECT id,owner_id,operation,target_entry_id,base_revision_id,kind,scope_type,scope_id,
+              content,fingerprint,evidence_refs_json,evidence_hash,origin,confidence,reason,status,
+              request_idempotency_key,decision_idempotency_key,accepted_revision_id,created_at,decided_at
+            FROM memory_proposals_v19
+            """)
+            connection.execute("DROP TABLE memory_proposals_v19")
+        if "UNIQUE(owner_id,idempotency_key)" not in audit_sql:
+            connection.execute("ALTER TABLE memory_audit_events RENAME TO memory_audit_events_v19")
+            connection.execute(r"""
+            CREATE TABLE memory_audit_events (
+              row_id INTEGER PRIMARY KEY AUTOINCREMENT, owner_id TEXT NOT NULL, seq INTEGER NOT NULL,
+              event_id TEXT NOT NULL UNIQUE, aggregate_type TEXT NOT NULL, aggregate_id TEXT NOT NULL,
+              idempotency_key TEXT NOT NULL, operation TEXT NOT NULL, actor TEXT NOT NULL,
+              occurred_at TEXT NOT NULL, metadata_json TEXT NOT NULL DEFAULT '{}',
+              UNIQUE(owner_id,seq), UNIQUE(owner_id,idempotency_key)
+            )
+            """)
+            connection.execute(r"""
+            INSERT INTO memory_audit_events(
+              row_id,owner_id,seq,event_id,aggregate_type,aggregate_id,idempotency_key,
+              operation,actor,occurred_at,metadata_json
+            )
+            SELECT row_id,owner_id,seq,event_id,aggregate_type,aggregate_id,idempotency_key,
+              operation,actor,occurred_at,metadata_json
+            FROM memory_audit_events_v19
+            """)
+            connection.execute("DROP TABLE memory_audit_events_v19")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_proposals_owner_request ON memory_proposals(owner_id,request_idempotency_key)")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_proposals_owner_decision ON memory_proposals(owner_id,decision_idempotency_key) WHERE decision_idempotency_key IS NOT NULL")
+        connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_audit_owner_key ON memory_audit_events(owner_id,idempotency_key)")
 
     @staticmethod
     def _add_column(connection: sqlite3.Connection, table: str, definition: str) -> None:

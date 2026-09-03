@@ -408,6 +408,48 @@ async def test_live_conversation_model_keeps_streaming_a_direct_answer() -> None
 
 
 @pytest.mark.asyncio
+async def test_live_conversation_model_defines_provider_independent_product_identity() -> None:
+    from app.live_model import LiveConversationModel
+
+    class IdentityAwareGateway:
+        def __init__(self) -> None:
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            prompt = request.messages[0]["content"]
+            has_identity_contract = (
+                "Better Agent" in prompt
+                and "底层模型" in prompt
+                and "不得自称" in prompt
+            )
+            identity = "Better Agent" if has_identity_contract else "Claude"
+            message = (
+                '{"v":1,"policy":"answer","content_shape":"text",'
+                f'"reason_code":"identity"}}\n我是 {identity}。'
+            )
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = IdentityAwareGateway()
+    response = await LiveConversationModel(gateway).route_and_respond(
+        content="你是谁？",
+        history=[],
+        skill_names=[],
+        on_text_delta=lambda _: None,
+        on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert "Better Agent" in response.message
+    assert "Claude" not in response.message
+    prompt = gateway.requests[0].messages[0]["content"]
+    assert "Anthropic" in prompt
+    assert "OpenAI" in prompt
+    assert "DeepSeek" in prompt
+
+
+@pytest.mark.asyncio
 async def test_live_conversation_model_lets_llm_choose_ask_questions_for_personalized_plan() -> None:
     from app.ask import ASK_TOOL_SCHEMA
     from app.live_model import LiveConversationModel

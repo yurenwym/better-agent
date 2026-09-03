@@ -209,6 +209,72 @@ async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) 
 
 
 @pytest.mark.asyncio
+async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_configured(tmp_path) -> None:
+    from app.memory_v2 import MemoryStore
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "完成任务"}],
+            decisions=[ModelDecision.complete("完成")],
+            reflection_candidates=[{
+                "kind": "preference", "content": "Prefer concise answers", "scope": "global",
+                "confidence": 0.9, "evidence_event_ids": ["event-1"],
+            }],
+        ),
+    )
+    runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    run = await runtime.create_goal("Goal", "Complete it")
+    await runtime.handle_message(run.id, "Complete it")
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state.value == "COMPLETED"
+    proposals = runtime.memory_store.list_proposals("local-user", "PENDING")
+    assert len(proposals) == 1
+    accepted = runtime.memory_store.decide_proposal(proposals[0].id, "local-user", True, "decision-1")
+    assert accepted.status == "ACCEPTED"
+    assert accepted.accepted_revision_id
+    entries = runtime.memory_store.list_entries("local-user", "ACTIVE")
+    assert len(entries) == 1
+    assert entries[0].revision_id == accepted.accepted_revision_id
+    assert entries[0].content == "Prefer concise answers"
+    thread = runtime.conversation.create_thread("Memory context", owner_id="local-user")
+    from app.memory_v2 import MemoryContextRequest, MemoryContextProvider
+    bundle = MemoryContextProvider(runtime.db).select(
+        MemoryContextRequest("local-user", thread.id, None, "concise answers")
+    )
+    assert accepted.accepted_revision_id in bundle.revision_ids
+    assert "Prefer concise answers" in bundle.rendered
+
+
+@pytest.mark.asyncio
+async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path) -> None:
+    from app.memory_v2 import MemoryStore
+    from app.runtime import MockModelGateway, ModelDecision
+
+    runtime = make_runtime(
+        tmp_path,
+        MockModelGateway(
+            plan_steps=[{"id": "step-1", "title": "完成任务"}],
+            decisions=[ModelDecision.complete("完成")],
+            reflection_candidates=[{
+                "kind": "preference", "content": "Should not be persisted", "scope": "global",
+                "confidence": 0.9, "evidence_event_ids": [],
+            }],
+        ),
+    )
+    runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    run = await runtime.create_goal("Goal", "Complete it")
+    runtime._set_run_fields(run.id, source_turn_id="deleted-turn")
+    await runtime.handle_message(run.id, "Complete it")
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state.value == "COMPLETED"
+    assert runtime.memory_store.list_proposals("local-user") == []
+
+
+@pytest.mark.asyncio
 async def test_runtime_enters_clarifying_before_planning_when_information_is_missing(tmp_path) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
