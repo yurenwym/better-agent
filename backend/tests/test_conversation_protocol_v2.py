@@ -383,6 +383,56 @@ def test_existing_plan_prefilter_accepts_list_and_table_markdown() -> None:
 
 
 @pytest.mark.asyncio
+async def test_plain_save_reuses_the_latest_plan_without_model_rewrite() -> None:
+    import json
+
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        async def complete(self, request, **kwargs):
+            raise AssertionError("纯保存指令不应再次调用模型")
+
+    python_plan = (
+        "## 专家协作结果\n\n"
+        "基于 Java 基础的 7 天 Python 快速学习计划。\n\n"
+        "- Day 1：语法与环境\n"
+        "- Day 2：数据结构\n"
+        "- Day 7：综合项目与复盘\n"
+    )
+    chunks: list[str] = []
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="保存成计划",
+        history=[
+            {"role": "user", "content": "你是谁"},
+            {"role": "assistant", "content": "我是 Claude，由 Anthropic 开发。"},
+            {"role": "user", "content": "我有 Java 基础，请制定一个 7 天 Python 学习计划"},
+            {"role": "assistant", "content": python_plan},
+        ],
+        skill_names=[],
+        on_text_delta=chunks.append,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    header = json.loads(result.message.splitlines()[0])
+    assert header["artifact"]["kind"] == "plan_document"
+    assert header["artifact"]["operation"] == "upsert"
+    assert result.message.split("\n", 1)[1] == python_plan
+    assert "Day 1" in result.message and "Day 7" in result.message
+    assert "AI助手认知与使用计划" not in result.message
+    assert "Claude" not in result.message and "Anthropic" not in result.message
+    assert chunks == [result.message]
+
+
+def test_plain_save_detection_does_not_swallow_plan_edits() -> None:
+    from app.live_model import _is_plain_existing_plan_save
+
+    assert _is_plain_existing_plan_save("保存成计划")
+    assert _is_plain_existing_plan_save("请保存到计划页面。")
+    assert not _is_plain_existing_plan_save("保存成计划，并把每天改成 2 小时")
+
+
+@pytest.mark.asyncio
 async def test_existing_plan_save_intent_is_llm_checked_before_ask_tool_is_offered() -> None:
     import json
     from types import SimpleNamespace

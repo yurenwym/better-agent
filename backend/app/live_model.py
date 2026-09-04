@@ -365,6 +365,13 @@ class LiveConversationModel:
         cancel_event,
         owner_id: str = "local-user",
     ) -> Any:
+        latest_plan = _latest_assistant_plan(history)
+        if latest_plan is not None and _is_plain_existing_plan_save(content):
+            response = _build_existing_plan_response(latest_plan)
+            if on_text_delta is not None:
+                on_text_delta(response.message)
+            return response
+
         human_mode = bool(self.settings and self.settings.get().human_mode)
         if self.memory_store is not None:
             remember=await self._classify_explicit_remember(content,cancel_event)
@@ -430,7 +437,13 @@ class LiveConversationModel:
                     "响应必须包含有效的 v=2 plan_document upsert artifact 和完整 Markdown 计划正文。"
                 ),
             })
-        messages.extend(history)
+        if save_existing_plan and latest_plan is not None:
+            messages.append({
+                "role": "assistant",
+                "content": latest_plan,
+            })
+        else:
+            messages.extend(history)
         messages.append({"role": "user", "content": content})
         async def complete_once(request_messages: list[dict[str, str]], *, tools=None):
             decoder = ControlHeadDecoder()
@@ -611,7 +624,11 @@ class LiveConversationModel:
 
 
 def _has_prior_assistant_markdown_plan(history: list[dict[str, Any]]) -> bool:
-    for item in history:
+    return _latest_assistant_plan(history) is not None
+
+
+def _latest_assistant_plan(history: list[dict[str, Any]]) -> str | None:
+    for item in reversed(history):
         if item.get("role") != "assistant":
             continue
         content = item.get("content")
@@ -621,10 +638,66 @@ def _has_prior_assistant_markdown_plan(history: list[dict[str, Any]]) -> bool:
         if not lines:
             continue
         if lines[0].startswith("#") or sum(line.startswith(("- ", "* ")) for line in lines) >= 2:
-            return True
+            return content
         if any(line.startswith("|") for line in lines[:5]):
-            return True
-    return False
+            return content
+    return None
+
+
+def _is_plain_existing_plan_save(content: str) -> bool:
+    normalized = re.sub(r"[。！!？?，,；;：:\s]+", "", content.strip().lower())
+    normalized = re.sub(r"^(?:请|麻烦|帮我|请帮我)", "", normalized)
+    normalized = re.sub(r"(?:一下|吧)$", "", normalized)
+    return normalized in {
+        "保存成计划",
+        "保存为计划",
+        "保存到计划",
+        "保存到计划页面",
+        "写进计划",
+        "写进计划页面",
+        "存入计划",
+        "存入计划页面",
+    }
+
+
+def _plan_title_from_markdown(markdown: str) -> str:
+    from .plan_documents import validate_title
+
+    generic_titles = {"专家协作结果", "专家协同结果", "计划", "完整计划", "综合结论", "协作目标", "执行建议"}
+    headings = [
+        re.sub(r"^#{1,6}\s+", "", line.strip()).strip()
+        for line in markdown.splitlines()
+        if re.match(r"^#{1,6}\s+\S", line.strip())
+    ]
+    title = headings[0] if headings and headings[0] not in generic_titles else None
+    candidates = [
+        line.strip().strip("。.!！")
+        for line in markdown.splitlines()
+        if line.strip() and not line.lstrip().startswith(("#", "-", "*", "|", ">"))
+    ]
+    title = title or next((line for line in candidates if "计划" in line and len(line) <= 120), None)
+    title = title or next((heading for heading in headings if "计划" in heading and heading not in generic_titles), None)
+    title = title or (headings[0] if headings else None)
+    return validate_title((title or "对话计划")[:120])
+
+
+def _build_existing_plan_response(markdown: str) -> Any:
+    header = json.dumps(
+        {
+            "v": 2,
+            "policy": "answer",
+            "content_shape": "plan_document",
+            "reason_code": "explicit_plan_save",
+            "artifact": {
+                "kind": "plan_document",
+                "operation": "upsert",
+                "title": _plan_title_from_markdown(markdown),
+            },
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    return SimpleNamespace(message=f"{header}\n{markdown}", tool_calls=[], finish_reason="stop")
 
 
 def _with_runtime_policy(instruction: str, policy: Any) -> str:

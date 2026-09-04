@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useState } from "react";
+import { FormEvent, KeyboardEvent, type ReactNode, useState } from "react";
 import { presentMessage } from "../conversation";
 import MarkdownMessage from "./MarkdownMessage";
 import AskCard from "./AskCard";
@@ -31,6 +31,7 @@ interface ConversationThreadProps {
   deepProcessing?: boolean;
   expertBusy?: boolean;
   onDeepProcessingChange?: (enabled: boolean) => void;
+  expertPanel?: ReactNode;
   decision?: {
     title: string;
     description: string;
@@ -54,7 +55,7 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
 }
 
-export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, deepProcessing = false, expertBusy = false, onDeepProcessingChange, decision, onSubmit }: ConversationThreadProps) {
+export default function ConversationThread({ messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, deepProcessing = false, expertBusy = false, onDeepProcessingChange, expertPanel, decision, onSubmit }: ConversationThreadProps) {
   const [draft, setDraft] = useState("");
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -157,6 +158,7 @@ export default function ConversationThread({ messages, busy = false, title = "�
             </div>
           </article>
         )}
+        {expertPanel && <div className="conversation-expert-panel">{expertPanel}</div>}
         </div>
 
         {pendingAsk && onAskAnswer && onAskCancel && (

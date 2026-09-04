@@ -102,6 +102,8 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 
 .page-stack { display: grid; gap: 18px; }
 .chat-workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(340px, 380px); align-items: start; gap: 24px; }
+.chat-workspace-expert { grid-template-columns: minmax(0, 1fr); }
+.chat-workspace-expert .chat-main-column > .activity-rail { position: static; flex: 0 0 auto; width: 100%; min-width: 0; min-height: 0; max-height: min(32dvh, 320px); overflow: auto; }
 .chat-workspace-empty { grid-template-columns: minmax(0, 860px); justify-content: center; }
 .chat-workspace-empty-wide { grid-template-columns: minmax(0, 1fr); }
 .chat-main-column { display: grid; gap: 16px; min-width: 0; }
@@ -128,6 +130,12 @@ code { color: var(--color-muted); font-size: 11px; overflow-wrap: anywhere; }
 .conversation-cancel { min-height: 44px; padding: 0 12px; font-size: 12px; }
 .conversation-content { display: grid; align-content: start; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; }
 .conversation-thread { display: grid; align-content: start; gap: 24px; min-height: 300px; padding: 26px 28px; background: #ffffff; }
+.conversation-expert-panel { min-width: 0; max-width: 100%; }
+.conversation-expert-panel .expert-run-card,
+.conversation-expert-panel .expert-task,
+.conversation-expert-panel .expert-result { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+.chat-workspace-expert .message-row { grid-template-columns: 34px minmax(0, min(100%, 980px)); }
+.chat-workspace-expert .message-row.message-user { grid-template-columns: minmax(0, min(100%, 980px)) 34px; }
 .conversation-thread-empty { align-content: center; }
 .conversation-thread-empty .conversation-empty { min-height: 100%; }
 .conversation-empty { display: grid; justify-items: center; align-content: center; gap: 10px; min-height: 290px; padding: 28px; text-align: center; }
@@ -497,6 +505,7 @@ pre { max-width: 100%; overflow: auto; border: 1px solid var(--color-line); bord
   .ask-question-list { grid-template-columns: 1fr; }
   .activity-rail { position: static; min-height: 0; max-height: none; overflow: visible; }
   .activity-list { max-height: 420px; }
+  .chat-workspace-expert .chat-main-column > .activity-rail { max-height: 160px; }
   .plan-workspace { grid-template-columns: 1fr; }
   .workspace-main-viewport .workspace-page-research { min-height: calc(100dvh - 220px); }
   .research-page { grid-template-columns: minmax(230px,280px) minmax(0,1fr); }

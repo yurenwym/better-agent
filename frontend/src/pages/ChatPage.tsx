@@ -380,10 +380,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
     : telemetry.messages;
   const planReference = latestPlanReference(threadTelemetry.events);
   const goalActionId=activeTurn?.goal_action_id;
+  const expertActive = Boolean(expertRun && !["SUCCEEDED", "FAILED", "CANCELLED"].includes(expertRun.status));
+  const expertLayout = deepProcessing || expertActive;
   useEffect(()=>{if(!goalActionId){setGoalContext(null);return;}void getGoalAction(goalActionId).then(setGoalContext).catch(()=>setGoalContext(null));},[goalActionId]);
 
   return (
-    <div className={run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}>
+    <div className={`${run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}${expertLayout ? " chat-workspace-expert" : ""}`}>
       <div className="chat-main-column">
         {goalActionId&&dismissedGoalActionId!==goalActionId&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setDismissedGoalActionId(goalActionId)}>关闭</button></aside>}
         <div className={deepProcessing ? "conversation-with-expert-mode expert-mode-active" : "conversation-with-expert-mode"}>
@@ -411,12 +413,11 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           deepProcessing={deepProcessing}
           expertBusy={expertBusy}
           onDeepProcessingChange={setDeepProcessing}
+          expertPanel={expertActive && expertRun ? <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /> : null}
           decision={decision}
           onSubmit={submitConversation}
         />
         </div>
-        {expertRun && <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} />}
-
         {run && run.pending_approvals.length > 0 && (
           <section className="approval-stack" aria-label="待审批操作">
             <div className="section-heading"><span className="eyebrow">安全审批</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，批准后才会产生副作用。</p></div>
@@ -451,9 +452,20 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           </div>
         )}
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
+        {expertLayout && (run || conversationId) && (
+          <ActivityRail
+            run={run}
+            thread={threadTelemetry.thread}
+            events={telemetry.events}
+            threadEvents={threadTelemetry.events}
+            stats={telemetry.stats}
+            loading={run ? telemetry.loading : threadTelemetry.loading}
+            onOpenTrajectory={onOpenTrajectory}
+          />
+        )}
       </div>
 
-      {(run || conversationId) && (
+      {!expertLayout && (run || conversationId) && (
         <ActivityRail
           run={run}
           thread={threadTelemetry.thread}

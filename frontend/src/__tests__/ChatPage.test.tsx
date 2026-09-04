@@ -90,6 +90,12 @@ describe("ChatPage streaming bootstrap", () => {
 
     await waitFor(() => expect(api.createExpertRun).toHaveBeenCalledWith("thread-1", "深入比较", expect.any(String), "csrf"));
     expect(api.submitTurn).not.toHaveBeenCalled();
+    const workspace = document.querySelector(".chat-workspace");
+    expect(workspace?.classList.contains("chat-workspace-expert")).toBe(true);
+    const expertCard = await screen.findByRole("region", { name: "专家协同任务" });
+    expect(expertCard.closest(".conversation-content")).not.toBeNull();
+    const activityRail = screen.getByRole("complementary", { name: "当前对话轨迹" });
+    expect(activityRail.closest(".chat-main-column")).not.toBeNull();
   });
 
   it("mounts the new run before sending its first message", async () => {
