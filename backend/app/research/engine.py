@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import re
 from dataclasses import replace
 from datetime import date
@@ -12,7 +13,7 @@ from .retriever import RetrievalError,filter_sources
 
 
 class InsufficientEvidence(RuntimeError):
-    def __init__(self,reason_code="insufficientevidence",diagnostics=None,*,retryable=False):
+    def __init__(self,reason_code="insufficient_evidence",diagnostics=None,*,retryable=False):
         super().__init__(reason_code);self.reason_code=reason_code;self.diagnostics=diagnostics or {};self.retryable=retryable
 class UnknownCitation(RuntimeError): pass
 class TopicCoverageError(RuntimeError):
@@ -29,14 +30,22 @@ class ResearchCancelled(RuntimeError): pass
 
 
 class ResearchEngine:
-    DISTILL_TIMEOUT_SECONDS = 20
+    DISTILL_TIMEOUT_SECONDS = 90
     RETRIEVE_TIMEOUT_SECONDS = 40
-    MODEL_STAGE_TIMEOUT_SECONDS = 45
+    MODEL_STAGE_TIMEOUT_SECONDS = 90
     REPAIR_TIMEOUT_SECONDS = 90
 
     def __init__(self, model, retriever) -> None:
         self.model = model
         self.retriever = retriever
+
+    @staticmethod
+    def _raise_if_permanent_model_error(exc: Exception) -> None:
+        kind = getattr(exc, "kind", None)
+        if kind == "cancelled":
+            raise ResearchCancelled("research cancelled") from exc
+        if kind in {"authentication", "payment", "configuration", "budget"}:
+            raise exc
 
     async def run_research(self, request: ResearchRequest) -> AsyncIterator[ResearchEvent]:
         self._cancel(request)
@@ -49,7 +58,8 @@ class ResearchEngine:
                     timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                 )
                 plan = self._valid_plan(plan, request)
-            except Exception:
+            except Exception as exc:
+                self._raise_if_permanent_model_error(exc)
                 plan = self._fallback_plan(request.topic, request.limits.max_sections, request.limits.max_queries)
         yield ResearchEvent("plan", "planning", {"title": plan.title, "sections": list(plan.sections), "queries": list(plan.queries)})
 
@@ -66,21 +76,30 @@ class ResearchEngine:
         evidence = [*request.recovered_evidence, *await self._distill([item for item in sources if item.id not in recovered_ids], request, plan)]
         if not evidence:
             failures=diagnostics.get("failure_counts",{})
-            priority=("search_auth_failed","search_rate_limited","search_timeout","search_provider_unavailable","search_results_rejected","search_no_results","search_request_failed")
-            reason=next((item for item in priority if item in failures),next(iter(failures),"insufficientevidence")) if not sources else "insufficientevidence"
+            priority=("search_auth_failed","search_rate_limited","search_blocked","search_timeout","search_provider_unavailable","search_response_unparseable","search_results_irrelevant","search_results_rejected","search_no_results","search_request_failed")
+            reason=next((item for item in priority if item in failures),next(iter(failures),"insufficient_evidence")) if not sources else "insufficient_evidence"
             if retrieved and not sources:reason="search_results_filtered"
-            retryable=reason in {"search_timeout","search_rate_limited","search_provider_unavailable"}
+            retryable=reason in {"search_timeout","search_rate_limited","search_blocked","search_provider_unavailable"}
             raise InsufficientEvidence(reason,diagnostics,retryable=retryable)
         yield ResearchEvent("evidence", "distilling", {"count": len(evidence), "items": evidence})
 
-        if request.limits.reflection_rounds > 0 and len(sources) < request.limits.max_sources:
+        from ..task_policy import initial_coverage_satisfied
+        covered = initial_coverage_satisfied(plan, evidence, sources)
+        skip_exploration = request.stop_condition == "coverage_satisfied" and covered
+        yield ResearchEvent("policy_decision", "reflecting", {
+            "stop_condition": request.stop_condition, "initial_coverage": covered,
+            "initial_queries": len(used_queries), "initial_sources": len(sources),
+            "optional_exploration_skipped": skip_exploration, "required_delivery_preserved": True,
+        })
+        if not skip_exploration and request.limits.reflection_rounds > 0 and len(sources) < request.limits.max_sources:
             yield ResearchEvent("phase", "reflecting", {"detail": "正在检查证据缺口"})
             try:
                 queries = await asyncio.wait_for(
                     self.model.reflect(request.topic, plan, evidence, tuple(used_queries)),
                     timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                 )
-            except Exception:
+            except Exception as exc:
+                self._raise_if_permanent_model_error(exc)
                 queries = ()
             normalized = []
             seen = {self._query_key(item) for item in used_queries}
@@ -88,6 +107,7 @@ class ResearchEngine:
                 query = str(query).strip()
                 if query and self._query_key(query) not in seen:
                     seen.add(self._query_key(query)); normalized.append(query)
+            normalized = normalized[:max(0, request.limits.max_queries - len(used_queries))]
             if normalized:
                 extra,_ = await self._retrieve(normalized, request)
                 combined = self._merge_sources(sources, extra, request)
@@ -104,7 +124,8 @@ class ResearchEngine:
                 self.model.curate(plan, evidence),
                 timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except Exception as exc:
+            self._raise_if_permanent_model_error(exc)
             raw_sections = self._fallback_curated_sections(plan, evidence, sources)
         valid_ids = {item.id for item in evidence}
         evidence_by_id_for_curation = {item.id:item for item in evidence}
@@ -156,8 +177,8 @@ class ResearchEngine:
             by_ordinal[ordinal]=CuratedSection(ordinal,saved.get("heading",f"Section {ordinal}"),saved.get("summary",""),())
         sections=[by_ordinal[item] for item in sorted(by_ordinal)]
         missing = [heading for index,heading in enumerate(plan.sections,1) if index not in by_ordinal]
-        if missing:
-            raise TopicCoverageError(f"missing planned sections: {', '.join(missing)}", missing)
+        if not sections:
+            raise InsufficientEvidence("insufficient_evidence", {"missing_requirements": missing})
 
         yield ResearchEvent("phase", "writing", {"detail": "正在撰写报告"})
         evidence_by_id = {item.id: item for item in evidence}
@@ -175,7 +196,8 @@ class ResearchEngine:
                     self.model.write(section.heading, section.thesis, section_evidence, summaries[-1] if summaries else ""),
                     timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                 )
-            except Exception:
+            except Exception as exc:
+                self._raise_if_permanent_model_error(exc)
                 body = f"## {section.heading}\n\n" + "\n".join(
                     f"- {item.text} [[source:{item.source_id}]]" for item in section_evidence
                 )
@@ -189,7 +211,8 @@ class ResearchEngine:
                 self.model.summarize(bodies),
                 timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
             )
-        except Exception:
+        except Exception as exc:
+            self._raise_if_permanent_model_error(exc)
             tldr, points = "研究结论详见各章节及其来源标注。", ()
         known_citations={item.id for item in sources}|{item.id.removeprefix("source_") for item in sources}
         def has_valid_citations(value):
@@ -201,60 +224,103 @@ class ResearchEngine:
         raw = f"# {plan.title}\n\n> {tldr}\n\n## 核心要点\n\n" + "".join(f"- {item}\n" for item in points) + "\n" + "\n\n".join(bodies)
         try: body = render_citations(raw, sources)
         except KeyError as exc: raise UnknownCitation(f"unknown source citation: {exc.args[0]}") from exc
-        references = "\n\n## 研究限制\n\n结论仅覆盖已成功检索和提炼的来源。\n\n## 参考来源\n\n" + "".join(
+        unresolved = ""
+        if missing:
+            unresolved = "\n\n## 未解决要求\n\n" + "".join(
+                f"- {item}：当前来源与证据不足，未作为完整结论发布。\n" for item in missing
+            )
+        references = unresolved + "\n\n## 研究限制\n\n结论仅覆盖已成功检索和提炼的来源。\n\n## 参考来源\n\n" + "".join(
             f"{source.ordinal}. [{source.title}]({source.canonical_url})\n" if source.canonical_url else f"{source.ordinal}. {source.title}（{source.locator}）\n" for source in sources
         )
         report = body + references
         if not sections or not sources or not evidence: raise InsufficientEvidence("insufficient_evidence")
         yield ResearchEvent("phase", "finalizing", {"detail": "正在校验引用"})
-        try:
-            passed, missing_requirements = await asyncio.wait_for(
-                self.model.audit(request.topic, plan, report),
-                timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
-            )
-        except Exception:
-            passed = self._deterministic_topic_audit(request.topic, plan, sections, bodies, sources)
-            missing_requirements = () if passed else ("topic requirements",)
-        if not passed:
+        if missing:
+            passed, missing_requirements = False, tuple(missing)
+        else:
+            try:
+                passed, missing_requirements = await asyncio.wait_for(
+                    self.model.audit(request.topic, plan, report),
+                    timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                self._raise_if_permanent_model_error(exc)
+                passed = self._deterministic_topic_audit(request.topic, plan, sections, bodies, sources)
+                missing_requirements = () if passed else ("topic requirements",)
+        repair_traceability = []
+        if not passed and not missing:
             repair = getattr(self.model, "repair", None)
             repair_error = None
             if repair is not None:
                 try:
-                    evidence_context = self._repair_evidence(missing_requirements, evidence, sources)
+                    repair_requirements = tuple(missing_requirements)
+                    evidence_context = self._repair_evidence(repair_requirements, evidence, sources)
                     supplement = await asyncio.wait_for(
-                        repair(request.topic, plan, tuple(missing_requirements), evidence_context),
+                        repair(request.topic, plan, repair_requirements, evidence_context),
                         timeout=self.REPAIR_TIMEOUT_SECONDS,
                     )
                     if isinstance(supplement, str) and supplement.strip():
-                        evidence_supplement = self._fallback_repair_supplement(missing_requirements, evidence_context)
-                        rendered_supplement = render_citations(supplement.strip()+"\n\n"+evidence_supplement, sources)
+                        evidence_supplement = self._fallback_repair_supplement(repair_requirements, evidence_context)
+                        traceable_supplement = supplement.strip()+"\n\n"+evidence_supplement
+                        rendered_supplement = render_citations(traceable_supplement, sources)
                         report = report.replace("\n\n## 研究限制", "\n\n"+rendered_supplement+"\n\n## 研究限制", 1)
                         passed, missing_requirements = await asyncio.wait_for(
                             self.model.audit(request.topic, plan, report),
                             timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                         )
+                        repair_traceability = [(item, traceable_supplement) for item in repair_requirements]
                 except asyncio.TimeoutError:
                     repair_error = "timeout"
-                    supplement = self._fallback_repair_supplement(missing_requirements, evidence_context)
+                    supplement = self._fallback_repair_supplement(repair_requirements, evidence_context)
                     report = report.replace("\n\n## 研究限制", "\n\n"+render_citations(supplement, sources)+"\n\n## 研究限制", 1)
+                    repair_traceability = [(item, supplement) for item in repair_requirements]
                     try:
                         passed, missing_requirements = await asyncio.wait_for(
                             self.model.audit(request.topic, plan, report),
                             timeout=self.MODEL_STAGE_TIMEOUT_SECONDS,
                         )
-                    except Exception:
+                    except Exception as exc:
+                        self._raise_if_permanent_model_error(exc)
                         passed = False
                 except KeyError:
                     repair_error = "unknowncitation"
                     passed = False
-                except Exception:
+                except Exception as exc:
+                    self._raise_if_permanent_model_error(exc)
                     repair_error = "failed"
                     passed = False
             detail = ", ".join(str(item) for item in missing_requirements if str(item).strip()) or "topic requirements"
-            if not passed:
+            if not passed and not bodies:
                 raise TopicCoverageError(f"report does not cover: {detail}", missing_requirements, repair_error)
-        yield ResearchEvent("report", "completed", {"title": plan.title, "markdown": report, "source_count": len(sources), "evidence_count": len(evidence)})
-        yield ResearchEvent("phase", "completed", {"detail": "研究完成"})
+        missing_requirements = tuple(dict.fromkeys(
+            str(item).strip() for item in missing_requirements if str(item).strip()
+        )) if not passed else ()
+        traceability = self._traceability(
+            plan, sections, bodies, summaries, evidence, sources, missing_requirements,
+            repair_traceability,
+        )
+        unsupported = tuple(
+            str(item["requirement"]) for item in traceability if not item["supported"]
+        )
+        if unsupported:
+            missing_requirements = tuple(dict.fromkeys((*missing_requirements, *unsupported)))
+            traceability = self._traceability(
+                plan, sections, bodies, summaries, evidence, sources, missing_requirements,
+                repair_traceability,
+            )
+        if missing_requirements and "## 未解决要求" not in report:
+            report += "\n\n## 未解决要求\n\n" + "".join(
+                f"- {item}：当前来源与证据不足，未作为完整结论发布。\n"
+                for item in missing_requirements
+            )
+        completion_status = "PARTIAL" if missing_requirements else "COMPLETED"
+        phase = "partial" if missing_requirements else "completed"
+        yield ResearchEvent("report", phase, {
+            "title": plan.title, "markdown": report, "source_count": len(sources),
+            "evidence_count": len(evidence), "completion_status": completion_status,
+            "missing_requirements": missing_requirements, "traceability": traceability,
+        })
+        yield ResearchEvent("phase", phase, {"detail": "研究部分完成" if missing_requirements else "研究完成"})
 
     async def _retrieve(self, queries: list[str], request: ResearchRequest) -> tuple[list[Source],dict]:
         semaphore = asyncio.Semaphore(4)
@@ -302,13 +368,14 @@ class ResearchEngine:
                         self.model.distill(source, request.topic, plan.sections),
                         timeout=self.DISTILL_TIMEOUT_SECONDS,
                     )
-                except Exception:
+                except Exception as exc:
+                    self._raise_if_permanent_model_error(exc)
                     fallback = getattr(self.model, "fallback_distill", None)
                     raw = fallback(source, request.topic, plan.sections) if fallback else []
-                if not raw:
-                    fallback = getattr(self.model, "fallback_distill", None)
-                    raw = fallback(source, request.topic, plan.sections) if fallback else []
-                return [replace(item, source_id=source.id) for item in raw[:6] if 0 <= item.relevance <= 1 and item.relevance >= .25 and item.text.strip()]
+                fallback = getattr(self.model, "fallback_distill", None)
+                extra = fallback(source, request.topic, plan.sections) if fallback else []
+                by_text = {item.text: item for item in [*raw, *extra]}
+                return [replace(item, source_id=source.id) for item in list(by_text.values())[:18] if 0 <= item.relevance <= 1 and item.relevance >= .25 and item.text.strip()]
         return [item for batch in await asyncio.gather(*(one(source) for source in sources)) for item in batch]
 
     @staticmethod
@@ -358,6 +425,8 @@ class ResearchEngine:
     @staticmethod
     def _valid_plan(plan: ResearchPlan, request: ResearchRequest) -> ResearchPlan:
         if not plan.title.strip() or not 2 <= len(plan.sections) <= request.limits.max_sections: raise ValueError("invalid plan")
+        if len(plan.title) > 160 or any(not isinstance(heading, str) or not heading.strip() or len(heading) > 100 or "\n" in heading for heading in plan.sections):
+            raise ValueError("research headings must be short single-line strings")
         return ResearchPlan(plan.title.strip(), tuple(plan.sections[:request.limits.max_sections]), tuple(dict.fromkeys(q.strip() for q in plan.queries if q.strip()))[:request.limits.max_queries])
 
     @staticmethod
@@ -483,6 +552,150 @@ class ResearchEngine:
 
     @staticmethod
     def _heading_key(heading: str) -> str: return re.sub(r"[^\w\u4e00-\u9fff]+", "", heading).lower()
+
+    @staticmethod
+    def _traceability(
+        plan, sections, bodies, summaries, evidence, sources, missing_requirements, supplements=(),
+    ):
+        evidence_by_id = {item.id: item for item in evidence}
+        source_by_id = {item.id: item for item in sources}
+        missing_keys = {
+            ResearchEngine._heading_key(str(item)) for item in missing_requirements if str(item).strip()
+        }
+
+        def normalize_citations(value):
+            return tuple(dict.fromkeys(
+                next(
+                    (source.id for source in sources if marker in {source.id, source.id.removeprefix("source_")}),
+                    marker,
+                )
+                for marker in CITATION.findall(value)
+            ))
+
+        def source_versions(source_ids):
+            return [
+                {
+                    "source_id": source_id,
+                    "content_hash": source_by_id[source_id].content_hash,
+                    "retrieved_at": source_by_id[source_id].retrieved_at,
+                }
+                for source_id in source_ids if source_id in source_by_id
+            ]
+
+        def evidence_locations(evidence_items):
+            locations = []
+            for item in evidence_items:
+                source = source_by_id.get(item.source_id)
+                start, end = ResearchEngine._excerpt_location(source.content, item.text) if source else (-1, -1)
+                locations.append({
+                    "evidence_id": item.id,
+                    "source_id": item.source_id,
+                    "char_start": start,
+                    "char_end": end,
+                    "exact_quote_hash": hashlib.sha256(item.text.encode()).hexdigest(),
+                })
+            return locations
+
+        rows = []
+        for section, body, conclusion in zip(sections, bodies, summaries):
+            evidence_items = [evidence_by_id[item] for item in section.evidence_ids if item in evidence_by_id]
+            source_ids = tuple(dict.fromkeys(item.source_id for item in evidence_items))
+            normalized_citations = normalize_citations(body)
+            locations = evidence_locations(evidence_items)
+            rows.append({
+                "requirement": section.heading,
+                "conclusion": conclusion,
+                "evidence_ids": [item.id for item in evidence_items],
+                "source_ids": list(source_ids),
+                "citation_source_ids": list(normalized_citations),
+                "source_versions": source_versions(source_ids),
+                "evidence_locations": locations,
+                "supported": bool(
+                    evidence_items and normalized_citations
+                    and set(normalized_citations) <= set(source_ids)
+                    and all(item["char_start"] >= 0 for item in locations)
+                    and ResearchEngine._heading_key(section.heading) not in missing_keys
+                ),
+            })
+        for requirement, supplement in supplements:
+            requirement = str(requirement).strip()
+            normalized_citations = normalize_citations(str(supplement))
+            evidence_items = [item for item in evidence if item.source_id in normalized_citations]
+            source_ids = tuple(dict.fromkeys(item.source_id for item in evidence_items))
+            locations = evidence_locations(evidence_items)
+            supplement_row = {
+                "requirement": requirement,
+                "conclusion": str(supplement).strip()[:4000],
+                "evidence_ids": [item.id for item in evidence_items],
+                "source_ids": list(source_ids),
+                "citation_source_ids": list(normalized_citations),
+                "source_versions": source_versions(source_ids),
+                "evidence_locations": locations,
+                "supported": bool(
+                    evidence_items and normalized_citations
+                    and set(normalized_citations) <= set(source_ids)
+                    and all(item["char_start"] >= 0 for item in locations)
+                    and ResearchEngine._heading_key(requirement) not in missing_keys
+                ),
+            }
+            existing = next(
+                (item for item in rows if ResearchEngine._heading_key(item["requirement"]) == ResearchEngine._heading_key(requirement)),
+                None,
+            )
+            if existing is None:
+                rows.append(supplement_row)
+            else:
+                existing["conclusion"] = "\n\n".join(
+                    item for item in (existing["conclusion"], supplement_row["conclusion"]) if item
+                )[:4000]
+                for key in ("evidence_ids", "source_ids", "citation_source_ids"):
+                    existing[key] = list(dict.fromkeys((*existing[key], *supplement_row[key])))
+                existing["source_versions"] = source_versions(existing["source_ids"])
+                existing["evidence_locations"] = evidence_locations([
+                    evidence_by_id[item] for item in existing["evidence_ids"] if item in evidence_by_id
+                ])
+                existing["supported"] = bool(
+                    existing["evidence_ids"] and existing["citation_source_ids"]
+                    and set(existing["citation_source_ids"]) <= set(existing["source_ids"])
+                    and all(item["char_start"] >= 0 for item in existing["evidence_locations"])
+                    and ResearchEngine._heading_key(requirement) not in missing_keys
+                )
+        covered = {item["requirement"] for item in rows}
+        for requirement in missing_requirements:
+            if requirement not in covered:
+                rows.append({
+                    "requirement": requirement, "conclusion": "", "evidence_ids": [],
+                    "source_ids": [], "citation_source_ids": [], "source_versions": [],
+                    "evidence_locations": [],
+                    "supported": False,
+                })
+        return rows
+
+    @staticmethod
+    def _excerpt_location(content: str, excerpt: str) -> tuple[int, int]:
+        start = content.find(excerpt)
+        if start >= 0:
+            return start, start + len(excerpt)
+        normalized = []
+        original_positions = []
+        previous_space = False
+        for index, character in enumerate(content):
+            if character.isspace():
+                if not previous_space:
+                    normalized.append(" ")
+                    original_positions.append(index)
+                previous_space = True
+            else:
+                normalized.append(character)
+                original_positions.append(index)
+                previous_space = False
+        needle = " ".join(excerpt.split())
+        normalized_content = "".join(normalized)
+        normalized_start = normalized_content.find(needle)
+        if normalized_start < 0:
+            return -1, -1
+        normalized_end = normalized_start + len(needle) - 1
+        return original_positions[normalized_start], original_positions[normalized_end] + 1
 
     @staticmethod
     def _cancel(request: ResearchRequest) -> None:

@@ -121,7 +121,8 @@ def _first_heading(content: str) -> str | None:
 
 def _purpose_description(content: str) -> str | None:
     lines = content.splitlines()
-    try: start = next(index for index, line in enumerate(lines) if line.strip().lower() == "## purpose") + 1
+    # 技能文档可以用中文小标题（内置技能已本地化），两种写法都要认得。
+    try: start = next(index for index, line in enumerate(lines) if line.strip().lower() in {"## purpose", "## 目的", "## 用途"}) + 1
     except StopIteration: return None
     for line in lines[start:]:
         text = line.strip()

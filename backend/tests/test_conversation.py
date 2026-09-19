@@ -98,8 +98,8 @@ def test_control_head_rejects_unknown_fields_and_missing_header() -> None:
 
 
 @pytest.mark.asyncio
-async def test_live_conversation_model_exposes_only_the_ask_tool() -> None:
-    from app.ask import ASK_TOOL_SCHEMA
+async def test_live_conversation_model_exposes_the_conversation_tools() -> None:
+    from app.ask import ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
     class Gateway:
@@ -125,14 +125,13 @@ async def test_live_conversation_model_exposes_only_the_ask_tool() -> None:
 
     assert result == "response"
     assert gateway.calls == 1
-    assert gateway.request.tools == [ASK_TOOL_SCHEMA]
+    # 对话同时暴露澄清（ask_user）与复盘（review_check_in）两个工具，二者共用同一解析与续轮链路。
+    assert gateway.request.tools == [ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA]
 
 
 @pytest.mark.asyncio
-async def test_live_conversation_model_repairs_an_invalid_control_head_once() -> None:
+async def test_live_conversation_model_wraps_plain_answer_without_another_model_call() -> None:
     from app.live_model import LiveConversationModel
-
-    valid = '{"v":1,"policy":"answer","content_shape":"guide","reason_code":"content_only"}\n# Answer'
 
     class Gateway:
         def __init__(self) -> None:
@@ -142,9 +141,7 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
         async def complete(self, request, **kwargs):
             self.calls += 1
             self.requests.append(request)
-            if "on_text_delta" not in kwargs:
-                return SimpleNamespace(message='{"plan_document_request":false}', tool_calls=[])
-            response = "provider prose\nnot a control head" if self.calls == 1 else valid
+            response = "provider prose\nnot a control head"
             kwargs["on_text_delta"](response)
             return SimpleNamespace(message=response, tool_calls=[])
 
@@ -162,8 +159,36 @@ async def test_live_conversation_model_repairs_an_invalid_control_head_once() ->
         cancel_event=None,
     )
 
-    assert response.message == valid
-    assert gateway.calls == 3
-    assert "控制头协议" in gateway.requests[2].messages[-1]["content"]
-    assert deltas == [valid]
+    assert response.message.endswith("\nprovider prose\nnot a control head")
+    assert '"reason_code":"protocol_fallback"' in response.message.splitlines()[0]
+    assert gateway.calls == 1
+    assert deltas == [response.message]
     assert resets == [True]
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_model_removes_an_outer_markdown_fence() -> None:
+    from app.live_model import LiveConversationModel
+
+    body = "# Study plan\n\n| Day | Topic |\n| --- | --- |\n| 1 | Algebra |\n\n```text\npractice\n```"
+    provider_message = f"```markdown\n{body}\n```"
+
+    class Gateway:
+        async def complete(self, _request, **kwargs):
+            kwargs["on_text_delta"](provider_message)
+            return SimpleNamespace(message=provider_message, tool_calls=[])
+
+    deltas: list[str] = []
+    response = await LiveConversationModel(Gateway()).route_and_respond(
+        content="make a study plan",
+        history=[],
+        skill_names=[],
+        on_text_delta=deltas.append,
+        on_text_reset=lambda: None,
+        cancel_event=None,
+    )
+
+    assert response.message.endswith(f"\n{body}")
+    assert "```markdown" not in response.message
+    assert "```text\npractice\n```" in response.message
+    assert deltas == [response.message]

@@ -3,7 +3,8 @@ from fastapi.testclient import TestClient
 from test_goal_program_api import headers, setup_app
 
 
-def test_adjustment_http_reject_and_conflict_contract(tmp_path) -> None:
+def test_adjustment_http_reject_and_conflict_contract(tmp_path,monkeypatch) -> None:
+    monkeypatch.setattr("app.goal_adjustments._local_date",lambda _:"2026-09-01")
     runtime,app,client,version=setup_app(tmp_path)
     payload={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60}
     draft=client.post(f"/api/plans/{version.plan_document_id}/program-preview",json=payload,headers=headers(app,"preview")).json()

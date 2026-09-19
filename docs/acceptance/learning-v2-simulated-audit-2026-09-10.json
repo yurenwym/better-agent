@@ -1,0 +1,8 @@
+{
+  "task_count": 12,
+  "stage_count": 36,
+  "failed_stages": [],
+  "included_revisions": 24,
+  "forgotten": 12,
+  "baseline_over_20": 5
+}

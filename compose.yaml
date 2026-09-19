@@ -1,14 +1,21 @@
 services:
-  better-agent:
-    build: .
-    ports:
-      - "127.0.0.1:8000:8000"
-    volumes:
-      - better-agent-data:/app/data
+  postgres:
+    image: pgvector/pgvector:pg16
     environment:
-      PORT: "8000"
-      BETTER_AGENT_HOST: "0.0.0.0"
+      POSTGRES_DB: "${POSTGRES_DB:-better_agent}"
+      POSTGRES_USER: "${POSTGRES_USER:-better_agent}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-change-this-local-password}"
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - better-agent-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     restart: unless-stopped
 
 volumes:
-  better-agent-data:
+  better-agent-postgres-data:

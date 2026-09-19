@@ -1,4 +1,6 @@
+import asyncio
 import json
+from datetime import datetime, timezone
 
 import pytest
 from app.conversation import ConversationService
@@ -10,6 +12,125 @@ async def valid_summary(payload):
  ids=[event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
  item={"text":"summary","source_message_ids":[ids[0]]}
  return {"synopsis":[item],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
+
+@pytest.mark.asyncio
+async def test_archive_retry_is_scoped_and_keeps_coverage_until_commit(tmp_path):
+ db, thread = _completed_thread(tmp_path,owner_id="local-user")
+ async def invalid(payload): return "invalid"
+ arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),invalid,keep_messages=0,max_attempts=1)
+ await arch.archive_thread(thread.id)
+ state=arch.status(thread.id,"local-user")
+ job=state["jobs"][0]
+ assert job["status"] == "DEAD_LETTER" and state["archived_through_seq"] == 0
+ with pytest.raises((PermissionError,ValueError,KeyError)):
+  arch.retry(thread.id,"other-user",job["id"],job["updated_at"])
+ assert arch.retry(thread.id,"local-user",job["id"],job["updated_at"])["status"] == "QUEUED"
+ assert arch.retry(thread.id,"local-user",job["id"],job["updated_at"])["status"] == "QUEUED"
+ arch.summarizer=valid_summary
+ assert await arch.process(arch.claim(job["id"])) is not None
+ assert arch.status(thread.id,"local-user")["archived_through_seq"] > 0
+
+@pytest.mark.asyncio
+async def test_old_retry_cannot_restart_a_new_failure(tmp_path):
+ from app.memory_archive import ArchiveError
+ db,thread=_completed_thread(tmp_path,owner_id="local-user")
+ async def invalid(payload):return "invalid"
+ arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),invalid,keep_messages=0,max_attempts=1)
+ await arch.archive_thread(thread.id)
+ job=arch.status(thread.id,"local-user")["jobs"][0]
+ arch.retry(thread.id,"local-user",job["id"],job["updated_at"])
+ await arch.process(arch.claim(job["id"]))
+ with pytest.raises(ArchiveError,match="changed"):
+  arch.retry(thread.id,"local-user",job["id"],job["updated_at"])
+
+def test_proactive_archive_uses_lower_hot_window_without_mutating_budget(tmp_path):
+ from app.token_budget import DEFAULT_TOKEN_COUNTER
+ db,thread=_completed_thread(tmp_path)
+ arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary)
+ transcript=arch.transcripts.build(thread.id)
+ cost=DEFAULT_TOKEN_COUNTER.count_text(json.dumps(transcript.turns[0].canonical(),ensure_ascii=False,sort_keys=True))
+ arch.keep_tokens=cost+1
+ assert not arch._select_archive_prefix(transcript).turns
+ assert arch._select_archive_prefix(transcript,proactive=True).turns
+ assert arch.keep_tokens == cost+1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["prompt_version", "tokenizer_version"])
+async def test_archive_old_version_is_rejected_before_model_and_preserves_source(tmp_path, field):
+ db,thread=_completed_thread(tmp_path,owner_id="local-user")
+ async def never_called(payload): raise AssertionError("old versions must not call the model")
+ arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),never_called,keep_messages=0)
+ job_id=arch.enqueue(thread.id)
+ with db.transaction() as c:
+  c.execute(f"UPDATE memory_archive_jobs SET {field}='old-version' WHERE id=?",(job_id,))
+ assert await arch.process(arch.claim(job_id)) is None
+ with db.connection() as c:
+  job=c.execute("SELECT * FROM memory_archive_jobs WHERE id=?",(job_id,)).fetchone()
+  assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "source_changed"
+  assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
+  assert c.execute("SELECT archived_through_seq FROM conversation_archive_state").fetchone()[0] == 0
+  assert c.execute("SELECT content FROM thread_messages WHERE id='fault-user'").fetchone()[0]
+ from app.memory_archive import ArchiveSourceChanged
+ with pytest.raises(ArchiveSourceChanged):
+  arch.retry(thread.id,"local-user",job_id,job["updated_at"])
+
+@pytest.mark.asyncio
+async def test_live_summary_declares_arrays_and_reserves_generation_budget():
+ from types import SimpleNamespace
+ from app.memory_archive import LiveEpisodeSummarizer
+ class Gateway:
+  async def complete(self, request):
+   prompt=request.messages[0]["content"]
+   assert '"synopsis":[{' in prompt
+   assert "are arrays, never strings" in prompt
+   assert "below 1600 tokens" in prompt
+   assert "at most 6 items TOTAL" in prompt
+   assert request.max_tokens == 4096
+   assert "MUST cite at least one message whose role is user" in prompt
+   assert request.thinking is False
+   return SimpleNamespace(message='{"synopsis":[]}')
+ assert await LiveEpisodeSummarizer(Gateway())({"turns":[]}) == '{"synopsis":[]}'
+
+
+@pytest.mark.asyncio
+async def test_archive_model_call_inherits_source_turn_bundle_and_root_budget(tmp_path):
+ db, thread = _completed_thread(tmp_path)
+ with db.transaction() as c:
+  c.execute(
+   "INSERT INTO runtime_bundles(id,bundle_hash,manifest_json,created_at) VALUES ('bundle-a','hash-a','{}','now')"
+  )
+  c.execute(
+   "UPDATE turns SET runtime_bundle_id='bundle-a',root_budget_id='root-a' WHERE id='fault-turn'"
+  )
+
+ class Gateway:
+  control_store = object()
+  contexts = []
+  def set_call_context(self, context):
+   self.contexts.append(context)
+   return object()
+  def reset_call_context(self, _token):
+   pass
+
+ class Summarizer:
+  def __init__(self):
+   self.gateway = Gateway()
+  async def __call__(self, payload):
+   return await valid_summary(payload)
+
+ summarizer = Summarizer()
+ arch = ConversationArchiver(
+  db, MemoryStore(db,tmp_path/"memory"), summarizer, keep_messages=0,
+ )
+ job_id = arch.enqueue(thread.id, source_turn_id="fault-turn")
+ claim = arch.claim(job_id)
+ assert claim.runtime_bundle_id == "bundle-a"
+ assert claim.root_budget_id == "root-a"
+ assert await arch.process(claim) is not None
+ assert len(summarizer.gateway.contexts) == 1
+ assert summarizer.gateway.contexts[0].runtime_bundle_id == "bundle-a"
+ assert summarizer.gateway.contexts[0].root_budget_id == "root-a"
 
 @pytest.mark.asyncio
 async def test_archiver_keeps_recent_window_and_is_idempotent(tmp_path):
@@ -141,6 +262,8 @@ async def test_archiver_rejects_invalid_json_summary(tmp_path):
   job=c.execute("SELECT status,last_error_code FROM memory_archive_jobs").fetchone()
   assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "invalid_summary"
   assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
+  state=c.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()
+  assert state["archived_through_seq"] == 0
 
 
 @pytest.mark.asyncio
@@ -152,6 +275,32 @@ async def test_archiver_rejects_summary_references_outside_source_batch(tmp_path
  assert await arch.archive_thread(thread.id) is None
  with db.connection() as c:
   job=c.execute("SELECT status,last_error_code FROM memory_archive_jobs").fetchone()
+  assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "invalid_summary"
+  assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
+  assert c.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_archiver_rejects_assistant_only_decision(tmp_path):
+ db, thread = _completed_thread(tmp_path)
+ with db.transaction() as c:
+  c.execute(
+   "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at,completed_at) "
+   "VALUES (?,?,?,?,?,'ready',1,?,?,?,?)",
+   ("fault-assistant", thread.id, "fault-turn", "assistant", "proposal", 8, 2, "2026-01-01T00:00:00+00:00", "2026-01-01T00:00:00+00:00"),
+  )
+ async def assistant_decision(payload):
+  ids = {
+   event["role"]: event["message_id"]
+   for turn in payload["turns"] for event in turn["events"] if event["message_id"]
+  }
+  item = {"text": "助手建议每天90分钟", "source_message_ids": [ids["assistant"]]}
+  synopsis = {"text": "助手建议每天90分钟", "source_message_ids": [ids["assistant"]]}
+  return {"synopsis":[synopsis],"topics":[],"decisions":[item],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
+ arch = ConversationArchiver(db, MemoryStore(db, tmp_path / "memory"), assistant_decision, keep_messages=0, max_attempts=1)
+ assert await arch.archive_thread(thread.id) is None
+ with db.connection() as c:
+  job = c.execute("SELECT status,last_error_code FROM memory_archive_jobs").fetchone()
   assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "invalid_summary"
   assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
 
@@ -180,12 +329,13 @@ async def test_archiver_does_not_commit_when_source_changes_before_commit(tmp_pa
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),mutate_source,keep_messages=0)
  job_id=arch.enqueue(thread.id)
  claim=arch.claim(job_id)
- with pytest.raises(ArchiveLeaseLost):
-  await arch.process(claim)
+ assert await arch.process(claim) is None
  with db.connection() as c:
   assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
-  job=c.execute("SELECT status FROM memory_archive_jobs WHERE id=?",(job_id,)).fetchone()
-  assert job["status"] != "COMPLETED"
+  jobs=c.execute("SELECT id,status,last_error_code FROM memory_archive_jobs ORDER BY created_at,id").fetchall()
+  assert len(jobs) == 2
+  assert jobs[0]["status"] == "DEAD_LETTER" and jobs[0]["last_error_code"] == "source_changed"
+  assert jobs[1]["status"] == "QUEUED"
 
 
 @pytest.mark.asyncio
@@ -235,29 +385,105 @@ async def test_archiver_commit_failure_rolls_back_episode_and_cursor(tmp_path):
  with db.connection() as c:
   assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
   state=c.execute("SELECT archived_through_seq,state FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()
-  assert state["archived_through_seq"] == 0
+  assert state["archived_through_seq"] == 0 and state["state"] == "FAILED"
   job=c.execute("SELECT status,last_error_code FROM memory_archive_jobs").fetchone()
   assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "RuntimeError"
 
 
 @pytest.mark.asyncio
-async def test_archiver_dead_letters_a_single_turn_that_exceeds_summary_budget(tmp_path):
+async def test_archiver_chunks_a_single_oversized_turn_and_advances_coverage(tmp_path):
  db, thread = _completed_thread(tmp_path)
  with db.transaction() as c:
   c.execute("UPDATE thread_messages SET content=?,content_length=? WHERE id='fault-user'", ("x" * 300, 300))
+ seen=[]
+ async def summarize(payload):
+  seen.append(payload)
+  ids=payload["source"].get("source_message_ids") or [
+   event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]
+  ]
+  item={"text":f"chunk-{len(seen)}","source_message_ids":[ids[0]]}
+  return {"synopsis":[item],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
  arch=ConversationArchiver(
-  db, MemoryStore(db,tmp_path/"memory"), valid_summary, keep_messages=0,
-  max_summary_tokens=80, max_attempts=3,
+  db, MemoryStore(db,tmp_path/"memory"), summarize, keep_messages=0,
+  max_summary_tokens=700, max_attempts=3,
  )
- assert await arch.archive_thread(thread.id) is None
+ episode=await arch.archive_thread(thread.id)
+ assert episode is not None
+ assert len(seen) > 1
+ assert all(arch._payload_tokens(payload) <= arch.max_summary_tokens for payload in seen)
  with db.connection() as c:
   job=c.execute("SELECT status,last_error_code,attempts FROM memory_archive_jobs").fetchone()
   state=c.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()
-  assert job["status"] == "DEAD_LETTER"
-  assert job["last_error_code"] == "oversized_input"
+  assert job["status"] == "COMPLETED"
+  assert job["last_error_code"] is None
   assert job["attempts"] == 1
-  assert state["archived_through_seq"] == 0
-  assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 0
+  assert state["archived_through_seq"] == 1
+  assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 1
+ with db.transaction() as c:
+  c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED','now','now')",("later-turn",thread.id,"later-turn"))
+  c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES ('later-message',?,?,'user','later','ready',1,5,2,'now')",(thread.id,"later-turn"))
+ assert await arch.archive_thread(thread.id) is not None
+ with db.connection() as c:
+  assert c.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()[0] == 2
+  assert c.execute("SELECT COUNT(*) FROM memory_episodes").fetchone()[0] == 2
+
+
+@pytest.mark.asyncio
+async def test_chunk_summary_cannot_cite_a_message_outside_its_chunk(tmp_path):
+ db=Database(tmp_path/"chunk-evidence.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+ with db.transaction() as c:
+  c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES ('chunk-turn',?,'chunk-turn','COMPLETED',?,?)",(thread.id,now,now))
+  for seq,content in ((1,"x" * 300),(2,"y" * 300)):
+   c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES (?,?, 'chunk-turn',?,?, 'ready',1,?,?,?)",(f"chunk-message-{seq}",thread.id,"user" if seq == 1 else "assistant",content,len(content),seq,now))
+ async def cross_chunk_reference(payload):
+  supplied=payload["source"]["source_message_ids"][0]
+  other="chunk-message-2" if supplied == "chunk-message-1" else "chunk-message-1"
+  item={"text":"unsupported evidence","source_message_ids":[other]}
+  return {"synopsis":[item],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
+ arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"chunk-memory"),cross_chunk_reference,keep_messages=0,max_summary_tokens=700,max_attempts=1)
+
+ assert await arch.archive_thread(thread.id) is None
+
+ with db.connection() as c:
+  job=c.execute("SELECT status,last_error_code FROM memory_archive_jobs").fetchone()
+  state=c.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",(thread.id,)).fetchone()
+ assert job["status"] == "DEAD_LETTER" and job["last_error_code"] == "invalid_summary"
+ assert state["archived_through_seq"] == 0
+
+
+def test_chunk_merge_preserves_same_evidence_in_different_structured_fields():
+ item={"text":"same fact","source_message_ids":["message-1"]}
+ empty={"synopsis":[],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
+ first={**empty,"synopsis":[item],"decisions":[item]}
+
+ merged=ConversationArchiver._merge_chunk_summaries([first])
+
+ assert merged["synopsis"] == [item]
+ assert merged["decisions"] == [item]
+
+
+@pytest.mark.asyncio
+async def test_archiver_renews_lease_during_slow_chunk_summary(tmp_path):
+ db, thread = _completed_thread(tmp_path)
+ started=asyncio.Event()
+ release=asyncio.Event()
+ async def slow_summary(payload):
+  started.set()
+  await release.wait()
+  return await valid_summary(payload)
+ arch=ConversationArchiver(
+  db,MemoryStore(db,tmp_path/"memory"),slow_summary,keep_messages=0,
+  lease_seconds=.15,max_summary_tokens=12000,
+ )
+ job_id=arch.enqueue(thread.id);claim=arch.claim(job_id)
+ task=asyncio.create_task(arch.process(claim))
+ await started.wait()
+ await asyncio.sleep(.22)
+ with db.connection() as c:
+  row=c.execute("SELECT lease_until FROM memory_archive_jobs WHERE id=?",(job_id,)).fetchone()
+  assert datetime.fromisoformat(row["lease_until"]) > datetime.now(timezone.utc)
+ release.set()
+ assert await task is not None
 
 
 @pytest.mark.asyncio

@@ -1,0 +1,22 @@
+{
+  "batch_id": "M4-LIVE-20260909-002",
+  "status": "FAILED_CLEANED",
+  "failure": "first core case ended PARTIAL after parseable JSON responses with finish_reason=length were accepted as complete",
+  "paid_model_attempts": 10,
+  "charged_microusd": 252320,
+  "source_requests": 2,
+  "automatic_rerun": false,
+  "cleanup": {
+    "batch_rows_removed": 199,
+    "batch_threads_remaining": 0,
+    "batch_model_invocations_remaining": 0,
+    "batch_runtime_bundles_remaining": 0,
+    "stable_bundle_unchanged": true,
+    "stable_bundle_id": "bundle_8040b4cc18e6bf2282d15992"
+  },
+  "remediation": {
+    "parseable_truncated_structured_output": "rejected",
+    "research_reasoning_mode": "explicitly disabled",
+    "failed_round_machine_diagnostics": "added"
+  }
+}

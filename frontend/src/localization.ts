@@ -80,6 +80,64 @@ const labels: Record<string, string> = {
   normal_sensitivity: "普通",
 };
 
+// 运行状态词表（外壳共享层）：同一运行状态在外壳不同位置沿用既有措辞，按调用点分表维护。
+// 各调用点：runStateLabels → App 顶栏 state-pill 与 WorkspaceSidebar 当前目标卡片；
+// runStateStatsLabels → StatsBar「当前状态」；runStateActivityLabels → ActivityRail 运行侧栏；
+// threadTurnStateLabels → ActivityRail 会话轮次状态。未命中的键回退为原始值。
+export const runStateLabels: Record<string, string> = {
+  RECEIVED: "等待输入",
+  CLARIFYING: "需要澄清",
+  PLANNING: "生成计划中",
+  AWAITING_APPROVAL: "等待审批",
+  EXECUTING: "执行中",
+  AWAITING_OUTCOME: "等待结果",
+  REFLECTING: "复盘中",
+  COMPLETED: "已完成",
+  BLOCKED: "已阻塞",
+  FAILED: "运行失败",
+  CANCELLED: "已取消",
+};
+
+export const runStateStatsLabels: Record<string, string> = {
+  RECEIVED: "已收到目标",
+  CLARIFYING: "正在澄清",
+  PLANNING: "正在规划",
+  AWAITING_APPROVAL: "等待审批",
+  EXECUTING: "执行中",
+  AWAITING_OUTCOME: "等待结果",
+  REFLECTING: "复盘中",
+  COMPLETED: "已完成",
+  BLOCKED: "已阻塞",
+  FAILED: "运行失败",
+  CANCELLED: "已取消",
+};
+
+export const runStateActivityLabels: Record<string, string> = {
+  RECEIVED: "已收到目标",
+  CLARIFYING: "正在澄清目标",
+  PLANNING: "正在生成计划",
+  AWAITING_APPROVAL: "等待你的审批",
+  EXECUTING: "正在执行计划",
+  AWAITING_OUTCOME: "等待外部结果",
+  REFLECTING: "正在复盘记忆",
+  COMPLETED: "目标已完成",
+  BLOCKED: "需要处理后继续",
+  FAILED: "运行失败",
+  CANCELLED: "运行已取消",
+};
+
+export const threadTurnStateLabels: Record<string, string> = {
+  ACCEPTED: "已收到消息",
+  ROUTING: "正在判断下一步",
+  STREAMING: "正在生成回答",
+  AWAITING_INPUT: "等待你的回答",
+  COMPLETED: "本轮对话完成",
+  AWAITING_DIRECTION: "等待你的选择",
+  MATERIALIZING: "正在创建执行任务",
+  FAILED: "本轮对话未完成",
+  CANCELLED: "本轮对话已停止",
+};
+
 export function localizedCode(value: unknown, fallback = "未知状态"): string {
   const key = String(value ?? "").trim();
   return labels[key] ?? fallback;

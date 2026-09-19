@@ -220,6 +220,8 @@ class PlanDocumentService:
     ) -> PlanDocumentVersion:
         title = validate_title(title)
         markdown_content = normalize_markdown(markdown_content)
+        from .plan_calendar_check import validate_plan_calendar
+        validate_plan_calendar(markdown_content)
         target_hash = content_hash(markdown_content)
         if source_turn_id:
             with self.db.connection() as connection:

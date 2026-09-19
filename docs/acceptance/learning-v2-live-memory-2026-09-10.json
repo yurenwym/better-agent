@@ -1,0 +1,106 @@
+{
+  "status": "PASS",
+  "provenance": "acceptance",
+  "real_model": true,
+  "model": "deepseek-flash",
+  "costs": {
+    "limit_microusd": 100000,
+    "reserved_microusd": 0,
+    "charged_microusd": 4400
+  },
+  "root_budget_id": "task_budget_bea894a9075053cee63fb7bce7b14a8b21ef0de7a84813ae83164c0b1cbec314",
+  "invocations": [
+    {
+      "id": "model_invocation_12f67ef84b214d03959b1fc49a3f713d",
+      "status": "SUCCEEDED"
+    },
+    {
+      "id": "model_invocation_c61c849f058a41aba8fee71e974e3205",
+      "status": "SUCCEEDED"
+    }
+  ],
+  "plan": {
+    "actions": [
+      {
+        "completion_criteria": "列出至少 3 条 live-constraint 关键限制。",
+        "description": "用 15 分钟阅读/梳理 live-constraint 的关键限制与允许操作，写下 3 条要点。",
+        "estimated_minutes": 15,
+        "logical_key": "action_understand_constraint",
+        "position": 1,
+        "required": true,
+        "scheduled_date": "2026-09-10",
+        "title": "理解 live-constraint 规则"
+      },
+      {
+        "completion_criteria": "完成一轮演练并记录至少 2 个调整点。",
+        "description": "用 30 分钟在 live-constraint 条件下完成一轮实际演练，记录触发点和调整。",
+        "estimated_minutes": 30,
+        "logical_key": "action_guided_drill",
+        "position": 2,
+        "required": true,
+        "scheduled_date": "2026-09-10",
+        "title": "执行约束演练"
+      },
+      {
+        "completion_criteria": "写出 1 条可执行的改进措施。",
+        "description": "用 15 分钟复盘演练结果，提炼 1 条下次改进措施。",
+        "estimated_minutes": 15,
+        "logical_key": "action_review_refine",
+        "position": 3,
+        "required": true,
+        "scheduled_date": "2026-09-10",
+        "title": "复盘与改进"
+      }
+    ],
+    "assumptions": [
+      "当天可投入 60 分钟连续练习时间",
+      "无需外部依赖或额外材料",
+      "按 30 分钟单项上限拆分任务"
+    ],
+    "end_date": "2026-09-10",
+    "milestones": [
+      {
+        "logical_key": "milestone_live_constraint_practice",
+        "target_date": "2026-09-10",
+        "title": "完成 live-constraint 练习"
+      }
+    ],
+    "objective_summary": "在 2026-09-10 完成为时 60 分钟的 live-constraint 练习，包括理解约束、执行演练和复盘。",
+    "objective_title": "练习 live-constraint",
+    "start_date": "2026-09-10"
+  },
+  "request_assets": [
+    [
+      {
+        "id": "bundle_3620b72d755b7dbe2d90957a",
+        "included": true,
+        "kind": "bundle",
+        "selected": true
+      },
+      {
+        "consumer": "typed_compiler_constraint",
+        "content_hash": "sha256:ac16aed66f43d1d2a2c6e83892cda734c193f9b7b47286132c487b0f4ff2c7be",
+        "id": "memory_revision_29c9958240d1484a9ef081e519abd5f1",
+        "included": true,
+        "kind": "revision",
+        "selected": true
+      }
+    ],
+    [
+      {
+        "id": "bundle_3620b72d755b7dbe2d90957a",
+        "included": true,
+        "kind": "bundle",
+        "selected": true
+      },
+      {
+        "consumer": "typed_compiler_constraint",
+        "content_hash": "sha256:ac16aed66f43d1d2a2c6e83892cda734c193f9b7b47286132c487b0f4ff2c7be",
+        "id": "memory_revision_29c9958240d1484a9ef081e519abd5f1",
+        "included": true,
+        "kind": "revision",
+        "selected": true
+      }
+    ]
+  ]
+}

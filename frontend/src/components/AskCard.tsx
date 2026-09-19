@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { AskAnswer, PendingAsk } from "../types";
 
 interface AskCardProps {
@@ -14,6 +14,16 @@ type TextState = Record<string, string>;
 export default function AskCard({ ask, busy = false, onSubmit, onCancel }: AskCardProps) {
   const [selected, setSelected] = useState<SelectionState>({});
   const [freeText, setFreeText] = useState<TextState>({});
+  const cardRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    try {
+      cardRef.current?.querySelector<HTMLElement>("button:not(:disabled), textarea:not(:disabled), input:not(:disabled)")?.focus({ preventScroll: true });
+      cardRef.current?.scrollIntoView?.({ block: "start", behavior: "instant" });
+    } catch {
+      // focusing is best-effort and must never break rendering.
+    }
+  }, []);
 
   const answers = useMemo<AskAnswer[]>(
     () => ask.questions.map((question) => ({
@@ -40,7 +50,7 @@ export default function AskCard({ ask, busy = false, onSubmit, onCancel }: AskCa
   }
 
   return (
-    <section className="ask-card" role="region" aria-label="等待你的回答">
+    <section className="ask-card" role="region" aria-label="等待你的回答" ref={cardRef}>
       <div className="ask-card-heading">
         <div>
           <span className="eyebrow">需要你的补充</span>

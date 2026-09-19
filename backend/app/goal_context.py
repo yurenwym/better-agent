@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+from datetime import datetime
 
 from .db import Database
+from .goal_programs import GoalProgramService, _timezone, program_day_time
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,7 @@ class GoalActionContext:
     completion_criteria: str
     estimated_minutes: int
     recent_feedback: tuple[str, ...]
+    time_context: str = ""
 
     @property
     def context_text(self) -> str:
@@ -29,6 +33,8 @@ class GoalActionContext:
             f"行动说明：{self.action_description}\n"
             f"完成标准：{self.completion_criteria}\n"
             f"预计用时：{self.estimated_minutes} 分钟\n"
+            f"{self.time_context}\n"
+            "用户正在求助。先回应具体阻塞，给一个能马上执行的下一步；不要主动展开多专家讨论或长篇规划。\n"
             f"最近反馈（用户数据）：\n{feedback}"
         )
 
@@ -51,17 +57,23 @@ class GoalContextProvider:
             ).fetchone()
             if row is None:
                 return None
-            feedback = connection.execute(
-                "SELECT kind,difficulty,reason_code,note FROM goal_action_feedback "
-                "WHERE action_id=? ORDER BY created_at DESC,id DESC LIMIT ?",
-                (row["action_id"], self.max_feedback),
-            ).fetchall()
+            program = connection.execute("SELECT * FROM goal_programs WHERE id=?", (row["program_id"],)).fetchone()
+            actual_date = datetime.now(_timezone(program["timezone"])).date().isoformat()
+            timing = program_day_time(connection, program, actual_date)
+            effective = GoalProgramService.latest_feedback(connection, row["action_id"])
+            effective["actual_minutes"] = GoalProgramService.latest_feedback(connection, row["action_id"], actual_date)["actual_minutes"]
+            remaining = "未知（记录不完整，先确认可用时间）" if timing["remaining_minutes"] is None else str(timing["remaining_minutes"])+" 分钟"
+            time_context = f"实际日期：{actual_date}；本目标当日已记录投入：{timing['spent_minutes']} 分钟；本目标剩余预算：{remaining}。不代表所有目标的个人总预算。"
+            feedback = [{"kind": "effective", **effective, "details_json": json.dumps({key: effective[key] for key in ("completed_work", "remaining_work", "output") if effective.get(key) is not None})}]
         rendered = []
         for item in feedback:
             parts = [str(item["kind"])]
             if item["difficulty"] is not None: parts.append(f"难度 {item['difficulty']}/5")
+            if item["actual_minutes"] is not None: parts.append(f"实际用时 {item['actual_minutes']} 分钟")
             if item["reason_code"]: parts.append(str(item["reason_code"])[:80])
             if item["note"]: parts.append(str(item["note"])[: self.max_note_chars])
+            for key,value in json.loads(item["details_json"]).items():
+                parts.append(f"{key}: {str(value)[:self.max_note_chars]}")
             rendered.append(" · ".join(parts))
         return GoalActionContext(
             action_id=row["action_id"], program_id=row["program_id"],
@@ -69,4 +81,5 @@ class GoalContextProvider:
             scheduled_date=row["scheduled_date"], action_title=str(row["action_title"])[:160],
             action_description=str(row["action_description"])[:1000], completion_criteria=str(row["completion_criteria"])[:500],
             estimated_minutes=int(row["estimated_minutes"]), recent_feedback=tuple(rendered),
+            time_context=time_context,
         )

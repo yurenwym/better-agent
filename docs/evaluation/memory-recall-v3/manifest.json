@@ -1,0 +1,35 @@
+{
+  "version": "memory-recall-v3",
+  "seed": 934721,
+  "origin": "constructed scenarios, not production logs",
+  "memories": 272,
+  "cases": 152,
+  "dev": 100,
+  "holdout": 52,
+  "split": "All v2 cases are dev now; 8 new service entities plus 4 unknowns are untouched holdout; shared corpus",
+  "strategies": [
+    "legacy",
+    "rrf"
+  ],
+  "candidate_limits": [
+    10,
+    20,
+    50,
+    100
+  ],
+  "rrf_k": 60,
+  "semantic_min_score": 0.35,
+  "embedding_timeout_seconds": 5,
+  "max_new_embedding_calls": 240,
+  "max_deepseek_calls": 208,
+  "budgets": [
+    450,
+    750,
+    1500
+  ],
+  "max_output_tokens": 256,
+  "selection_rule": "Within each strategy maximize dev positive full-gold injection rate, then injection recall, then positive precision; tie: smallest dense+lexical limit, then smaller dense, then smaller lexical",
+  "finalists": "legacy50/50, rrf50/50, best dev legacy, best dev rrf; deduplicate identical configs; freeze before any holdout retrieval",
+  "release_gate": "Compare selected finalists to legacy50/50 on new holdout; require more strict correct answers, zero scope leaks, no exact/code/negative count regression; report paired changes, do not tune on holdout",
+  "unchanged": "No query rewrite, scope SQL redesign, reranker or Python fallback removal; no production defaults changed"
+}

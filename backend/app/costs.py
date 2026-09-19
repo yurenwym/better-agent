@@ -3,13 +3,16 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import os
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from .db import Database
 from .model_gateway import UsageBuckets
+from .config import monetary_limits_enabled
 
 
 class BudgetExceeded(RuntimeError):
@@ -54,7 +57,133 @@ class CostService:
 
     @staticmethod
     def today_period() -> str:
-        return date.today().isoformat()
+        # Ledger timestamps use UTC. Using the host's local date here makes a
+        # new local day fail to match same-moment UTC reservations near midnight.
+        return datetime.now(timezone.utc).date().isoformat()
+
+    def create_root_budget(self, owner_id: str, root_kind: str, root_object_id: str, *,
+                           max_attempts: int, deadline_at: str, limit_microusd: int,
+                           connection=None) -> dict[str, Any]:
+        if self.db.backend != "postgresql":
+            raise RuntimeError("root task budgets require PostgreSQL")
+        if not owner_id or not root_object_id or root_kind not in {"turn", "run", "agent", "research", "evaluation", "learning", "goal_operation"}:
+            raise ValueError("invalid root budget identity")
+        if any(type(value) is not int or value < 0 for value in (max_attempts, limit_microusd)):
+            raise ValueError("root budget limits must be nonnegative integers")
+        deadline = datetime.fromisoformat(deadline_at)
+        if deadline.tzinfo is None:
+            raise ValueError("root deadline must include a timezone")
+        deadline = deadline.astimezone(timezone.utc)
+        identity = hashlib.sha256(json.dumps([owner_id, root_kind, root_object_id]).encode()).hexdigest()
+        root_id = f"task_budget_{identity}"
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
+            connection.execute(
+                "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+                "VALUES (?,?,?,?,?,?) ON CONFLICT(owner_id,root_kind,root_object_id) DO NOTHING",
+                (root_id, owner_id, root_kind, root_object_id, max_attempts, deadline.isoformat()),
+            )
+            root = connection.execute("SELECT * FROM task_budget_roots WHERE id=? FOR UPDATE", (root_id,)).fetchone()
+            existing_deadline = datetime.fromisoformat(str(root["deadline_at"]))
+            if root["max_attempts"] != max_attempts or existing_deadline != deadline:
+                raise ValueError("root budget identity is already bound to different limits")
+            connection.execute(
+                "INSERT INTO cost_budgets(owner_id,period_kind,period_key,limit_microusd,updated_at) "
+                "VALUES (?,'ROOT',?,?,?) ON CONFLICT(owner_id,period_kind,period_key) DO NOTHING",
+                (owner_id, root_id, limit_microusd, _now()),
+            )
+            money = connection.execute(
+                "SELECT limit_microusd FROM cost_budgets WHERE owner_id=? AND period_kind='ROOT' AND period_key=?",
+                (owner_id, root_id),
+            ).fetchone()
+            if money["limit_microusd"] != limit_microusd:
+                raise ValueError("root budget identity is already bound to a different cost limit")
+            return dict(root)
+
+    def create_default_root_budget(
+        self, owner_id: str, root_kind: str, root_object_id: str, *, connection=None,
+    ) -> dict[str, Any]:
+        return self.create_root_budget(
+            owner_id, root_kind, root_object_id,
+            max_attempts=int(os.getenv("ROOT_TASK_MAX_ATTEMPTS", "30")),
+            deadline_at=(datetime.now(timezone.utc) + timedelta(
+                minutes=int(os.getenv("ROOT_TASK_DEADLINE_MINUTES", "30")),
+            )).isoformat(),
+            limit_microusd=int(os.getenv("ROOT_TASK_MAX_COST_MICROUSD", "1000000")) if monetary_limits_enabled() else 0,
+            connection=connection,
+        )
+
+    def root_seconds_remaining(self, owner_id: str, root_budget_id: str) -> float:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT EXTRACT(EPOCH FROM (deadline_at-clock_timestamp())) AS seconds "
+                "FROM task_budget_roots WHERE id=? AND owner_id=?",
+                (root_budget_id, owner_id),
+            ).fetchone()
+        if row is None:
+            raise BudgetExceeded("root task budget is missing or belongs to another owner")
+        return max(float(row["seconds"]), 0.0)
+
+    def ensure_default_root_budget(
+        self, owner_id: str, root_kind: str, root_object_id: str, *, connection=None,
+    ) -> dict[str, Any]:
+        if self.db.backend != "postgresql":
+            raise RuntimeError("root task budgets require PostgreSQL")
+        identity = json.dumps([owner_id, root_kind, root_object_id])
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
+            connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", (identity,))
+            root = connection.execute(
+                "SELECT * FROM task_budget_roots WHERE owner_id=? AND root_kind=? AND root_object_id=?",
+                (owner_id, root_kind, root_object_id),
+            ).fetchone()
+            if root is not None:
+                return dict(root)
+            return self.create_default_root_budget(owner_id, root_kind, root_object_id, connection=connection)
+
+    def resume_root_after_ask(
+        self, owner_id: str, root_budget_id: str, waiting_since: str, *, resumed_at: str, connection,
+    ) -> float:
+        root = connection.execute(
+            "SELECT deadline_at FROM task_budget_roots WHERE id=? AND owner_id=? FOR UPDATE",
+            (root_budget_id, owner_id),
+        ).fetchone()
+        if root is None:
+            raise BudgetExceeded("root task budget is missing or belongs to another owner")
+        deadline = datetime.fromisoformat(str(root["deadline_at"]))
+        waiting = datetime.fromisoformat(waiting_since)
+        resumed = datetime.fromisoformat(resumed_at)
+        # The persisted Ask interval is human waiting, not agent execution.
+        # An already exhausted execution deadline must never be revived.
+        if deadline <= waiting:
+            return 0.0
+        delay = max((resumed - waiting).total_seconds(), 0.0)
+        if delay:
+            connection.execute(
+                "UPDATE task_budget_roots SET deadline_at=?,version=version+1 WHERE id=? AND owner_id=?",
+                ((deadline + timedelta(seconds=delay)).isoformat(), root_budget_id, owner_id),
+            )
+        return delay
+
+    def _reserve_root_attempt(self, connection, handle, attempt_id):
+        root_id = handle.context.root_budget_id
+        if root_id is None:
+            return
+        root = connection.execute(
+            "SELECT *,deadline_at<=clock_timestamp() AS expired FROM task_budget_roots "
+            "WHERE id=? AND owner_id=? FOR UPDATE", (root_id, handle.context.owner_id),
+        ).fetchone()
+        if root is None:
+            raise BudgetExceeded("root task budget is missing or belongs to another owner")
+        # A repeated reservation is the same attempt, even if the task has since expired.
+        if connection.execute(
+            "SELECT 1 FROM cost_ledger WHERE attempt_id=? AND period_kind='ROOT' AND period_key=? AND entry_type='RESERVE'",
+            (attempt_id, root_id),
+        ).fetchone():
+            return
+        if root["expired"]:
+            raise BudgetExceeded("root task deadline exceeded")
+        if root["attempts_started"] >= root["max_attempts"]:
+            raise BudgetExceeded("root task attempt limit exhausted")
+        connection.execute("UPDATE task_budget_roots SET attempts_started=attempts_started+1,version=version+1 WHERE id=?", (root_id,))
 
     def set_budget(self, owner_id: str, period_kind: str, period_key: str, limit_microusd: int) -> None:
         if limit_microusd < 0:
@@ -64,7 +193,7 @@ class CostService:
                 "SELECT reserved_microusd,charged_microusd FROM cost_budgets WHERE owner_id=? AND period_kind=? AND period_key=?",
                 (owner_id, period_kind, period_key),
             ).fetchone()
-            if row and int(row["reserved_microusd"]) + int(row["charged_microusd"]) > limit_microusd:
+            if monetary_limits_enabled() and row and int(row["reserved_microusd"]) + int(row["charged_microusd"]) > limit_microusd:
                 raise BudgetExceeded("budget is below current usage")
             connection.execute(
                 "INSERT INTO cost_budgets(owner_id,period_kind,period_key,limit_microusd,updated_at) VALUES (?,?,?,?,?) "
@@ -72,7 +201,13 @@ class CostService:
                 (owner_id, period_kind, period_key, limit_microusd, _now()),
             )
 
-    def register_price(self, profile_version_id: str, price: PriceSnapshot, effective_at: str = "1970-01-01T00:00:00+00:00") -> None:
+    def register_price(
+        self,
+        profile_version_id: str,
+        price: PriceSnapshot,
+        effective_at: str = "1970-01-01T00:00:00+00:00",
+        source_url: str = "legacy:unspecified",
+    ) -> None:
         payload = {
             "profile_version_id": profile_version_id,
             "uncached_input_rate": price.uncached_input_rate,
@@ -81,15 +216,16 @@ class CostService:
             "output_rate": price.output_rate,
             "reasoning_rate": price.reasoning_rate,
             "effective_at": effective_at,
+            "source_url": source_url,
         }
         digest = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
         with self.db.transaction() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO model_price_snapshots(id,profile_version_id,uncached_input_rate,cache_read_rate,cache_write_rate,"
-                "output_rate,reasoning_rate,effective_at,price_digest,created_at) VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "output_rate,reasoning_rate,effective_at,price_digest,created_at,source_url) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     price.id, profile_version_id, price.uncached_input_rate, price.cache_read_rate, price.cache_write_rate,
-                    price.output_rate, price.reasoning_rate, effective_at, digest, _now(),
+                    price.output_rate, price.reasoning_rate, effective_at, digest, _now(), source_url,
                 ),
             )
 
@@ -107,13 +243,14 @@ class CostService:
         cached = connection.execute("SELECT * FROM cost_ledger WHERE idempotency_key=?", (idempotency_key,)).fetchone()
         if cached:
             return _ledger(cached)
+        lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
         budget = connection.execute(
-            "SELECT * FROM cost_budgets WHERE owner_id=? AND period_kind=? AND period_key=?",
+            "SELECT * FROM cost_budgets WHERE owner_id=? AND period_kind=? AND period_key=?" + lock,
             (owner_id, period_kind, period_key),
         ).fetchone()
         if budget is None:
             raise KeyError("cost budget is not configured")
-        if int(budget["reserved_microusd"]) + int(budget["charged_microusd"]) + amount_microusd > int(budget["limit_microusd"]):
+        if monetary_limits_enabled() and int(budget["reserved_microusd"]) + int(budget["charged_microusd"]) + amount_microusd > int(budget["limit_microusd"]):
             raise BudgetExceeded("cost budget exhausted")
         connection.execute(
             "UPDATE cost_budgets SET reserved_microusd=reserved_microusd+?,version=version+1,updated_at=? WHERE owner_id=? AND period_kind=? AND period_key=?",
@@ -132,6 +269,11 @@ class CostService:
             return self._settle(connection, owner_id, period_kind, period_key, invocation_id, attempt_id, price_snapshot_id, amount_microusd, status)
 
     def _settle(self, connection: Any, owner_id: str, period_kind: str, period_key: str, invocation_id: str, attempt_id: str, price_snapshot_id: str, amount_microusd: int, status: str) -> dict[str, Any]:
+        if self.db.backend == "postgresql":
+            connection.execute(
+                "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind=? AND period_key=? FOR UPDATE",
+                (owner_id, period_kind, period_key),
+            ).fetchone()
         cached = connection.execute(
             "SELECT * FROM cost_ledger WHERE attempt_id=? AND period_kind=? AND period_key=? "
             "AND entry_type='CHARGE' AND price_snapshot_id=?",
@@ -144,10 +286,10 @@ class CostService:
             (attempt_id, period_kind, period_key),
         ).fetchone()
         reserved_amount = int(reserved["amount_microusd"]) if reserved else 0
-        charged = min(amount_microusd, reserved_amount) if reserved else amount_microusd
+        charged = min(amount_microusd, reserved_amount) if reserved and monetary_limits_enabled() else amount_microusd
         release = max(reserved_amount - charged, 0)
         connection.execute(
-            "UPDATE cost_budgets SET reserved_microusd=MAX(reserved_microusd-?,0),charged_microusd=charged_microusd+?,version=version+1,updated_at=? "
+            "UPDATE cost_budgets SET reserved_microusd=reserved_microusd-?,charged_microusd=charged_microusd+?,version=version+1,updated_at=? "
             "WHERE owner_id=? AND period_kind=? AND period_key=?",
             (reserved_amount, charged, _now(), owner_id, period_kind, period_key),
         )
@@ -226,27 +368,37 @@ class CostService:
                 "tps": _average(item["tps"]),
                 "p95_latency_seconds": _percentile(item["latency_seconds"], .95),
             })
-        return {"groups": sorted(result, key=lambda item: (item["role"], item["provider"], item["profile_version_id"]))}
+        return {"cost_mode": "enforce" if monetary_limits_enabled() else "observe", "groups": sorted(result, key=lambda item: (item["role"], item["provider"], item["profile_version_id"]))}
 
     def reserve_attempt(self, connection: Any, handle: Any, attempt_id: str) -> None:
+        self._reserve_root_attempt(connection, handle, attempt_id)
         periods = self._configured_attempt_periods(connection, handle)
-        if not periods:
+        canary = connection.execute(
+            "SELECT 1 FROM canary_exposures e JOIN canary_deployments d ON d.id=e.deployment_id WHERE e.run_id=? AND d.release_contract_version<>''",
+            (handle.context.run_id,),
+        ).fetchone()
+        if not periods and not canary and monetary_limits_enabled():
+            if self.db.backend == "postgresql":
+                raise BudgetExceeded("model call has no configured budget")
             return
         price = self._attempt_price(connection, handle)
-        if price is None:
+        if price is None and monetary_limits_enabled():
             raise BudgetExceeded("model price is unavailable")
         profile = connection.execute("SELECT context_window,max_output_tokens FROM model_profile_versions WHERE id=?", (handle.profile_version_id,)).fetchone()
         worst = estimate_cost(
             UsageBuckets(int(profile["context_window"]), 0, 0, int(profile["max_output_tokens"]), 0),
-            _price(price),
+            _price(price) if price else None,
         )
-        if worst.microusd is None:
+        if worst.microusd is None and monetary_limits_enabled():
             raise BudgetExceeded("model cost cannot be reserved")
+        if canary:
+            from .canary_budget import reserve_canary_attempt
+            reserve_canary_attempt(connection, handle, attempt_id, worst.microusd)
         for period_kind, period_key in periods:
             self._reserve(
                 connection, handle.context.owner_id, period_kind, period_key,
-                handle.invocation_id, attempt_id, worst.microusd,
-                f"reserve:{attempt_id}:{period_kind}:{period_key}", price["id"],
+                handle.invocation_id, attempt_id, worst.microusd if monetary_limits_enabled() else 0,
+                f"reserve:{attempt_id}:{period_kind}:{period_key}", price["id"] if price else None,
             )
 
     def settle_attempt(self, connection: Any, handle: Any, attempt_id: str, usage: UsageBuckets | None) -> CostEstimate:
@@ -258,16 +410,22 @@ class CostService:
         if not reservations:
             return CostEstimate(None, "UNAVAILABLE")
         price_snapshot_ids = {row["price_snapshot_id"] for row in reservations}
+        if price_snapshot_ids == {None} and not monetary_limits_enabled():
+            return CostEstimate(None, "UNAVAILABLE")
         if len(price_snapshot_ids) != 1 or None in price_snapshot_ids:
             raise BudgetExceeded("attempt price reservation is invalid")
         price_row = connection.execute(
             "SELECT * FROM model_price_snapshots WHERE id=? AND profile_version_id=?",
             (price_snapshot_ids.pop(), handle.profile_version_id),
         ).fetchone()
+        if usage is None and not monetary_limits_enabled():
+            return CostEstimateWithPrice(None, "UNAVAILABLE", price_row["id"] if price_row else None)
         if usage is None:
             result = CostEstimate(max(int(row["amount_microusd"]) for row in reservations), "ESTIMATED_PARTIAL")
         else:
             result = estimate_cost(usage, _price(price_row) if price_row else None)
+            if result.microusd is None and not monetary_limits_enabled():
+                return CostEstimateWithPrice(None, result.status, price_row["id"] if price_row else None)
             if result.microusd is None:
                 result = CostEstimate(max(int(row["amount_microusd"]) for row in reservations), "ESTIMATED_PARTIAL")
         for reservation in reservations:
@@ -292,6 +450,13 @@ class CostService:
 
     def _configured_attempt_periods(self, connection: Any, handle: Any) -> list[tuple[str, str]]:
         today = self.today_period()
+        if not monetary_limits_enabled():
+            for kind, key in (("INVOCATION",handle.invocation_id),("DAILY",today),("MONTHLY",today[:7])):
+                connection.execute(
+                    "INSERT INTO cost_budgets(owner_id,period_kind,period_key,limit_microusd,updated_at) VALUES (?,?,?,0,?) "
+                    "ON CONFLICT(owner_id,period_kind,period_key) DO NOTHING",
+                    (handle.context.owner_id,kind,key,_now()),
+                )
         invocation = connection.execute(
             "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind='INVOCATION' AND period_key=?",
             (handle.context.owner_id, handle.invocation_id),
@@ -311,6 +476,14 @@ class CostService:
             ("DAILY", today),
             ("MONTHLY", today[:7]),
         )
+        if handle.context.root_budget_id is not None:
+            root_key = handle.context.root_budget_id
+            if connection.execute(
+                "SELECT 1 FROM cost_budgets WHERE owner_id=? AND period_kind='ROOT' AND period_key=?",
+                (handle.context.owner_id, root_key),
+            ).fetchone() is None:
+                raise BudgetExceeded("root task cost budget is missing")
+            candidates = (("ROOT", root_key), *candidates)
         return [
             (kind, key) for kind, key in candidates
             if connection.execute(

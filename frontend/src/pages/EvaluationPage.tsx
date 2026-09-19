@@ -29,7 +29,6 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
       message: string;
       tone: "success" | "error";
     } | null>(null);
-  const [resumeBudget, setResumeBudget] = useState("");
   const [suites, setSuites] = useState<Array<{ id: string; digest: string; kind: string; case_count: number }>>([]),
     [models, setModels] = useState<ModelProfileVersion[]>([]),
     [form, setForm] = useState(emptyForm);
@@ -124,7 +123,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
   }
   async function resume() {
     if (!evaluationId) return;
-    const value = Number(resumeBudget);
+    const value = (run?.budget_microusd??0)+1;
     if (!Number.isInteger(value)) {
       setNotice({ message: "请输入有效的整数预算", tone: "error" });
       return;
@@ -133,7 +132,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
     try {
       const next = await resumeEvaluationRun(evaluationId, value, csrfToken);
       setRun(next);
-      setNotice({ message: "预算已追加，评测将从断点恢复", tone: "success" });
+      setNotice({ message: "评测将从断点恢复", tone: "success" });
     } catch (e) {
       setNotice({
         message: e instanceof Error ? e.message : "恢复评测失败",
@@ -167,7 +166,7 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
               <h3>启动冻结评测</h3>
             </div>
           </div>
-          <p className="control-helper">四个角色必须使用四个不同的模型版本；评测会消耗真实模型预算。</p>
+          <p className="control-helper">四个角色必须使用四个不同的模型版本；评测会产生模型调用费用。</p>
           <form className="control-form" onSubmit={start}>
             <label>
               评测套件
@@ -208,10 +207,6 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
                 </select>
               </label>
             ))}
-            <label>
-              评测预算（microusd）
-              <input required type="number" min="1" value={form.budget_microusd} onChange={choose("budget_microusd")} />
-            </label>
             <label>
               主要目标
               <select value={form.primary_objective} onChange={choose("primary_objective")}>
@@ -256,6 +251,11 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
         <div className="control-alert" role="alert">
           {error}
         </div>
+      )}
+      {!run && !error && (
+        <p className="muted" role="status" aria-busy="true">
+          正在加载评测…
+        </p>
       )}
       {run && (
         <>
@@ -338,17 +338,13 @@ export default function EvaluationPage({ evaluationId, csrfToken }: { evaluation
         <section className="control-panel control-create">
           <div className="control-panel-head">
             <div>
-                  <span className="eyebrow">预算不足，已暂停</span>
-              <h3>追加预算后从断点恢复</h3>
+                  <span className="eyebrow">历史评测已暂停</span>
+              <h3>从断点恢复</h3>
             </div>
           </div>
           <div className="control-form">
-            <label>
-              新预算（必须高于 {run.budget_microusd}）
-              <input type="number" min={run.budget_microusd + 1} value={resumeBudget} onChange={(event) => setResumeBudget(event.target.value)} />
-            </label>
             <button className="button button-primary control-form-action" disabled={busy || !csrfToken} onClick={() => void resume()}>
-              追加预算并恢复
+              恢复评测
             </button>
           </div>
         </section>

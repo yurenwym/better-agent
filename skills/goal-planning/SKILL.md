@@ -1,23 +1,23 @@
-# Goal planning
+# 目标规划
 
-## Purpose
+## 目的
 
-Turn one local user goal into a short, ordered list of atomic steps that can be reviewed and approved before execution.
+把一个本地用户目标拆成一份简短、有序的原子步骤清单，供执行前审阅和批准。
 
-## Input
+## 输入
 
-- Goal title and description.
-- User interactions already attached to the Run.
-- Confirmed scoped memory only.
+- 目标标题与描述。
+- 已经挂在该 Run 上的用户交互。
+- 仅限已确认的范围化记忆。
 
-## Output
+## 输出
 
-Return a structured plan with a summary and non-empty `steps` array. Each step has a stable `id`, a concise `title`, and an optional `description`. Do not include hidden reasoning, credentials, or unconfirmed memory.
+返回一份结构化计划，包含 summary 与非空的 `steps` 数组。每个步骤要有稳定的 `id`、简洁的 `title`，以及可选的 `description`。不要包含隐藏推理、凭据或未确认的记忆。
 
-## Tool policy
+## 工具策略
 
-The planning skill may use `local_time`, `calculator`, and `read_note` when required by the goal. It cannot use `write_note`; all WRITE actions belong to the Runtime approval gate.
+目标需要时，规划技能可以使用 `local_time`、`calculator` 和 `read_note`。它不能使用 `write_note`；所有 WRITE 动作都归 Runtime 的审批闸门。
 
-## Stop conditions
+## 停止条件
 
-Ask for clarification when the requested result or constraints are insufficient. Stop planning if the goal asks for Shell, arbitrary HTTP, workspace-external files, or another unsupported capability.
+当要求的结果或约束不充分时，先请求澄清。如果目标要求 Shell、任意 HTTP、工作区之外的文件，或其他不受支持的能力，停止规划。

@@ -1,0 +1,19 @@
+.daily-primary-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.daily-primary-actions .button { display:inline-flex; align-items:center; justify-content:center; gap:6px; min-height:44px; }
+.daily-primary-actions svg { flex:none; }
+.daily-execution-form { display:grid; gap:12px; margin-top:16px; }
+.daily-execution-form label { display:grid; gap:6px; min-width:0; }
+.daily-execution-form textarea,.daily-execution-form input { box-sizing:border-box; width:100%; min-width:0; }
+.daily-execution-form textarea { min-height:80px; resize:vertical; }
+.daily-execution-form .button { justify-self:start; min-height:44px; }
+.daily-execution-form .daily-clear-time { display:flex; align-items:center; gap:8px; min-height:44px; }
+.daily-execution-form .daily-clear-time input { width:20px; height:20px; }
+.daily-completed-list { margin-top:16px; }
+.daily-completed-list > summary { cursor:pointer; padding:12px 0; min-height:44px; box-sizing:border-box; }
+.daily-day-close { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; padding:16px 0; border-top:1px solid var(--color-line); }
+.daily-day-close .button { min-height:44px; }
+.daily-time-summary { display:flex; flex-wrap:wrap; gap:8px 16px; }
+.daily-source-reference { display:inline; }
+.daily-source-reference summary { display:inline; cursor:pointer; text-decoration:underline; text-underline-offset:3px; }
+.daily-source-reference code { overflow-wrap:anywhere; white-space:normal; }
+@media(max-width:480px) { .daily-primary-actions .button { flex:1 1 auto; } .daily-day-close { align-items:stretch; } .daily-day-close .button { width:100%; } }

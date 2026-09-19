@@ -1,0 +1,22 @@
+{
+  "batch_id": "M4-LIVE-20260909-001",
+  "status": "FAILED_CLEANED",
+  "failure": "acceptance harness rejected valid source citation aliases and runtime construction changed stable",
+  "paid_model_attempts": 8,
+  "charged_microusd": 201856,
+  "automatic_rerun": false,
+  "cleanup": {
+    "batch_rows_removed": 168,
+    "batch_threads_remaining": 0,
+    "batch_model_invocations_remaining": 0,
+    "batch_runtime_bundles_remaining": 0,
+    "startup_channel_events_removed": 1,
+    "unreferenced_startup_bundles_removed": 1,
+    "stable_restored_to": "bundle_8040b4cc18e6bf2282d15992"
+  },
+  "remediation": {
+    "citation_alias_recovery": "fixed",
+    "acceptance_runtime_stable_activation": "disabled",
+    "cleanup_restores_stable_before_verification": true
+  }
+}

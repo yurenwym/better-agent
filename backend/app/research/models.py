@@ -25,6 +25,7 @@ class ResearchRequest:
     recovered_sources: tuple[Source, ...] = ()
     recovered_evidence: tuple[Evidence, ...] = ()
     recovered_plan: ResearchPlan | None = None
+    stop_condition: str = "none"
 
 
 @dataclass(frozen=True)

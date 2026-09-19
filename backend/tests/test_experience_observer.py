@@ -74,6 +74,25 @@ def test_observer_uses_stable_failure_tags_for_agent_and_goal_sources(tmp_path) 
     assert record["dataset_partition"] == "DISCOVERY"
 
 
+def test_observer_groups_research_retries_and_excludes_acceptance_from_production(tmp_path) -> None:
+    runtime = build_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("research observer")
+    first = runtime.research.create_manual(thread.id, "[ACCEPT-OBSERVER] synthetic", "accept-first", ("web",))
+    runtime.research.claim(first.id, "research-worker", 30)
+    runtime.research.fail(first.id, "research-worker", "topiccoverageerror")
+    retry = runtime.research.retry(first.id, None, "accept-retry")
+    runtime.research.claim(retry.id, "research-worker", 30)
+    runtime.research.fail(retry.id, "research-worker", "topiccoverageerror")
+
+    result = runtime.observer.observe()
+    records = [item for item in runtime.evolution.list_experiences() if item["source_kind"] == "research"]
+
+    assert result["created"] == 1
+    assert len(records) == 1
+    assert records[0]["root_task_id"] == first.id
+    assert records[0]["provenance"] == "acceptance"
+
+
 def test_observer_keeps_action_review_and_adjustment_terminal_lineages_independent(tmp_path) -> None:
     runtime = build_runtime(tmp_path)
     thread = runtime.conversation.create_thread("observer-goal")

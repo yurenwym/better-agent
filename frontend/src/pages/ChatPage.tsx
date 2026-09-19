@@ -1,7 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, X } from "lucide-react";
+import { navigateTo, todayPath } from "../navigation";
 import ApprovalCard from "../components/ApprovalCard";
+import ArchiveStatus from "../components/ArchiveStatus";
 import ActivityRail from "../components/ActivityRail";
-import ConversationThread from "../components/ConversationThread";
+import ConversationThread, { clearConversationDraft, moveConversationDraft } from "../components/ConversationThread";
 import {
   addBudget,
   approvePlan,
@@ -29,20 +32,24 @@ import {
   getAgentTasks,
   getAgentArtifacts,
   cancelAgentRun,
+  saveMessagePlan,
 } from "../api";
 import ExpertRunCard from "../components/ExpertRunCard";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AgentArtifact, AgentRun, AgentTask, AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup } from "../types";
+import type { AgentArtifact, AgentRun, AgentTask, AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup, MessageRecord } from "../types";
 
 interface ChatPageProps {
+  embedded?:boolean;
   csrfToken: string;
   run: Run | null;
   threadId?: string | null;
+  sourceActionId?: string | null;
   onThread?: (threadId: string) => void;
   onRun: (run: Run) => void;
   onOpenTrajectory: () => void;
   onOpenPlan: (planDocumentId?: string) => void;
+  initialExpertRun?: AgentRun | null;
   onExpertRun?: (run: AgentRun | null) => void;
 }
 
@@ -104,12 +111,14 @@ export function latestPlanReference(events: ThreadEvent[]): PlanReference | null
 const turnBusyStates = new Set(["ACCEPTED", "ROUTING", "STREAMING", "MATERIALIZING"]);
 const pendingAskConflictText = "当前对话正在等待你的回答，请先回答上方问题；如果想开始新的目标，请先停止询问。";
 
-export default function ChatPage({ csrfToken, run, threadId = null, onThread, onRun, onOpenTrajectory, onOpenPlan, onExpertRun }: ChatPageProps) {
+export default function ChatPage({ csrfToken, run, threadId = null, sourceActionId = null, onThread, onRun, onOpenTrajectory, onOpenPlan, initialExpertRun = null, onExpertRun, embedded=false }: ChatPageProps) {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
   const [cancelBusy, setCancelBusy] = useState(false);
   const [askBusy, setAskBusy] = useState(false);
+  const planSaveLock = useRef(false);
+  const planSaveKeys = useRef(new Map<string, string>());
   const [pendingAskConflict, setPendingAskConflict] = useState(false);
   const [localThreadId, setLocalThreadId] = useState<string | null>(threadId);
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -118,11 +127,17 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const [dismissedGoalActionId,setDismissedGoalActionId]=useState<string|null>(null);
   const [goalContext,setGoalContext]=useState<{action:GoalAction;program:TodayProgramGroup["program"]}|null>(null);
   const [deepProcessing, setDeepProcessing] = useState(false);
-  const [expertRun, setExpertRun] = useState<AgentRun | null>(null);
+  const [expertRun, setExpertRun] = useState<AgentRun | null>(initialExpertRun);
   const [expertTasks, setExpertTasks] = useState<AgentTask[]>([]);
   const [expertArtifacts, setExpertArtifacts] = useState<AgentArtifact[]>([]);
   const [expertBusy, setExpertBusy] = useState(false);
+  const [activeView, setActiveView] = useState<"conversation" | "trajectory">("conversation");
+  const previousThreadId = useRef(threadId);
   const conversationId = threadId ?? localThreadId;
+  const currentConversation = useRef(conversationId);
+  currentConversation.current = conversationId;
+  const mounted = useRef(true);
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
   const onMaterialized = useCallback((runId: string) => {
     void getRun(runId).then(onRun).catch(() => undefined);
@@ -130,13 +145,33 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized);
 
   useEffect(() => {
-    if (!conversationId) { setResearchJobs([]); return; }
-    void getResearchJobs(conversationId).then((result) => setResearchJobs(result.jobs)).catch(() => undefined);
+    let active = true;
+    if (!conversationId) { setResearchJobs([]); return () => { active = false; }; }
+    void getResearchJobs(conversationId).then((result) => { if (active) setResearchJobs(result.jobs); }).catch(() => undefined);
+    return () => { active = false; };
   }, [conversationId, threadTelemetry.events.filter((event) => event.type.startsWith("research.")).at(-1)?.seq]);
 
   useEffect(() => {
+    const createdCurrentThread = previousThreadId.current === null && threadId !== null && localThreadId === threadId;
+    if (previousThreadId.current !== threadId && !createdCurrentThread) {
+      setError("");
+      setPendingAskConflict(false);
+      setBusy(false);
+      setActionBusy(false);
+      setCancelBusy(false);
+      setAskBusy(false);
+      setExpertBusy(false);
+      setResearchJobs([]);
+      setDismissedGoalActionId(null);
+    }
+    previousThreadId.current = threadId;
     setLocalThreadId(threadId ?? null);
+    setActiveView("conversation");
   }, [threadId]);
+
+  useEffect(() => {
+    setExpertRun(initialExpertRun);
+  }, [initialExpertRun?.id, initialExpertRun?.status]);
 
   useEffect(() => {
     let active = true;
@@ -152,7 +187,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   }, [run?.id]);
 
   useEffect(() => {
-    if (!expertRun || ["SUCCEEDED", "FAILED", "CANCELLED"].includes(expertRun.status)) return;
+    if (!expertRun) return;
     let active = true;
     const refresh = async () => {
       try {
@@ -164,6 +199,9 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       } catch { /* the card keeps its last confirmed state and the next poll retries */ }
     };
     void refresh();
+    if (["SUCCEEDED", "FAILED", "CANCELLED"].includes(expertRun.status)) {
+      return () => { active = false; };
+    }
     const timer = window.setInterval(() => void refresh(), 1500);
     return () => { active = false; window.clearInterval(timer); };
   }, [expertRun?.id, expertRun?.status, onExpertRun]);
@@ -187,6 +225,10 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   }
 
   async function submitContent(content: string): Promise<boolean> {
+    const optimisticId = clientTurnId();
+    let targetConversation=conversationId;
+    const isCurrent=()=>mounted.current && currentConversation.current===targetConversation;
+    setLocalMessages(current => [...current, {id:optimisticId, run_id:conversationId ?? "", interaction_id:null, role:"user", content, created_at:new Date().toISOString(), status:"sending"}]);
     clearError();
     setBusy(true);
     try {
@@ -196,14 +238,21 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
         if (!id) {
           const created = await createThread({ title: firstLine.slice(0, 80) || "新的对话" }, csrfToken);
           id = created.id;
-          setLocalThreadId(id);
-          onThread?.(id);
+          moveConversationDraft("new",id);
+          if(isCurrent()) {
+            targetConversation=id;
+            currentConversation.current=id;
+            setLocalThreadId(id);
+            onThread?.(id);
+          } else targetConversation=id;
         }
         await submitTurn(id, {
-          client_turn_id: clientTurnId(),
+          client_turn_id: optimisticId,
           content,
           skill_names: selectedSkills,
         }, csrfToken);
+        clearConversationDraft(id);
+        if(isCurrent())setLocalMessages(current => current.map(item => item.id === optimisticId ? {...item,run_id:id,status:"sent"} : item));
         return true;
       }
       if (!run) {
@@ -216,10 +265,13 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
       }
       return true;
     } catch (caught) {
-      showOperationError(caught, "发送失败，请检查模型连接后重试");
+      if(isCurrent()) {
+        setLocalMessages(current => current.filter(item => item.id !== optimisticId));
+        showOperationError(caught, "发送失败，请检查模型连接后重试");
+      }
       return false;
     } finally {
-      setBusy(false);
+      if(isCurrent())setBusy(false);
     }
   }
 
@@ -372,24 +424,53 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
   const threadBusy = Boolean(activeTurn && turnBusyStates.has(activeTurn.status));
   const threadCanCancel = Boolean(conversationId && activeTurn && (threadBusy || threadTelemetry.pendingAsk));
   const runCanCancel = Boolean(run && !["COMPLETED", "CANCELLED", "FAILED"].includes(run.state) && !threadCanCancel);
-  const messages = conversationId
+  const [localMessages, setLocalMessages] = useState<MessageRecord[]>([]);
+  const serverMessages = conversationId
     ? [
       ...threadTelemetry.messages,
       ...telemetry.messages.filter((message) => !(message.role === "user" && threadTelemetry.messages.some((item) => item.role === "user" && item.content === message.content))),
     ]
     : telemetry.messages;
+  const messages = [...serverMessages, ...localMessages.filter(item =>
+    (!item.run_id || item.run_id === conversationId) && !serverMessages.some(server =>
+      server.role === "user" && server.content === item.content && new Date(server.created_at).getTime() >= new Date(item.created_at).getTime() - 2000
+    ))];
   const planReference = latestPlanReference(threadTelemetry.events);
-  const goalActionId=activeTurn?.goal_action_id;
+  const latestMessage = messages[messages.length - 1];
+  const saveEligible = latestMessage?.role === "assistant" && latestMessage.turn_id
+    && threadTelemetry.thread?.turns?.some(turn=>turn.id === latestMessage.turn_id && turn.status === "COMPLETED");
+  function arrangePlan(planDocumentId: string) { navigateTo(`/plans/${encodeURIComponent(planDocumentId)}?execute=1`); }
+  async function saveAnswerPlan(messageId: string, title: string) {
+    if (!conversationId || planSaveLock.current || !saveEligible || latestMessage?.id !== messageId) return false;
+    const sourceThread = conversationId;
+    const identity = JSON.stringify([sourceThread, messageId, title]);
+    const key = planSaveKeys.current.get(identity) ?? clientTurnId();
+    planSaveKeys.current.set(identity, key);
+    planSaveLock.current = true;
+    setError("");
+    try {
+      const result = await saveMessagePlan(sourceThread, messageId, title, key, csrfToken);
+      if (mounted.current && currentConversation.current === sourceThread) arrangePlan(result.plan_document_id);
+      return true;
+    } catch (caught) {
+      if (mounted.current && currentConversation.current === sourceThread) showOperationError(caught, "保存计划失败，请重试");
+      return false;
+    } finally { planSaveLock.current = false; }
+  }
+  const goalActionId=sourceActionId ?? activeTurn?.goal_action_id;
   const expertActive = Boolean(expertRun && !["SUCCEEDED", "FAILED", "CANCELLED"].includes(expertRun.status));
   const expertLayout = deepProcessing || expertActive;
-  useEffect(()=>{if(!goalActionId){setGoalContext(null);return;}void getGoalAction(goalActionId).then(setGoalContext).catch(()=>setGoalContext(null));},[goalActionId]);
+  useEffect(()=>{let active=true;setGoalContext(null);if(goalActionId)void getGoalAction(goalActionId).then(value=>{if(active)setGoalContext(value);}).catch(()=>undefined);return()=>{active=false;};},[goalActionId]);
 
   return (
-    <div className={`${run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}${expertLayout ? " chat-workspace-expert" : ""}`}>
+    <div className={`${run || conversationId ? "chat-workspace" : "chat-workspace chat-workspace-empty chat-workspace-empty-wide"}${expertLayout ? " chat-workspace-expert" : ""}${embedded?" chat-workspace-embedded":""}`}>
       <div className="chat-main-column">
-        {goalActionId&&dismissedGoalActionId!==goalActionId&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">正在推进</span><strong>{goalContext?`${goalContext.program.objective_title} / ${goalContext.action.scheduled_date} / ${goalContext.action.title}`:`关联行动 · ${goalActionId.slice(-8)}`}</strong><p>目标、日期和行动详情由服务端按 owner 有界加载，不会把行动正文当作系统指令。</p></div><button aria-label="关闭行动上下文" className="button button-quiet" type="button" onClick={()=>setDismissedGoalActionId(goalActionId)}>关闭</button></aside>}
+        {conversationId && <ArchiveStatus key={conversationId} threadId={conversationId} csrfToken={csrfToken} events={threadTelemetry.events} />}
+{goalActionId&&dismissedGoalActionId!==goalActionId&&<aside className="goal-context-banner" aria-label="当前行动上下文"><div><span className="eyebrow">关联行动</span><strong>{goalContext?goalContext.action.title:"正在加载行动"}</strong>{goalContext&&<p>{goalContext.program.objective_title} · {goalContext.action.scheduled_date}</p>}</div>{!embedded&&goalContext&&<a className="button button-secondary" href={todayPath(goalContext.program.id,goalContext.action.id)}><ArrowLeft size={16}/>返回这项行动</a>}<button aria-label="关闭行动上下文" title="关闭行动上下文" className="icon-button" type="button" onClick={()=>setDismissedGoalActionId(goalActionId)}><X size={16}/></button></aside>}
         <div className={deepProcessing ? "conversation-with-expert-mode expert-mode-active" : "conversation-with-expert-mode"}>
         <ConversationThread
+          embedded={embedded}
+          draftKey={conversationId ?? "new"}
           messages={messages}
           busy={busy || actionBusy || telemetry.loading || threadTelemetry.loading || threadBusy}
           title={run || conversationId ? "当前目标对话" : "从一个目标开始"}
@@ -403,17 +484,30 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           onAskCancel={() => { if (activeTurn) void cancelCurrentTurn(activeTurn.id); }}
           planReference={planReference}
           onOpenPlan={onOpenPlan}
+          onArrangePlan={arrangePlan}
+          onSaveMessagePlan={conversationId && saveEligible ? saveAnswerPlan : undefined}
           researchJobs={researchJobs}
-          onCancelResearch={(jobId) => { void cancelResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))); }}
-          onRetryResearch={(jobId) => { void retryResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))); }}
-          onOpenResearch={() => { window.history.pushState({}, "", "/research"); window.dispatchEvent(new PopStateEvent("popstate")); }}
+          onCancelResearch={(jobId) => { void cancelResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))).catch((caught) => showOperationError(caught, "取消研究失败，请稍后重试")); }}
+          onRetryResearch={(jobId) => { void retryResearch(jobId, csrfToken).then(() => getResearchJobs(conversationId ?? undefined).then((result) => setResearchJobs(result.jobs))).catch((caught) => showOperationError(caught, "重试研究失败，请稍后重试")); }}
+          onOpenResearch={(jobId) => navigateTo(`/research?${new URLSearchParams({job:jobId})}`)}
           skills={skills}
           selectedSkills={selectedSkills}
           onToggleSkill={toggleSkill}
           deepProcessing={deepProcessing}
           expertBusy={expertBusy}
           onDeepProcessingChange={setDeepProcessing}
-          expertPanel={expertActive && expertRun ? <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} /> : null}
+          expertPanel={expertRun ? <ExpertRunCard run={expertRun} tasks={expertTasks} artifacts={expertArtifacts} busy={expertBusy} onCancel={() => void cancelExpert()} onOpenModels={() => { window.history.pushState({}, "", "/models"); window.dispatchEvent(new PopStateEvent("popstate")); }} /> : null}
+          activeView={embedded?"conversation":activeView}
+          onViewChange={embedded?undefined:(view) => setActiveView(view)}
+          trajectoryPanel={!embedded&&(run || conversationId) ? <ActivityRail
+            run={run}
+            thread={threadTelemetry.thread}
+            events={telemetry.events}
+            threadEvents={threadTelemetry.events}
+            stats={telemetry.stats}
+            loading={run ? telemetry.loading : threadTelemetry.loading}
+            onOpenTrajectory={onOpenTrajectory}
+          /> : null}
           decision={decision}
           onSubmit={submitConversation}
         />
@@ -452,30 +546,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, onThread, on
           </div>
         )}
         {threadTelemetry.error && <p className="error-message" role="alert">{threadTelemetry.error}</p>}
-        {expertLayout && (run || conversationId) && (
-          <ActivityRail
-            run={run}
-            thread={threadTelemetry.thread}
-            events={telemetry.events}
-            threadEvents={threadTelemetry.events}
-            stats={telemetry.stats}
-            loading={run ? telemetry.loading : threadTelemetry.loading}
-            onOpenTrajectory={onOpenTrajectory}
-          />
-        )}
       </div>
-
-      {!expertLayout && (run || conversationId) && (
-        <ActivityRail
-          run={run}
-          thread={threadTelemetry.thread}
-          events={telemetry.events}
-          threadEvents={threadTelemetry.events}
-          stats={telemetry.stats}
-          loading={run ? telemetry.loading : threadTelemetry.loading}
-          onOpenTrajectory={onOpenTrajectory}
-        />
-      )}
     </div>
   );
 }

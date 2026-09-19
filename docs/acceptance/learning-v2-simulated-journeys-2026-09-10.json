@@ -1,0 +1,1787 @@
+{
+  "status": "PASS",
+  "provenance": "acceptance",
+  "real_model": true,
+  "production_release_eligible": false,
+  "records": [
+    {
+      "task": "英语听力",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "已完整听完新闻并写下主旨或关键信息。",
+              "description": "选择一段英语新闻音频，完整听一遍，记录主旨和关键信息；开始前可用1分钟热身。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "听一段英语新闻"
+            },
+            {
+              "completion_criteria": "清单中有3个未听懂表达及对应上下文。",
+              "description": "回放新闻，摘出至少三个未听懂或不确定的表达，并写下其上下文。",
+              "estimated_minutes": 15,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录三个未听懂的表达"
+            },
+            {
+              "completion_criteria": "三个表达均已核对并标注正确含义或发音。",
+              "description": "带着三个表达再次听新闻，对照文字稿确认含义、连读和发音。",
+              "estimated_minutes": 25,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复听并核对文字稿"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "能说出新闻主旨并写下至少2个关键词。",
+              "description": "选择一段2-4分钟英语新闻，不暂停完整听1-2遍，记录主旨和关键词。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "通听新闻并抓主旨"
+            },
+            {
+              "completion_criteria": "列出至少3个未听懂表达及其上下文。",
+              "description": "逐句复听，记录3个未听懂的表达，写下听到的发音和上下文。",
+              "estimated_minutes": 25,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "精听并记录三个未听懂表达"
+            },
+            {
+              "completion_criteria": "3个表达均核对含义并完成跟读。",
+              "description": "对照文字稿复听，确认3个表达的准确含义和发音，并跟读一遍。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复听并核对文字稿"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_4d6055d995f2482c82049b4fd957d6c8"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "完成一次完整首听，并写下新闻主旨或关键词。",
+              "description": "用1分钟确认音频与文字稿可用，再完整听一遍新闻并记录主旨。",
+              "estimated_minutes": 15,
+              "logical_key": "a1_warmup_first_listen",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "热身并首听新闻"
+            },
+            {
+              "completion_criteria": "列出三个未听懂表达，且每个都有原句位置或初步猜测。",
+              "description": "从首听材料中选出三个未听懂或不确定的表达，写下原句位置与初步猜测。",
+              "estimated_minutes": 15,
+              "logical_key": "a2_note_unknown_expressions",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录三个未听懂的表达"
+            },
+            {
+              "completion_criteria": "三个表达均有复听后的理解或明确标记为待核对。",
+              "description": "针对三个表达回听相关片段，修正理解，标注仍不确定处。",
+              "estimated_minutes": 15,
+              "logical_key": "a3_relisten_verify_meaning",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复听并核对未听懂表达"
+            },
+            {
+              "completion_criteria": "三个未听懂表达均与文字稿核对完毕，并形成最终笔记。",
+              "description": "阅读文字稿核对三个表达，整理最终释义，并用1分钟回顾今日听力收获。",
+              "estimated_minutes": 15,
+              "logical_key": "a4_check_transcript_summary",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "核对文字稿并总结"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_c841f764aa514400adb836bcddec8290"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "线性代数",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "能写出维度检查规则并完成2道热身题。",
+              "description": "快速回顾矩阵乘法规则与维度匹配条件，完成2道热身题。",
+              "estimated_minutes": 10,
+              "logical_key": "act_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复习规则与热身"
+            },
+            {
+              "completion_criteria": "完成全部基础题，维度检查无误，结果正确。",
+              "description": "完成基础矩阵乘法练习，逐题记录维度并计算。",
+              "estimated_minutes": 20,
+              "logical_key": "act_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "基础矩阵乘法练习"
+            },
+            {
+              "completion_criteria": "完成进阶题，能识别并标注不匹配的维度。",
+              "description": "完成进阶练习，包含非方阵与维度不匹配判断。",
+              "estimated_minutes": 20,
+              "logical_key": "act_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "进阶矩阵乘法练习"
+            },
+            {
+              "completion_criteria": "错题清单包含错因、维度检查和订正步骤。",
+              "description": "记录错题、错因、正确维度与正确步骤。",
+              "estimated_minutes": 10,
+              "logical_key": "act_4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理错题"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "完成练习并写出每步计算过程。",
+              "description": "先做5分钟热身题，再完成指定矩阵乘法练习。",
+              "estimated_minutes": 30,
+              "logical_key": "act_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "完成矩阵乘法练习"
+            },
+            {
+              "completion_criteria": "所有题目维度检查完毕并标记不匹配项。",
+              "description": "逐题核对乘法维度是否匹配。",
+              "estimated_minutes": 15,
+              "logical_key": "act_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查矩阵维度"
+            },
+            {
+              "completion_criteria": "错题按原因归类并写出正确步骤。",
+              "description": "记录错题、错误原因和正确解法。",
+              "estimated_minutes": 15,
+              "logical_key": "act_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理错题"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_5773bf6c443c421c86c5b174dabadf02"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "完成至少5道基础题，且每道题均写出维度检查。",
+              "description": "先花2分钟回顾行乘列规则，再完成矩阵乘法基础练习并写出每题维度。",
+              "estimated_minutes": 20,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "矩阵乘法基础练习"
+            },
+            {
+              "completion_criteria": "全部题目完成维度检查，并写出至少3条维度匹配规则。",
+              "description": "对练习结果逐题检查维度是否满足 m×n 与 n×p；标出不合格的乘法并记录原因。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "维度检查专项"
+            },
+            {
+              "completion_criteria": "错题本包含错误原因、正确解法和一条避免再犯提醒；复盘完成。",
+              "description": "整理错题：记录错误原因、正确步骤、同类题提醒，并完成一次快速复盘。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "错题整理与复盘"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_1ad628a430a84c118bf7afa0071d360b"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "Python 异步",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "能说明示例中的协程执行流程。",
+              "description": "阅读给定的协程示例，标记协程定义、await 调用和事件循环启动方式。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "阅读协程示例"
+            },
+            {
+              "completion_criteria": "两个任务成功运行，并记录启动、完成顺序或状态。",
+              "description": "编写或复用示例，运行两个 asyncio 任务，观察并发执行顺序与输出。",
+              "estimated_minutes": 25,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "运行两个异步任务"
+            },
+            {
+              "completion_criteria": "记录至少一次取消行为及 CancelledError 或任务状态变化。",
+              "description": "对运行中的任务调用取消，记录取消信号、异常和任务状态变化。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录取消行为"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "能复述示例中协程的定义、调度与执行顺序。",
+              "description": "阅读给定协程示例，理解 async/await 与任务创建的基本流程。",
+              "estimated_minutes": 20,
+              "logical_key": "read_coroutine_example",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "阅读协程示例"
+            },
+            {
+              "completion_criteria": "两个任务均成功运行，并保存运行输出或日志。",
+              "description": "基于示例编写并运行两个可并发的异步任务，观察输出顺序。",
+              "estimated_minutes": 25,
+              "logical_key": "run_two_tasks",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "运行两个异步任务"
+            },
+            {
+              "completion_criteria": "形成包含取消步骤、观察结果和异常处理的简短记录。",
+              "description": "对其中一个任务执行取消操作，记录取消信号、异常处理与最终状态。",
+              "estimated_minutes": 15,
+              "logical_key": "record_cancellation_behavior",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录取消行为"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_1c0af9c184054cca9bfac482a81579ee"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "能说明示例中协程的启动与挂起流程。",
+              "description": "通读示例代码，标注 await、事件循环与任务创建位置。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "阅读协程示例"
+            },
+            {
+              "completion_criteria": "两个任务均成功运行并记录输出顺序。",
+              "description": "同时启动两个协程任务，观察并发输出与完成顺序。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "运行两个任务"
+            },
+            {
+              "completion_criteria": "记录取消触发点、异常捕获与最终状态。",
+              "description": "对运行中的任务调用取消，记录 CancelledError 处理与清理结果。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录取消行为"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_577d9726b8d04abeaba4653e7289ce17"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "数据库索引",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "两条 SQL、相关表及现有索引已记录，可供后续执行计划对比使用。",
+              "description": "记录两条待比较 SQL、涉及表、现有索引和关键列类型。",
+              "estimated_minutes": 10,
+              "logical_key": "confirm_queries_and_schema",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "确认两条查询与表结构"
+            },
+            {
+              "completion_criteria": "两条查询的执行计划输出已保存，并标明对应查询。",
+              "description": "对两条查询分别运行 EXPLAIN 或等效命令，保存完整输出。",
+              "estimated_minutes": 15,
+              "logical_key": "capture_execution_plans",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "获取两条查询的执行计划"
+            },
+            {
+              "completion_criteria": "列出至少 3 项关键差异，并给出候选索引列或确认无需新增索引。",
+              "description": "比较扫描方式、连接方式、过滤条件和估算代价，标出候选索引列。",
+              "estimated_minutes": 15,
+              "logical_key": "compare_access_paths",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "对比执行计划关键差异"
+            },
+            {
+              "completion_criteria": "完成一段索引选择依据，明确推荐或不推荐索引并引用执行计划差异作为依据。",
+              "description": "基于执行计划对比，写出推荐索引、取舍理由及验证要点。",
+              "estimated_minutes": 20,
+              "logical_key": "write_index_rationale",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "撰写索引选择依据"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "两条查询、相关表结构和现有索引已列出",
+              "description": "选定待比较的两条 SQL，确认表结构、数据量、索引现状与预期输出。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "明确两条查询与数据集"
+            },
+            {
+              "completion_criteria": "已保存两条查询的执行计划，环境与参数一致",
+              "description": "在相同环境和参数下运行 EXPLAIN 或等价工具，保存两条执行计划。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "采集两条查询执行计划"
+            },
+            {
+              "completion_criteria": "列出至少三项关键差异及对应操作符",
+              "description": "对比访问方式、连接顺序、过滤条件、估算行数与实际代价。",
+              "estimated_minutes": 15,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "对比执行计划关键差异"
+            },
+            {
+              "completion_criteria": "形成索引选择依据，明确推荐及理由",
+              "description": "基于差异提出索引选择或调整依据，说明收益与代价。",
+              "estimated_minutes": 10,
+              "logical_key": "a4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "写出索引选择依据"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_005980d6ea2c4c8cb7939fe4e41e5dc1"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "两条查询的执行计划均已获取。",
+              "description": "确认两条查询语句，分别获取执行计划。",
+              "estimated_minutes": 10,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "准备并运行两条查询的执行计划"
+            },
+            {
+              "completion_criteria": "列出两条计划的主要差异。",
+              "description": "比较访问方式、估计行数、成本等关键指标。",
+              "estimated_minutes": 15,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "对比执行计划的关键差异"
+            },
+            {
+              "completion_criteria": "形成索引选择依据的要点。",
+              "description": "根据差异判断各查询适合的索引及原因。",
+              "estimated_minutes": 15,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "分析索引选择依据"
+            },
+            {
+              "completion_criteria": "完成索引选择依据书面结论。",
+              "description": "整理并写出最终索引选择依据。",
+              "estimated_minutes": 20,
+              "logical_key": "a4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "写出索引选择依据结论"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_03edce02b9ba4423b1a38012cc62a24d"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "研究报告",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "输出结论清单，每条结论有对应资料位置。",
+              "description": "通读并标记已有资料中可直接引用的结论，形成结论清单。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理已有资料中的结论"
+            },
+            {
+              "completion_criteria": "每条结论至少对应一条证据，或明确标注暂无证据。",
+              "description": "为每条结论摘录支撑证据或数据，标明出处，不增加无证据细节。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取结论对应的证据"
+            },
+            {
+              "completion_criteria": "提纲包含结论、证据、未知点三部分，可直接用于撰写报告。",
+              "description": "汇总尚未解决的问题，按结论、证据、未知点组织报告提纲。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "列出未知点并形成报告提纲"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "至少列出3条结论，每条附1条证据来源。",
+              "description": "快速浏览已有资料，列出可支持的结论，并为每条结论标注对应证据来源；用1-2分钟热身回顾目标。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取结论与证据"
+            },
+            {
+              "completion_criteria": "形成未知点清单，并标注至少2个优先确认项。",
+              "description": "对照结论和证据，记录缺失信息、矛盾点和需进一步确认的问题，按重要性排序。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理未知点与待确认问题"
+            },
+            {
+              "completion_criteria": "输出包含结论、证据、未知点三部分的报告提纲。",
+              "description": "将结论、证据和未知点组织为报告提纲，明确各部分顺序；最后2分钟检查交付完整性和时间。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "形成报告提纲"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_d6c0e0882bbc4e46919d4c0030606a36"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成结论清单，覆盖资料中的主要结论。",
+              "description": "先快速浏览已有资料，再提取并列出可支持的结论。",
+              "estimated_minutes": 20,
+              "logical_key": "collect_conclusions",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "列出已有资料中的结论"
+            },
+            {
+              "completion_criteria": "每条结论均标注证据或未知点。",
+              "description": "为每条结论标注对应证据；无证据或信息不足处记为未知点。",
+              "estimated_minutes": 20,
+              "logical_key": "evidence_and_unknowns",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取证据与未知点"
+            },
+            {
+              "completion_criteria": "输出含结论、证据、未知点三部分的报告提纲。",
+              "description": "按结论、证据、未知点三部分组织内容，输出报告提纲。",
+              "estimated_minutes": 20,
+              "logical_key": "report_outline",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "形成报告提纲"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_802ca442d12d46a5af61f4132d4f14d0"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "文献对照",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "文章A的方法和局限已各列出至少1条，并标明对应位置或摘录。",
+              "description": "阅读文章A，摘录研究方法、数据或样本、主要结论，以及作者承认或可识别的局限。",
+              "estimated_minutes": 15,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章A的方法与局限"
+            },
+            {
+              "completion_criteria": "文章B的方法和局限已各列出至少1条，并标明对应位置或摘录。",
+              "description": "阅读文章B，摘录研究方法、数据或样本、主要结论，以及作者承认或可识别的局限。",
+              "estimated_minutes": 15,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章B的方法与局限"
+            },
+            {
+              "completion_criteria": "比较表包含方法、局限等维度，两篇文章对应项均已填写。",
+              "description": "将文章A和文章B的方法、数据、结论及局限填入比较表，按维度并列呈现。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "填写比较表：方法与局限"
+            },
+            {
+              "completion_criteria": "比较表无空缺关键维度，方法/局限均有对照，且总用时不超过60分钟。",
+              "description": "检查比较表是否覆盖两篇文章的方法和局限，补充遗漏证据，统一表述并控制总用时不超过60分钟。",
+              "estimated_minutes": 10,
+              "logical_key": "action_4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复核并补全比较表"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "文章A的方法与局限已填入比较表。",
+              "description": "阅读文章A，记录研究设计、数据、分析方法和主要局限，填入比较表对应列。",
+              "estimated_minutes": 15,
+              "logical_key": "extract_article_a",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章A的方法与局限"
+            },
+            {
+              "completion_criteria": "文章B的方法与局限已填入比较表。",
+              "description": "阅读文章B，记录研究设计、数据、分析方法和主要局限，填入比较表对应列。",
+              "estimated_minutes": 15,
+              "logical_key": "extract_article_b",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章B的方法与局限"
+            },
+            {
+              "completion_criteria": "比较表已包含两文方法的异同对照。",
+              "description": "逐项比较文章A与B的方法异同，补充比较表中的对照结论。",
+              "estimated_minutes": 15,
+              "logical_key": "compare_methods",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "对照两文方法"
+            },
+            {
+              "completion_criteria": "比较表已包含局限对照与简要结论。",
+              "description": "比较两文局限，标注共同限制和各自不足，完成比较表收尾与简要结论。",
+              "estimated_minutes": 15,
+              "logical_key": "compare_limitations_and_finalize",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "对照两文局限并完成比较表"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_2ee56a489c07487e850f6f483ffcbb44"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "比较表A列已填写文章A的方法与局限要点。",
+              "description": "阅读文章A，按研究设计、样本或数据、分析方法、主要局限提取信息，并填入比较表A列。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章A的方法与局限"
+            },
+            {
+              "completion_criteria": "比较表B列已填写文章B的方法与局限要点。",
+              "description": "阅读文章B，使用与文章A相同的维度提取信息，并填入比较表B列。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "提取文章B的方法与局限"
+            },
+            {
+              "completion_criteria": "比较表已包含两篇文章的方法与局限对照及简短结论。",
+              "description": "对照A、B两列，标注方法差异、共同局限和各自局限，补充简短结论，形成最终比较表。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "横向对照并完成比较表"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_1605431ac73a49d7bfd4e43e4a3ea99f"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "接口调试",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "获得一次稳定可重复的失败请求记录。",
+              "description": "使用最小或已知请求触发接口错误，记录请求方法、路径、参数、状态码和错误消息。",
+              "estimated_minutes": 20,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复现接口错误"
+            },
+            {
+              "completion_criteria": "列出可疑输入点及日志中的关键错误信息。",
+              "description": "对照失败请求检查参数、请求头和请求体，并查看服务端日志中的异常堆栈与关键报错。",
+              "estimated_minutes": 25,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查输入与日志"
+            },
+            {
+              "completion_criteria": "输出包含前置条件、请求示例和错误现象的复现步骤。",
+              "description": "整理环境准备、请求示例、操作顺序和预期错误，形成可交给他人执行的复现说明。",
+              "estimated_minutes": 15,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "写出复现步骤"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "错误可稳定复现，并记录错误现象与触发条件。",
+              "description": "按既有请求条件调用接口，记录错误现象与触发条件。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复现接口错误"
+            },
+            {
+              "completion_criteria": "完成输入与日志检查，记录关键异常线索。",
+              "description": "核对请求输入、参数和返回日志，定位异常线索。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查输入与日志"
+            },
+            {
+              "completion_criteria": "复现步骤完整、按步骤可重现接口错误。",
+              "description": "整理可重复执行的复现步骤，包含请求条件与观察结果。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "写出复现步骤"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_ab004afce745402293bda38a7256746f"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "已稳定复现同一接口错误并记录关键响应。",
+              "description": "使用已知输入调用接口，记录请求参数、响应状态和错误信息。",
+              "estimated_minutes": 20,
+              "logical_key": "action_reproduce_error",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复现接口错误"
+            },
+            {
+              "completion_criteria": "已整理输入疑点和对应日志证据。",
+              "description": "对照复现请求检查输入字段格式，并查看服务端日志定位异常点。",
+              "estimated_minutes": 20,
+              "logical_key": "action_check_input_logs",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查输入与日志"
+            },
+            {
+              "completion_criteria": "复现步骤可被他人按序执行并看到相同错误。",
+              "description": "按环境、前置条件、请求步骤和预期/实际结果整理最小复现步骤。",
+              "estimated_minutes": 20,
+              "logical_key": "action_write_repro_steps",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "写出复现步骤"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_3d4912c472264d2b934bc7ac6636bdaf"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "数据清理",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "列出每列缺失数量及关键缺失位置。",
+              "description": "逐列统计缺失数量与位置，记录涉及的列和行。",
+              "estimated_minutes": 15,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查缺失值"
+            },
+            {
+              "completion_criteria": "列出重复行数量及判定依据。",
+              "description": "按关键字段识别重复行，记录重复数量与示例。",
+              "estimated_minutes": 15,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查重复项"
+            },
+            {
+              "completion_criteria": "形成可执行的缺失值处理规则。",
+              "description": "根据检查结果写缺失值处理规则，说明保留、填充或删除条件。",
+              "estimated_minutes": 15,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录缺失值处理规则"
+            },
+            {
+              "completion_criteria": "形成可执行的重复项处理规则。",
+              "description": "根据检查结果写重复项处理规则，说明保留哪条及去重依据。",
+              "estimated_minutes": 15,
+              "logical_key": "a4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录重复项处理规则"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "列出缺失字段、缺失数量及示例位置。",
+              "description": "扫描给定表格各字段，统计缺失数量与位置，简要记录缺失模式。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查缺失值"
+            },
+            {
+              "completion_criteria": "列出重复类型、数量及对应判定字段。",
+              "description": "识别完全重复行与关键字段重复记录，记录重复数量与判定依据。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检查重复项"
+            },
+            {
+              "completion_criteria": "形成可执行的缺失值与重复项处理规则清单。",
+              "description": "根据缺失值与重复项检查结果，写明后续清理规则和例外情况。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录处理规则"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_7edf6494ee814c04a882b86a8b344d8b"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "记录字段名、行数、数据类型和初步异常。",
+              "description": "打开给定表格，确认字段、行数和数据类型；先浏览前20行了解数据形态。",
+              "estimated_minutes": 15,
+              "logical_key": "load_table",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "加载表格并概览结构"
+            },
+            {
+              "completion_criteria": "得到每列缺失统计和需处理列清单。",
+              "description": "按列统计缺失数量与比例，标记需处理字段；空字符串和占位符按缺失处理。",
+              "estimated_minutes": 15,
+              "logical_key": "missing_values",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "统计缺失值"
+            },
+            {
+              "completion_criteria": "列出重复行数、涉及字段和待确认样本。",
+              "description": "按关键字段或全行检查重复记录，区分完全重复与业务重复，保留重复样本。",
+              "estimated_minutes": 15,
+              "logical_key": "duplicates",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "检测重复项"
+            },
+            {
+              "completion_criteria": "形成缺失值与重复项处理规则，包含规则、依据和影响行数。",
+              "description": "根据缺失与重复检查结果，写下缺失值填充或剔除规则、去重键和保留策略。",
+              "estimated_minutes": 15,
+              "logical_key": "rules",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "记录处理规则"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_cfff5924e93744ccbc53db681f5ac2e6"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "项目文档",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成模块清单，每个模块至少有一条职责线索。",
+              "description": "列出当前模块清单，记录每个模块的入口、主要文件和初步职责线索；先做简短预热，通读目录和已有说明。",
+              "estimated_minutes": 15,
+              "logical_key": "inventory_modules",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "清点现有模块与职责线索"
+            },
+            {
+              "completion_criteria": "输出模块职责说明，覆盖现有模块并标注待确认项。",
+              "description": "将模块清单归纳为职责说明，明确各模块负责什么、不负责什么，并标注待确认点。",
+              "estimated_minutes": 20,
+              "logical_key": "write_responsibilities",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理模块职责说明"
+            },
+            {
+              "completion_criteria": "形成一条主调用链草图，标明入口、关键调用节点和依赖关系。",
+              "description": "从入口到关键下游梳理一条主要调用链，记录调用顺序、模块依赖和关键参数传递。",
+              "estimated_minutes": 15,
+              "logical_key": "trace_call_chain",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "梳理一条主调用链"
+            },
+            {
+              "completion_criteria": "调用链说明已补充完成，并与模块职责说明对应。",
+              "description": "将调用链草图整理成说明，与模块职责对应，标出异常分支或待确认点；最后做简短复核。",
+              "estimated_minutes": 10,
+              "logical_key": "write_call_chain_note",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "补充调用链说明"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成覆盖现有模块的职责清单。",
+              "description": "列出当前模块，逐个标注职责、边界和依赖。",
+              "estimated_minutes": 20,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "盘点现有模块与职责"
+            },
+            {
+              "completion_criteria": "输出模块职责说明，内容与清单一致。",
+              "description": "将职责清单归纳成可读说明，标注模块间关系。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理模块职责说明"
+            },
+            {
+              "completion_criteria": "输出至少一条完整调用链说明，步骤可复核。",
+              "description": "选择关键调用链，按入口到出口补充步骤和依赖。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "补充调用链说明"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_5da6abcd20524c2a83817d7e10bfbbbe"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "模块清单覆盖主要模块，并标注每个模块的核心职责。",
+              "description": "快速盘点现有模块名称、主要输入输出和职责边界，形成可编辑清单。",
+              "estimated_minutes": 20,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "列出模块清单与职责边界"
+            },
+            {
+              "completion_criteria": "职责说明文档可直接用于后续调用链分析。",
+              "description": "基于清单合并重复项，补全职责描述与依赖关系，形成模块职责说明。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理模块职责说明"
+            },
+            {
+              "completion_criteria": "调用链说明包含入口、主要步骤和涉及模块。",
+              "description": "选取一条关键调用路径，按入口到出口记录模块调用顺序和关键数据流。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "编写调用链说明"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_f0f27c1c2acd4b569d018445e8f135c2"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "资料归档",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "列出资料存放位置、文件类型和数量概况。",
+              "description": "快速扫描本地学习资料存放位置，记录文件类型、数量和大致主题。",
+              "estimated_minutes": 15,
+              "logical_key": "action-1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "盘点本地学习资料"
+            },
+            {
+              "completion_criteria": "生成分类目录结构，且可明确归属的资料已放入对应目录。",
+              "description": "按学习主题或文件类型建立分类目录，将已明确归属的资料移入对应目录。",
+              "estimated_minutes": 25,
+              "logical_key": "action-2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "按主题或类型分类并生成目录"
+            },
+            {
+              "completion_criteria": "输出未分类资料清单，包含文件名、位置和未分类原因。",
+              "description": "整理无法明确归类的资料，形成未分类清单并简要注明原因或待定方向。",
+              "estimated_minutes": 15,
+              "logical_key": "action-3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "生成未分类清单"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成分类草案和待归类文件列表，覆盖所有本地学习资料。",
+              "description": "浏览本地学习资料，按主题或用途建立分类草案，记录无法判断的项。",
+              "estimated_minutes": 30,
+              "logical_key": "scan_and_classify_materials",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "扫描并分类学习资料"
+            },
+            {
+              "completion_criteria": "资料按分类就位或标记，分类记录与实际文件一致。",
+              "description": "按分类草案移动或标记学习资料，并更新分类记录。",
+              "estimated_minutes": 20,
+              "logical_key": "organize_materials_by_category",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "按分类归档资料"
+            },
+            {
+              "completion_criteria": "目录和未分类清单已保存到本地，包含所有未分类项。",
+              "description": "汇总分类结果，输出资料目录和未分类清单。",
+              "estimated_minutes": 10,
+              "logical_key": "generate_catalog_and_unclassified_list",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "生成目录和未分类清单"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_11d41da4b55245f5bf52ea40f8a4ccff"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成初步资料清单，包含目录范围、主要格式和数量。",
+              "description": "浏览本地学习资料目录，列出主要文件、文件夹、格式与大致数量；不移动文件。",
+              "estimated_minutes": 10,
+              "logical_key": "inventory_learning_materials",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "盘点学习资料并记录范围"
+            },
+            {
+              "completion_criteria": "分类名称和命名规则明确，可用于后续归档。",
+              "description": "根据资料主题或课程设定3至5个一级分类，并约定目录与文件命名规则。",
+              "estimated_minutes": 10,
+              "logical_key": "define_categories",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "确定分类体系与命名规则"
+            },
+            {
+              "completion_criteria": "已识别资料进入对应分类目录，不确定项保持原位。",
+              "description": "将已明确归属的资料移动到对应分类目录；保留原文件名，遇到不确定的暂不处理。",
+              "estimated_minutes": 20,
+              "logical_key": "classify_materials",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "按分类归置可识别资料"
+            },
+            {
+              "completion_criteria": "输出目录文件，覆盖所有已分类资料。",
+              "description": "根据已归置结构生成目录清单，列出分类、子目录和文件数量。",
+              "estimated_minutes": 10,
+              "logical_key": "create_directory",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "生成归档目录文件"
+            },
+            {
+              "completion_criteria": "输出未分类清单，条目可追溯。",
+              "description": "汇总无法确定归属的资料，记录名称、路径、格式和待确认原因。",
+              "estimated_minutes": 10,
+              "logical_key": "create_unclassified_list",
+              "position": 5,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "生成未分类清单"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_c089df07bae74ae98b81ffc4d6eee35d"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "算法复习",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "已写明题目要求与边界条件。",
+              "description": "选定或重述一道二分查找题，写下输入输出、目标值与边界范围。",
+              "estimated_minutes": 5,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "明确题目与边界条件"
+            },
+            {
+              "completion_criteria": "代码可运行且基本用例通过。",
+              "description": "编写并运行二分查找代码，确保基本用例通过。",
+              "estimated_minutes": 20,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "实现二分查找解法"
+            },
+            {
+              "completion_criteria": "边界用例已执行并记录结果。",
+              "description": "测试空数组、单元素、目标在两端、目标不存在等边界情况。",
+              "estimated_minutes": 15,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "验证边界用例"
+            },
+            {
+              "completion_criteria": "错误原因与修正方式已整理。",
+              "description": "记录实现或边界验证中的错误，分析原因并修正。",
+              "estimated_minutes": 15,
+              "logical_key": "a4",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理错误原因"
+            },
+            {
+              "completion_criteria": "已形成简短总结。",
+              "description": "用几句话总结二分查找边界处理要点和易错点。",
+              "estimated_minutes": 5,
+              "logical_key": "a5",
+              "position": 5,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "总结解题要点"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "代码能通过题目样例并记录提交结果。",
+              "description": "选择一道二分查找题并实现解法；可先花2分钟回顾模板，再独立编码与运行样例。",
+              "estimated_minutes": 25,
+              "logical_key": "a1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "完成一道二分查找题"
+            },
+            {
+              "completion_criteria": "边界用例全部运行且结果符合预期，记录异常。",
+              "description": "针对空数组、单元素、左右边界和目标不存在设计用例并运行验证；可结合调试输出检查循环终止条件。",
+              "estimated_minutes": 15,
+              "logical_key": "a2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "验证边界"
+            },
+            {
+              "completion_criteria": "笔记包含至少一条错误原因和对应改进措施。",
+              "description": "汇总实现与边界验证中的错误、根因和修正方式，形成简短笔记；可记录下次避免同类错误的检查点。",
+              "estimated_minutes": 20,
+              "logical_key": "a3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理错误原因"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_5ca80fbd4a9c48db9b596a7451854894"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "写出一种二分查找模板及对应循环不变量。",
+              "description": "快速回顾循环不变量、闭区间与半开区间写法。",
+              "estimated_minutes": 10,
+              "logical_key": "action_review_binary_search_template",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "复习二分查找模板与边界规则"
+            },
+            {
+              "completion_criteria": "代码通过题目给定样例并记录提交结果。",
+              "description": "独立实现解法并运行给定样例，记录首次通过情况。",
+              "estimated_minutes": 20,
+              "logical_key": "action_solve_binary_search_problem",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "完成一道二分查找题"
+            },
+            {
+              "completion_criteria": "记录至少4个边界用例及其运行结果。",
+              "description": "覆盖空数组、单元素、目标在两端、目标不存在等边界用例。",
+              "estimated_minutes": 15,
+              "logical_key": "action_verify_boundaries",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "验证二分查找边界"
+            },
+            {
+              "completion_criteria": "输出错误原因清单和后续检查项。",
+              "description": "归纳错误类型、触发条件和修正方式，形成下次检查项。",
+              "estimated_minutes": 15,
+              "logical_key": "action_summarize_error_causes",
+              "position": 4,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理错误原因"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_aded9f7f45c141b8af21f364fbee1b47"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    },
+    {
+      "task": "演讲准备",
+      "stages": [
+        {
+          "stage": "baseline",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成三点核心结论，每点有一句主张和一条支撑依据。",
+              "description": "从演讲主题出发，列出并筛选三个最重要结论，确认每个结论可用一句话表达。",
+              "estimated_minutes": 15,
+              "logical_key": "action_core_conclusions",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理三点核心结论"
+            },
+            {
+              "completion_criteria": "提纲覆盖开场、三点主体、结尾，并标明每部分预计时长。",
+              "description": "围绕三点核心结论排列开场、主体和结尾，标注关键过渡与时间分配。",
+              "estimated_minutes": 20,
+              "logical_key": "action_outline",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "制作演讲提纲"
+            },
+            {
+              "completion_criteria": "完成一次完整计时演练，时长不超过计划限制，并记录至少一处调整。",
+              "description": "按提纲完整计时演练，记录超时或卡顿处并做最后精简。",
+              "estimated_minutes": 25,
+              "logical_key": "action_timed_rehearsal",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "计时演练并调整"
+            }
+          ],
+          "memory_included": []
+        },
+        {
+          "stage": "learn_30",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "形成三点核心结论清单，每点均有一句话概括。",
+              "description": "提炼演讲的三点核心结论，用一句话概括每点并标注支撑事实；开始前可花2分钟回顾材料热身。",
+              "estimated_minutes": 15,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理三点核心结论"
+            },
+            {
+              "completion_criteria": "完成一页可演讲提纲，包含开场、三点主体和结尾。",
+              "description": "按开场、三点核心结论和结尾组织提纲，标注关键过渡与证据；完成后留2分钟复查逻辑。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "制作提纲"
+            },
+            {
+              "completion_criteria": "完成一次计时演练并记录用时，标出需改进处。",
+              "description": "按提纲完整计时演练一次，记录用时和卡壳处；结束后用2分钟做简短放松和复盘。",
+              "estimated_minutes": 25,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "计时演练"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 30,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_a570ba7a12fc4f1c8db24c2ce7990ffb"
+              ]
+            }
+          ]
+        },
+        {
+          "stage": "correct_20",
+          "passed": true,
+          "actions": [
+            {
+              "completion_criteria": "三点核心结论已写成完整句子，每点至少有一个支撑要点。",
+              "description": "从演讲主题出发，列出并筛选三点最重要的核心结论；先做1分钟呼吸或快速回顾，再逐条写下支撑要点。",
+              "estimated_minutes": 20,
+              "logical_key": "action_1",
+              "position": 1,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "整理三点核心结论"
+            },
+            {
+              "completion_criteria": "一页提纲已完成，包含开场、三点结论和结尾。",
+              "description": "按开场、三点核心结论、结尾组织一页提纲；将每点关键词和过渡句填入，控制在可快速浏览的篇幅。",
+              "estimated_minutes": 20,
+              "logical_key": "action_2",
+              "position": 2,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "制作演讲提纲"
+            },
+            {
+              "completion_criteria": "至少完成一次计时演练，并记录调整点。",
+              "description": "按提纲计时完整演练，结束后用2分钟放松并记录超时或卡壳处；根据结果调整提纲用词。",
+              "estimated_minutes": 20,
+              "logical_key": "action_3",
+              "position": 3,
+              "required": true,
+              "scheduled_date": "2026-09-10",
+              "title": "计时演练与调整"
+            }
+          ],
+          "memory_included": [
+            {
+              "action_max_minutes": 20,
+              "consumer": "compile_goal_program",
+              "revision_ids": [
+                "memory_revision_2356268eca3f4d12baec5d4acb6734ce"
+              ]
+            }
+          ]
+        }
+      ],
+      "failures": [],
+      "forget_not_resurrected": true,
+      "passed": true
+    }
+  ],
+  "root_budget_id": "task_budget_63ab95f26636f2ea17761fd9a9b021be97a4127c1af4ea338507edc6266d715c",
+  "limitations": "Synthetic task/feedback, real planner; does not measure humans actually completing work or full research retrieval.",
+  "costs": {
+    "limit_microusd": 900000,
+    "reserved_microusd": 0,
+    "charged_microusd": 95058
+  },
+  "attempts": 39,
+  "passed_tasks": 12
+}

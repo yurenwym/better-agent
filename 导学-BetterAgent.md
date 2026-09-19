@@ -9,7 +9,7 @@
 | 有限状态机与状态迁移 | Agent 不能只靠 Prompt 约束生命周期 | `backend/app/domain.py`、`backend/app/runtime.py` | 高 |
 | ReAct（Reason + Act） | 理解模型决策、工具调用、观察回填的闭环 | `backend/app/runtime.py` | 高 |
 | 事务、幂等与追加式日志 | 理解恢复、去重、审计和异常阻断 | `backend/app/events.py`、`backend/app/tools.py` | 高 |
-| SQLite WAL、FTS5、CAS | 理解本地事实源、全文检索和版本冲突 | `backend/app/db.py`、`backend/app/memory_v2.py` | 高 |
+| PostgreSQL 事务、行锁、CAS 与 pgvector | 理解权威事实源、并发一致性、语义检索和版本冲突 | `backend/app/db.py`、`backend/app/memory_v2.py`、`backend/app/embedding_worker.py` | 高 |
 | 租约、心跳与 Epoch Fencing | 理解专家任务并发、接管和迟到结果拒绝 | `backend/app/agents.py` | 高 |
 | 模型路由与评测统计 | 理解多模型选择、成本账本与 Bootstrap CI | `backend/app/model_control.py`、`backend/app/real_evaluation.py` | 高 |
 | 证据驱动生成 | 理解深度研究为何先取证、再写作、最后审计 | `backend/app/research/engine.py` | 中高 |
@@ -19,11 +19,18 @@
 | 亮点标题 | 为什么重要 | 通用技术关键词 | 先看哪些文件 | 顺序 |
 | --- | --- | --- | --- | --- |
 | 可恢复 Agent Runtime | 是所有任务执行能力的骨架 | FSM、ReAct、Checkpoint、Event Sourcing、Idempotency | `domain.py` → `runtime.py` → `tools.py` | 1 |
-| 统一上下文与三层记忆 | 决定模型每次真正能看到什么 | Scope、FTS5、Token Budget、Revision、Redaction | `memory_v2.py` → `memory_archive.py` → `context.py` | 2 |
-| 模型与成本控制面 | 把模型调用从 SDK 调用提升为可治理资源 | Capability Routing、Invocation/Attempt、Fallback、Ledger | `model_control.py` → `model_gateway.py` → `costs.py` | 3 |
-| 证据优先的深度研究 | 体现长任务拆分、并发检索和质量门禁 | Plan-Retrieve-Distill-Reflect-Write-Audit | `research/engine.py` → `research/service.py` → `research/worker.py` | 4 |
-| 受控专家协作 | 体现多角色并行、失败接管和结果汇总 | Coordinator、Fan-out/Fan-in、Lease、Heartbeat、Fencing | `agents.py` → `test_agent_tasks.py` → `test_agent_worker.py` | 5 |
-| 受控自进化与配对评测 | 回答系统如何从运行经验中改进但不失控 | Experience、Candidate、Judge、Bootstrap CI、Canary、Rollback | `experience_observer.py` → `real_evaluation.py` → `evolution.py` | 6 |
+| 模型接入与成本控制 | 把模型调用从 SDK 调用提升为可路由、可降级、可计量的资源 | Capability Routing、Invocation/Attempt、Fallback、Ledger | `model_control.py` → `model_gateway.py` → `costs.py` | 2 |
+| 记忆与深度研究 | 决定模型能看到什么，并保证研究结论能够回到来源证据 | Scope、HNSW、Hybrid Retrieval、Token Budget、Evidence Pipeline | `memory_v2.py` → `embedding_worker.py` → `research/engine.py` | 3 |
+| 多 Agent 协同执行 | 体现多角色并行、失败接管和统一汇总 | Coordinator、Fan-out/Fan-in、Lease、Heartbeat、Fencing | `agents.py` → `test_agent_tasks.py` → `test_agent_worker.py` | 4 |
+| 受控自进化与配对评测 | 回答系统如何从运行经验中改进但不失控 | Experience、Candidate、Judge、Bootstrap CI、Canary、Rollback | `experience_observer.py` → `real_evaluation.py` → `evolution.py` | 5 |
+
+### 2.1 按简历顺序串讲五个亮点
+
+1. **可恢复 Agent 任务引擎**：先用外层有限状态机约束“澄清、规划、审批、执行、复盘”的合法迁移，再在已审批计划的单个步骤内运行 ReAct。计划版本、事件、预算、工具回执和 Checkpoint 都持久化到 PostgreSQL；SSE 只负责把事件推给前端。重启后恢复公开协议状态，写工具则靠审批绑定、幂等 Claim 和不确定副作用阻断避免盲目重复执行。
+2. **模型接入与成本控制**：业务层不直接绑定某家模型 SDK，而是按角色和能力从版本化 Profile 中选择模型。一个逻辑请求记为 Invocation，重试或切换供应商记为 Attempt；只有白名单瞬时故障且尚未输出内容时才允许 fallback。每次 Attempt 调用前按冻结价格快照预留最坏成本，结束后按真实 Token 结算并释放余额，因此路由、故障与费用都能追溯。
+3. **记忆与深度研究**：短期消息、经历摘要和长期稳定事实分别治理；长期记忆先按 Owner 与项目 Scope 做 SQL 级隔离，再优先使用 pgvector HNSW 进行语义召回，并与 PostgreSQL FTS/`pg_trgm` 形成混合结果，Embedding 不可用时可降级。研究链路则按“规划—检索—逐源取证—缺口反思—分节写作—引用与覆盖审计”执行，证据不足的要求会标为部分完成，而不是包装成完整结论。
+4. **多 Agent 协同执行**：Coordinator 将同一不可变上下文快照分发给 Researcher、Planner、Critic 等专家，子任务并行产出结构化 Artifact，再由 Coordinator 统一综合。数据库租约、Heartbeat 和单调递增 Epoch 共同处理 Worker 崩溃与接管；旧 Worker 的迟到结果会被 fencing 拒绝。默认 `ALL_DONE` 允许部分失败降级汇总，全部专家失败才整体失败。
+5. **受控自进化机制**：Observer 从已提交的终态事件中提取可见经验，不读取隐藏思维链。至少三条独立失败证据才能形成不可执行 Candidate，且当前自动适配范围受限于 Prompt 或模型路由策略，不能扩大权限或修改冻结核心策略。候选需经过确定性检查、同题配对评测、独立质量/安全 Judge、Bootstrap 置信区间、人工审批和 Canary；安全失败可自动回退 Champion，也支持人工回滚。
 
 ## 3. 必备知识 Checklist
 
@@ -46,7 +53,7 @@
 | 工具可靠性 | 风险分级、审批绑定、幂等 Claim | `backend/app/tools.py` | 35 分钟 | 重启后如何避免重复写入 |
 | 模型控制面 | 能力路由、调用账本、显式切换 | `backend/app/model_control.py`、`backend/app/model_gateway.py` | 60 分钟 | 多供应商如何治理而不是散落在业务代码里 |
 | 成本控制 | 价格快照、预算、追加式流水 | `backend/app/costs.py` | 35 分钟 | 并发调用为何不会一起透支预算 |
-| 记忆与上下文 | 三层记忆、FTS5、Token Budget、Pin | `backend/app/memory_v2.py`、`backend/app/context.py` | 60 分钟 | 什么内容进入上下文、为什么可复现 |
+| 记忆与上下文 | 三层记忆、HNSW/FTS 混合召回、Token Budget、Pin | `backend/app/memory_v2.py`、`backend/app/embedding_worker.py`、`backend/app/context.py` | 60 分钟 | 什么内容进入上下文、如何降级、为什么可复现 |
 | 深度研究 | 多阶段流水线、引用与覆盖审计 | `backend/app/research/engine.py` | 60 分钟 | 深度研究与普通搜索问答的差异 |
 | 多 Agent | Fan-out/Fan-in、Lease、Epoch | `backend/app/agents.py` | 60 分钟 | Worker 宕机后怎样接管且拒绝旧结果 |
 | 自进化评测 | 配对盲评、Bootstrap CI、Canary | `backend/app/real_evaluation.py`、`backend/app/evolution.py` | 75 分钟 | 候选版本如何获得发布资格 |
@@ -57,7 +64,7 @@
 
 ## 6. 项目技术定位
 
-这是一个以 Python/FastAPI/SQLite 为主的 **AI Agent 后端与控制面项目**。核心价值不是“接入一个大模型聊天接口”，而是把不确定的模型行为放进确定性的运行协议：任务生命周期由状态机控制，模型与工具调用被持久化，长期任务能够恢复，模型质量和成本能够评估，多专家与自进化都受到权限和发布门禁约束。
+这是一个以 Python/FastAPI/PostgreSQL 为主、React/TypeScript 为交互层的 **AI Agent 全栈与控制面项目**。核心价值不是“接入一个大模型聊天接口”，而是把不确定的模型行为放进确定性的运行协议：任务生命周期由状态机控制，模型与工具调用被持久化，长期任务能够恢复，模型质量和成本能够评估，多专家与自进化都受到权限和发布门禁约束。
 
 ## 7. 系统全流程
 
@@ -89,7 +96,7 @@ flowchart TD
     CA -->|安全失败| RB[回滚 Champion]
 ```
 
-系统分成两个平面：对话控制平面负责理解意图、拼上下文和决定“答、问、研究、计划”；任务执行平面负责把获批计划变成可恢复的 Run。SQLite 是权威事实源，SSE 和 Markdown 只是展示或投影。
+系统分成两个平面：对话控制平面负责理解意图、拼上下文和决定“答、问、研究、计划”；任务执行平面负责把获批计划变成可恢复的 Run。PostgreSQL 是唯一权威运行时事实源，SSE 和 Markdown 只是展示或可重建投影。
 
 ## 8. 核心原理一：状态机 + ReAct Runtime
 
@@ -103,7 +110,7 @@ ReAct 擅长解决“下一步做什么”：模型读取当前步骤和 Observa
 - 内层 ReAct 只在 `EXECUTING` 状态、当前 Plan Step 和剩余预算内运行。
 - 模型给建议，Runtime 决定建议是否可执行。
 
-核心状态定义位于 `backend/app/domain.py:14`，迁移表位于 `backend/app/domain.py:38`，执行器位于 `backend/app/runtime.py:132`。
+核心状态定义位于 `backend/app/domain.py:14`，迁移表位于 `backend/app/domain.py:38`，执行器位于 `backend/app/runtime.py:140`。
 
 ### 8.2 ReAct 是怎么用的
 
@@ -228,7 +235,7 @@ with transaction():
 5. 对配对差值做 2,000 次 Bootstrap，得到 95% 置信区间。
 6. 主目标只有在置信区间下界不小于阈值时通过，同时还要过安全、确定性和总预算门禁。
 
-核心统计见 `backend/app/real_evaluation.py:962` 和 `backend/app/real_evaluation.py:986`。
+核心统计见 `backend/app/real_evaluation.py:1106` 和 `backend/app/real_evaluation.py:1130`。
 
 ## 11. 核心原理四：三层记忆与统一上下文
 
@@ -242,27 +249,28 @@ with transaction():
 
 关键原则是“写入门槛逐层提高”：短期内容不能未经审查直接变成长期事实，否则模型误解会永久污染用户画像。
 
-### 11.2 Scope、FTS5 与 Token Budget
+### 11.2 Scope、HNSW/FTS 混合召回与 Token Budget
 
 统一读取流程不是“全库相似度 Top-K”，而是：
 
 ```text
 Owner 隔离
   → Scope 硬过滤（user / 当前 project）
-  → FTS5 候选召回
-  → pinned、命中、scope、importance 的稳定排序
+  → pgvector HNSW 语义召回
+  → PostgreSQL FTS / pg_trgm 词法召回与降级
+  → pinned、语义分数、词法命中、importance 的稳定排序
   → semantic 与 episodic 分桶 Token Budget
   → 脱敏渲染
   → Invocation Pin（记录本次到底用了哪些 revision）
 ```
 
-Scope 必须先于检索，保证另一个项目的高相关敏感内容没有机会进入候选集。当前使用 SQLite FTS5；优先 trigram tokenizer，不支持时回退 unicode61。它适合本地单用户、数据规模有限的第一版，也符合 README 中“当前不包含向量检索”的边界。
+Scope 必须进入检索 SQL，保证另一个项目的高相关敏感内容没有机会进入候选集。当前在 PostgreSQL 中保存 1024 维记忆向量，并通过 pgvector HNSW 进行余弦相似度召回；词法侧使用全文检索与 `pg_trgm`。语义候选和词法候选同时命中时形成 hybrid 结果；Embedding 未配置、调用失败、Profile 不匹配或没有合格语义候选时，明确记录降级原因并继续走词法召回。
 
 ### 11.3 版本、回滚与可复现上下文
 
 长期记忆不是原地覆盖。`memory_entries` 指向当前 revision，编辑和回滚都创建或切换版本；CAS 的 `base_revision_id` 防止旧页面覆盖新修改。每次模型调用把 revision IDs、episode IDs、预算、tokenizer/renderer 版本和 rendered hash 写入 Context Pin。因此即使记忆之后被修改，也能解释历史调用当时看到了什么。
 
-脱敏在归档和上下文渲染阶段执行，敏感值不会因为进入 Markdown 投影而绕过数据库策略。SQLite 是权威源，`data/memory/*.md` 是可重建的只读投影。
+脱敏在归档和上下文渲染阶段执行，敏感值不会因为进入 Markdown 投影而绕过数据库策略。PostgreSQL 是权威源，`data/memory/*.md` 是可重建的用户可读投影。
 
 ## 12. 核心原理五：深度研究
 
@@ -369,8 +377,8 @@ Canary 用稳定 assignment hash 把 Run 分到 champion 或 challenger，并记
 | 决策 | 备选 | 为什么这样选 | 风险 | 验证方式 |
 | --- | --- | --- | --- | --- |
 | FSM 外控 + Step 内 ReAct | 纯 DAG / 纯 ReAct | 同时获得可控生命周期和局部适应性 | 状态与计划一致性复杂 | 状态迁移、预算、恢复测试 |
-| SQLite 为单一事实源 | Redis + MQ + 多服务 | 本地单用户场景部署简单，事务边界清楚 | 写并发和水平扩展有限 | WAL、事务和故障注入测试 |
-| FTS5 而非向量库 | Embedding + Vector DB | 第一版无需外部服务，结果稳定可解释 | 语义召回有限 | 构造同义词/精确词检索集对比，当前为待测 |
+| PostgreSQL 为唯一事实源，队列表与业务状态同库 | Redis/Celery + 多事实源 | 领取、状态、账本和事件可在同一事务提交 | 数据库承担较多协调职责 | 行锁、租约、fencing、重启与集成测试 |
+| pgvector HNSW + FTS/`pg_trgm` 混合召回 | 仅关键词或仅向量检索 | 同时覆盖语义近似与精确词命中，并保留 Embedding 故障降级 | 索引参数、覆盖率和双路排序需要调优 | Recall@K、降级率、Scope 泄漏率与延迟基线 |
 | 显式 fallback | 任意错误自动切换 | 避免认证、结构或预算问题被掩盖 | 可用性可能低于激进切换 | 错误分类与 fallback 轨迹测试 |
 | 先预留成本 | 调完再扣费 | 防止并发预算超卖 | 最坏估算可能降低预算利用率 | 并发预留与账本配平测试 |
 | 只读专家 + Coordinator 汇总 | 多专家直接共享写状态 | 降低冲突和权限扩散 | 专家能力受限 | 迟到写拒绝、Artifact schema 测试 |
@@ -396,11 +404,13 @@ Set-Location backend
 python -m pytest -q tests/test_runtime.py tests/test_restart_recovery.py tests/test_tool_execution_claims.py
 python -m pytest -q tests/test_model_control.py tests/test_cost_control.py tests/test_real_evaluation.py
 python -m pytest -q tests/test_memory_v2.py tests/test_research_engine.py tests/test_agent_tasks.py tests/test_evolution.py
+# 需要隔离的 PostgreSQL/pgvector 测试环境
+python -m pytest -q tests/integration/test_postgres_contract.py tests/integration/test_postgres_queue_and_embeddings.py
 ```
 
 ## 17. 一分钟项目讲解
 
-我做的不是一个单轮聊天封装，而是一个本地 Personal Agent Runtime。系统先在对话控制平面完成澄清、上下文拼装和任务路由，复杂任务进入版本化计划；计划获批后，外层状态机控制生命周期，内层在每个 Step 中运行 ReAct。所有模型调用、工具回执、事件和 Checkpoint 都持久化，写工具通过审批绑定与幂等 Claim 防止重复副作用。模型侧用能力路由、显式 fallback 和 Invocation/Attempt 账本治理，并用追加式成本流水做预算预留和结算。能力层还包含 Scope 隔离的三层记忆、证据优先的深度研究、带 Lease/Heartbeat/Epoch 的专家协作，以及“经验 → 候选 → 配对评测 → 人工审批 → Canary → 晋升/回滚”的受控改进闭环。
+我做的不是一个单轮聊天封装，而是一个本地 Personal Agent Runtime。系统先在对话控制平面完成澄清、上下文拼装和任务路由，复杂任务进入版本化计划；计划获批后，外层状态机控制生命周期，内层在每个 Step 中运行 ReAct。所有模型调用、工具回执、事件和 Checkpoint 都持久化到 PostgreSQL，写工具通过审批绑定与幂等 Claim 防止重复副作用。模型侧用能力路由、显式 fallback 和 Invocation/Attempt 账本治理，并用追加式成本流水做预算预留和结算。能力层还包含 Owner/项目隔离、pgvector HNSW 与词法降级的三层记忆，证据优先的深度研究，带 Lease/Heartbeat/Epoch 的专家协作，以及“经验 → 候选 → 配对评测 → 人工审批 → Canary → 晋升/回滚”的受控改进闭环。
 
 ## 18. 源码证据索引
 
@@ -415,6 +425,7 @@ python -m pytest -q tests/test_memory_v2.py tests/test_research_engine.py tests/
 | 成本流水 | `backend/app/costs.py`：`reserve_attempt`、`settle_attempt`、`RESERVE/CHARGE/RELEASE` | 第 10 节 |
 | 配对评测 | `backend/app/real_evaluation.py`：`evaluate_paired`、`_paired_statistics`、`_bootstrap_ci` | 第 10、14 节 |
 | 三层记忆 | `backend/app/memory_v2.py`：`MemoryStore`、`MemoryContextProvider` | 第 11 节 |
+| 语义索引与降级 | `backend/app/embedding_worker.py`；`backend/alembic/versions/20260905_0001_enable_postgres_extensions.py`；`MemoryContextProvider.select` | 第 11 节 |
 | 对话归档 | `backend/app/memory_archive.py`：`ConversationArchiver` | 第 11 节 |
 | 上下文 | `backend/app/context.py`：`ContextAssembler`；`memory_v2.py`：Context Pin | 第 11 节 |
 | 深度研究 | `backend/app/research/engine.py`：`ResearchEngine.run_research` | 第 12 节 |

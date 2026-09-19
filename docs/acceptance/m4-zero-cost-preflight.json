@@ -1,0 +1,19 @@
+{
+  "batch_id": "M4-LIVE-20260909-001",
+  "status": "NOT_AUTHORISED",
+  "network_started": false,
+  "limits": {
+    "rounds": 3,
+    "model_attempts": 30,
+    "search_requests": 30,
+    "max_seconds": 1800,
+    "fallback_models": 0
+  },
+  "requirements": [
+    "isolated PostgreSQL, owner, thread, research job and idempotency namespace per round",
+    "immutable runtime bundle and model_price_snapshot for every profile version",
+    "frozen official source scope and versioned requirement-to-evidence matrix",
+    "prompt/output digest, usage, cost status and terminal cancellation evidence"
+  ],
+  "reason": "set M4_LIVE_APPROVED=1 only after M3 passes and the complete M4 budget sheet is approved"
+}

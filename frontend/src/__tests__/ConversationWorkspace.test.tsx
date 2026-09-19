@@ -225,8 +225,10 @@ describe("conversation workspace", () => {
     );
 
     expect(screen.getByRole("button", { name: "新建会话" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "对话" }).getAttribute("aria-current")).toBe("page");
-    expect(screen.getByRole("button", { name: "轨迹" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "对话" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "计划" })).toBeTruthy();
+    fireEvent.click(screen.getByText("控制台"));
+    expect(screen.getByRole("link", { name: "运行轨迹" })).toBeTruthy();
     expect(screen.getByText("设置")).toBeTruthy();
     expect(screen.getByText("模型已连接")).toBeTruthy();
   });

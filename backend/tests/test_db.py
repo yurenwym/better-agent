@@ -2,10 +2,10 @@ import sqlite3
 
 import pytest
 
+from app.db import Database
+
 
 def test_database_initializes_required_tables_and_wal(tmp_path) -> None:
-    from app.db import Database
-
     db = Database(tmp_path / "agent.db")
 
     with db.connection() as connection:
@@ -218,4 +218,63 @@ def test_database_recovers_when_canary_metric_ddl_landed_without_receipt(tmp_pat
         "invocation_count", "attempt_count", "cost_microusd",
         "routing_policy_digest", "profile_digest", "skill_digest",
     } <= columns
+
+
+def test_database_recovers_when_episode_version_ddl_landed_without_receipt(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "interrupted-episode-version-migration.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:21])
+    db_module.Database(path)
+    with sqlite3.connect(path) as connection:
+        connection.execute("ALTER TABLE memory_episodes ADD COLUMN version INTEGER NOT NULL DEFAULT 0")
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(memory_episodes)")}
+    assert versions == list(range(1, len(migrations) + 1))
+    assert "version" in columns
+
+
+def test_database_creates_turn_metrics_and_claim_indexes(tmp_path) -> None:
+    from app.db import Database
+
+    db = Database(tmp_path / "metrics.db")
+    with db.connection() as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        job_indexes = {row[1] for row in connection.execute("PRAGMA index_list(turn_jobs)")}
+        turn_indexes = {row[1] for row in connection.execute("PRAGMA index_list(turns)")}
+
+    assert "turn_metrics" in tables
+    assert "idx_turn_jobs_claim" in job_indexes
+    assert "idx_turns_thread_status" in turn_indexes
+
+
+def test_database_upgrades_existing_root_budget_schema_with_runtime_bindings(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "migration-25.db"
+    migrations = db_module.MIGRATIONS
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:25])
+    db_module.Database(path)
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute(
+            "SELECT version FROM schema_migrations ORDER BY version"
+        )]
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        archive_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(memory_archive_jobs)")
+        }
+    assert versions == list(range(1, len(migrations) + 1))
+    assert "root_budget_id" in run_columns
+    assert {"runtime_bundle_id", "root_budget_id"} <= archive_columns
 

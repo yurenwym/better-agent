@@ -10,6 +10,35 @@ from app.research.live import LiveResearchModel
 from app.research.models import ResearchLimits
 
 
+def test_startup_prompt_callbacks_follow_pinned_bundle_after_channel_switch(tmp_path, monkeypatch):
+    from app.startup import build_runtime
+    from app.model_gateway import ModelProfile
+    from app.model_control import ModelCallContext, RoutingError
+    import pytest
+
+    monkeypatch.delenv("AGENT_FALLBACK_MODEL_BASE_URL", raising=False)
+    runtime = build_runtime(tmp_path, profile=ModelProfile("https://example.invalid", "test", "UNUSED_KEY"))
+    gateway = runtime.conversation.route_model.gateway
+    old = runtime.behavior.ensure({"prompts": "old-policy"})
+    new = runtime.behavior.ensure({"prompts": "new-policy"})
+    runtime.behavior.activate("stable", new.id, "switch")
+    callbacks = [runtime.model.runtime_prompt_policy, runtime.conversation.route_model.runtime_prompt_policy,
+                 runtime.research.engine.model.runtime_prompt_policy, runtime.goal_programs.compiler.runtime_prompt_policy]
+    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id=old.id))
+    try:
+        assert all(callback() == "old-policy" for callback in callbacks)
+    finally:
+        gateway.reset_call_context(token)
+    assert all(callback() == "new-policy" for callback in callbacks)
+    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id="missing"))
+    try:
+        with pytest.raises(RoutingError, match="pinned"):
+            callbacks[0]()
+    finally:
+        gateway.reset_call_context(token)
+        runtime.db.close()
+
+
 class Gateway:
     def __init__(self, responses):
         self.responses = list(responses)

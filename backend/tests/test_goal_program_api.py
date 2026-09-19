@@ -23,6 +23,30 @@ def headers(app, key):
     return {**_headers(app), "Idempotency-Key": key}
 
 
+def test_period_review_retry_endpoint_recovers_without_completing_program_again(tmp_path):
+    import asyncio
+    from test_goal_period_review import _FailingPeriodCompiler, _PeriodCompiler
+    from test_goal_programs import preview
+
+    runtime, app, client, version = setup_app(tmp_path)
+    goals = runtime.goal_programs
+    draft = preview(goals, version)
+    active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
+    for action in active["actions"]:
+        goals.complete_action(action["id"], expected_version=0, idempotency_key=action["id"])
+    goals.transition(draft["id"], "complete", expected_version=active["version"], idempotency_key="complete")
+    goals.compiler = _FailingPeriodCompiler()
+    asyncio.run(goals.period_summary(draft["id"]))
+    url = f"/api/programs/{draft['id']}/period-review"
+    assert client.get(url, headers=_headers(app)).json()["status"] == "FAILED"
+    assert client.post(url + "/retry", json={}, headers=_headers(app)).status_code == 422
+    goals.compiler = _PeriodCompiler("Recovered")
+    response = client.post(url + "/retry", json={}, headers=headers(app, "retry"))
+    assert response.status_code == 200 and response.json()["status"] == "COMPLETED"
+    assert client.post(url + "/retry", json={}, headers=headers(app, "retry")).json()["summary"] == "Recovered"
+    assert goals.compiler.calls == 1
+    assert goals.get(draft["id"])["completion_summary"] == "Recovered"
+
 def test_preview_activate_today_and_mutations_round_trip(tmp_path) -> None:
     runtime, app, client, version = setup_app(tmp_path)
     preview = client.post(
@@ -103,6 +127,8 @@ def test_failed_review_retry_requires_mutation_headers_and_is_idempotent(tmp_pat
         headers=headers(app, "complete"),
         json={"expected_version":action["version"]},
     )
+    closed = client.post(f"/api/programs/{draft['id']}/days/{action['scheduled_date']}/close", headers=headers(app, "close"), json={})
+    assert closed.status_code == 200
     review = runtime.goal_reviews.claim_next("broken", 30)
     runtime.goal_reviews.fail(review["id"], "broken", "INVALID_MODEL_OUTPUT")
     review = runtime.goal_reviews.claim_next("broken", 30)

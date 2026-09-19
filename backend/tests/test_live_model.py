@@ -6,6 +6,93 @@ import httpx
 import pytest
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["payment", "authentication", "configuration", "budget"])
+@pytest.mark.parametrize("classifier", ["research", "plan", "remember"])
+async def test_permanent_classifier_error_is_not_a_negative_intent(kind, classifier):
+    from app.live_model import LiveConversationModel
+    from app.model_gateway import GatewayError
+    class Gateway:
+        supports_intent_classification = True
+        async def complete(self, *args, **kwargs):
+            raise GatewayError("stopped", kind)
+    model = LiveConversationModel(Gateway())
+    with pytest.raises(GatewayError) as caught:
+        if classifier == "research":
+            await model._classify_explicit_research_request("question", None)
+        elif classifier == "plan":
+            await model._classify_explicit_plan_document_request("question", [], None)
+        else:
+            await model._classify_explicit_remember("请记住我的偏好", None)
+    assert caught.value.kind == kind
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("indent", [None, 2])
+async def test_expert_header_at_eof_is_forwarded_without_fallback(indent):
+    from app.live_model import LiveConversationModel
+    from app.conversation import ControlHeadDecoder
+
+    header = json.dumps({"v": 4, "policy": "start_expert", "content_shape": "expert",
+                         "reason_code": "explicit_collaboration",
+                         "expert": {"objective": "review", "roles": ["critic"]}}, indent=indent)
+    class Gateway:
+        async def complete(self, request, **kwargs):
+            kwargs["on_text_delta"](header)
+            return SimpleNamespace(message=header, tool_calls=[])
+
+    chunks = []
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="协作审阅", history=[], skill_names=[], on_text_delta=chunks.append,
+        on_text_reset=chunks.clear, cancel_event=asyncio.Event(),
+    )
+    decoder = ControlHeadDecoder()
+    decoder.feed("".join(chunks))
+    assert decoder.finish().policy == "start_expert"
+    assert json.loads(result.message) == json.loads(header)
+    assert result.message.endswith("\n")
+
+
+@pytest.mark.asyncio
+async def test_explicit_expert_command_routes_deterministically_without_model_call():
+    from app.live_model import LiveConversationModel
+    from app.conversation import ControlHeadDecoder
+
+    class Gateway:
+        async def complete(self, *_args, **_kwargs):
+            raise AssertionError("explicit expert routing must not call the model")
+
+    chunks = []
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="请调用 researcher、planner、critic 三个专家协作检查方案。",
+        history=[], skill_names=[], on_text_delta=chunks.append,
+        on_text_reset=chunks.clear, cancel_event=asyncio.Event(),
+    )
+
+    decoder = ControlHeadDecoder()
+    decoder.feed("".join(chunks))
+    header = decoder.finish()
+    assert header.policy == "start_expert"
+    assert header.expert_roles == ("researcher", "planner", "critic")
+    assert header.expert_objective == "请调用 researcher、planner、critic 三个专家协作检查方案。"
+    assert result.tool_calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_buffer_is_used_when_final_response_message_differs():
+    from app.live_model import LiveConversationModel
+    header = '{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"ok","expert":{"objective":"review","roles":["critic"]}}'
+    class Gateway:
+        async def complete(self, request, **kwargs):
+            kwargs["on_text_delta"](header)
+            return SimpleNamespace(message="", tool_calls=[])
+    result = await LiveConversationModel(Gateway()).route_and_respond(
+        content="协作", history=[], skill_names=[], on_text_delta=lambda _: None,
+        on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+    assert result.message.endswith("\n") and '"policy":"start_expert"' in result.message
+
+
 class ConcurrentGateway:
     async def complete(self, request, **kwargs):
         payload = json.loads(request.messages[1]["content"])
@@ -13,6 +100,84 @@ class ConcurrentGateway:
         await asyncio.sleep(0)
         kwargs["on_text_delta"](label)
         return SimpleNamespace(message=json.dumps({"label": label}), tool_calls=[])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("independent", [True, False, 1, 1.0, "true", None, [], {}])
+async def test_incomplete_context_uses_read_only_independent_path(independent):
+    from app.live_model import LiveConversationModel
+    from app.memory_archive import ArchiveUnavailable
+    class Gateway:
+        def __init__(self): self.calls=[]
+        async def complete(self, request, **kwargs):
+            self.calls.append(request)
+            assert request.tools == []
+            assert not any("PRIVATE HISTORY" in message["content"] for message in request.messages)
+            if request.purpose == "classify_context_dependency":
+                return SimpleNamespace(message=json.dumps({"independent":independent}))
+            return SimpleNamespace(message="A hash table maps keys to values.",tool_calls=[])
+    gateway=Gateway(); model=LiveConversationModel(gateway); chunks=[]
+    call=model.answer_without_history(content="What is a hash table?",history=[{"role":"user","content":"PRIVATE HISTORY"}],on_text_delta=chunks.append,cancel_event=asyncio.Event())
+    if independent is True:
+        await call
+        assert "历史上下文不完整" in "".join(chunks)
+        assert len(gateway.calls) == 2
+    else:
+        with pytest.raises(ArchiveUnavailable): await call
+        assert not chunks
+        assert len(gateway.calls) == 1
+
+
+@pytest.mark.parametrize("prefix", [
+    "v=1\npolicy=answer\n\n",
+    "v = 2\r\npolicy = answer\r\ncontent_shape = text\r\nreason_code = content_only\r\n\r\n",
+])
+def test_plain_answer_strips_key_value_control_head(prefix):
+    from app.live_model import _wrap_plain_answer
+
+    body = "# Answer\n\nUse a vector index."
+    response = _wrap_plain_answer(SimpleNamespace(message=prefix + body, tool_calls=[]))
+    assert response.message.split("\n", 1)[1] == body
+
+
+@pytest.mark.parametrize("body", [
+    "v=1\nThis is a variable example.",
+    "policy=answer\nThis is a setting.",
+    "v=9\npolicy=answer\nUnknown version example.",
+    "v=1\npolicy=custom\nCustom setting example.",
+    "Example:\nv=1\npolicy=answer",
+    "```python\nv=1\npolicy=answer\n```",
+])
+def test_plain_answer_preserves_non_header_content(body):
+    from app.live_model import _wrap_plain_answer
+
+    response = _wrap_plain_answer(SimpleNamespace(message=body, tool_calls=[]))
+    assert response.message.split("\n", 1)[1] == body
+
+
+def test_plain_answer_rejects_key_value_header_without_body():
+    from app.live_model import _wrap_plain_answer
+    from app.model_gateway import GatewayError
+
+    with pytest.raises(GatewayError, match="no usable answer"):
+        _wrap_plain_answer(SimpleNamespace(message="v=1\npolicy=answer", tool_calls=[]))
+
+
+def test_confirmed_plan_repair_normalizes_markdown_without_provider_declaration():
+    from app.conversation import ControlHeadDecoder
+    from app.live_model import _wrap_confirmed_plan_markdown
+
+    repaired = _wrap_confirmed_plan_markdown(SimpleNamespace(
+        message="这里是按确认信息生成的计划：\n\n# 14 天训练计划\n\n- 每周 3 天\n",
+        tool_calls=[],
+    ))
+    decoder = ControlHeadDecoder()
+    visible = decoder.feed(repaired.message)
+    decision = decoder.finish()
+
+    assert decision.artifact is not None
+    assert decision.artifact.title == "14 天训练计划"
+    assert visible.startswith("# 14 天训练计划")
 
 
 class RepairGateway:
@@ -113,11 +278,40 @@ async def test_live_runtime_model_includes_context_snapshot_in_request(monkeypat
 
     await model.needs_clarification({"title": "Ship"}, ["Ship"])
 
-    assert seen[0]["messages"][1]["content"]
-    assert "snapshot-hash" in seen[0]["messages"][1]["content"]
-    assert "confirmed memory" in seen[0]["messages"][1]["content"]
+    sent = json.loads(seen[0]["messages"][1]["content"])
+    assert sent == {"context_snapshot": {
+        "hash": "snapshot-hash", "text": "[security]\nconfirmed memory",
+    }}
+    assert "goal" not in sent
+    assert "interactions" not in sent
     assert "基于明确假设先给出第一版" in seen[0]["messages"][0]["content"]
     assert "不要先询问个人信息" in seen[0]["messages"][0]["content"]
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_enforces_gateway_budget_before_call() -> None:
+    from app.live_model import LiveRuntimeModel
+    from app.model_gateway import GatewayError
+
+    class TinyGateway:
+        calls = 0
+
+        def input_limit(self):
+            return 100
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            raise AssertionError("over-budget request must not reach the gateway")
+
+    gateway = TinyGateway()
+    model = LiveRuntimeModel(gateway)
+    model.set_context_snapshot("hash", "x" * 1000)
+
+    with pytest.raises(GatewayError) as caught:
+        await model.needs_clarification({"title": "Ship"}, ["Ship"])
+
+    assert caught.value.kind == "context_overflow"
+    assert gateway.calls == 0
 
 
 @pytest.mark.asyncio
@@ -212,8 +406,8 @@ async def test_live_runtime_model_discards_invalid_reflection_scopes(monkeypatch
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, content=_response(json.dumps({
             "candidates": [
-                {"kind": "preference", "content": "Prefer concise plans", "scope": "global", "confidence": 0.8, "evidence_event_ids": []},
-                {"kind": "preference", "content": "Nutrition topic", "scope": "nutrition", "confidence": 0.8, "evidence_event_ids": []},
+                {"kind": "preference", "content": "Prefer concise plans", "scope": "global", "confidence": 0.8, "evidence_event_ids": ["message-1"]},
+                {"kind": "preference", "content": "Nutrition topic", "scope": "nutrition", "confidence": 0.8, "evidence_event_ids": ["message-1"]},
             ]
         })))
 
@@ -224,15 +418,69 @@ async def test_live_runtime_model_discards_invalid_reflection_scopes(monkeypatch
         )
     )
 
-    candidates = await model.reflect({}, object(), "run-1")
+    candidates = await model.reflect({}, object(), "run-1", [{
+        "ref": "message-1",
+        "source_type": "thread_message",
+        "excerpt": "Please keep plans concise",
+        "turn_id": "turn-1",
+    }])
 
     assert candidates == [{
         "kind": "preference",
         "content": "Prefer concise plans",
         "scope": "global",
         "confidence": 0.8,
-        "evidence_event_ids": [],
+        "evidence_event_ids": ["message-1"],
     }]
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_requires_catalog_evidence_and_rejects_unknown_refs() -> None:
+    from app.live_model import LiveRuntimeModel
+
+    class Gateway:
+        calls = 0
+
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            return SimpleNamespace(message=json.dumps({"candidates": [{
+                "kind": "preference",
+                "content": "Prefer concise plans",
+                "scope": "global",
+                "confidence": .9,
+                "evidence_event_ids": ["made-up-message"],
+            }]}), tool_calls=[])
+
+    gateway = Gateway()
+    model = LiveRuntimeModel(gateway)
+    assert await model.reflect({}, object(), "run-1") == []
+    assert gateway.calls == 0
+    assert await model.reflect({}, object(), "run-1", [{
+        "ref": "message-1", "source_type": "thread_message",
+        "excerpt": "Please keep plans concise", "turn_id": "turn-1",
+    }]) == []
+    assert gateway.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_live_runtime_model_normalizes_a_low_risk_habit() -> None:
+    from app.live_model import LiveRuntimeModel
+
+    class Gateway:
+        async def complete(self, request, **kwargs):
+            return SimpleNamespace(message=json.dumps({"candidates": [{
+                "kind": "habit",
+                "content": "制定计划时不要安排超过四十五分钟的单项任务",
+                "scope": "global",
+                "confidence": .8,
+                "evidence_event_ids": ["message-1"],
+            }]}), tool_calls=[])
+
+    candidates = await LiveRuntimeModel(Gateway()).reflect({}, object(), "run-1", [{
+        "ref": "message-1", "source_type": "thread_message",
+        "excerpt": "以后单项任务不要超过四十五分钟", "turn_id": "turn-1",
+    }])
+    assert candidates[0]["kind"] == "constraint"
 
 
 @pytest.mark.asyncio
@@ -299,7 +547,7 @@ async def test_live_runtime_model_resets_partial_output_before_json_repair() -> 
 
 @pytest.mark.asyncio
 async def test_live_conversation_model_returns_valid_ask_request_from_tool_call() -> None:
-    from app.ask import ASK_TOOL_SCHEMA
+    from app.ask import ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
     class AskGateway:
@@ -343,12 +591,13 @@ async def test_live_conversation_model_returns_valid_ask_request_from_tool_call(
 
     assert result.call_id == "call-ask-1"
     assert result.questions[0].id == "training_level"
-    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]
+    # 对话暴露澄清（ask_user）与复盘（review_check_in）两个工具。
+    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA]
 
 
 @pytest.mark.asyncio
 async def test_routed_conversation_regenerates_ask_with_the_dedicated_role() -> None:
-    from app.ask import ASK_TOOL_SCHEMA
+    from app.ask import ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
     def call(call_id: str, question: str):
@@ -377,7 +626,293 @@ async def test_routed_conversation_regenerates_ask_with_the_dedicated_role() -> 
     assert result.questions[0].question == "你希望优先解决哪一项？"
     assert [request.role for request in gateway.requests[:2]] == ["conversation", "ask"]
     assert sum(request.role == "ask" for request in gateway.requests) == 1
-    assert gateway.requests[1].tools == [ASK_TOOL_SCHEMA]
+    assert gateway.requests[1].tools == [ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA]
+
+
+@pytest.mark.asyncio
+async def test_routed_conversation_recovers_an_empty_draft_with_the_dedicated_role() -> None:
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    class EmptyDraftGateway:
+        supports_role_routing = True
+
+        def __init__(self):
+            self.requests = []
+
+        async def complete(self, request, **_kwargs):
+            self.requests.append(request)
+            if request.role == "ask":
+                arguments = json.dumps({"questions": [{
+                    "id": "daily_time",
+                    "header": "每日投入",
+                    "question": "你每天可以投入多长时间？",
+                    "options": [],
+                    "multi_select": False,
+                    "allow_free_text": True,
+                }]}, ensure_ascii=False)
+                return SimpleNamespace(message="", tool_calls=[{
+                    "id": "ask-final",
+                    "function": {"name": "ask_user", "arguments": arguments},
+                }])
+            return SimpleNamespace(message="", tool_calls=[{
+                "id": "ask-empty",
+                "function": {"name": "ask_user", "arguments": '{"questions":[]}'},
+            }])
+
+    gateway = EmptyDraftGateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="帮我制定数据库学习安排", history=[], skill_names=[],
+        on_text_delta=lambda _: None, on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert isinstance(result, AskRequest)
+    assert result.call_id == "ask-final"
+    assert result.questions[0].id == "daily_time"
+    assert [request.role for request in gateway.requests[:2]] == ["conversation", "ask"]
+
+
+@pytest.mark.asyncio
+async def test_explicit_plan_document_keeps_a_valid_requested_ask() -> None:
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    class Gateway:
+        supports_role_routing = True
+
+        def __init__(self):
+            self.requests = []
+
+        async def complete(self, request, **_kwargs):
+            self.requests.append(request)
+            arguments = json.dumps({"questions": [{
+                "id": "days",
+                "header": "训练频率",
+                "question": "每周可训练几天？",
+                "options": [],
+                "multi_select": False,
+                "allow_free_text": True,
+            }]}, ensure_ascii=False)
+            return SimpleNamespace(message="", tool_calls=[{
+                "id": "ask-final" if request.role == "ask" else "ask-draft",
+                "function": {"name": "ask_user", "arguments": arguments},
+            }])
+
+    gateway = Gateway()
+    result = await LiveConversationModel(gateway).route_and_respond(
+        content="请创建计划文档，但先询问我每周可训练几天。",
+        history=[], skill_names=[], on_text_delta=lambda _: None,
+        on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+
+    assert isinstance(result, AskRequest)
+    assert result.questions[0].id == "days"
+    assert [request.role for request in gateway.requests] == ["conversation", "ask"]
+    assert all(request.thinking is False for request in gateway.requests)
+
+
+@pytest.mark.asyncio
+async def test_explicit_plan_document_boundaries_skip_intent_classifiers() -> None:
+    from app.live_model import LiveConversationModel
+
+    prior_plan = "# 14 天训练计划\n\n- 每周 3 天\n- 每次 30 分钟\n"
+
+    class Gateway:
+        supports_intent_classification = True
+
+        def __init__(self):
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            if "不要修改" in request.messages[-1]["content"]:
+                message = (
+                    '{"v":1,"policy":"answer","content_shape":"plan",'
+                    '"reason_code":"constraint_only"}\n已确认每周 2 天。'
+                )
+            else:
+                message = (
+                    '{"v":2,"policy":"answer","content_shape":"plan_document",'
+                    '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+                    '"operation":"upsert","title":"14 天训练计划"}}\n'
+                    '# 14 天训练计划\n\n- 每周 2 天\n- 每次 30 分钟\n'
+                )
+            callback = kwargs.get("on_text_delta")
+            if callback is not None:
+                callback(message)
+            return SimpleNamespace(message=message, tool_calls=[], finish_reason="stop")
+
+    gateway = Gateway()
+    model = LiveConversationModel(gateway)
+    history = [{"role": "assistant", "content": prior_plan}]
+    await model.route_and_respond(
+        content="不要修改、创建或保存计划文档，只确认每周2天。",
+        history=history, skill_names=[], on_text_delta=lambda _: None,
+        on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+    await model.route_and_respond(
+        content="修改并保存现有计划文档：改为每周2天。不要提问。",
+        history=history, skill_names=[], on_text_delta=lambda _: None,
+        on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+
+    assert [request.purpose for request in gateway.requests] == [
+        "route_and_respond", "route_and_respond",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_answered_ask_parent_authorizes_returned_plan_artifact_without_reclassification() -> None:
+    from app.live_model import LiveConversationModel
+
+    message = (
+        '{"v":2,"policy":"answer","content_shape":"plan_document",'
+        '"reason_code":"explicit_plan_save","artifact":{"kind":"plan_document",'
+        '"operation":"upsert","title":"14 天训练计划"}}\n'
+        '# 14 天训练计划\n\n- 每周 3 天\n- 每次 30 分钟\n'
+    )
+
+    class Gateway:
+        supports_intent_classification = True
+
+        def __init__(self):
+            self.requests = []
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            assert request.purpose == "route_and_respond"
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[], finish_reason="stop")
+
+    gateway = Gateway()
+    response = await LiveConversationModel(gateway).route_and_respond(
+        content="训练水平：新手",
+        ask_parent_request="请创建并保存一份14天训练计划文档。开始前先询问训练频率。",
+        history=[], skill_names=[], on_text_delta=lambda _: None,
+        on_text_reset=lambda: None, cancel_event=asyncio.Event(),
+    )
+
+    assert response.message == message
+    assert [request.purpose for request in gateway.requests] == ["route_and_respond"]
+
+
+@pytest.mark.asyncio
+async def test_routed_conversation_uses_a_relevant_fallback_when_both_asks_are_invalid() -> None:
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    class InvalidAskGateway:
+        supports_role_routing = True
+
+        async def complete(self, request, **_kwargs):
+            arguments = '{"questions":[]}' if request.role == "conversation" else '{"questions":'
+            return SimpleNamespace(message="", tool_calls=[{
+                "id": "ask-invalid",
+                "function": {"name": "ask_user", "arguments": arguments},
+            }])
+
+    result = await LiveConversationModel(InvalidAskGateway()).route_and_respond(
+        content="帮我制定 PostgreSQL 和 pgvector 学习安排", history=[], skill_names=[],
+        on_text_delta=lambda _: None, on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert isinstance(result, AskRequest)
+    assert result.call_id.startswith("ask-fallback-")
+    assert len(result.questions) == 1
+    assert "PostgreSQL 和 pgvector" in result.questions[0].question
+    assert result.questions[0].allow_free_text is True
+
+
+@pytest.mark.asyncio
+async def test_routed_conversation_keeps_valid_draft_when_dedicated_ask_is_invalid() -> None:
+    from app.live_model import LiveConversationModel
+
+    draft_call = {
+        "id": "ask-draft",
+        "function": {
+            "name": "ask_user",
+            "arguments": json.dumps({"questions": [{
+                "id": "focus",
+                "header": "学习重点",
+                "question": "你想优先学习具身智能的哪个方向？",
+                "options": [],
+                "multi_select": False,
+                "allow_free_text": True,
+            }]}, ensure_ascii=False),
+        },
+    }
+
+    class InvalidDedicatedAskGateway:
+        supports_role_routing = True
+
+        async def complete(self, request, **_kwargs):
+            if request.role == "ask":
+                return SimpleNamespace(message="", tool_calls=[{
+                    "id": "ask-invalid",
+                    "function": {"name": "ask_user", "arguments": '{"questions":'},
+                }])
+            return SimpleNamespace(message="", tool_calls=[draft_call])
+
+    result = await LiveConversationModel(InvalidDedicatedAskGateway()).route_and_respond(
+        content="继续", history=[], skill_names=[],
+        on_text_delta=lambda _: None, on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert result.call_id == "ask-draft"
+    assert result.questions[0].question == "你想优先学习具身智能的哪个方向？"
+
+
+@pytest.mark.asyncio
+async def test_concurrent_conversations_survive_one_invalid_dedicated_ask() -> None:
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    class ConcurrentMixedGateway:
+        supports_role_routing = True
+
+        async def complete(self, request, **kwargs):
+            await asyncio.sleep(0)
+            if request.role == "ask":
+                return SimpleNamespace(message="", tool_calls=[{
+                    "id": "ask-invalid",
+                    "function": {"name": "ask_user", "arguments": '{"questions":'},
+                }])
+            content = request.messages[-1]["content"]
+            if content == "什么是 Java":
+                message = '{"v":1,"policy":"answer","content_shape":"text","reason_code":"done"}\nJava answer'
+                kwargs["on_text_delta"](message)
+                return SimpleNamespace(message=message, tool_calls=[])
+            return SimpleNamespace(message="", tool_calls=[{
+                "id": "ask-draft",
+                "function": {
+                    "name": "ask_user",
+                    "arguments": json.dumps({"questions": [{
+                        "id": "focus", "header": "学习重点",
+                        "question": "你想优先学习具身智能的哪个方向？",
+                        "options": [], "multi_select": False, "allow_free_text": True,
+                    }]}, ensure_ascii=False),
+                },
+            }])
+
+    model = LiveConversationModel(ConcurrentMixedGateway())
+
+    async def respond(content: str):
+        return await model.route_and_respond(
+            content=content, history=[], skill_names=[],
+            on_text_delta=lambda _: None, on_text_reset=lambda: None,
+            cancel_event=asyncio.Event(),
+        )
+
+    direct, clarification = await asyncio.gather(
+        respond("什么是 Java"), respond("继续"),
+    )
+
+    assert "Java answer" in direct.message
+    assert isinstance(clarification, AskRequest)
+    assert clarification.call_id == "ask-draft"
 
 
 @pytest.mark.asyncio
@@ -405,6 +940,84 @@ async def test_live_conversation_model_keeps_streaming_a_direct_answer() -> None
     assert response.message == message
     assert deltas == [message]
     assert resets == []
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_accepts_strict_content_encoded_ask_tool_call() -> None:
+    from app.ask import AskRequest
+    from app.live_model import LiveConversationModel
+
+    message = json.dumps({
+        "v": 1,
+        "policy": "clarify",
+        "content_shape": "text",
+        "reason_code": "need_personalization",
+        "ask_user": {"questions": [{
+            "id": "time",
+            "header": "每日时间",
+            "question": "你每天可以投入多久？",
+            "options": [
+                {"label": "1 小时", "description": "每天稳定投入一小时"},
+                {"label": "2 小时", "description": "每天稳定投入两小时"},
+            ],
+            "multi_select": False,
+            "allow_free_text": True,
+        }]},
+    }, ensure_ascii=False)
+
+    class ContentAskGateway:
+        async def complete(self, request, **kwargs):
+            kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    resets: list[bool] = []
+    result = await LiveConversationModel(ContentAskGateway()).route_and_respond(
+        content="帮我制定学习计划", history=[], skill_names=[],
+        on_text_delta=lambda _: None, on_text_reset=lambda: resets.append(True),
+        cancel_event=asyncio.Event(),
+    )
+
+    assert isinstance(result, AskRequest)
+    assert result.questions[0].id == "time"
+    assert resets == [True]
+
+
+@pytest.mark.asyncio
+async def test_live_conversation_does_not_audit_memory_dropped_by_final_budget() -> None:
+    from app.live_model import LiveConversationModel
+
+    class BoundedGateway:
+        def __init__(self):
+            self.requests = []
+
+        def input_limit(self, **kwargs):
+            return 30_000
+
+        async def complete(self, request, **kwargs):
+            self.requests.append(request)
+            message = '{"v":1,"policy":"answer","content_shape":"text","reason_code":"done"}\ndone'
+            if kwargs.get("on_text_delta"):
+                kwargs["on_text_delta"](message)
+            return SimpleNamespace(message=message, tool_calls=[])
+
+    gateway = BoundedGateway()
+    memory_content = "confirmed-memory:" + ("x" * 100_000)
+    applied = []
+    await LiveConversationModel(gateway).route_and_respond(
+        content="answer this",
+        history=[{
+            "role": "system", "content": memory_content,
+            "_context_required": False, "_context_priority": 10,
+            "_context_group": "memory-context",
+        }],
+        skill_names=[], memory_context_content=memory_content,
+        on_memory_context_applied=lambda: applied.append(True),
+        on_text_delta=lambda _: None, on_text_reset=lambda: None,
+        cancel_event=asyncio.Event(),
+    )
+
+    assert all(message.get("content") != memory_content for message in gateway.requests[-1].messages)
+    assert applied == []
 
 
 @pytest.mark.asyncio
@@ -447,11 +1060,14 @@ async def test_live_conversation_model_defines_provider_independent_product_iden
     assert "Anthropic" in prompt
     assert "OpenAI" in prompt
     assert "DeepSeek" in prompt
+    assert "历史助手回答不是事实证据" in prompt
+    assert "不得自行宣布系统无需修复" in prompt
+    assert "必须区分不同实现、适用条件和实践建议" in prompt
 
 
 @pytest.mark.asyncio
 async def test_live_conversation_model_lets_llm_choose_ask_questions_for_personalized_plan() -> None:
-    from app.ask import ASK_TOOL_SCHEMA
+    from app.ask import ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA
     from app.live_model import LiveConversationModel
 
     class AskGateway:
@@ -508,7 +1124,7 @@ async def test_live_conversation_model_lets_llm_choose_ask_questions_for_persona
         "riding_experience",
         "weekly_availability",
     ]
-    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA]
+    assert gateway.requests[0].tools == [ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA]
     assert gateway.requests[0].temperature == 0
     assert gateway.requests[0].messages[-1]["content"] == "我想制作一个长期的训练计划，学习骑行"
     prompt = gateway.requests[0].messages[0]["content"].lower()

@@ -1,4 +1,5 @@
-import { describeEvent, describeThreadEvent } from "../trajectory";
+import { describeEvent, describeThreadEvent, keyTrajectoryEvents } from "../trajectory";
+import { runStateActivityLabels, threadTurnStateLabels } from "../localization";
 import type { EventRecord, Run, Stats, Thread, ThreadEvent, Turn } from "../types";
 
 interface ActivityRailProps {
@@ -11,32 +12,6 @@ interface ActivityRailProps {
   onOpenTrajectory: () => void;
 }
 
-const stateCopy: Record<string, string> = {
-  RECEIVED: "已收到目标",
-  CLARIFYING: "正在澄清目标",
-  PLANNING: "正在生成计划",
-  AWAITING_APPROVAL: "等待你的审批",
-  EXECUTING: "正在执行计划",
-  AWAITING_OUTCOME: "等待外部结果",
-  REFLECTING: "正在复盘记忆",
-  COMPLETED: "目标已完成",
-  BLOCKED: "需要处理后继续",
-  FAILED: "运行失败",
-  CANCELLED: "运行已取消",
-};
-
-const threadStateCopy: Record<string, string> = {
-  ACCEPTED: "已收到消息",
-  ROUTING: "正在判断下一步",
-  STREAMING: "正在生成回答",
-  AWAITING_INPUT: "等待你的回答",
-  COMPLETED: "本轮对话完成",
-  AWAITING_DIRECTION: "等待你的选择",
-  MATERIALIZING: "正在创建执行任务",
-  FAILED: "本轮对话未完成",
-  CANCELLED: "本轮对话已停止",
-};
-
 function iterationValue(run: Run): string {
   const value = run.budget.react_iteration;
   return typeof value === "number" ? `${value} 次` : "未开始";
@@ -47,11 +22,11 @@ export default function ActivityRail({ run, events, thread = null, threadEvents 
     ?? thread?.turns?.at(-1);
   const threadStatus = currentTurn?.status ?? "ACCEPTED";
   const activity = run
-    ? events.slice(-5).map(describeEvent)
-    : threadEvents.slice(-5).map(describeThreadEvent);
+    ? keyTrajectoryEvents(events, "run").slice(-3).map(describeEvent)
+    : keyTrajectoryEvents(threadEvents, "thread").slice(-3).map(describeThreadEvent);
   const eventCount = run ? events.length : threadEvents.length;
   const state = run?.state ?? threadStatus;
-  const stateLabel = run ? (stateCopy[run.state] ?? run.state) : (threadStateCopy[threadStatus] ?? threadStatus);
+  const stateLabel = run ? (runStateActivityLabels[run.state] ?? run.state) : (threadTurnStateLabels[threadStatus] ?? threadStatus);
   const planProgress = stats?.plan_total && stats.plan_completed !== null && stats.plan_completed !== undefined
     ? `${stats.plan_completed}/${stats.plan_total}`
     : "等待计划";

@@ -27,6 +27,9 @@ def main() -> None:
         source_message_id=None,
         actor="user",
     )
+    for width in (1440,375):
+        case_thread=runtime.conversation.create_thread(f"Calendar acceptance {width}")
+        runtime.plan_documents.save_model_revision(thread_id=case_thread.id,title=f"Calendar acceptance {width}",markdown_content=f"# Calendar acceptance {width}\nOne action per available day.",source_turn_id=None,source_message_id=None,actor="user")
     base = runtime.behavior.active("stable")
     for index in range(3):
         run = __import__("asyncio").run(runtime.create_goal(f"E2E failure {index}", "observer candidate"))

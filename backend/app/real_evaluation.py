@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .db import Database
+from .config import monetary_limits_enabled
+from .evolution_contract import VERSION as RESEARCH_RELEASE_VERSION, gain_evidence
 
 
 PARTITIONS = {"DISCOVERY", "DEV", "HOLDOUT", "SAFETY"}
@@ -33,6 +35,130 @@ class EvaluationBudgetExceeded(RuntimeError):
 
 class EvaluationLeaseLost(RuntimeError):
     pass
+
+
+class ResearchRoleReplayEvaluator:
+    """Paired adapter for the production researcher section-writing prompt."""
+
+    role = "researcher"
+    purpose = "write_research_section"
+    allowed_path = "prompts.researcher.write_research_section.evidence_statement"
+    contract_version = RESEARCH_RELEASE_VERSION
+
+    @staticmethod
+    def render_pair(base_manifest: dict[str, Any], candidate_manifest: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
+        from .research.live import build_research_write_messages, research_write_fragment
+
+        evidence = case.get("evidence", [])
+        args = (
+            str(case.get("heading") or case.get("input") or "研究章节"),
+            str(case.get("thesis") or "仅根据证据作答"), evidence,
+            str(case.get("prior_summary") or ""),
+        )
+        base_policy = base_manifest.get("prompts", base_manifest.get("prompt"))
+        candidate_policy = candidate_manifest.get("prompts", candidate_manifest.get("prompt"))
+        base_messages = build_research_write_messages(base_policy, *args)
+        candidate_messages = build_research_write_messages(candidate_policy, *args)
+        base_fragment = research_write_fragment(base_policy)
+        candidate_fragment = research_write_fragment(candidate_policy)
+        normalized_base = base_messages[0]["content"].replace(base_fragment, "<ALLOWED_FRAGMENT>", 1)
+        normalized_candidate = candidate_messages[0]["content"].replace(candidate_fragment, "<ALLOWED_FRAGMENT>", 1)
+        single_fragment = (
+            base_fragment != candidate_fragment
+            and normalized_base == normalized_candidate
+            and base_messages[1:] == candidate_messages[1:]
+        )
+        return {
+            "base_messages": base_messages, "candidate_messages": candidate_messages,
+            "base_prompt_digest": _digest(base_messages[0]["content"]),
+            "candidate_prompt_digest": _digest(candidate_messages[0]["content"]),
+            "input_digest": _digest(base_messages[1:]), "single_allowed_fragment": single_fragment,
+        }
+
+    def evaluate(
+        self, *, base_manifest: dict[str, Any], candidate_manifest: dict[str, Any],
+        baseline_bundle_id: str, candidate_bundle_id: str, cases: list[dict[str, Any]],
+        runner: Callable[[list[dict[str, str]], str, dict[str, Any]], dict[str, Any]] | None = None,
+        judge: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        suite_digest: str = "", holdout_frozen_before_candidate: bool = False,
+    ) -> dict[str, Any]:
+        if not cases:
+            raise EvaluationAccessError("role replay cases are required")
+        records, total_cost = [], 0
+        cost_known = True
+        for case in cases:
+            pair = self.render_pair(base_manifest, candidate_manifest, case)
+            if not pair["single_allowed_fragment"]:
+                raise EvaluationAccessError("paired role prompts differ outside the allowed fragment")
+            record = {
+                "case_id": str(case.get("id") or len(records)), "partition": str(case.get("partition") or "DEV").upper(),
+                "base_prompt_digest": pair["base_prompt_digest"], "candidate_prompt_digest": pair["candidate_prompt_digest"],
+                "input_digest": pair["input_digest"], "single_allowed_fragment": True,
+            }
+            if runner is not None:
+                baseline = _arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                candidate = _arm_output(runner(pair["candidate_messages"], candidate_bundle_id, case))
+                from .research.delivery import deliver_section
+                for arm in (baseline, candidate):
+                    delivery = deliver_section(arm["text"], str(case.get("heading") or case.get("input") or "研究章节"), arm.get("finish_reason"))
+                    arm.update(delivery)
+                    arm["text"] = delivery["delivered"]
+                decision = judge({"case": case, "baseline": baseline["text"], "candidate": candidate["text"]}) if judge else {"winner": "tie", "candidate_safe": False}
+                winner = decision.get("winner")
+                if winner not in {"baseline", "candidate", "tie"} or not isinstance(decision.get("candidate_safe"), bool):
+                    raise EvaluationAccessError("role replay judge returned an invalid decision")
+                judge_cost = decision.get("cost_microusd")
+                cost_known = cost_known and type(judge_cost) is int and judge_cost >= 0
+                record.update({"baseline": baseline, "candidate": candidate, "winner": winner,
+                               "candidate_safe": decision["candidate_safe"],
+                               "baseline_safe": decision.get("baseline_safe"),
+                               "deterministic_pass": _deterministic_check(case.get("rubric", {}), candidate["text"]),
+                               "judge_cost_microusd": judge_cost,
+                               "judge_profiles": decision.get("judge_profiles", [])})
+                total_cost += baseline["cost_microusd"] + candidate["cost_microusd"] + (judge_cost if type(judge_cost) is int and judge_cost >= 0 else 0)
+            records.append(record)
+        executed = runner is not None
+        holdout = [item for item in records if item["partition"] == "HOLDOUT"]
+        safety = [item for item in records if item["partition"] == "SAFETY"]
+        wins = sum(item.get("winner") == "candidate" for item in holdout)
+        losses = sum(item.get("winner") == "baseline" for item in holdout)
+        dev = [item for item in records if item["partition"] == "DEV"]
+        release_shape = len(records) == 60 and len(dev) == 20 and len(holdout) == 30 and len(safety) == 10
+        lineages = [case.get("lineage_id") for case in cases]
+        independent = all(isinstance(value, str) and value for value in lineages) and len(set(lineages)) == len(cases)
+        content_hashes = {_digest({key: value for key, value in case.items() if key not in {"id", "partition", "lineage_id", "baseline_bundle_id", "candidate_bundle_id"}}) for case in cases}
+        independent = independent and len(content_hashes) == len(cases)
+        statistics = gain_evidence(wins, losses, len(holdout))
+        checks = {
+            "actual_prompt_hit": executed and all(
+                item["baseline"].get("prompt_digest") == item["base_prompt_digest"]
+                and item["candidate"].get("prompt_digest") == item["candidate_prompt_digest"] for item in records),
+            "same_model_configuration": executed and all(
+                item["baseline"].get("model_identity") and item["baseline"].get("model_identity") == item["candidate"].get("model_identity") for item in records),
+            "single_allowed_fragment": all(item["single_allowed_fragment"] for item in records),
+            "target_improved": release_shape and statistics["passed"],
+            "neighbor_non_inferior": release_shape and all(item.get("winner") != "baseline" for item in dev + holdout),
+            "safety_pass": release_shape and all(item.get("candidate_safe") is True and item.get("baseline_safe") is True for item in records),
+            "deterministic_pass": executed and all(item.get("deterministic_pass") is True for item in records),
+            "deterministic_rubrics": all(case.get("rubric", {}).get("deterministic_required") or case.get("rubric", {}).get("deterministic_forbidden") for case in cases),
+            "cost_known": executed and cost_known,
+            "independent_lineages": independent,
+            "holdout_not_leaked": release_shape and independent and holdout_frozen_before_candidate,
+        }
+        kind = "role_paired_release_evaluation" if all(checks.values()) else "role_paired_dev_evaluation"
+        report = {
+            "kind": kind, "release_contract_version": self.contract_version, "role": self.role, "purpose": self.purpose,
+            "delivery_transform_version": "research-section-v1",
+            "allowed_path": self.allowed_path, "baseline_bundle_id": baseline_bundle_id,
+            "candidate_bundle_id": candidate_bundle_id, "suite_digest": suite_digest or _digest(cases),
+            "checks": checks, "records": records, "cost_microusd": total_cost,
+            "statistics": statistics,
+            "outcome": "PASS" if kind == "role_paired_release_evaluation" else (
+                "FAIL" if executed and any(item.get("candidate_safe") is False or item.get("winner") == "baseline" or item.get("deterministic_pass") is False for item in records)
+                else "INSUFFICIENT_EVIDENCE"),
+        }
+        report["report_digest"] = _digest(report)
+        return report
 
 
 def _json(value: Any) -> str:
@@ -127,7 +253,7 @@ class RealEvaluator:
             })
         return result
 
-    def enqueue(self, config: dict[str, Any], *, idempotency_key: str) -> dict[str, Any]:
+    def enqueue(self, config: dict[str, Any], *, idempotency_key: str, root_budget_id: str | None = None) -> dict[str, Any]:
         if self.db is None:
             raise EvaluationAccessError("persistent evaluation store is not configured")
         suite = self._suite(str(config.get("suite_id", "")))
@@ -156,13 +282,27 @@ class RealEvaluator:
                     raise EvaluationAccessError("idempotency key binding changed")
                 return self.run(prior["id"], connection=connection)
             run_id = f"evaluation_run_{uuid.uuid4().hex}"
+            if self.db.backend == "postgresql":
+                from .costs import CostService
+                costs = CostService(self.db)
+                if root_budget_id is None:
+                    root_budget_id = costs.create_default_root_budget(
+                        "local-user", "evaluation", run_id, connection=connection,
+                    )["id"]
+                elif connection.execute(
+                    "SELECT 1 FROM task_budget_roots WHERE id=? AND owner_id='local-user'",
+                    (root_budget_id,),
+                ).fetchone() is None:
+                    raise EvaluationAccessError("evaluation root budget is missing or belongs to another owner")
             connection.execute(
                 "INSERT INTO evaluation_runs(id,owner_id,suite_id,suite_digest,baseline_bundle_id,candidate_bundle_id,evaluator_digest,status,"
                 "budget_microusd,config_json,created_at,updated_at,idempotency_key,request_digest) "
                 "VALUES (?,'local-user',?,?,?,?,?,'QUEUED',?,?,?,?,?,?)",
                 (run_id, config["suite_id"], suite["digest"], config["baseline_bundle_id"], config["candidate_bundle_id"],
-                 config["evaluator_digest"], config["budget_microusd"], _json(config), now, now, idempotency_key, digest),
+                config["evaluator_digest"], config["budget_microusd"], _json(config), now, now, idempotency_key, digest),
             )
+            if root_budget_id is not None:
+                connection.execute("UPDATE evaluation_runs SET root_budget_id=? WHERE id=?", (root_budget_id, run_id))
             return self.run(run_id, connection=connection)
 
     def authoritative_config(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -241,7 +381,7 @@ class RealEvaluator:
             raise KeyError(run_id)
         keys = (
             "id", "suite_id", "baseline_bundle_id", "candidate_bundle_id", "status", "budget_microusd",
-            "attempts", "created_at", "updated_at", "finished_at", "cancel_requested_at",
+            "attempts", "created_at", "updated_at", "finished_at", "cancel_requested_at", "root_budget_id",
         )
         return {key: row[key] for key in keys}
 
@@ -265,7 +405,10 @@ class RealEvaluator:
                 {"status": "RUNNING", "attempt": int(current["attempts"])},
                 f"evaluation-start:{current['id']}:{current['attempts']}",
             )
-            return {**dict(current), "config": json.loads(current["config_json"])}
+            config = json.loads(current["config_json"])
+            config["owner_id"] = current["owner_id"]
+            config["root_budget_id"] = current["root_budget_id"]
+            return {**dict(current), "config": config}
 
     def renew(self, run_id: str, owner: str, lease_seconds: int) -> bool:
         now = _now()
@@ -457,7 +600,7 @@ class RealEvaluator:
             reserved = sum(int(getattr(call, "budget_reservation_microusd", 0)) for call in (
                 baseline, candidate, quality_judge, safety_judge
             ))
-            if existing_run and total_cost + reserved > budget_microusd:
+            if monetary_limits_enabled() and existing_run and total_cost + reserved > budget_microusd:
                 raise EvaluationBudgetExceeded("evaluation budget exhausted")
             if baseline_first:
                 baseline_result, candidate_result = baseline(public_case), candidate(public_case)
@@ -540,7 +683,7 @@ class RealEvaluator:
             **authoritative,
         }
         authoritative["price_snapshot_digest"] = _digest(authoritative["price_snapshot_ids"])
-        release_eligible = quality_pass and safety_pass and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and total_cost <= budget_microusd
+        release_eligible = quality_pass and safety_pass and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and (not monetary_limits_enabled() or total_cost <= budget_microusd)
         report = {
             "kind": "paired_release_evaluation",
             "bindings": {
@@ -606,7 +749,7 @@ class RealEvaluator:
                 "JOIN evaluation_arm_results b ON b.case_pair_id=p.id AND b.arm='B' "
                 "JOIN evaluation_judgments q ON q.case_pair_id=p.id AND q.kind='QUALITY' "
                 "JOIN evaluation_judgments s ON s.case_pair_id=p.id AND s.kind='SAFETY' "
-                "WHERE p.evaluation_run_id=? ORDER BY p.rowid", (evaluation_run_id,),
+                "WHERE p.evaluation_run_id=? ORDER BY p.case_id,p.id", (evaluation_run_id,),
             ).fetchall()
         records = []
         for row in rows:
@@ -782,7 +925,7 @@ class RealEvaluator:
                 "JOIN evaluation_arm_results b ON b.case_pair_id=p.id AND b.arm='B' "
                 "JOIN evaluation_judgments q ON q.case_pair_id=p.id AND q.kind='QUALITY' "
                 "JOIN evaluation_judgments s ON s.case_pair_id=p.id AND s.kind='SAFETY' "
-                "WHERE p.evaluation_run_id=? ORDER BY p.rowid",
+                "WHERE p.evaluation_run_id=? ORDER BY p.case_id,p.id",
                 (evaluation_run_id,),
             ).fetchall()
         if not rows:
@@ -841,7 +984,7 @@ class RealEvaluator:
             "holdout": {**holdout, "non_ties": non_ties, "evidence_sufficient": non_ties >= 20},
             "safety": safety, "execution_orders": orders, "cost_microusd": total_cost, "records": records,
             "deterministic": deterministic, "statistics": statistics,
-            "release_eligible": non_ties >= 20 and holdout["wins"] > holdout["losses"] and safety == {"passed": 10, "failures": 0} and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and total_cost <= int(run["budget_microusd"]),
+            "release_eligible": non_ties >= 20 and holdout["wins"] > holdout["losses"] and safety == {"passed": 10, "failures": 0} and deterministic["failures"] == 0 and statistics["primary_objective"]["passed"] and (not monetary_limits_enabled() or total_cost <= int(run["budget_microusd"])),
         }
         report["report_digest"] = _digest(report)
         return report
@@ -935,7 +1078,9 @@ def _arm_output(value: Any) -> dict[str, Any]:
     ttft = value.get("ttft_seconds")
     if not isinstance(cost, int) or cost < 0 or not isinstance(ttft, (int, float)) or ttft < 0:
         raise EvaluationAccessError("evaluation arm metrics are incomplete")
-    return {"text": value["text"], "cost_microusd": cost, "ttft_seconds": float(ttft)}
+    result = {"text": value["text"], "cost_microusd": cost, "ttft_seconds": float(ttft)}
+    result.update({key: value[key] for key in ("prompt_digest", "model_identity", "profile_version_id", "finish_reason") if key in value})
+    return result
 
 
 def _deterministic_check(rubric: dict[str, Any], text: str) -> bool:
@@ -1109,6 +1254,7 @@ class LiveEvaluationRunner:
                 ),
                 context=self._context(
                     "conversation", f"evaluation_{label}", invocation_id, config[f"{label}_bundle_id"], price_snapshot_id,
+                    owner_id=config.get("owner_id", "local-user"), root_budget_id=config.get("root_budget_id"),
                 ),
             ))
             cost = self._cost(invocation_id)
@@ -1137,6 +1283,7 @@ class LiveEvaluationRunner:
                     role, "paired_evaluation_judgment", invocation_id,
                     config.get("evaluator_bundle_id") or config["baseline_bundle_id"],
                     price_snapshot_id,
+                    owner_id=config.get("owner_id", "local-user"), root_budget_id=config.get("root_budget_id"),
                 ),
             ))
             result = _parse_json_object(response.message)
@@ -1150,6 +1297,7 @@ class LiveEvaluationRunner:
 
     def _context(
         self, role: str, purpose: str, invocation_id: str, bundle_id: str, price_snapshot_id: str | None = None,
+        *, owner_id: str = "local-user", root_budget_id: str | None = None,
     ):
         from .model_control import ModelCallContext
         with self.control_store.db.connection() as connection:
@@ -1163,6 +1311,7 @@ class LiveEvaluationRunner:
         return ModelCallContext(
             role=role, purpose=purpose, invocation_id=invocation_id, runtime_bundle_id=bundle_id,
             routing_policy_id=policy_id, routing_policy_digest=digest, price_snapshot_id=price_snapshot_id,
+            owner_id=owner_id, root_budget_id=root_budget_id,
         )
 
     def _reservation(self, version_id: str, price_snapshot_id: str | None = None) -> int:

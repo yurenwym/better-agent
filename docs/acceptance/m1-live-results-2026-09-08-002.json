@@ -1,0 +1,406 @@
+{
+  "batch_id": "M1-LIVE-20260908-002",
+  "status": "FAILED",
+  "started_at": 1788870615.4526713,
+  "limits": {
+    "model_attempts": 21,
+    "model_microusd": 530000,
+    "embedding_requests": 6,
+    "embedding_input": 12288,
+    "seconds": 1500
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "owner_id": "m1-live-20260908-002-owner-1-563e0e33",
+      "database": "m1_live_dcdb9b7114684178",
+      "runtime_bundle_id": "bundle_6b0a0ff30c1efa49dc08370a",
+      "profile_version_id": "model_profile_version_16e93859485d4f5599119f04666d64b8",
+      "threads": {
+        "baseline": "thread_5bba621f08d043b6b90a54fcb821d499",
+        "candidate": "thread_2aedf9b24bd94c60b37f77ddb9720213",
+        "archive": "thread_3b458f34c31c40bab90d728a2a56925c",
+        "independent": "thread_115c2f431c3d454fb2ae54e47d89b252",
+        "dependent": "thread_0164f30a18e94adc8fbebf7a662e3471"
+      },
+      "retrieval": {
+        "revision_ids": [
+          "memory_revision_56909193763342f79d631736e874e5f5",
+          "memory_revision_9b3ff1d8cbf34b83b2fde3b2b0cd9f20",
+          "memory_revision_60634d71a75a42929a6ac95020e45ca8"
+        ],
+        "episode_ids": [],
+        "renderer_version": "memory-v5",
+        "tokenizer_version": "utf8-upper-bound-v1",
+        "bundle_hash": "sha256:4b15891b7f6cdedb7d28556951a269fffa65844cb2c0c332162fbd5294a4a585",
+        "trace": {
+          "retrieval_mode": "hybrid",
+          "fallback_reason": "",
+          "semantic_candidate_count": 1,
+          "lexical_candidate_count": 1,
+          "embedding_profile_id": "siliconflow-qwen3-embedding-4b-1024",
+          "embedding_coverage": 0.25,
+          "irrelevant_entry_count": 1
+        }
+      },
+      "episode": {
+        "id": "episode_5f45e031765a45a78a90911c62634888",
+        "source_hash": "sha256:fe5fc13328f8e8e13bcd4936f54a2314108d91ef6a5d209eac86ce48c9618491",
+        "source_message_ids": [
+          "M1-LIVE-20260908-002-1-archive-user",
+          "M1-LIVE-20260908-002-1-archive-assistant"
+        ],
+        "prompt_version": "episode-v4",
+        "tokenizer_version": "utf8-upper-bound-v1",
+        "structured": {
+          "synopsis": [
+            {
+              "text": "User confirmed 60-minute daily training plan; assistant noted 90-minute recommendation not yet confirmed.",
+              "source_message_ids": [
+                "M1-LIVE-20260908-002-1-archive-user",
+                "M1-LIVE-20260908-002-1-archive-assistant"
+              ]
+            }
+          ],
+          "decisions": [
+            {
+              "text": "User decided 60 minutes per day",
+              "source_message_ids": [
+                "M1-LIVE-20260908-002-1-archive-user"
+              ]
+            }
+          ],
+          "outcomes": [],
+          "open_loops": [
+            {
+              "text": "90-minute recommendation still pending user confirmation",
+              "source_message_ids": [
+                "M1-LIVE-20260908-002-1-archive-assistant"
+              ]
+            }
+          ]
+        }
+      },
+      "model_attempts": [
+        {
+          "id": "conversation:turn_aa8d4cce6fa04921b2530b67ec8f7f32_attempt_1",
+          "invocation_id": "conversation:turn_aa8d4cce6fa04921b2530b67ec8f7f32",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 775,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "conversation",
+          "purpose": "route_and_respond"
+        },
+        {
+          "id": "conversation:turn_8a9b81bad20f4e98a502f4b9165228c3_attempt_1",
+          "invocation_id": "conversation:turn_8a9b81bad20f4e98a502f4b9165228c3",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 380,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "conversation",
+          "purpose": "route_and_respond"
+        },
+        {
+          "id": "model_invocation_a251083286b64089a58bb00bac6d179e_attempt_1",
+          "invocation_id": "model_invocation_a251083286b64089a58bb00bac6d179e",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 695,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "reflector",
+          "purpose": "summarize_episode"
+        },
+        {
+          "id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:classify_context_dependency_attempt_1",
+          "invocation_id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:classify_context_dependency",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 42,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "conversation",
+          "purpose": "classify_context_dependency"
+        },
+        {
+          "id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:answer_without_history_attempt_1",
+          "invocation_id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:answer_without_history",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 191,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "conversation",
+          "purpose": "answer_without_history"
+        },
+        {
+          "id": "conversation:turn_1f3c14f0e10747a9903125ba75006f70:classify_context_dependency_attempt_1",
+          "invocation_id": "conversation:turn_1f3c14f0e10747a9903125ba75006f70:classify_context_dependency",
+          "ordinal": 1,
+          "reason": "primary",
+          "status": "SUCCEEDED",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 31,
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "role": "conversation",
+          "purpose": "classify_context_dependency"
+        }
+      ],
+      "model_invocations": [
+        {
+          "id": "conversation:turn_aa8d4cce6fa04921b2530b67ec8f7f32",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "conversation:turn_aa8d4cce6fa04921b2530b67ec8f7f32_attempt_1",
+          "request_digest": "5814b75a6f602db2dfb7e7f4c624ba99fd9d4a1ffa098e0010d97be45842901b",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        },
+        {
+          "id": "conversation:turn_8a9b81bad20f4e98a502f4b9165228c3",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "conversation:turn_8a9b81bad20f4e98a502f4b9165228c3_attempt_1",
+          "request_digest": "8eb64668c47bfa418bcc11991be2808bcd5b63132b8dd17b4e0f4161c0588a3a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        },
+        {
+          "id": "model_invocation_a251083286b64089a58bb00bac6d179e",
+          "role": "reflector",
+          "purpose": "summarize_episode",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "model_invocation_a251083286b64089a58bb00bac6d179e_attempt_1",
+          "request_digest": "0659b5c9cf42498b4389042f296cf0575adaf7c55a06bd6f4d58fde6c39041a9",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"reflector\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        },
+        {
+          "id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:classify_context_dependency",
+          "role": "conversation",
+          "purpose": "classify_context_dependency",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:classify_context_dependency_attempt_1",
+          "request_digest": "2ff0b6a1271125b7f58b0bd74c5fa52d1883bb04d016963676c6032147949088",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        },
+        {
+          "id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:answer_without_history",
+          "role": "conversation",
+          "purpose": "answer_without_history",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "conversation:turn_0960f502b2fe42aca23d85ab02455db9:answer_without_history_attempt_1",
+          "request_digest": "7d1eb4e9426001676a15b7f7bc89643389388d9e9c9f024cbbbbb46f7c33ec96",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        },
+        {
+          "id": "conversation:turn_1f3c14f0e10747a9903125ba75006f70:classify_context_dependency",
+          "role": "conversation",
+          "purpose": "classify_context_dependency",
+          "status": "SUCCEEDED",
+          "selected_attempt_id": "conversation:turn_1f3c14f0e10747a9903125ba75006f70:classify_context_dependency_attempt_1",
+          "request_digest": "2205db28082d29bdcb92ae87dfb4af61ae815f9faf35622aa1697c2f4f07d4d7",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_16e93859485d4f5599119f04666d64b8\"],\"profile_version_id\":\"model_profile_version_16e93859485d4f5599119f04666d64b8\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c25c2f2ef85d64788244e1b390a2697f6699cf4085d704599a6318449e718079\",\"routing_policy_id\":\"model_routing_policy_1cefa8e1edf242469023d387d784d381\",\"runtime_bundle_id\":\"bundle_6b0a0ff30c1efa49dc08370a\"}"
+        }
+      ],
+      "charged_microusd": 151392,
+      "answers": {
+        "baseline_sha256": "a14d8b3c387bcf39315db5c653d136e650220a61fa28edfd4851842250d04fec",
+        "candidate_sha256": "f879650e4f009b92583a7d2397a317317f8a8a431759c7db55a0a6df0931e2b0",
+        "independent_sha256": "f300218891fb5d5045cbabe70a299c458fab731bf26eff3bb9b4ed8ecd661c22"
+      },
+      "dependent_terminal_status": "FAILED",
+      "side_effect_counts": {
+        "turn_asks": 0,
+        "plan_documents": 0,
+        "research_jobs": 0,
+        "agent_runs": 0,
+        "memory_entries": 7
+      }
+    }
+  ],
+  "failure": {
+    "type": "AcceptanceFailure",
+    "message": "semantic cycling memory was not selected"
+  },
+  "finished_at": 1788870670.9603956,
+  "elapsed_seconds": 55.507727,
+  "model_network_attempts": [
+    {
+      "ordinal": 1,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788870621.8935506,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 775,
+      "reasoning_tokens": null,
+      "latency_seconds": 7.727661
+    },
+    {
+      "ordinal": 2,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788870630.161589,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 380,
+      "reasoning_tokens": null,
+      "latency_seconds": 4.12199
+    },
+    {
+      "ordinal": 3,
+      "round": "1",
+      "role": "reflector",
+      "purpose": "summarize_episode",
+      "status": "succeeded",
+      "started_at": 1788870634.44777,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 695,
+      "reasoning_tokens": null,
+      "latency_seconds": 6.269792
+    },
+    {
+      "ordinal": 4,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "classify_context_dependency",
+      "status": "succeeded",
+      "started_at": 1788870640.8442519,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 42,
+      "reasoning_tokens": null,
+      "latency_seconds": 1.671777
+    },
+    {
+      "ordinal": 5,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "answer_without_history",
+      "status": "succeeded",
+      "started_at": 1788870642.5791628,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 191,
+      "reasoning_tokens": null,
+      "latency_seconds": 2.820663
+    },
+    {
+      "ordinal": 6,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "classify_context_dependency",
+      "status": "succeeded",
+      "started_at": 1788870645.579797,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 31,
+      "reasoning_tokens": null,
+      "latency_seconds": 1.548764
+    },
+    {
+      "ordinal": 7,
+      "round": "2",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788870651.141963,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 1621,
+      "reasoning_tokens": null,
+      "latency_seconds": 14.227744
+    },
+    {
+      "ordinal": 8,
+      "round": "2",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788870665.9108634,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 470,
+      "reasoning_tokens": null,
+      "latency_seconds": 4.967649
+    }
+  ],
+  "embedding_network_requests": [
+    {
+      "ordinal": 1,
+      "round": "1",
+      "input_upper_bound": 36,
+      "status": "succeeded",
+      "started_at": 1788870621.1038895,
+      "provider_prompt_tokens": 9,
+      "provider_total_tokens": 9
+    },
+    {
+      "ordinal": 2,
+      "round": "1",
+      "input_upper_bound": 351,
+      "status": "succeeded",
+      "started_at": 1788870629.8049526,
+      "provider_prompt_tokens": 73,
+      "provider_total_tokens": 73
+    },
+    {
+      "ordinal": 3,
+      "round": "2",
+      "input_upper_bound": 36,
+      "status": "failed",
+      "started_at": 1788870649.7959325,
+      "error_kind": "timeout"
+    },
+    {
+      "ordinal": 4,
+      "round": "2",
+      "input_upper_bound": 351,
+      "status": "succeeded",
+      "started_at": 1788870665.5761836,
+      "provider_prompt_tokens": 73,
+      "provider_total_tokens": 73
+    }
+  ],
+  "embedding_input_upper_bound": 774
+}

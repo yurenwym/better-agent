@@ -103,6 +103,7 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
         scheduler = getattr(runtime, "scheduler", None)
         evaluation_worker = getattr(runtime, "evaluation_worker", None)
         archive_worker = getattr(runtime, "archive_worker", None)
+        embedding_worker = getattr(runtime, "embedding_worker", None)
         if worker is not None:
             await worker.start()
         if research_worker is not None:
@@ -119,6 +120,8 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
             await evaluation_worker.start()
         if archive_worker is not None:
             await archive_worker.start()
+        if embedding_worker is not None:
+            await embedding_worker.start()
         try:
             yield
         finally:
@@ -128,6 +131,11 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
                 await evaluation_worker.stop()
             if archive_worker is not None:
                 await archive_worker.stop()
+            if embedding_worker is not None:
+                await embedding_worker.stop()
+            embedding_client = getattr(runtime, "embedding_client", None)
+            if embedding_client is not None:
+                embedding_client.close()
             if research_worker is not None:
                 await research_worker.stop()
             if goal_review_worker is not None:
@@ -138,6 +146,9 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
                 await observer_worker.stop()
             if worker is not None:
                 await worker.stop()
+            database = getattr(runtime, "db", None)
+            if database is not None:
+                database.close()
 
     app = FastAPI(title="better-agent", version=settings.version, lifespan=lifespan)
     app.state.config = settings
@@ -154,6 +165,12 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
     async def health() -> dict[str, object]:
         return settings.public_view()
 
+    @app.get("/api/worker-health")
+    async def worker_health() -> dict[str, object]:
+        worker=getattr(app.state.runtime,"goal_review_worker",None)
+        view=getattr(worker,"health_view",None)
+        return {"goal_review":view() if callable(view) else {"running":False}}
+
     register_routes(app)
 
     if static_dir is not None:
@@ -169,9 +186,14 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
             @app.get("/schedules", include_in_schema=False)
             @app.get("/growth", include_in_schema=False)
             @app.get("/memory", include_in_schema=False)
+            @app.get("/skills", include_in_schema=False)
+            @app.get("/models", include_in_schema=False)
+            @app.get("/usage", include_in_schema=False)
+            @app.get("/evaluations", include_in_schema=False)
+            @app.get("/evaluations/{evaluation_id}", include_in_schema=False)
             @app.get("/workspace", include_in_schema=False)
             @app.get("/workspace/{resource_id}", include_in_schema=False)
-            async def frontend_route(plan_id: str | None = None, thread_id: str | None = None):
+            async def frontend_route(plan_id: str | None = None, thread_id: str | None = None, evaluation_id: str | None = None):
                 return FileResponse(index_path)
 
             app.mount("/", StaticFiles(directory=static_path, html=True), name="frontend")

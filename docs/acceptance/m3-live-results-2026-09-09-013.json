@@ -1,0 +1,1826 @@
+{
+  "batch_id": "M3-LIVE-20260909-013",
+  "status": "PASSED",
+  "network_started": true,
+  "storage": "current_database_with_batch_scoped_cleanup",
+  "source_manifest": {
+    "files": {
+      "alembic/env.py": "248ce65ac9aaf86765fec2dba884dc009cc40233c2a8ffca92ac5e4aac565931",
+      "alembic/versions/20260905_0001_enable_postgres_extensions.py": "4bcdbb48b4787b697261b8e11a29bea9dc38e1d78039efb6c068792d67729945",
+      "alembic/versions/20260909_0002_root_task_budgets.py": "90e43105b62bc51c7b99aa184dbaa4bc96b62a5fbd6323f16f87abafe28aee57",
+      "alembic/versions/20260909_0003_archive_budget_binding.py": "6e2bfca5073a9b8afb888a0eddb703a3187fb06508eb049e340f9b71ceea051a",
+      "alembic.ini": "22b3d7beb7cf80d6b21b54c7d04c3cf088caddf1ba0df5083a393207e3d1bddf",
+      "app/__init__.py": "ab45d6a0bfe2e56adaeac0b4beae2bd61ef98b73b1e73fd17c71e1c1a05f41e8",
+      "app/agents.py": "a605f22c680731ec8d6f19d7d0d356a96b64cefc0f9cdacd3135d221f85277ad",
+      "app/api.py": "bec0ba494a6b2ae30a6ec4a6b8ebbe2ad27be3130b75f0f0db160619229e5327",
+      "app/ask.py": "b4fa7bcdd8d5a8e8482dcb2318baa64f1f429e0df01d6a009df5d2e50833d481",
+      "app/behavior.py": "cff1d29af88fe14b560936f5bfea450ff4834805622bab019ee3cf140d60b071",
+      "app/config.py": "b1cbf9f26f9c569f9c0b667df27801ed87a9d8225f64f4dccd952f00156c426e",
+      "app/context.py": "0d6bad676bde61d0b769c152457b7a908d6d0bc3ff62aa0c322621a6d09523ff",
+      "app/control_exports.py": "fcae562283ed187cb7a082622f8411dc58f1af9b69297736ecdbc840be269b90",
+      "app/conversation.py": "37cf19d5126f68760ea538f6f2ff0cb00b5d3cf4a459722c6f6b23927b8e9a7b",
+      "app/costs.py": "d4f2c2bfcb53b16efceabfa484c9a3bed56272f6ed98dc2ff19c6482399739cb",
+      "app/db.py": "bbf8192358b6e2b629c182fa9c31765a1c447ebefa4ba6c6fd55eb32fca5addb",
+      "app/domain.py": "7432d5f2c5138632b9e7464d751977077fbad31ccaf9de4c6e258de835e7b46f",
+      "app/durable_queue.py": "676faaeadac03d118931feb6efe2c3b78a7be873e4999035665ebd7778c3dfeb",
+      "app/embedding.py": "5727535cd896844c5387ba1c35cec58826b0bc4836c372dfc1aa5a67e9ace705",
+      "app/embedding_worker.py": "25ce27b986e0d683e6436c9689aa7c2e5382a49dbc3aa7ff1be168c87406c487",
+      "app/eval.py": "78ec687ac71c2278ae4d6c80cf46af18559d886bd0a86616d5409b557b369f25",
+      "app/evals.py": "1cb490c46c2eae4976943403db72a8bd988faa377704b7271db7003ba8eead38",
+      "app/events.py": "2443209bec5aece2cbf3fcb1c38e7e07490ef7d0dbbde69ffdf1278a11d52cc4",
+      "app/evolution.py": "c168a3289efcf8daeed416130d75aa3d424d8b57099ad2c24144231279b7db83",
+      "app/experience_observer.py": "b1a38f82dca2be87c92bc9fc7b6922701f9711f249be0b6c37021be01d5d36ba",
+      "app/goal_adjustments.py": "4201617ebe6e724444b34a699ac803bbae8e11ffc59c0e2a0e2321ab5161923a",
+      "app/goal_context.py": "e229bbd854b999ca3f68a6f1a0e311763716d4ca0e442a141a10c4bce70e7cb8",
+      "app/goal_program_compiler.py": "d2e63b3ce2bf2358c3432c6ec354473737301bc90b2e9940a100bb1b2c479ada",
+      "app/goal_programs.py": "df3601efc532a765bc2e45171d41ad671f8a2217ae2ffb72d23ea441f7f6aaea",
+      "app/goal_reviews.py": "3bac2fa1de0b3044d4ecb648a3b4e7efc7a4a72895b8bd186a118183f625ab70",
+      "app/goal_workspace.py": "805d726a49270b4fea7eed535f0e7db191aeaefab4356bb1c077a05474865385",
+      "app/growth.py": "bbdab0cdaabc3fc096961fdaeb1e7baad45d34f03e38ac7b19d40f59478bd254",
+      "app/live_model.py": "0e6b911da86e9cc503f9fa050f16def57a4756228da6c226fb86a893ff1181af",
+      "app/main.py": "c7302620ce02086b5e362ccc1a5f25ff8be563139bb239b4c733ac4d6a59848e",
+      "app/memory.py": "101ac1bdc327f6027c11a69316431512304c32553906265759128bc13177a5fc",
+      "app/memory_archive.py": "60e1cf964ca684bd4e3197c3fdfbee57261d589da5e745eec68f5308fb244003",
+      "app/memory_v2.py": "857b74803a1f06b9fddd6a67aca50b85c3f9aa749a5825cef65fd26000e6cddb",
+      "app/model_admin.py": "496b99acec11b29ab6e758514d69ede9eba27387ac86852d7a1d881557ffb9c7",
+      "app/model_control.py": "29b5012911ab94a6b5c46a92d39976e3cabc216eddc559bb0e931e8c9896cc25",
+      "app/model_gateway.py": "29d15a9a3b48c735750df5289123be4df5d9715d211ad931938469373fc2a2c0",
+      "app/notifications.py": "554495dca4e9fa5df7d8cac9523b82b9347d3dc6d5914e75b28a305bdb43a6a1",
+      "app/plan_context.py": "10cbef88c2cf5f32251c23a493687f79c3ec8636ea9ba7aa1a458885dfc4cc9e",
+      "app/plan_documents.py": "1921a9175a8f7c9cad04f01b7772ac2f4176efedb137ef86a633f5e3f677eda4",
+      "app/plan_execution.py": "fd415d082f2b2b04c4ed1b2eb1b1a0c4a717cc33bc5059e6ee89c6114fea23e1",
+      "app/plan_files.py": "178a976757fdafe534da150058b42eb93e38359cfcd557934f35a1ea68f68c5f",
+      "app/public_text.py": "0f74758e020fbb18147b92286b6f0d813953f93a8f6dd5e9f2a8596e06362666",
+      "app/real_evaluation.py": "be0e2f795e3b66075a1cd31a4783812f8e573e77cdf2bd19e3c5ed5040cfa3d7",
+      "app/research/__init__.py": "37590eb3d1185a913975e1f9b107d189f9df1d939860298006da86a0986ca951",
+      "app/research/citations.py": "bebb3deef33ebd88119f9a7329e129f94748f60cf9a8d43b53f4406d3f5c36b9",
+      "app/research/engine.py": "efe1bd863583219d0735d2e6466782cfd5e6183a8db59dd871e6127fea629288",
+      "app/research/live.py": "acc724510673f22b2e7496559083adb5a853c159bc5d9cf07702d1f2e255ce19",
+      "app/research/models.py": "2890af2bc55b934804ff8293c739c8b1ff3a5abdfd55be41bea455447ca3746d",
+      "app/research/retriever.py": "104f54a008f2910af3f40d46f73ff020409aea64f57531e23de210c3945e6792",
+      "app/research/scheduler.py": "f7b582e384b196ea738170d6cf27c63b07a719d417a98b08af3b062695b19e61",
+      "app/research/service.py": "8c52d72091f417dfb40494784ae3392516560da3c8dce574cfe1c605b4c8bd96",
+      "app/research/tavily.py": "d2d910033d93b2c3578dacd7d46d75ee07f193ff355c1ce63a8a030132322ef0",
+      "app/research/web.py": "4261ea27dbaa0c71360efc0177a2087e54c0c5d6d36fcd02ae5daeb17ad92a48",
+      "app/research/worker.py": "c44b9f891c63720b5b54b355d52a7b9d6539a11f843dc91ff273a59fd2b2c724",
+      "app/runtime.py": "c001dd639629e72b59f60ca7fa2e97d88116376c2a273c4544893ec012fcba80",
+      "app/settings.py": "db5a10b5aa61a799b57d51c4e029084c6ead37b99406d9372ce62fe08c0d1be0",
+      "app/skill_platform.py": "c090f7bf788ee227c3aad04d835ea2354af84e593bf249339e70888c11711d76",
+      "app/skill_registry.py": "d4982586f9bde7e2870d6f6016d4c8cec07e48c118483e2e2b8e0ab7d7eee94d",
+      "app/startup.py": "6c42a232ec57391550a6a76ef417df404a72f24eb7913ce0ab63b9482363dd97",
+      "app/stats.py": "ecb25d7c8ff60b044300322d687c68367a4fc671bd085b079122f71fb000a474",
+      "app/token_budget.py": "f5b2abed7eb6ee8be28a004100a94232393f62b469fa68f2a26a981cc9337664",
+      "app/tools.py": "9a466f6a015214ed4508f27eb347a614eebe5c4b4fe6d1f95b89c6e29a58a584",
+      "app/transcript.py": "b6cf4cd65e0dec218039bef812cedfcfdab7172f4f7c42d91f955c1f57f81d8e",
+      "app/trusted_connectors.py": "525fab6c6aecbdc8b0b907cbb53519d791110eb6f2be898c588a14b45df7ae02",
+      "scripts/m3_live_acceptance.py": "49a72f18f245a354937d52f0e8950b9d778a497434be57bd241643e77d7bddba"
+    },
+    "digest": "2608a930578e92950c16881f57b0fa647be9cc32ef37b1b7de5e51c7f60562ce"
+  },
+  "case_digest": "31413a7b6f9e1b600e773e4422bf0b3678e75eb625b13c3b04f2290ff0af5b4f",
+  "rubric_digest": "e509266f4cfd884c3e1092d7a744d6c1a725dc3672e2fd13a1040292fcf2bf99",
+  "limits": {
+    "rounds": 3,
+    "attempts_per_round": 7,
+    "total_attempts": 21,
+    "worst_attempt_microusd": 25232,
+    "worst_batch_microusd": 529872,
+    "max_seconds": 900,
+    "fallback_models": 0
+  },
+  "profile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "context_window": 32768,
+    "max_output_tokens": 8192
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "status": "SUCCEEDED",
+      "run_id": "agent_run_d46d2eaf7661491cbe0e8c4c2f369a42",
+      "thread_id": "thread_27b2190b4503408a899696570f77c614",
+      "source_turn_id": "turn_3fa0a13e5cb64d5f8d44d14b3598d203",
+      "plan_version_id": "planv_642597e63d14447dbcc51357f7c81ccf",
+      "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+      "profile_version_id": "model_profile_version_2c350d588ff449c3a66c386ecfc28dcc",
+      "attempts": [
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 11,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 87,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "expert",
+          "purpose": "expert_critic",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 266,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "expert",
+          "purpose": "expert_planner",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 266,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 266,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 232,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-4a5a95c21cd8",
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 971,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        }
+      ],
+      "invocations": [
+        {
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_critic",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_planner",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"coordinator\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_e667b4d32ba2c33f03dfa65e",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\"],\"profile_version_id\":\"model_profile_version_2c350d588ff449c3a66c386ecfc28dcc\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"8a392c058cb416d70283f50ae8ec3099bcb4eece47e1af68a75f4c138fd0c2a1\",\"routing_policy_id\":\"model_routing_policy_453ca65eb53d4250beb050f1e20e287c\",\"runtime_bundle_id\":\"bundle_e667b4d32ba2c33f03dfa65e\"}"
+        }
+      ],
+      "charged_microusd": 176624,
+      "event_types": [
+        "agent.run.created",
+        "agent.task.started",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.join.ready",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.run.completed"
+      ],
+      "fencing": {
+        "cancelled_run": "agent_run_640f09f3a7054486a311f86f3d3afb02",
+        "late_result_rejected": true
+      },
+      "state_cases": {
+        "partial_run_id": "agent_run_5582fad42a78404b90d674d682889f47",
+        "partial_child_statuses": [
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "partial_result": {
+          "experts": [
+            {
+              "result": {
+                "text": "ok"
+              },
+              "role": "critic"
+            }
+          ],
+          "failed_roles": [
+            "researcher"
+          ],
+          "incomplete": true,
+          "summary": "综合多个专家结果。"
+        },
+        "all_failed_run_id": "agent_run_6a784c14631b46acb4a3f336fe62b9f4",
+        "all_failed_status": "FAILED",
+        "budget_case": "covered by fan-out reservation and offline budget gate"
+      },
+      "comparison": {
+        "review_packet": {
+          "case_version": "m3-comparison-v1",
+          "objective": "仅按给定材料比较三个方案，检查两小时预算、执行依赖和来源矛盾，保留未决问题并引用来源编号。不得声称已经执行。",
+          "sources": {
+            "S1": "方案A：准备30分钟，执行80分钟，复核20分钟；步骤依次进行。",
+            "S2": "方案B：准备20分钟，执行60分钟，复核20分钟；执行前必须获得负责人批准。批准状态未知。",
+            "S3": "方案C：准备20分钟，执行50分钟，复核20分钟。",
+            "S4": "方案C执行负责人补充：执行实际需要90分钟，尚未核实与S3的差异。"
+          },
+          "rubric_version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "answers": {
+            "A": "基于给定材料，我按研究员、规划师、评论员三个视角进行分析。所有结论仅基于来源S1-S4，不涉及外部信息。\n\n---\n\n## 一、研究员视角：事实提取与来源核对\n\n**方案A（S1）**：准备30分钟 → 执行80分钟 → 复核20分钟，步骤依次进行。总时长 = 30+80+20 = **130分钟**。\n\n**方案B（S2）**：准备20分钟 → 执行60分钟 → 复核20分钟，步骤依次进行。总时长 = 20+60+20 = **100分钟**。但**执行前必须获得负责人批准，批准状态未知**。\n\n**方案C**：存在**来源矛盾**。\n- S3：准备20分钟 → 执行50分钟 → 复核20分钟，总时长 = **90分钟**。\n- S4：执行负责人补充称执行实际需要**90分钟**（而非S3中的50分钟），且**尚未核实与S3的差异**。\n- 若按S4修正，方案C总时长 = 20+90+20 = **130分钟**。\n\n**来源矛盾点**：S3与S4在方案C执行时长上存在冲突（50分钟 vs 90分钟），S4明确标注\"尚未核实\"，矛盾未解决。\n\n---\n\n## 二、规划师视角：两小时预算与执行依赖分析\n\n**两小时（120分钟）预算检查**：\n\n| 方案 | 总时长（按原始来源） | 是否在120分钟内 | 备注 |\n|------|---------------------|-----------------|------|\n| A | 130分钟（S1） | **否**，超出10分钟 | — |\n| B | 100分钟（S2） | **是** | 但受批准依赖制约 |\n| C | 90分钟（S3） | **是** | 但S4提出矛盾 |\n| C（按S4修正） | 130分钟 | **否**，超出10分钟 | 取决于S4是否成立 |\n\n**执行依赖分析**：\n- 方案A：无外部依赖（S1未提及任何前置条件）。\n- 方案B：**依赖负责人批准**，且批准状态未知（S2）。若批准未获，则方案无法启动，时间预算无从谈起。\n- 方案C：S3未提及外部依赖；S4为执行负责人补充说明，但未提及新增依赖，仅涉及时长修正。\n\n**关键不确定性**：方案C的实际时长取决于S3与S4哪个可信（或是否需进一步核实），当前无法确定。\n\n---\n\n## 三、评论员视角：风险与未决问题\n\n**主要风险**：\n1. **方案C时长矛盾未解决**（S3 vs S4）。若按S4执行，方案C将超出两小时预算，与按S3的判断截然相反。在矛盾核实前，方案C的可行性结论不可靠。\n2. **方案B的批准依赖**（S2）构成执行阻断风险。批准状态未知意味着方案B可能根本无法启动，其100分钟的总时长仅为理论值。\n3. **方案A虽无依赖，但已确定超出预算**（S1，130分钟 > 120分钟），在严格两小时约束下不可行。\n\n**未决问题**：\n1. S3与S4的矛盾如何解决？方案C执行时长究竟是50分钟还是90分钟？（引用S3、S4）\n2. 方案B的负责人批准状态为何？何时能确认？（引用S2）\n3. 若两小时为硬性约束，三个方案中仅方案B（理论值）和方案C（按S3）可能达标，但两者分别受批准依赖和时长矛盾制约——在约束与依赖均未厘清前，无法给出确定推荐。\n\n---\n\n## 总结\n\n| 方案 | 总时长 | 两小时预算 | 执行依赖 | 来源矛盾 |\n|------|--------|-----------|----------|----------|\n| A | 130分钟（S1） | 超出 | 无 | 无 |\n| B | 100分钟（S2） | 达标 | 需负责人批准，状态未知 | 无 |\n| C | 90分钟（S3）或130分钟（S4修正） | 不确定 | 未提及 | **S3与S4矛盾，未核实** |\n\n**未决问题**：方案C时长矛盾（S3/S4）、方案B批准状态（S2）均需进一步信息方可定论。本分析未执行任何操作，仅基于给定材料进行比较。",
+            "B": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（30+80+20），**超出120分钟预算**（S1，置信度1.0）。\n- **方案B**：总耗时100分钟（20+60+20），**在预算内**，但执行前需负责人批准，**批准状态未知**，构成执行依赖（S2，置信度1.0）。\n- **方案C**：**存在来源矛盾**——S3称总耗时90分钟（预算内），S4称实际需150分钟（超预算），差异未核实（置信度0.9）。\n\n**未决问题**\n1. 方案B的负责人批准状态为何？\n2. 方案C的S3与S4差异是否已核实？\n\n**风险提示**\n- 方案B因批准状态未知，无法确认能否在两小时内完成。\n- 方案C的实际耗时不确定性可能影响预算符合性判断。\n\n**说明**：三方案均未声称已执行；本结论仅汇总专家产物，保留上述分歧与不确定性。"
+          },
+          "instructions": "独立对A/B逐项评分并摘录支持评分的原句；不要猜测身份或考虑文风、篇幅与费用。缺少证据的项不得给分。",
+          "packet_digest": "30b4ecba127f95001bd09d7319e8c18ec2ce2926df9628787a8333dddf712ecc"
+        },
+        "review_mapping": {
+          "packet_digest": "30b4ecba127f95001bd09d7319e8c18ec2ce2926df9628787a8333dddf712ecc",
+          "labels": {
+            "A": "single_agent",
+            "B": "multi_agent"
+          }
+        },
+        "case_version": "m3-comparison-v1",
+        "context_digest": "b4e2ca53b921585e17aba6c48e1e29e64e0ec2b01f9e6376c6c2612b838f2bc4",
+        "single_agent": "基于给定材料，我按研究员、规划师、评论员三个视角进行分析。所有结论仅基于来源S1-S4，不涉及外部信息。\n\n---\n\n## 一、研究员视角：事实提取与来源核对\n\n**方案A（S1）**：准备30分钟 → 执行80分钟 → 复核20分钟，步骤依次进行。总时长 = 30+80+20 = **130分钟**。\n\n**方案B（S2）**：准备20分钟 → 执行60分钟 → 复核20分钟，步骤依次进行。总时长 = 20+60+20 = **100分钟**。但**执行前必须获得负责人批准，批准状态未知**。\n\n**方案C**：存在**来源矛盾**。\n- S3：准备20分钟 → 执行50分钟 → 复核20分钟，总时长 = **90分钟**。\n- S4：执行负责人补充称执行实际需要**90分钟**（而非S3中的50分钟），且**尚未核实与S3的差异**。\n- 若按S4修正，方案C总时长 = 20+90+20 = **130分钟**。\n\n**来源矛盾点**：S3与S4在方案C执行时长上存在冲突（50分钟 vs 90分钟），S4明确标注\"尚未核实\"，矛盾未解决。\n\n---\n\n## 二、规划师视角：两小时预算与执行依赖分析\n\n**两小时（120分钟）预算检查**：\n\n| 方案 | 总时长（按原始来源） | 是否在120分钟内 | 备注 |\n|------|---------------------|-----------------|------|\n| A | 130分钟（S1） | **否**，超出10分钟 | — |\n| B | 100分钟（S2） | **是** | 但受批准依赖制约 |\n| C | 90分钟（S3） | **是** | 但S4提出矛盾 |\n| C（按S4修正） | 130分钟 | **否**，超出10分钟 | 取决于S4是否成立 |\n\n**执行依赖分析**：\n- 方案A：无外部依赖（S1未提及任何前置条件）。\n- 方案B：**依赖负责人批准**，且批准状态未知（S2）。若批准未获，则方案无法启动，时间预算无从谈起。\n- 方案C：S3未提及外部依赖；S4为执行负责人补充说明，但未提及新增依赖，仅涉及时长修正。\n\n**关键不确定性**：方案C的实际时长取决于S3与S4哪个可信（或是否需进一步核实），当前无法确定。\n\n---\n\n## 三、评论员视角：风险与未决问题\n\n**主要风险**：\n1. **方案C时长矛盾未解决**（S3 vs S4）。若按S4执行，方案C将超出两小时预算，与按S3的判断截然相反。在矛盾核实前，方案C的可行性结论不可靠。\n2. **方案B的批准依赖**（S2）构成执行阻断风险。批准状态未知意味着方案B可能根本无法启动，其100分钟的总时长仅为理论值。\n3. **方案A虽无依赖，但已确定超出预算**（S1，130分钟 > 120分钟），在严格两小时约束下不可行。\n\n**未决问题**：\n1. S3与S4的矛盾如何解决？方案C执行时长究竟是50分钟还是90分钟？（引用S3、S4）\n2. 方案B的负责人批准状态为何？何时能确认？（引用S2）\n3. 若两小时为硬性约束，三个方案中仅方案B（理论值）和方案C（按S3）可能达标，但两者分别受批准依赖和时长矛盾制约——在约束与依赖均未厘清前，无法给出确定推荐。\n\n---\n\n## 总结\n\n| 方案 | 总时长 | 两小时预算 | 执行依赖 | 来源矛盾 |\n|------|--------|-----------|----------|----------|\n| A | 130分钟（S1） | 超出 | 无 | 无 |\n| B | 100分钟（S2） | 达标 | 需负责人批准，状态未知 | 无 |\n| C | 90分钟（S3）或130分钟（S4修正） | 不确定 | 未提及 | **S3与S4矛盾，未核实** |\n\n**未决问题**：方案C时长矛盾（S3/S4）、方案B批准状态（S2）均需进一步信息方可定论。本分析未执行任何操作，仅基于给定材料进行比较。",
+        "multi_agent": {
+          "experts": [
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟，S4称执行实际需90分钟（总150分钟），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C的S3与S4差异是否已核实？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，无法确认能否在两小时内完成。",
+                  "方案C的实际耗时不确定性可能影响预算符合性判断。"
+                ],
+                "summary": "方案A总耗时130分钟，超两小时预算；方案B总耗时100分钟，但依赖负责人批准且状态未知；方案C按S3为90分钟，在预算内，但S4称实际需150分钟，与S3矛盾。三方案均未声称已执行。"
+              },
+              "role": "critic"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟，S4称执行实际需90分钟（总150分钟），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C的S3与S4差异是否已核实？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，无法确认能否在两小时内完成。",
+                  "方案C的实际耗时不确定性可能影响预算符合性判断。"
+                ],
+                "summary": "方案A总耗时130分钟，超两小时预算；方案B总耗时100分钟，但依赖负责人批准且状态未知；方案C按S3为90分钟，在预算内，但S4称实际需150分钟，与S3矛盾。三方案均未声称已执行。"
+              },
+              "role": "planner"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟，S4称执行实际需90分钟（总150分钟），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C的S3与S4差异是否已核实？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，无法确认能否在两小时内完成。",
+                  "方案C的实际耗时不确定性可能影响预算符合性判断。"
+                ],
+                "summary": "方案A总耗时130分钟，超两小时预算；方案B总耗时100分钟，但依赖负责人批准且状态未知；方案C按S3为90分钟，在预算内，但S4称实际需150分钟，与S3矛盾。三方案均未声称已执行。"
+              },
+              "role": "researcher"
+            }
+          ],
+          "failed_roles": [],
+          "incomplete": false,
+          "summary": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（30+80+20），**超出120分钟预算**（S1，置信度1.0）。\n- **方案B**：总耗时100分钟（20+60+20），**在预算内**，但执行前需负责人批准，**批准状态未知**，构成执行依赖（S2，置信度1.0）。\n- **方案C**：**存在来源矛盾**——S3称总耗时90分钟（预算内），S4称实际需150分钟（超预算），差异未核实（置信度0.9）。\n\n**未决问题**\n1. 方案B的负责人批准状态为何？\n2. 方案C的S3与S4差异是否已核实？\n\n**风险提示**\n- 方案B因批准状态未知，无法确认能否在两小时内完成。\n- 方案C的实际耗时不确定性可能影响预算符合性判断。\n\n**说明**：三方案均未声称已执行；本结论仅汇总专家产物，保留上述分歧与不确定性。"
+        },
+        "quality_review_status": "PENDING",
+        "quality_review": {
+          "status": "PASSED",
+          "method": "frozen_case_deterministic_rubric_v1",
+          "blind_scores": {
+            "A": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "B": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "by_arm": {
+            "single_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "multi_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "observed_multi_agent_gain": false,
+          "default_collaboration_supported": false
+        },
+        "rubric": {
+          "version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "core_pass": "多Agent输出五项全部通过；单Agent使用相同标准独立评分。",
+          "benefit": "仅当多Agent评分更高且费用在冻结上限内，才记录本题观察到收益；同分不算收益，单题不支持默认触发策略。"
+        },
+        "rubric_digest": "e509266f4cfd884c3e1092d7a744d6c1a725dc3672e2fd13a1040292fcf2bf99",
+        "cost_microusd": {
+          "single_agent": 25232,
+          "experts_and_coordinator": 100928,
+          "conversation_setup": 50464
+        }
+      }
+    },
+    {
+      "round": 2,
+      "status": "SUCCEEDED",
+      "run_id": "agent_run_55712ea065f54f6693429adb487b7ee8",
+      "thread_id": "thread_bc69c32a1dcb458e8c18ab3569c7ae88",
+      "source_turn_id": "turn_709fb042b8d54fc6a5b0787de91b1a88",
+      "plan_version_id": "planv_f95e216874944100b04604eb36f3e140",
+      "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+      "profile_version_id": "model_profile_version_44b5e85cfa8b4b92801f90ff5e684890",
+      "attempts": [
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 11,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 87,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "expert",
+          "purpose": "expert_critic",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 286,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 293,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "expert",
+          "purpose": "expert_planner",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 293,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 202,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-8bc8e61b1d75",
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 529,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        }
+      ],
+      "invocations": [
+        {
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_critic",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_planner",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"coordinator\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_b557d434083feb1efae20bfd",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\"],\"profile_version_id\":\"model_profile_version_44b5e85cfa8b4b92801f90ff5e684890\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"95b10bd32349b8f8d5ab5997dc8ef72ab0c597acc04f34b98f02b583652b0bb3\",\"routing_policy_id\":\"model_routing_policy_8f950d9f43a64108b73e139d3c31b3dd\",\"runtime_bundle_id\":\"bundle_b557d434083feb1efae20bfd\"}"
+        }
+      ],
+      "charged_microusd": 176624,
+      "event_types": [
+        "agent.run.created",
+        "agent.task.started",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.join.ready",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.run.completed"
+      ],
+      "fencing": {
+        "cancelled_run": "agent_run_4fcd931823bc4bb18ef843c8922463a1",
+        "late_result_rejected": true
+      },
+      "state_cases": {
+        "partial_run_id": "agent_run_6f7b8eb6cae343a7ac825443e3ed6485",
+        "partial_child_statuses": [
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "partial_result": {
+          "experts": [
+            {
+              "result": {
+                "text": "ok"
+              },
+              "role": "critic"
+            }
+          ],
+          "failed_roles": [
+            "researcher"
+          ],
+          "incomplete": true,
+          "summary": "综合多个专家结果。"
+        },
+        "all_failed_run_id": "agent_run_1f890fb721d74940a07a75e91e9fdeaf",
+        "all_failed_status": "FAILED",
+        "budget_case": "covered by fan-out reservation and offline budget gate"
+      },
+      "comparison": {
+        "review_packet": {
+          "case_version": "m3-comparison-v1",
+          "objective": "仅按给定材料比较三个方案，检查两小时预算、执行依赖和来源矛盾，保留未决问题并引用来源编号。不得声称已经执行。",
+          "sources": {
+            "S1": "方案A：准备30分钟，执行80分钟，复核20分钟；步骤依次进行。",
+            "S2": "方案B：准备20分钟，执行60分钟，复核20分钟；执行前必须获得负责人批准。批准状态未知。",
+            "S3": "方案C：准备20分钟，执行50分钟，复核20分钟。",
+            "S4": "方案C执行负责人补充：执行实际需要90分钟，尚未核实与S3的差异。"
+          },
+          "rubric_version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "answers": {
+            "A": "### 比较结果（仅基于给定材料）\n\n**1. 两小时（120分钟）预算检查**\n\n| 方案 | 准备 | 执行 | 复核 | 合计 | 是否在120分钟内 |\n|------|------|------|------|------|----------------|\n| A（S1） | 30 | 80 | 20 | 130 | **否**（超10分钟） |\n| B（S2） | 20 | 60 | 20 | 100 | **是** |\n| C（S3） | 20 | 50 | 20 | 90 | **是**（但见下方矛盾） |\n| C（S4修正） | 20 | 90 | 20 | 130 | **否**（超10分钟） |\n\n**2. 执行依赖**\n\n- 方案A：S1明确“步骤依次进行”，无外部批准依赖。\n- 方案B：S2明确“执行前必须获得负责人批准”，且“批准状态未知”——**存在未决依赖**，无法确认能否按时开始执行。\n- 方案C：S3未提及任何批准或顺序依赖；S4为执行负责人补充，未提及批准，但执行时长存在矛盾（见下）。\n\n**3. 来源矛盾**\n\n- **方案C内部矛盾**：S3称执行50分钟，S4称执行实际需90分钟，且S4注明“尚未核实与S3的差异”。两来源冲突，**未决问题：以哪个为准？** 若按S3，C在预算内；若按S4，C超预算。\n- 方案A、B各自来源内部无矛盾，但B的批准状态未知（S2），属于未决问题而非矛盾。\n\n**4. 未决问题（保留）**\n\n1. 方案B的负责人批准是否已获得？（S2未提供）\n2. 方案C的执行时长应以S3（50分钟）还是S4（90分钟）为准？（S4明确未核实）\n3. 若批准未获或C按90分钟计，则B、C均可能无法满足两小时预算——需在批准与时长确认后才能定论。\n\n**结论（仅基于材料，不声称执行）**：在现有信息下，仅方案B（若批准通过）和方案C（若按S3时长）可能满足预算；方案A确定超预算。但B的批准与C的时长矛盾均未解决，故无法给出唯一确定结论。",
+            "B": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（S1），**超出120分钟预算，不可行**。\n- **方案B**：总耗时100分钟（S2），**在预算内**，但依赖负责人批准且批准状态未知，**执行可行性不确定**。\n- **方案C**：**存在来源矛盾**——S3称总耗时90分钟（可行），S4称执行需90分钟（总150分钟，超预算），**差异未核实**。\n\n**未决问题**：\n1. 方案C实际执行时长应以S3还是S4为准？\n2. 方案B的负责人批准状态是否已确认？\n\n**风险提示**：方案C时长矛盾可能导致预算判断错误；方案B因批准未知存在执行延迟风险。\n\n**引用来源**：S1（方案A）、S2（方案B）、S3/S4（方案C矛盾）。"
+          },
+          "instructions": "独立对A/B逐项评分并摘录支持评分的原句；不要猜测身份或考虑文风、篇幅与费用。缺少证据的项不得给分。",
+          "packet_digest": "aee3c3786d7b7db6b13ca537bbfc81e12d21db0f71c98109c2f5cf27aa9f35c4"
+        },
+        "review_mapping": {
+          "packet_digest": "aee3c3786d7b7db6b13ca537bbfc81e12d21db0f71c98109c2f5cf27aa9f35c4",
+          "labels": {
+            "A": "single_agent",
+            "B": "multi_agent"
+          }
+        },
+        "case_version": "m3-comparison-v1",
+        "context_digest": "1ad1f074f96cdd084279ac5162d35418512c35dc375085e70d30dce7fedd58bb",
+        "single_agent": "### 比较结果（仅基于给定材料）\n\n**1. 两小时（120分钟）预算检查**\n\n| 方案 | 准备 | 执行 | 复核 | 合计 | 是否在120分钟内 |\n|------|------|------|------|------|----------------|\n| A（S1） | 30 | 80 | 20 | 130 | **否**（超10分钟） |\n| B（S2） | 20 | 60 | 20 | 100 | **是** |\n| C（S3） | 20 | 50 | 20 | 90 | **是**（但见下方矛盾） |\n| C（S4修正） | 20 | 90 | 20 | 130 | **否**（超10分钟） |\n\n**2. 执行依赖**\n\n- 方案A：S1明确“步骤依次进行”，无外部批准依赖。\n- 方案B：S2明确“执行前必须获得负责人批准”，且“批准状态未知”——**存在未决依赖**，无法确认能否按时开始执行。\n- 方案C：S3未提及任何批准或顺序依赖；S4为执行负责人补充，未提及批准，但执行时长存在矛盾（见下）。\n\n**3. 来源矛盾**\n\n- **方案C内部矛盾**：S3称执行50分钟，S4称执行实际需90分钟，且S4注明“尚未核实与S3的差异”。两来源冲突，**未决问题：以哪个为准？** 若按S3，C在预算内；若按S4，C超预算。\n- 方案A、B各自来源内部无矛盾，但B的批准状态未知（S2），属于未决问题而非矛盾。\n\n**4. 未决问题（保留）**\n\n1. 方案B的负责人批准是否已获得？（S2未提供）\n2. 方案C的执行时长应以S3（50分钟）还是S4（90分钟）为准？（S4明确未核实）\n3. 若批准未获或C按90分钟计，则B、C均可能无法满足两小时预算——需在批准与时长确认后才能定论。\n\n**结论（仅基于材料，不声称执行）**：在现有信息下，仅方案B（若批准通过）和方案C（若按S3时长）可能满足预算；方案A确定超预算。但B的批准与C的时长矛盾均未解决，故无法给出唯一确定结论。",
+        "multi_agent": {
+          "experts": [
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时30+80+20=130分钟，超过120分钟预算，不可行。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时20+60+20=100分钟，在预算内，但依赖负责人批准且批准状态未知，执行可行性不确定。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟（可行），S4称执行需90分钟（总150分钟，超预算），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案C实际执行时长应以哪个来源为准？",
+                  "方案B的负责人批准状态是否已确认？"
+                ],
+                "risks": [
+                  "方案C执行时长矛盾可能导致预算判断错误",
+                  "方案B因批准未知存在执行延迟风险"
+                ],
+                "summary": "方案A总耗时130分钟，方案B总耗时100分钟但依赖未知的负责人批准，方案C按S3为90分钟但S4称实际需90分钟执行（总150分钟），与S3矛盾。两小时预算下仅方案C（按S3）可行，方案A/B超时；方案B批准状态未知，方案C执行时长矛盾未解决。"
+              },
+              "role": "critic"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时30+80+20=130分钟，超过120分钟预算，不可行。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时20+60+20=100分钟，在预算内，但依赖负责人批准且批准状态未知，执行可行性不确定。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟（可行），S4称执行需90分钟（总150分钟，超预算），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案C实际执行时长应以哪个来源为准？",
+                  "方案B的负责人批准状态是否已确认？"
+                ],
+                "risks": [
+                  "方案C执行时长矛盾可能导致预算判断错误",
+                  "方案B因批准未知存在执行延迟风险"
+                ],
+                "summary": "方案A总耗时130分钟超预算；方案B总耗时100分钟在预算内但依赖未知的负责人批准；方案C按S3为90分钟可行，但S4称执行需90分钟（总150分钟）超预算，存在矛盾。两小时预算下仅方案C（按S3）可行，方案A/B超时；方案B批准状态未知，方案C执行时长矛盾未解决。"
+              },
+              "role": "planner"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时30+80+20=130分钟，超过120分钟预算，不可行。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时20+60+20=100分钟，在预算内，但依赖负责人批准且批准状态未知，执行可行性不确定。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C存在来源矛盾：S3称总耗时90分钟（可行），S4称执行需90分钟（总150分钟，超预算），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案C实际执行时长应以哪个来源为准？",
+                  "方案B的负责人批准状态是否已确认？"
+                ],
+                "risks": [
+                  "方案C执行时长矛盾可能导致预算判断错误",
+                  "方案B因批准未知存在执行延迟风险"
+                ],
+                "summary": "方案A总耗时130分钟超预算；方案B总耗时100分钟在预算内但依赖未知的负责人批准；方案C按S3为90分钟可行，但S4称执行需90分钟（总150分钟）超预算，存在矛盾。两小时预算下仅方案C（按S3）可行，方案A/B超时；方案B批准状态未知，方案C执行时长矛盾未解决。"
+              },
+              "role": "researcher"
+            }
+          ],
+          "failed_roles": [],
+          "incomplete": false,
+          "summary": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（S1），**超出120分钟预算，不可行**。\n- **方案B**：总耗时100分钟（S2），**在预算内**，但依赖负责人批准且批准状态未知，**执行可行性不确定**。\n- **方案C**：**存在来源矛盾**——S3称总耗时90分钟（可行），S4称执行需90分钟（总150分钟，超预算），**差异未核实**。\n\n**未决问题**：\n1. 方案C实际执行时长应以S3还是S4为准？\n2. 方案B的负责人批准状态是否已确认？\n\n**风险提示**：方案C时长矛盾可能导致预算判断错误；方案B因批准未知存在执行延迟风险。\n\n**引用来源**：S1（方案A）、S2（方案B）、S3/S4（方案C矛盾）。"
+        },
+        "quality_review_status": "PENDING",
+        "quality_review": {
+          "status": "PASSED",
+          "method": "frozen_case_deterministic_rubric_v1",
+          "blind_scores": {
+            "A": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "B": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "by_arm": {
+            "single_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "multi_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "observed_multi_agent_gain": false,
+          "default_collaboration_supported": false
+        },
+        "rubric": {
+          "version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "core_pass": "多Agent输出五项全部通过；单Agent使用相同标准独立评分。",
+          "benefit": "仅当多Agent评分更高且费用在冻结上限内，才记录本题观察到收益；同分不算收益，单题不支持默认触发策略。"
+        },
+        "rubric_digest": "e509266f4cfd884c3e1092d7a744d6c1a725dc3672e2fd13a1040292fcf2bf99",
+        "cost_microusd": {
+          "single_agent": 25232,
+          "experts_and_coordinator": 100928,
+          "conversation_setup": 50464
+        }
+      }
+    },
+    {
+      "round": 3,
+      "status": "SUCCEEDED",
+      "run_id": "agent_run_0fb32cb0b292416d8e17880fb5f78cdd",
+      "thread_id": "thread_a4bde6535ab64ed3a7303c2b4587b562",
+      "source_turn_id": "turn_1534473447f54401a20ebc124659c116",
+      "plan_version_id": "planv_baadd6864ad1482b9575fb883fa5f72b",
+      "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+      "profile_version_id": "model_profile_version_2d60771a9164461c9ea18e6f9e81496d",
+      "attempts": [
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 11,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 87,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "expert",
+          "purpose": "expert_critic",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 307,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 289,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "expert",
+          "purpose": "expert_planner",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 287,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 254,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        },
+        {
+          "ordinal": 1,
+          "status": "SUCCEEDED",
+          "cost_status": "ESTIMATED_PARTIAL",
+          "cost_microusd": 25232,
+          "price_snapshot_id": "M3-LIVE-20260909-013-price-0a86bd3293f8",
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "uncached_input_tokens": null,
+          "cache_read_tokens": null,
+          "cache_write_tokens": null,
+          "output_tokens": 1374,
+          "reasoning_tokens": null,
+          "usage_status": "UNAVAILABLE"
+        }
+      ],
+      "invocations": [
+        {
+          "role": "conversation",
+          "purpose": "classify_research_request",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"streaming\",\"text\"],\"role\":\"conversation\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_critic",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_researcher",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "expert_planner",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "coordinator",
+          "purpose": "synthesize_experts",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"coordinator\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        },
+        {
+          "role": "expert",
+          "purpose": "single_agent_baseline",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_d68e43f5434c2bc06c21d96a",
+          "route_snapshot_json": "{\"configured_profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"fallback_enabled\":false,\"profile_sequence\":[\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\"],\"profile_version_id\":\"model_profile_version_2d60771a9164461c9ea18e6f9e81496d\",\"provider_protocol\":\"openai_compatible\",\"required_capabilities\":[\"json_object\",\"text\"],\"role\":\"expert\",\"routing_policy_digest\":\"c657e502834658085797c6af3fb69546c4ab06168b292d16ca448b65af9bc124\",\"routing_policy_id\":\"model_routing_policy_142ad5a54f11475eaefa34d6fb9f6995\",\"runtime_bundle_id\":\"bundle_d68e43f5434c2bc06c21d96a\"}"
+        }
+      ],
+      "charged_microusd": 176624,
+      "event_types": [
+        "agent.run.created",
+        "agent.task.started",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.created",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.join.ready",
+        "agent.task.started",
+        "agent.artifact.committed",
+        "agent.run.completed"
+      ],
+      "fencing": {
+        "cancelled_run": "agent_run_46b496a60bda47779e177e0a672a2a94",
+        "late_result_rejected": true
+      },
+      "state_cases": {
+        "partial_run_id": "agent_run_7dbc37a306c94d5bb3793af8ea311d5a",
+        "partial_child_statuses": [
+          "SUCCEEDED",
+          "FAILED"
+        ],
+        "partial_result": {
+          "experts": [
+            {
+              "result": {
+                "text": "ok"
+              },
+              "role": "critic"
+            }
+          ],
+          "failed_roles": [
+            "researcher"
+          ],
+          "incomplete": true,
+          "summary": "综合多个专家结果。"
+        },
+        "all_failed_run_id": "agent_run_e54d30a5e00d4a6e904a8d84c3bd50f6",
+        "all_failed_status": "FAILED",
+        "budget_case": "covered by fan-out reservation and offline budget gate"
+      },
+      "comparison": {
+        "review_packet": {
+          "case_version": "m3-comparison-v1",
+          "objective": "仅按给定材料比较三个方案，检查两小时预算、执行依赖和来源矛盾，保留未决问题并引用来源编号。不得声称已经执行。",
+          "sources": {
+            "S1": "方案A：准备30分钟，执行80分钟，复核20分钟；步骤依次进行。",
+            "S2": "方案B：准备20分钟，执行60分钟，复核20分钟；执行前必须获得负责人批准。批准状态未知。",
+            "S3": "方案C：准备20分钟，执行50分钟，复核20分钟。",
+            "S4": "方案C执行负责人补充：执行实际需要90分钟，尚未核实与S3的差异。"
+          },
+          "rubric_version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "answers": {
+            "A": "基于给定材料，我按研究员、规划师和评论员三个视角进行比较分析。所有结论仅基于来源S1-S4，不涉及任何外部假设或执行行为。\n\n---\n\n## 一、研究员视角：事实提取与来源核对\n\n### 1. 各方案时间构成（来源S1、S2、S3）\n\n| 方案 | 准备 | 执行 | 复核 | 总计（按材料） |\n|------|------|------|------|----------------|\n| A（S1） | 30分钟 | 80分钟 | 20分钟 | 130分钟 |\n| B（S2） | 20分钟 | 60分钟 | 20分钟 | 100分钟 |\n| C（S3） | 20分钟 | 50分钟 | 20分钟 | 90分钟 |\n\n### 2. 来源矛盾识别\n\n**关键矛盾点：**\n- S3记载方案C执行需50分钟，总计90分钟；\n- S4（方案C执行负责人补充）称执行实际需要90分钟，与S3的50分钟存在**40分钟差异**，且S4明确标注\"尚未核实与S3的差异\"。\n\n**矛盾性质：** S3与S4对方案C执行时长的描述不一致，属于**未解决的来源冲突**。S4的可靠性未被确认，不能直接采信或否定任何一方。\n\n### 3. 执行依赖\n\n- 方案B（S2）明确要求\"执行前必须获得负责人批准\"，且**批准状态未知**——这是方案B特有的前置依赖条件。\n- 方案A（S1）和方案C（S3）在给定材料中**未提及**任何外部批准或前置依赖，步骤依次进行。\n\n---\n\n## 二、规划师视角：两小时（120分钟）预算可行性\n\n### 1. 按各来源原始数据评估\n\n| 方案 | 总时长 | 是否在120分钟内 | 备注 |\n|------|--------|-----------------|------|\n| A | 130分钟 | **否**，超出10分钟 | 即使无任何依赖，也不满足预算 |\n| B | 100分钟 | 是（若批准即时获得） | 但批准状态未知，可能产生额外等待时间 |\n| C（按S3） | 90分钟 | 是 | 无已知依赖 |\n| C（按S4） | 120分钟（20+90+20） | **临界**，恰好等于预算 | 无缓冲余量 |\n\n### 2. 依赖对预算的影响\n\n- **方案B**：100分钟的执行时间本身在预算内，但\"批准状态未知\"意味着若批准延迟，总时间将超出120分钟。**无法在给定信息下确定B是否可行**。\n- **方案A**：无论依赖如何，130分钟已超出预算，**确定不可行**。\n- **方案C**：取决于采信S3还是S4——\n  - 若采信S3：90分钟，可行且有30分钟余量；\n  - 若采信S4：恰好120分钟，无任何缓冲，任何微小延迟都会超时。\n\n### 3. 规划结论（带不确定性）\n\n- 方案A：**排除**（超预算，来源S1）。\n- 方案B：**条件性可行**——仅在批准即时获得的前提下可行；批准状态未知构成未决风险。\n- 方案C：**可行性取决于来源矛盾如何解决**——S3下可行且有余量；S4下临界可行。\n\n---\n\n## 三、评论员视角：风险、矛盾与未决问题\n\n### 1. 主要风险\n\n| 风险 | 涉及方案 | 说明 |\n|------|----------|------|\n| 来源矛盾未解决 | C | S3与S4对执行时长描述冲突（50 vs 90分钟），差异达40分钟，直接影响可行性判断 |\n| 前置依赖不确定 | B | 批准状态未知，无法确认能否按时开始执行 |\n| 无缓冲余量 | C（若S4属实） | 总时长恰好120分钟，任何延误即超预算 |\n| 确定性超时 | A | 130分钟明确超出120分钟预算 |\n\n### 2. 未决问题（需保留）\n\n1. **方案C执行时长究竟是多少？** S3记载50分钟，S4称90分钟且\"尚未核实\"。在核实前，C的可行性无法最终确定。\n2. **方案B的负责人批准能否获得？何时获得？** S2仅说明需要批准，未提供批准状态或预计时间。\n3. **方案A是否存在可压缩环节？** S1未提供任何调整空间的信息，但材料也未排除调整可能性——不过按给定材料，A按原样超时。\n4. **S4的权威性如何？** S4来自\"执行负责人补充\"，但明确标注未核实，其与S3的优先级关系在材料中未定义。\n\n### 3. 综合评论\n\n- **没有方案能在所有来源信息下被确认为无风险可行**：\n  - A确定超时；\n  - B受未知批准状态制约；\n  - C受来源矛盾制约。\n- 若必须按当前材料排序，**C（按S3口径）是唯一在无依赖、有缓冲条件下满足预算的方案**，但该结论受S4挑战。\n- 任何\"选择某方案\"的结论都需先解决上述未决问题，尤其是S3与S4的矛盾。\n\n---\n\n## 四、总结\n\n| 维度 | 方案A | 方案B | 方案C |\n|------|-------|-------|-------|\n| 总时长（按来源） | 130分钟（S1） | 100分钟（S2） | 90分钟（S3）或120分钟（S4） |\n| 120分钟预算 | **超出** | 条件性满足 | S3下满足；S4下临界 |\n| 执行依赖 | 无提及 | 需批准，状态未知 | 无提及 |\n| 来源矛盾 | 无 | 无 | **S3与S4冲突（50 vs 90分钟）** |\n| 可行性判定 | 不可行 | 不确定 | 不确定（取决于矛盾解决） |\n\n**未决问题：** ①C的执行时长（S3 vs S4）；②B的批准状态；③S4相对S3的可信度优先级。\n\n以上分析仅基于来源S1-S4，未执行任何操作或验证。",
+            "B": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（30+80+20），**超出120分钟预算**，不可行（来源S1）。\n- **方案B**：总耗时100分钟（20+60+20），在预算内，但**执行前需负责人批准，批准状态未知**，构成执行依赖，当前无法确认可行性（来源S2）。\n- **方案C**：**来源矛盾**——S3称90分钟（20+50+20），S4称实际需150分钟（20+90+20+20），差异未核实；若按S4则超出预算（来源S3、S4）。\n\n**未决问题**：\n1. 方案B的负责人批准状态为何？\n2. 方案C实际执行时间应以S3还是S4为准？\n\n**风险提示**：方案B可能因批准未知无法在预算内启动；方案C时间不确定，且S3与S4矛盾影响评估可靠性。\n\n**结论**：在现有材料下，**无方案可被确认可行**——A明确超预算，B受未知批准依赖制约，C存在时间矛盾待核实。"
+          },
+          "instructions": "独立对A/B逐项评分并摘录支持评分的原句；不要猜测身份或考虑文风、篇幅与费用。缺少证据的项不得给分。",
+          "packet_digest": "0a654e6f2c2f9e07a35cc0feaa45f6fe58977ed50675365494ccd92bf4ab13d7"
+        },
+        "review_mapping": {
+          "packet_digest": "0a654e6f2c2f9e07a35cc0feaa45f6fe58977ed50675365494ccd92bf4ab13d7",
+          "labels": {
+            "A": "single_agent",
+            "B": "multi_agent"
+          }
+        },
+        "case_version": "m3-comparison-v1",
+        "context_digest": "72c5727ed015db4d39cd8cd3e5ca2aa6f4a189643892117ff442c316949cf7c7",
+        "single_agent": "基于给定材料，我按研究员、规划师和评论员三个视角进行比较分析。所有结论仅基于来源S1-S4，不涉及任何外部假设或执行行为。\n\n---\n\n## 一、研究员视角：事实提取与来源核对\n\n### 1. 各方案时间构成（来源S1、S2、S3）\n\n| 方案 | 准备 | 执行 | 复核 | 总计（按材料） |\n|------|------|------|------|----------------|\n| A（S1） | 30分钟 | 80分钟 | 20分钟 | 130分钟 |\n| B（S2） | 20分钟 | 60分钟 | 20分钟 | 100分钟 |\n| C（S3） | 20分钟 | 50分钟 | 20分钟 | 90分钟 |\n\n### 2. 来源矛盾识别\n\n**关键矛盾点：**\n- S3记载方案C执行需50分钟，总计90分钟；\n- S4（方案C执行负责人补充）称执行实际需要90分钟，与S3的50分钟存在**40分钟差异**，且S4明确标注\"尚未核实与S3的差异\"。\n\n**矛盾性质：** S3与S4对方案C执行时长的描述不一致，属于**未解决的来源冲突**。S4的可靠性未被确认，不能直接采信或否定任何一方。\n\n### 3. 执行依赖\n\n- 方案B（S2）明确要求\"执行前必须获得负责人批准\"，且**批准状态未知**——这是方案B特有的前置依赖条件。\n- 方案A（S1）和方案C（S3）在给定材料中**未提及**任何外部批准或前置依赖，步骤依次进行。\n\n---\n\n## 二、规划师视角：两小时（120分钟）预算可行性\n\n### 1. 按各来源原始数据评估\n\n| 方案 | 总时长 | 是否在120分钟内 | 备注 |\n|------|--------|-----------------|------|\n| A | 130分钟 | **否**，超出10分钟 | 即使无任何依赖，也不满足预算 |\n| B | 100分钟 | 是（若批准即时获得） | 但批准状态未知，可能产生额外等待时间 |\n| C（按S3） | 90分钟 | 是 | 无已知依赖 |\n| C（按S4） | 120分钟（20+90+20） | **临界**，恰好等于预算 | 无缓冲余量 |\n\n### 2. 依赖对预算的影响\n\n- **方案B**：100分钟的执行时间本身在预算内，但\"批准状态未知\"意味着若批准延迟，总时间将超出120分钟。**无法在给定信息下确定B是否可行**。\n- **方案A**：无论依赖如何，130分钟已超出预算，**确定不可行**。\n- **方案C**：取决于采信S3还是S4——\n  - 若采信S3：90分钟，可行且有30分钟余量；\n  - 若采信S4：恰好120分钟，无任何缓冲，任何微小延迟都会超时。\n\n### 3. 规划结论（带不确定性）\n\n- 方案A：**排除**（超预算，来源S1）。\n- 方案B：**条件性可行**——仅在批准即时获得的前提下可行；批准状态未知构成未决风险。\n- 方案C：**可行性取决于来源矛盾如何解决**——S3下可行且有余量；S4下临界可行。\n\n---\n\n## 三、评论员视角：风险、矛盾与未决问题\n\n### 1. 主要风险\n\n| 风险 | 涉及方案 | 说明 |\n|------|----------|------|\n| 来源矛盾未解决 | C | S3与S4对执行时长描述冲突（50 vs 90分钟），差异达40分钟，直接影响可行性判断 |\n| 前置依赖不确定 | B | 批准状态未知，无法确认能否按时开始执行 |\n| 无缓冲余量 | C（若S4属实） | 总时长恰好120分钟，任何延误即超预算 |\n| 确定性超时 | A | 130分钟明确超出120分钟预算 |\n\n### 2. 未决问题（需保留）\n\n1. **方案C执行时长究竟是多少？** S3记载50分钟，S4称90分钟且\"尚未核实\"。在核实前，C的可行性无法最终确定。\n2. **方案B的负责人批准能否获得？何时获得？** S2仅说明需要批准，未提供批准状态或预计时间。\n3. **方案A是否存在可压缩环节？** S1未提供任何调整空间的信息，但材料也未排除调整可能性——不过按给定材料，A按原样超时。\n4. **S4的权威性如何？** S4来自\"执行负责人补充\"，但明确标注未核实，其与S3的优先级关系在材料中未定义。\n\n### 3. 综合评论\n\n- **没有方案能在所有来源信息下被确认为无风险可行**：\n  - A确定超时；\n  - B受未知批准状态制约；\n  - C受来源矛盾制约。\n- 若必须按当前材料排序，**C（按S3口径）是唯一在无依赖、有缓冲条件下满足预算的方案**，但该结论受S4挑战。\n- 任何\"选择某方案\"的结论都需先解决上述未决问题，尤其是S3与S4的矛盾。\n\n---\n\n## 四、总结\n\n| 维度 | 方案A | 方案B | 方案C |\n|------|-------|-------|-------|\n| 总时长（按来源） | 130分钟（S1） | 100分钟（S2） | 90分钟（S3）或120分钟（S4） |\n| 120分钟预算 | **超出** | 条件性满足 | S3下满足；S4下临界 |\n| 执行依赖 | 无提及 | 需批准，状态未知 | 无提及 |\n| 来源矛盾 | 无 | 无 | **S3与S4冲突（50 vs 90分钟）** |\n| 可行性判定 | 不可行 | 不确定 | 不确定（取决于矛盾解决） |\n\n**未决问题：** ①C的执行时长（S3 vs S4）；②B的批准状态；③S4相对S3的可信度优先级。\n\n以上分析仅基于来源S1-S4，未执行任何操作或验证。",
+        "multi_agent": {
+          "experts": [
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C时间存在矛盾：S3称90分钟（20+50+20），S4称实际需150分钟（20+90+20+20？），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C实际执行时间应以S3还是S4为准？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，可能无法在预算内启动或完成。",
+                  "方案C的实际执行时间不确定，若按S4则超出预算。",
+                  "来源S3与S4矛盾，影响方案C评估可靠性。"
+                ],
+                "summary": "基于给定材料，方案A总耗时130分钟，方案B总耗时100分钟但依赖未知的负责人批准，方案C按S3为90分钟但S4称实际需150分钟。方案A超出两小时预算；方案B和C在批准或时间确认前无法确定可行性。存在S3与S4关于方案C执行时间的矛盾。"
+              },
+              "role": "critic"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C时间存在矛盾：S3称90分钟（20+50+20），S4称实际需150分钟（20+90+20+20），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C实际执行时间应以S3还是S4为准？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，可能无法在预算内启动或完成。",
+                  "方案C实际执行时间不确定，若按S4则超出预算；S3与S4矛盾影响评估可靠性。"
+                ],
+                "summary": "方案A总耗时130分钟，超出120分钟预算；方案B总耗时100分钟，但依赖未知的负责人批准；方案C按S3为90分钟，但S4称实际需150分钟，存在矛盾。方案B和C在批准或时间确认前无法确定可行性。"
+              },
+              "role": "planner"
+            },
+            {
+              "result": {
+                "findings": [
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S1"
+                    ],
+                    "text": "方案A总耗时130分钟（30+80+20），超出120分钟预算。"
+                  },
+                  {
+                    "confidence": 1.0,
+                    "source_refs": [
+                      "S2"
+                    ],
+                    "text": "方案B总耗时100分钟（20+60+20），但执行前需负责人批准，批准状态未知，构成执行依赖。"
+                  },
+                  {
+                    "confidence": 0.9,
+                    "source_refs": [
+                      "S3",
+                      "S4"
+                    ],
+                    "text": "方案C时间存在矛盾：S3称90分钟（20+50+20），S4称实际需150分钟（20+90+20+20），差异未核实。"
+                  }
+                ],
+                "open_questions": [
+                  "方案B的负责人批准状态为何？",
+                  "方案C实际执行时间应以S3还是S4为准？"
+                ],
+                "risks": [
+                  "方案B因批准状态未知，可能无法在预算内启动或完成。",
+                  "方案C实际执行时间不确定，若按S4则超出预算；S3与S4矛盾影响评估可靠性。"
+                ],
+                "summary": "基于给定材料，方案A总耗时130分钟超出两小时预算；方案B总耗时100分钟但依赖未知的负责人批准；方案C按S3为90分钟，但S4称实际需150分钟，存在矛盾。方案B和C在批准或时间确认前无法确定可行性。"
+              },
+              "role": "researcher"
+            }
+          ],
+          "failed_roles": [],
+          "incomplete": false,
+          "summary": "**综合结论（仅基于给定材料，未执行任何操作）**\n\n- **方案A**：总耗时130分钟（30+80+20），**超出120分钟预算**，不可行（来源S1）。\n- **方案B**：总耗时100分钟（20+60+20），在预算内，但**执行前需负责人批准，批准状态未知**，构成执行依赖，当前无法确认可行性（来源S2）。\n- **方案C**：**来源矛盾**——S3称90分钟（20+50+20），S4称实际需150分钟（20+90+20+20），差异未核实；若按S4则超出预算（来源S3、S4）。\n\n**未决问题**：\n1. 方案B的负责人批准状态为何？\n2. 方案C实际执行时间应以S3还是S4为准？\n\n**风险提示**：方案B可能因批准未知无法在预算内启动；方案C时间不确定，且S3与S4矛盾影响评估可靠性。\n\n**结论**：在现有材料下，**无方案可被确认可行**——A明确超预算，B受未知批准依赖制约，C存在时间矛盾待核实。"
+        },
+        "quality_review_status": "PENDING",
+        "quality_review": {
+          "status": "PASSED",
+          "method": "frozen_case_deterministic_rubric_v1",
+          "blind_scores": {
+            "A": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "B": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "by_arm": {
+            "single_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            },
+            "multi_agent": {
+              "scores": {
+                "a_budget": 1,
+                "b_dependency": 1,
+                "c_conflict": 1,
+                "source_support": 1,
+                "action_boundary": 1
+              },
+              "total": 5,
+              "passed": true
+            }
+          },
+          "observed_multi_agent_gain": false,
+          "default_collaboration_supported": false
+        },
+        "rubric": {
+          "version": "m3-comparison-rubric-v1",
+          "criteria": {
+            "a_budget": "依据S1算出A为130分钟，超过120分钟预算，不推荐直接执行。",
+            "b_dependency": "依据S2算出B为100分钟，但批准未知，必须确认后才能执行。",
+            "c_conflict": "指出S3/S4矛盾：C可能为90或130分钟，不擅自确定哪份正确。",
+            "source_support": "上述事实准确关联给定来源，不虚构来源或额外事实。",
+            "action_boundary": "不给无条件执行承诺，不声称已批准、已核实或已执行。"
+          },
+          "scoring": "每项0或1分，评判须附输出原句；任一事实或权限越界为硬失败。",
+          "core_pass": "多Agent输出五项全部通过；单Agent使用相同标准独立评分。",
+          "benefit": "仅当多Agent评分更高且费用在冻结上限内，才记录本题观察到收益；同分不算收益，单题不支持默认触发策略。"
+        },
+        "rubric_digest": "e509266f4cfd884c3e1092d7a744d6c1a725dc3672e2fd13a1040292fcf2bf99",
+        "cost_microusd": {
+          "single_agent": 25232,
+          "experts_and_coordinator": 100928,
+          "conversation_setup": 50464
+        }
+      }
+    }
+  ],
+  "database": {
+    "mode": "current_runtime",
+    "name": "better_agent"
+  },
+  "stage_complete": true,
+  "cleanup": {
+    "test_rows_removed": 588,
+    "stable_bundle_restored": true
+  },
+  "elapsed_seconds": 68.294399,
+  "network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "succeeded",
+      "prompt_digest": "40c1c42a231c1a44e0a9984495149e623e0df19d582133b3096a09f4594dace4",
+      "request_digest": "a09714ebb9fa0ac49f176a881e6bc590c76774c6e0f4662965e5f422b52cb146",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "35afb05549a801e26e7e9c82a39f1f7625df08aeb2bd398c19a18b5d3dab9f67",
+      "finish_reason": "stop",
+      "visible_output_bytes": 35
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "prompt_digest": "c5ee3fbce5d488d813b2ec115542e46ac5cf89f52ffaa6edcc1536f0142c9b80",
+      "request_digest": "d6c64767b041feb14496a56c1fb61569bf9d75dd6b6b559f5d7760135af4cb47",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "98030a70333c7760f289dca6d2daa30d5b3684ddf6cac41387e98086bb1814f1",
+      "finish_reason": "stop",
+      "visible_output_bytes": 342,
+      "synthetic_route_reply": "{\"v\":4,\"policy\":\"start_expert\",\"content_shape\":\"expert_collaboration\",\"reason_code\":\"explicit_expert_collaboration\",\"expert\":{\"objective\":\"仅按给定材料比较方案A/B/C，检查两小时预算、执行依赖与来源矛盾，保留未决问题并引用来源编号，不得声称已执行。\",\"roles\":[\"researcher\",\"planner\",\"critic\"]}}",
+      "control_header_diagnostic": {
+        "raw_protocol_error": "conversation control header is missing",
+        "contains_newline": false,
+        "output_bytes": 342
+      }
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "b40ba0c062bbf16210f44e8544e9fc5ab89ab405d1ef1655477a1d6ee08f8c7d",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "fd248746f5b774336c0017969d23fd756d6bae0bd257e76dad4b6e887b7d5987",
+      "finish_reason": "stop",
+      "visible_output_bytes": 986
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "3600c0a973df0e3d6e698e1ccacfe81eef55b882f3b423e942e40e436252c5da",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "fd248746f5b774336c0017969d23fd756d6bae0bd257e76dad4b6e887b7d5987",
+      "finish_reason": "stop",
+      "visible_output_bytes": 986
+    },
+    {
+      "ordinal": 5,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "d5b96c73070f33945687aca8b4a0266da52ce2573ddaa1508466fa23623d7ceb",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "fd248746f5b774336c0017969d23fd756d6bae0bd257e76dad4b6e887b7d5987",
+      "finish_reason": "stop",
+      "visible_output_bytes": 986
+    },
+    {
+      "ordinal": 6,
+      "round": 1,
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "succeeded",
+      "prompt_digest": "bdfa5a6d1be1a389e99c1b863bab7ab5bc87a20f4819e6fb8a819f8430dc865c",
+      "request_digest": "00b26d4a1f62622ef3a1978739760ebc36acde5d673e23baea52e6e129ef4dfd",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "7c5a62dbc1ca41fea5b3652e173fe538ccd98f0bb93ae8bc334cef69ecf7ead1",
+      "finish_reason": "stop",
+      "visible_output_bytes": 897
+    },
+    {
+      "ordinal": 7,
+      "round": 1,
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "succeeded",
+      "prompt_digest": "2ab2056fdc8a9c6fb5a0aed95df96c930efcfbc4334580dda6e0113285a3cc7b",
+      "request_digest": "cfbf3552e494828d2702febe4107c6e0028450e2505684a608eb11569aade124",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "e2893edaf3ad555c47fdf6e4cb40936032f3574fb943f8c8578d288fa33f221b",
+      "finish_reason": "stop",
+      "visible_output_bytes": 3589
+    },
+    {
+      "ordinal": 8,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "succeeded",
+      "prompt_digest": "40c1c42a231c1a44e0a9984495149e623e0df19d582133b3096a09f4594dace4",
+      "request_digest": "a09714ebb9fa0ac49f176a881e6bc590c76774c6e0f4662965e5f422b52cb146",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "35afb05549a801e26e7e9c82a39f1f7625df08aeb2bd398c19a18b5d3dab9f67",
+      "finish_reason": "stop",
+      "visible_output_bytes": 35
+    },
+    {
+      "ordinal": 9,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "prompt_digest": "c5ee3fbce5d488d813b2ec115542e46ac5cf89f52ffaa6edcc1536f0142c9b80",
+      "request_digest": "d6c64767b041feb14496a56c1fb61569bf9d75dd6b6b559f5d7760135af4cb47",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "98030a70333c7760f289dca6d2daa30d5b3684ddf6cac41387e98086bb1814f1",
+      "finish_reason": "stop",
+      "visible_output_bytes": 342,
+      "synthetic_route_reply": "{\"v\":4,\"policy\":\"start_expert\",\"content_shape\":\"expert_collaboration\",\"reason_code\":\"explicit_expert_collaboration\",\"expert\":{\"objective\":\"仅按给定材料比较方案A/B/C，检查两小时预算、执行依赖与来源矛盾，保留未决问题并引用来源编号，不得声称已执行。\",\"roles\":[\"researcher\",\"planner\",\"critic\"]}}",
+      "control_header_diagnostic": {
+        "raw_protocol_error": "conversation control header is missing",
+        "contains_newline": false,
+        "output_bytes": 342
+      }
+    },
+    {
+      "ordinal": 10,
+      "round": 2,
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "93a8671a68064714ed0270691025bce860efd1adb066f6b18440b4e4298415a0",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "d0ddf9db1199e6d29a444bdc8a71911cded73a11efb69c77bcd0158a394b0c4d",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1072
+    },
+    {
+      "ordinal": 11,
+      "round": 2,
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "a8900361c929f63b3dd8b512d21d6150863addee12d104c3b1b9ce78ff98b67b",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "1d1da7023f1ed4e3312723fa5733ba36bee025bed1a4a18bcfe182a6c7c17f1f",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1106
+    },
+    {
+      "ordinal": 12,
+      "round": 2,
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "61721150e15ea9b05be70d45d7a94b7f6c12c1fc12283451fa765114b5193461",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "1d1da7023f1ed4e3312723fa5733ba36bee025bed1a4a18bcfe182a6c7c17f1f",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1106
+    },
+    {
+      "ordinal": 13,
+      "round": 2,
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "succeeded",
+      "prompt_digest": "bdfa5a6d1be1a389e99c1b863bab7ab5bc87a20f4819e6fb8a819f8430dc865c",
+      "request_digest": "366ccb47bf3eff2a4f48367f37cee7b4b1c5637ead084f380016f586f270bf17",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "6aa711ee89f8f5c7975d245f6302a1705804d497df5ae224937be89e67821961",
+      "finish_reason": "stop",
+      "visible_output_bytes": 791
+    },
+    {
+      "ordinal": 14,
+      "round": 2,
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "succeeded",
+      "prompt_digest": "2ab2056fdc8a9c6fb5a0aed95df96c930efcfbc4334580dda6e0113285a3cc7b",
+      "request_digest": "61f92023190a6030bd2c3f61c50b497d98500588665fab0368012199ccb3cfdf",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "e46b7f4dc0d339fe4a2bcea990db19ebeaca34bcb8e6494855266d36c0eb00dc",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1827
+    },
+    {
+      "ordinal": 15,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "succeeded",
+      "prompt_digest": "40c1c42a231c1a44e0a9984495149e623e0df19d582133b3096a09f4594dace4",
+      "request_digest": "a09714ebb9fa0ac49f176a881e6bc590c76774c6e0f4662965e5f422b52cb146",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "35afb05549a801e26e7e9c82a39f1f7625df08aeb2bd398c19a18b5d3dab9f67",
+      "finish_reason": "stop",
+      "visible_output_bytes": 35
+    },
+    {
+      "ordinal": 16,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "prompt_digest": "c5ee3fbce5d488d813b2ec115542e46ac5cf89f52ffaa6edcc1536f0142c9b80",
+      "request_digest": "d6c64767b041feb14496a56c1fb61569bf9d75dd6b6b559f5d7760135af4cb47",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "98030a70333c7760f289dca6d2daa30d5b3684ddf6cac41387e98086bb1814f1",
+      "finish_reason": "stop",
+      "visible_output_bytes": 342,
+      "synthetic_route_reply": "{\"v\":4,\"policy\":\"start_expert\",\"content_shape\":\"expert_collaboration\",\"reason_code\":\"explicit_expert_collaboration\",\"expert\":{\"objective\":\"仅按给定材料比较方案A/B/C，检查两小时预算、执行依赖与来源矛盾，保留未决问题并引用来源编号，不得声称已执行。\",\"roles\":[\"researcher\",\"planner\",\"critic\"]}}",
+      "control_header_diagnostic": {
+        "raw_protocol_error": "conversation control header is missing",
+        "contains_newline": false,
+        "output_bytes": 342
+      }
+    },
+    {
+      "ordinal": 17,
+      "round": 3,
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "5b340b3da11161398009d968c6d1b97037db70a130a1d3fa9084b5837d6d3841",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "6bc1daa703b1ead483fb935ccff3e72f7ac2bfe13c83adf4d16401888f3ee8d8",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1118
+    },
+    {
+      "ordinal": 18,
+      "round": 3,
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "705a16e8b38efd2ea9157cc3b6bbbfa37b18a8cb20fff0ccbb72f4583d910f5d",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "f746f88945a6658d2735caf73e6234fb84e7ed1171d589f1e6a54852f1cdb1b1",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1051
+    },
+    {
+      "ordinal": 19,
+      "round": 3,
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "succeeded",
+      "prompt_digest": "8cbdde359b8ae3a420d3a0ff203836cb8f7c25501a5fe40835f26620de8fa1ca",
+      "request_digest": "7be7bc35fbabc6b2848492c315a99ac84d45e4eaa41ada161da09fcce662a26b",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "7c36768c89877cd2fc777ef91cc391a8eddf51ee9e11f7219d3351556605c1c8",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1036
+    },
+    {
+      "ordinal": 20,
+      "round": 3,
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "succeeded",
+      "prompt_digest": "bdfa5a6d1be1a389e99c1b863bab7ab5bc87a20f4819e6fb8a819f8430dc865c",
+      "request_digest": "96d076749f7acd6dfeafddb837deb3035ce832b7853a6e28574f0f5f72e70d9c",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "b0bc8c44bf10f533b3d5f4d2e48dabd2ccd462841914745b4fe640ffea7ef984",
+      "finish_reason": "stop",
+      "visible_output_bytes": 953
+    },
+    {
+      "ordinal": 21,
+      "round": 3,
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "succeeded",
+      "prompt_digest": "2ab2056fdc8a9c6fb5a0aed95df96c930efcfbc4334580dda6e0113285a3cc7b",
+      "request_digest": "6e9142845d10e952c64d6b47c4cda1b7b1e05cc4e90e2674d338f118b0028b42",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "7ab9d9d43a46f3c5363ef460aa83212ddf14e6fc4293d97c46d39cb6355fd063",
+      "finish_reason": "stop",
+      "visible_output_bytes": 4992
+    }
+  ]
+}

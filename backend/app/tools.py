@@ -27,6 +27,10 @@ class ToolRejected(PermissionError):
     pass
 
 
+class ToolReconciliationRequired(ToolRejected):
+    pass
+
+
 @dataclass(frozen=True)
 class ToolCall:
     id: str
@@ -137,10 +141,14 @@ class ToolRegistry:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
             self._mark_reconciliation(call, run_id, params_hash, str(exc))
-            raise ToolRejected("tool execution requires reconciliation") from exc
-        except FutureTimeout:
+            raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
+        except FutureTimeout as exc:
             future.cancel()
             executor.shutdown(wait=False, cancel_futures=True)
+            # A running thread cannot be cancelled; WRITE effects may still land.
+            if risk == ToolRisk.WRITE:
+                self._mark_reconciliation(call, run_id, params_hash, "timeout")
+                raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
             timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
             self._record_call(call, run_id, params_hash, risk, timeout_result)
             return timeout_result
@@ -227,7 +235,7 @@ class ToolRegistry:
                     (logical_key, run_id, call.id, call.name, params_hash, now, now),
                 )
         if reconciliation_required:
-            raise ToolRejected("tool execution requires reconciliation")
+            raise ToolReconciliationRequired("tool execution requires reconciliation")
         return None
 
     def _mark_reconciliation(self, call: ToolCall, run_id: str, params_hash: str, error: str) -> None:
@@ -272,8 +280,11 @@ class ToolRegistry:
         now = datetime.now().astimezone().isoformat()
         with self.db.transaction() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
-                "created_at, completed_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?)",
+                "INSERT INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
+                "created_at, completed_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id,tool_name=excluded.tool_name,"
+                "params_hash=excluded.params_hash,risk=excluded.risk,status=excluded.status,"
+                "result_json=excluded.result_json,created_at=excluded.created_at,completed_at=excluded.completed_at",
                 (call.id, run_id, call.name, params_hash, risk.value, json.dumps(result.as_dict()), now, now),
             )
             connection.execute(

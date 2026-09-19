@@ -31,6 +31,55 @@ export interface TrajectoryGroup {
   events: TrajectoryItem[];
 }
 
+export type TrajectoryView = "summary" | "debug";
+
+const summaryRunEvents = new Set([
+  "interaction.started", "context.snapshot_created", "model.invocation_started", "model.output.started", "model.first_token",
+  "model.response", "model.fallback.selected", "model.response.reset", "approval.requested",
+  "approval.rejected", "tool.execution.started", "tool.execution.finished", "tool.started", "tool.finished",
+  "plan.approved", "plan.step_started", "plan.step_finished", "run.blocked", "run.failed",
+  "run.cancelled", "run.completed", "state.transitioned", "budget.warning", "budget.exhausted",
+]);
+
+const summaryThreadEvents = new Set([
+  "turn.started", "plan.context_loaded", "model.output.started",
+  // R2-04: the user must be able to see that the app is *整理历史* rather than
+  // thinking the model has started answering, and must be told when a wait ran
+  // out or when history was dropped. These are context-stage status events, so
+  // they can never be read as first-token progress.
+  "context.archiving", "context.archive_wait_timeout", "context.incomplete",
+  "memory.retrieval.completed", "message.completed",
+  "ask.requested", "turn.awaiting_input", "ask.answered", "turn.awaiting_direction",
+  "turn.direction_selected", "turn.failed", "turn.cancel_requested", "turn.cancelled",
+  "execution.materialized", "expert.requested", "research.requested", "plan.document_ready",
+  "plan.document_failed", "plan.document_conflict", "plan.execution_projection_failed",
+]);
+
+export function isKeyTrajectoryEvent(event: EventRecord | ThreadEvent, mode: "run" | "thread"): boolean {
+  if (mode === "thread") {
+    if (["turn.metrics.updated", "message.delta", "message.snapshot"].includes(event.type)) return false;
+    return summaryThreadEvents.has(event.type)
+      || /failed|cancel|fallback|blocked|retry/.test(event.type);
+  }
+  if (event.type.startsWith("cost.") || event.type === "model.response.delta") return false;
+  if (event.type === "model.attempt.finished" && String(event.data.status) === "succeeded") return false;
+  return summaryRunEvents.has(event.type)
+    || /failed|cancel|fallback|blocked|retry/.test(event.type);
+}
+
+export function keyTrajectoryEvents<T extends EventRecord | ThreadEvent>(
+  events: T[], mode: "run" | "thread",
+): T[] {
+  return events.filter((event) => isKeyTrajectoryEvent(event, mode));
+}
+
+export function formatDuration(value: unknown): string {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return "--";
+  const seconds = value / 1000;
+  const decimals = seconds < 10 ? 2 : seconds < 100 ? 1 : 0;
+  return `${seconds.toFixed(decimals).replace(/\.0+$/, "").replace(/(\.\d*[1-9])0+$/, "$1")}s`;
+}
+
 const stateLabels: Record<string, string> = {
   RECEIVED: "收到目标",
   CLARIFYING: "澄清阶段",
@@ -249,7 +298,45 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
     case "turn.accepted":
       return make(event, "interaction", "已收到你的消息", "正在准备本轮回答");
     case "turn.started":
-      return make(event, "interaction", "本轮对话已开始", "正在安排模型回答");
+      return make(event, "interaction", "本轮对话已开始", `排队 ${formatDuration(data.queue_wait_ms)}，正在准备上下文`);
+    case "memory.retrieval.completed": {
+      const mode = text(data, "retrieval_mode");
+      if (mode === "semantic") {
+        return make(event, "context", "已完成语义记忆检索", "已按当前对话范围选择相关长期记忆");
+      }
+      const fallbackLabels: Record<string, string> = {
+        embedding_not_configured: "向量模型未配置，已自动降级",
+        no_semantic_candidates: "没有语义候选，已自动降级",
+        timeout: "向量服务超时，已自动降级",
+        rate_limit: "向量服务繁忙，已自动降级",
+      };
+      const reason = fallbackLabels[text(data, "fallback_reason")] ?? "语义检索不可用，已自动降级";
+      return make(event, "context", "已使用关键词记忆检索", reason);
+    }
+    case "context.archiving": {
+      // A status hint about the *context* stage. Deliberately rendered with the
+      // context tone and never as model output: 整理历史 is not 首字.
+      const state = text(data, "state");
+      const waited = formatDuration(data.waited_ms);
+      if (state === "waiting") {
+        return make(event, "context", "正在整理历史上下文", `已等待 ${waited}，整理完成后会立即开始回答`);
+      }
+      if (state === "ready") {
+        return make(event, "context", "历史上下文已整理完成", `等待 ${waited}，正在准备回答`);
+      }
+      if (state === "cancelled") {
+        return make(event, "context", "已停止等待历史整理", "本轮已取消；已整理好的部分会保留");
+      }
+      return make(event, "context", "历史整理未在时限内完成", `已等待 ${waited}，本轮未生成回答`);
+    }
+    case "context.counted":
+      return make(event, "context", "本轮上下文已选定", `本地选择耗时 ${formatDuration(data.counting_ms)}，保留 ${text(data, "kept_turns", "?")} 轮`);
+    case "context.archive_wait_timeout":
+      return make(event, "context", "历史整理超时，本轮未生成回答", text(data, "message", "你的输入已保存，稍后可以直接继续，不需要重新输入。"), "warning");
+    case "context.incomplete":
+      return make(event, "context", "本轮回答未包含完整历史", text(data, "message", "历史整理不可用，本轮基于有限上下文回答"), "warning");
+    case "context.window_degraded":
+      return make(event, "context", "最近对话超出窗口上限", text(data, "reason", "已按上限缩小最近对话范围，摘要仍然保留"));
     case "turn.policy_decided":
       return make(event, "model", "已确定回答方式", "模型已完成本轮路由判断");
     case "plan.document_prepared":
@@ -303,6 +390,8 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
       return make(event, "interaction", "已记录你的选择", text(data, "action", "正在应用下一步操作"));
     case "turn.completed":
       return make(event, "interaction", "本轮对话完成", "回答已加入对话，可以继续输入下一步");
+    case "turn.metrics.updated":
+      return make(event, "model", "本轮耗时已更新", `排队 ${formatDuration(data.queue_wait_ms)} · 上下文 ${formatDuration(data.context_ms)} · TTFT ${formatDuration(data.model_ttft_ms)} · 输出 ${formatDuration(data.stream_ms)}`);
     case "turn.failed":
       return make(event, "state", "本轮对话未完成", "可以重新发送消息，再次尝试生成回答");
     case "turn.cancel_requested":
@@ -314,6 +403,65 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
     default:
       return make(event, "state", "对话进展已更新", "新的线程事件已记录");
   }
+}
+
+export type ArchiveStatusHint = {
+  state: "waiting" | "timeout" | "cancelled" | "incomplete";
+  title: string;
+  detail: string;
+  tone: TrajectoryTone;
+};
+
+/**
+ * The live archival status for a thread, derived from the event stream.
+ *
+ * Polling the archive-jobs endpoint cannot meet a one-second status target, so
+ * the status is taken from the newest `context.archiving` event instead: the
+ * backend emits it the moment the wait starts, and it arrives on the same
+ * stream as everything else. `ready` is a terminal state that clears the hint.
+ *
+ * Only the newest event matters, so the state machine needs no turn identity:
+ * each wait emits `waiting` and then exactly one of `ready`/`cancelled`/`timeout`.
+ */
+export function latestArchiveStatus(events: ThreadEvent[]): ArchiveStatusHint | null {
+  const relevant = ["context.archiving", "context.archive_wait_timeout", "context.incomplete"];
+  const newest = [...events].reverse().find((event) => relevant.includes(event.type));
+  if (!newest) return null;
+  if (newest.type === "context.archive_wait_timeout") {
+    return {
+      state: "timeout",
+      title: "历史整理超时，本轮未生成回答",
+      detail: text(newest.data, "message", "你的输入已保存，稍后可以直接继续，不需要重新输入。"),
+      tone: "warning",
+    };
+  }
+  if (newest.type === "context.incomplete") {
+    return {
+      state: "incomplete",
+      title: "本轮回答未包含完整历史",
+      detail: text(newest.data, "message", "历史整理不可用，本轮基于有限上下文回答"),
+      tone: "warning",
+    };
+  }
+  const state = text(newest.data, "state");
+  if (state === "waiting") {
+    return {
+      state: "waiting",
+      title: "正在整理历史上下文",
+      detail: "整理完成后会立即开始回答；这一步不是模型输出。",
+      tone: "info",
+    };
+  }
+  if (state === "cancelled") {
+    return {
+      state: "cancelled",
+      title: "已停止等待历史整理",
+      detail: "已整理好的部分会保留，可以重新发送消息继续。",
+      tone: "neutral",
+    };
+  }
+  // "ready" (and anything unrecognised) clears the hint.
+  return null;
 }
 
 export function groupEvents(events: EventRecord[]): TrajectoryGroup[] {

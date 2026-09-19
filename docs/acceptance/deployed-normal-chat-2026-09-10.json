@@ -1,0 +1,534 @@
+{
+  "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+  "submission": {
+    "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+    "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+    "status": "ACCEPTED",
+    "version": 0,
+    "event_cursor": 1
+  },
+  "events": {
+    "events": [
+      {
+        "schema_version": 1,
+        "event_id": "tevt_5b72b79e97e943e3bf6b2f899abac97d",
+        "seq": 1,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "turn.accepted",
+        "occurred_at": "2026-09-10T09:57:11.034458+00:00",
+        "actor": "user",
+        "data": {
+          "client_turn_id": "421d28bab1574ac8bb9672324e62e6d1",
+          "message_id": "message_ddaf2ea956244c15a82b20aa1dec4284",
+          "skill_names": []
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_b2da8a2740a442198846808177bc0d13",
+        "seq": 2,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "turn.started",
+        "occurred_at": "2026-09-10T09:57:11.066820+00:00",
+        "actor": "worker",
+        "data": {
+          "attempt": 1,
+          "queue_wait_ms": 32
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_f13c896d2ecb4391bae273a2eca276f5",
+        "seq": 3,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "memory.retrieval.completed",
+        "occurred_at": "2026-09-10T09:57:11.112108+00:00",
+        "actor": "worker",
+        "data": {
+          "dropped_count": 0,
+          "embedding_profile_id": null,
+          "fallback_reason": "embedding_not_configured",
+          "lexical_candidate_count": 0,
+          "memory_retrieval_ms": 15,
+          "retrieval_mode": "lexical_fallback",
+          "selected_episode_count": 0,
+          "selected_revision_count": 0,
+          "semantic_candidate_count": 0
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_80402dabaf034046b36244544be65c47",
+        "seq": 4,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.invocation.created",
+        "occurred_at": "2026-09-10T09:57:11.140317+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+          "role": "conversation"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_640cbaf2261e4469b89198d67f13b6a9",
+        "seq": 5,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.route.selected",
+        "occurred_at": "2026-09-10T09:57:11.142895+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+          "profile_version_ids": [
+            "model_profile_version_702f71bfaa214cf5aad20adaebb6fb36",
+            "model_profile_version_af096f297855423590a895e59f8eaff4"
+          ],
+          "routing_policy_digest": "c11ec2416e81f073f3ad428d8286f341b4884672a82620afa09c7f1d8dad9c2d"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_b6ef8e9db3764e70b9d6bae96f758bd9",
+        "seq": 6,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "cost.budget_reserved",
+        "occurred_at": "2026-09-10T09:57:11.172836+00:00",
+        "actor": "runtime",
+        "data": {
+          "amount_microusd": 19661,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_c700647e6c9c40da8b825c875afd112e",
+        "seq": 7,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.attempt.started",
+        "occurred_at": "2026-09-10T09:57:11.175135+00:00",
+        "actor": "runtime",
+        "data": {
+          "attempt": 1,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+          "reason": "primary"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_f4acb3e966e544a4abf125ce4ac01e92",
+        "seq": 8,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.output.started",
+        "occurred_at": "2026-09-10T09:57:15.656708+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_562a797fe11648f294427d09043b33c0",
+        "seq": 9,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.attempt.finished",
+        "occurred_at": "2026-09-10T09:57:18.007666+00:00",
+        "actor": "runtime",
+        "data": {
+          "attempt": 1,
+          "error_kind": null,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+          "status": "succeeded"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_48818f0a150d407e93a1dc1183dc853d",
+        "seq": 10,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "cost.settled",
+        "occurred_at": "2026-09-10T09:57:18.010197+00:00",
+        "actor": "runtime",
+        "data": {
+          "cost_microusd": 1939,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_caa4895d433a42cb9ecb982f7217663e",
+        "seq": 11,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.invocation.finished",
+        "occurred_at": "2026-09-10T09:57:18.018511+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+          "status": "succeeded"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_0cacf000e97f45e184ee918aebee4114",
+        "seq": 12,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.invocation.created",
+        "occurred_at": "2026-09-10T09:57:18.042383+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification",
+          "role": "ask"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_8948fe9b29474c17b5a5e716fcccfa85",
+        "seq": 13,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.route.selected",
+        "occurred_at": "2026-09-10T09:57:18.045088+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification",
+          "profile_version_ids": [
+            "model_profile_version_702f71bfaa214cf5aad20adaebb6fb36",
+            "model_profile_version_af096f297855423590a895e59f8eaff4"
+          ],
+          "routing_policy_digest": "c11ec2416e81f073f3ad428d8286f341b4884672a82620afa09c7f1d8dad9c2d"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_a4144bdc0f9d48b4b44234842a2f1dfe",
+        "seq": 14,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "cost.budget_reserved",
+        "occurred_at": "2026-09-10T09:57:18.072806+00:00",
+        "actor": "runtime",
+        "data": {
+          "amount_microusd": 19661,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_3b5f99bf827f4070ac4abdda776ea29c",
+        "seq": 15,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.attempt.started",
+        "occurred_at": "2026-09-10T09:57:18.075360+00:00",
+        "actor": "runtime",
+        "data": {
+          "attempt": 1,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification",
+          "reason": "primary"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_46db1b31de884067b40744dd9d23b71f",
+        "seq": 16,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.output.started",
+        "occurred_at": "2026-09-10T09:57:20.441235+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_84d4b8bb073244aabcad7bdf81082939",
+        "seq": 17,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.attempt.finished",
+        "occurred_at": "2026-09-10T09:57:22.929981+00:00",
+        "actor": "runtime",
+        "data": {
+          "attempt": 1,
+          "error_kind": null,
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification",
+          "status": "succeeded"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_6b7c34f00e2f419db00b17f8e89d8f53",
+        "seq": 18,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "cost.settled",
+        "occurred_at": "2026-09-10T09:57:22.932713+00:00",
+        "actor": "runtime",
+        "data": {
+          "cost_microusd": 1036,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "model_attempt_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification_attempt_1",
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_42e9f4da72234802b5f6646ca7c9663c",
+        "seq": 19,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "model.invocation.finished",
+        "occurred_at": "2026-09-10T09:57:22.940798+00:00",
+        "actor": "runtime",
+        "data": {
+          "model_invocation_id": "conversation:turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55:generate_clarification",
+          "status": "succeeded"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_523eaa83212049de88074811a471b98b",
+        "seq": 20,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "turn.policy_decided",
+        "occurred_at": "2026-09-10T09:57:22.979434+00:00",
+        "actor": "model",
+        "data": {
+          "content_shape": "ask",
+          "policy": "ask",
+          "reason_code": "model_requested_input"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_55e25e9cf2d44d949e502c0bea98e89e",
+        "seq": 21,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "message.started",
+        "occurred_at": "2026-09-10T09:57:22.979434+00:00",
+        "actor": "model",
+        "data": {
+          "generation": 1,
+          "message_id": "message_574b25d0306f4f39be49b594ae1dab41"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_cd423386e9df4d959a8e4b39a97bdb22",
+        "seq": 22,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "message.completed",
+        "occurred_at": "2026-09-10T09:57:22.979434+00:00",
+        "actor": "model",
+        "data": {
+          "content_length": 22,
+          "finish_reason": "ask",
+          "generation": 1,
+          "message_id": "message_574b25d0306f4f39be49b594ae1dab41"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_d1857ea56256450a9bc6dc9be0e4da53",
+        "seq": 23,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "ask.requested",
+        "occurred_at": "2026-09-10T09:57:22.979434+00:00",
+        "actor": "model",
+        "data": {
+          "ask_id": "ask_42f57cf3fa7547fa9a96db572ec13c44",
+          "questions": [
+            {
+              "allow_free_text": true,
+              "header": "骑行目标",
+              "id": "goal",
+              "multi_select": false,
+              "options": [
+                {
+                  "description": "以规律运动、消耗热量为主，强度适中",
+                  "label": "健身 / 减脂"
+                },
+                {
+                  "description": "逐步拉长距离，为 50km+ 或骑行活动打基础",
+                  "label": "提升耐力，为长途骑行做准备"
+                },
+                {
+                  "description": "重新开始规律骑车，或让骑行融入通勤",
+                  "label": "恢复骑行习惯 / 日常通勤"
+                },
+                {
+                  "description": "偏训练强度，包含间歇或爬坡内容",
+                  "label": "提升速度 / 爬坡能力"
+                }
+              ],
+              "question": "这 7 天计划最主要的目的是什么？"
+            },
+            {
+              "allow_free_text": true,
+              "header": "当前骑行水平",
+              "id": "level",
+              "multi_select": false,
+              "options": [
+                {
+                  "description": "单次通常不到 20km，或很久没骑车了",
+                  "label": "新手，很少骑"
+                },
+                {
+                  "description": "每周骑 1–2 次，单次 20–40km 比较轻松",
+                  "label": "有基础"
+                },
+                {
+                  "description": "每周骑 3 次以上，能完成 50km 以上或含爬坡路线",
+                  "label": "进阶"
+                }
+              ],
+              "question": "你目前的骑行基础大致属于哪一种？"
+            },
+            {
+              "allow_free_text": true,
+              "header": "每天可投入时间",
+              "id": "time",
+              "multi_select": false,
+              "options": [
+                {
+                  "description": "时间紧，只能短时高效骑行",
+                  "label": "30 分钟以内"
+                },
+                {
+                  "description": "工作日典型可用时长",
+                  "label": "30–60 分钟"
+                },
+                {
+                  "description": "可以安排中等距离骑行",
+                  "label": "1–2 小时"
+                },
+                {
+                  "description": "能安排长距离，但工作日可能受限",
+                  "label": "2 小时以上 / 周末更充裕"
+                }
+              ],
+              "question": "这 7 天里，你每天大概能留出多长时间骑车（以及哪天一定没空）？"
+            },
+            {
+              "allow_free_text": true,
+              "header": "骑行方式与装备",
+              "id": "setup",
+              "multi_select": false,
+              "options": [
+                {
+                  "description": "有可骑行的道路或路线",
+                  "label": "户外公路车 / 山地车"
+                },
+                {
+                  "description": "室内固定骑行，天气不受影响",
+                  "label": "室内骑行台 / 动感单车"
+                },
+                {
+                  "description": "以城市平路日常骑行为主",
+                  "label": "共享单车 / 城市通勤车"
+                },
+                {
+                  "description": "户外和室内都可能，需要灵活安排",
+                  "label": "混合，看当天情况"
+                }
+              ],
+              "question": "你主要打算用什么方式完成这些骑行？"
+            }
+          ]
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_6e3dd762906f43ad955027d684b05d27",
+        "seq": 24,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "turn.awaiting_input",
+        "occurred_at": "2026-09-10T09:57:22.979434+00:00",
+        "actor": "worker",
+        "data": {
+          "ask_id": "ask_42f57cf3fa7547fa9a96db572ec13c44"
+        }
+      },
+      {
+        "schema_version": 1,
+        "event_id": "tevt_e38fea7f53d641998b90d2c412bb4998",
+        "seq": 25,
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "type": "turn.metrics.updated",
+        "occurred_at": "2026-09-10T09:57:23.009050+00:00",
+        "actor": "worker",
+        "data": {
+          "answer_wait_ms": 11945,
+          "context_ms": 41,
+          "model_attempt_count": 2,
+          "model_ttft_ms": 4502,
+          "queue_wait_ms": 29,
+          "stream_ms": 0,
+          "total_ms": 11945
+        }
+      }
+    ]
+  },
+  "messages": {
+    "messages": [
+      {
+        "id": "message_ddaf2ea956244c15a82b20aa1dec4284",
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "role": "user",
+        "content": "制作一个7天的骑行计划",
+        "status": "ready",
+        "generation": 1,
+        "content_length": 11,
+        "plan_document_version_id": null,
+        "presentation": "standard",
+        "research_job_id": null,
+        "created_at": "2026-09-10T09:57:11.034458+00:00",
+        "completed_at": null
+      },
+      {
+        "id": "message_574b25d0306f4f39be49b594ae1dab41",
+        "thread_id": "thread_69fae3ce9b794aaa81338c6900723c5b",
+        "turn_id": "turn_d3c3ad0fa42c4c74b9c9f4c8441ebe55",
+        "role": "assistant",
+        "content": "为了更准确地完成这个目标，请先补充以下信息。",
+        "status": "ready",
+        "generation": 1,
+        "content_length": 22,
+        "plan_document_version_id": null,
+        "presentation": "standard",
+        "research_job_id": null,
+        "created_at": "2026-09-10T09:57:22.979434+00:00",
+        "completed_at": "2026-09-10T09:57:22.979434+00:00"
+      }
+    ]
+  }
+}

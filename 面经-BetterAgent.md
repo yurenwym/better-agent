@@ -4,14 +4,13 @@
 
 ## 1. 项目简介（简历可用）
 
-面向本地单用户场景构建 Personal Agent Runtime，以状态机和 ReAct 驱动“澄清、计划、执行、复盘”闭环，并通过版本化计划、Checkpoint、追加式事件、幂等工具回执和执行预算保证长任务可控恢复；配套建设多模型路由与成本账本、三层记忆、证据优先研究、受控专家协作和可评测回滚的持续改进机制。
+面向本地单用户场景构建 Personal Agent Runtime，以状态机和 ReAct 驱动“澄清、计划、执行、复盘”闭环，并通过 PostgreSQL 持久化版本化计划、Checkpoint、追加式事件、幂等工具回执和执行预算；配套建设多模型路由与成本账本、pgvector HNSW 三层记忆、证据优先研究、受控专家协作和可评测回滚的持续改进机制。
 
 ## 2. 简历 Bullet
 
 - **可恢复智能体编排：** 针对模型行为不确定、长任务易中断且难以审计的问题，将任务生命周期收敛为外层状态机与步骤内 ReAct 双层控制，统一持久化计划版本、预算、事件和 Checkpoint，并在预算耗尽或副作用不确定时主动阻断，使任务具备显式审批、断点恢复和轨迹追溯能力。
 - **模型与成本治理：** 针对多供应商调用逻辑散落、重试与切换难区分、并发调用可能透支预算的问题，建设基于能力与角色的配置化路由，将逻辑 Invocation 与物理 Attempt 分账记录，只对白名单故障显式切换；以不可变价格快照和 `RESERVE/CHARGE/RELEASE` 流水完成调用前预留、调用后结算与余额释放。
-- **上下文与记忆工程：** 针对长对话上下文膨胀、跨项目记忆污染和历史调用不可复现的问题，构建短期、经历、长期三层记忆，按 Owner 与 Scope 先隔离、再用 FTS5 召回，并通过分桶 Token Budget、版本化 Revision、调用级 Context Pin、脱敏和回滚生成稳定可审计的模型上下文。
-- **证据驱动研究：** 针对搜索摘要直接生成容易出现引用错误和覆盖缺口的问题，将深度研究拆为规划、多 Query 检索、来源去重、逐源证据提炼、缺口补搜、分节写作和引用/覆盖审计；未知引用、证据不足或修复后仍不完整时明确失败，保证报告结论能够回溯到已接纳来源。
+- **上下文、记忆与证据研究：** 针对长对话上下文膨胀、跨项目记忆污染以及搜索摘要直接生成导致的引用错误，构建短期、经历、长期三层记忆，按 Owner 与 Scope 在 SQL 层隔离，以 pgvector HNSW 语义召回结合 PostgreSQL FTS/`pg_trgm` 词法召回和故障降级，并在 Token Budget 内生成可复现 Context Pin；深度研究按规划、检索、逐源取证、缺口反思、分节写作和引用/覆盖审计执行，使结论可回溯到已接纳来源，证据不足时显式部分完成。
 - **受控并发协作：** 针对复杂任务中单模型视角单一、并行 Worker 故障后可能产生脑裂写入的问题，设计 Coordinator 与 Researcher、Planner、Critic 的 Fan-out/Fan-in 协作，通过不可变上下文快照和结构化 Artifact 隔离专家输出，并使用 Lease、Heartbeat 与 Epoch Fencing 支持超时接管、迟到结果拒绝和部分失败降级汇总。
 - **可验证持续改进：** 针对运行经验无法稳定转化为系统改进、在线自动改 Prompt 风险过高的问题，将可见失败轨迹归纳为不可执行候选，采用同题配对、匿名 Judge、确定性门禁和 Bootstrap 置信区间比较质量、成本与延迟，再经人工审批、Canary 暴露、晋升与回滚更新版本化行为 Bundle。
 
@@ -19,11 +18,11 @@
 
 ### 3.1 你这个 Agent 系统的全流程是怎样的？
 
-**第一人称口播：** 我把全流程拆成对话控制平面和任务执行平面。用户消息先落库，对话 Worker 拼装历史、计划、目标、记忆和 Skill 上下文，再由模型决定直接回答、结构化追问、深度研究或生成计划。需要执行的任务不会立即调用工具，而是先生成不可变计划版本并等待审批。计划获批后物化为 Run，外层状态机控制生命周期，内层逐 Step 跑 ReAct。模型可以继续、调用工具、等待外部结果、完成步骤或请求阻断；Runtime 会校验预算、工具权限和写审批。全部步骤完成后进入 Reflection，沉淀记忆候选和可见运行经验，后续才可能进入受控 Evolution。事件、Checkpoint、模型账本和工具回执都落到 SQLite，因此 UI 重连或进程重启不会丢失权威状态。
+**第一人称口播：** 我把全流程拆成对话控制平面和任务执行平面。用户消息先落库，对话 Worker 拼装历史、计划、目标、记忆和 Skill 上下文，再由模型决定直接回答、结构化追问、深度研究或生成计划。需要执行的任务不会立即调用工具，而是先生成不可变计划版本并等待审批。计划获批后物化为 Run，外层状态机控制生命周期，内层逐 Step 跑 ReAct。模型可以继续、调用工具、等待外部结果、完成步骤或请求阻断；Runtime 会校验预算、工具权限和写审批。全部步骤完成后进入 Reflection，沉淀记忆候选和可见运行经验，后续才可能进入受控 Evolution。事件、Checkpoint、模型账本和工具回执都落到 PostgreSQL，因此 UI 重连或进程重启不会丢失权威状态。
 
 **追问 1：为什么要分两个平面？** 我的考虑是对话响应和任务执行的生命周期不同。对话侧强调快速首响、澄清和意图路由，任务侧强调审批、长时运行、恢复和副作用控制。如果混在一个循环里，用户问一句简单问题也要承担完整执行器复杂度，长任务又容易依赖短连接和进程内状态。分层后，对话平面只负责把用户意图变成明确的回答、研究任务或计划 Artifact；执行平面只接受已经固化和审批的输入。两者通过数据库中的 Thread、Plan、Run 和 Context Snapshot 连接，既减少耦合，也让每层可以独立重试、观测和测试。
 
-**追问 2：一次请求的权威数据在哪里？** 我没有把内存中的 Python 对象或前端状态当事实源。Thread、Turn、Message、Plan Version、Run、Checkpoint、工具回执和模型调用账本都持久化在 SQLite，事件表以追加方式记录轨迹。业务表回答“现在是什么状态”，事件回答“如何走到这个状态”，Checkpoint 回答“从哪里继续”。前端通过 API 和 SSE 读取这些数据，只是投影；Markdown 记忆文件同样只是数据库的可重建投影。这种边界让重启恢复和审计有稳定依据，也避免 UI 丢包反向改变任务事实。
+**追问 2：一次请求的权威数据在哪里？** 我没有把内存中的 Python 对象或前端状态当事实源。Thread、Turn、Message、Plan Version、Run、Checkpoint、工具回执和模型调用账本都持久化在 PostgreSQL，事件表以追加方式记录轨迹。业务表回答“现在是什么状态”，事件回答“如何走到这个状态”，Checkpoint 回答“从哪里继续”。前端通过 API 和 SSE 读取这些数据，只是投影；Markdown 记忆文件同样只是数据库的可重建投影。这种边界让重启恢复和审计有稳定依据，也避免 UI 丢包反向改变任务事实。
 
 ### 3.2 你是怎么使用 ReAct 的？
 
@@ -83,7 +82,7 @@
 
 ### 3.9 你的三层记忆系统是怎么实现的？
 
-**第一人称口播：** 我把记忆分为短期、经历和长期三层。短期是当前线程最近消息和活跃计划，保证连续对话；线程过长后，归档器把旧消息压缩成带来源范围的 Episode，形成经历记忆；长期记忆只保存稳定偏好、约束和事实，来自用户明确记住或带证据的 Proposal 确认，不让模型自动把一次推测永久化。长期条目有 Entry 与 Revision，编辑和回滚都保留版本，SQLite 是权威源，Markdown 只是可重建投影。读取时统一经过 Owner、Scope、FTS5、排序、Token Budget、脱敏和 Context Pin，因此写入治理与读取治理是同一套系统。
+**第一人称口播：** 我把记忆分为短期、经历和长期三层。短期是当前线程最近消息和活跃计划，保证连续对话；线程过长后，归档器把旧消息压缩成带来源范围的 Episode，形成经历记忆；长期记忆只保存稳定偏好、约束和事实，来自用户明确记住或带证据的 Proposal 确认，不让模型自动把一次推测永久化。长期条目有 Entry 与 Revision，编辑和回滚都保留版本，PostgreSQL 是权威源，Markdown 只是可重建投影。读取时统一经过 Owner、Scope、HNSW 语义召回、FTS/`pg_trgm` 词法召回、Token Budget、脱敏和 Context Pin，因此写入治理与读取治理是同一套系统。
 
 **追问 1：短期记忆怎样变成经历记忆？** 归档器会先对 Thread 做租约式 reserve，避免多个 Worker 同时归档同一段消息，然后选择需要压缩的旧消息范围，调用 summarizer 或确定性降级逻辑生成摘要。Episode 保存 message range、摘要、来源和时间，成功后再投影；最近一段消息继续保留为短期上下文。这个过程不会直接写长期偏好，因为一次经历可能包含临时安排、错误理解或敏感数据。经历到长期还需要 Proposal、证据和用户确认，从而把“发生过”与“长期为真”分开。
 
@@ -91,11 +90,11 @@
 
 ### 3.10 上下文是怎么做的？如何避免 Token 爆炸和跨项目污染？
 
-**第一人称口播：** 上下文不是把数据库里所有内容拼起来，而是按优先级建立可审计快照。对话侧先取系统约束、最近消息、活跃计划和目标，再向统一 Memory Provider 请求相关记忆。Provider 先按 owner 和 user/current-project Scope 做硬过滤，再用 FTS5 召回，按 pinned、文本命中、项目优先级、importance 和稳定 ID 排序。语义记忆与经历记忆分别有 Token Budget，超出时记录 dropped 原因。最后统一脱敏并渲染，保存 revision IDs、episode IDs、tokenizer/renderer 版本、预算和 rendered hash 的 Context Pin。这样既限制 Token，又能复现历史调用。
+**第一人称口播：** 上下文不是把数据库里所有内容拼起来，而是按优先级建立可审计快照。对话侧先取系统约束、最近消息、活跃计划和目标，再向统一 Memory Provider 请求相关记忆。Provider 把 owner 和 user/current-project Scope 写进检索 SQL，优先通过 pgvector HNSW 做余弦语义召回，同时执行 PostgreSQL FTS 与 `pg_trgm` 词法召回；语义不可用或没有合格候选时明确降级。候选按 pinned、语义分数、词法命中、importance 和稳定 ID 排序，语义记忆与经历记忆分别受 Token Budget 约束。最后保存 revision IDs、episode IDs、tokenizer/renderer 版本、预算和 rendered hash 的 Context Pin，使调用可复现。
 
-**追问 1：为什么 Scope 必须先于相关性排序？** 如果先在全库做相关性 Top-K，再过滤 Scope，跨项目敏感内容已经参与候选计算，工程上容易因为过滤遗漏、日志或缓存而泄漏；同时高相关的错误项目内容还会挤占正确项目候选。先做 SQL 级 owner 和 Scope 约束，把候选宇宙限定在 user/global 与当前 project，再做 FTS5 和排序，安全边界更明确。这个原则也适用于多租户 RAG：权限过滤应是召回前的硬条件，而不是生成前的软提示。
+**追问 1：为什么 Scope 必须先于相关性排序？** 如果先在全库做相关性 Top-K，再过滤 Scope，跨项目敏感内容已经参与候选计算，工程上容易因为过滤遗漏、日志或缓存而泄漏；同时高相关的错误项目内容还会挤占正确项目候选。先把 owner 和 user/current-project Scope 约束写入 HNSW 与词法检索 SQL，把候选宇宙限定后再排序，安全边界更明确。这个原则也适用于多租户 RAG：权限过滤应是召回阶段的硬条件，而不是生成前的软提示。
 
-**追问 2：为什么当前用 FTS5，不用向量数据库？** 当前目标是本地单用户 Runtime，数据规模和部署复杂度有限。SQLite 已经是事实源，FTS5 无需额外服务，支持事务内同步索引、精确审计和稳定结果；trigram 对中英文子串也较实用。不足是同义表达和深层语义召回较弱，所以我不会声称它等价于向量检索。后续可以做 hybrid retrieval，但要先建立 Recall@K、错误 Scope 泄漏率和 Token 利用率基线，再证明引入 Embedding、索引更新和隐私成本确实值得。
+**追问 2：为什么要做 HNSW 与词法混合召回？** 只做词法检索容易漏掉同义改写，只做向量检索又可能弱化精确标识、版本号和专有名词。项目把 1024 维长期记忆向量保存在 PostgreSQL 的 pgvector 中，用 HNSW 加速余弦召回，同时保留 FTS 与 `pg_trgm`。二者共同命中时形成 hybrid 结果；Embedding 未配置、Profile 不匹配、调用失败或语义分数低时转为词法降级，并记录 retrieval mode、fallback reason、候选数和覆盖率。这样既扩展语义覆盖，也不让向量服务故障阻断正常对话。
 
 ### 3.11 深度研究是怎么实现的？
 
@@ -131,9 +130,9 @@
 
 ### 3.15 这个项目最大的技术难点、边界和后续优化是什么？
 
-**第一人称口播：** 最大难点不是写一个模型循环，而是在不确定模型、外部副作用和进程故障之间建立确定性边界。我重点解决了三类一致性：计划版本与执行状态一致，工具动作与审批/回执一致，模型调用与成本/评测账本一致。当前边界也很明确：这是 SQLite 驱动的本地单用户系统，不包含 Redis/Celery 微服务、通用工具并行、MCP、向量检索或完全自主修改核心代码；多 Agent 是受控只读专家，Evolution 主要针对版本化 Prompt/行为 Bundle。后续我会先用故障注入和真实评测建立指标，再决定是否引入分布式队列、Hybrid Retrieval 和更细粒度的预算预测。
+**第一人称口播：** 最大难点不是写一个模型循环，而是在不确定模型、外部副作用和进程故障之间建立确定性边界。我重点解决了三类一致性：计划版本与执行状态一致，工具动作与审批/回执一致，模型调用与成本/评测账本一致。当前边界也很明确：这是 PostgreSQL 驱动的本地单用户系统，任务队列、租约和业务状态仍在同一服务内，不依赖 Redis/Celery；语义检索已经使用 pgvector HNSW，但规模与参数收益仍需真实数据验证；多 Agent 是受控只读专家，Evolution 只允许受约束的 Prompt 或路由策略候选，不会自主修改核心代码和安全策略。
 
-**追问 1：如果扩展到多机，你先改哪里？** 我会先抽离任务领取和事件发布边界，而不是立刻拆所有模块。SQLite 单机事务目前同时承担队列、Lease、账本和状态更新，多机需要 PostgreSQL 之类支持行锁和可靠事务的权威库，再用消息队列做唤醒而不是事实源。所有 Worker 仍应通过数据库 Lease/Epoch 做 fencing，不能只依赖队列的 at-least-once。Artifact 可迁移到对象存储并保存内容 Hash。模型、成本和 Evolution 的不可变账本模型可以保留，因为它们本来就是面向重试和审计设计的。
+**追问 1：如果扩展到多机，你先改哪里？** 当前 PostgreSQL 已经承担权威状态、队列、Lease、账本和事件，我会先把 Worker 进程和唤醒通道独立出来，而不是重做事实源。消息队列只负责降低轮询和跨机通知延迟，任务所有权仍由 PostgreSQL 的租约、行锁和 Epoch Fencing 决定，不能只依赖消息队列的 at-least-once 语义。随后再把大 Artifact 迁到对象存储并在数据库保留内容 Hash，补充分区、连接池、积压与接管时延指标。模型、成本和 Evolution 的不可变账本可以继续沿用。
 
 **追问 2：你会怎样证明这些设计真的有效？** 我会分三层验证。第一层是确定性单测和不变量测试，覆盖非法迁移、旧版本冲突、审批参数变化、重复 Claim、账本配平和旧 epoch 拒绝。第二层是故障注入，在模型首 Token、工具副作用、回执提交、Checkpoint 和 Worker Heartbeat 前后杀进程，测恢复成功率、重复副作用率和接管时延。第三层是真实 workload 评测，记录 Invocation/Attempt 的成功率、fallback、TTFT、P95、成本，以及记忆 Recall@K、研究引用正确率和 Canary 安全结果。没有这些数据前，我只陈述代码可验证的机制，不宣称线上百分比收益。
 
@@ -152,6 +151,7 @@
 | 成本流水 | `backend/app/costs.py`：`CostService.reserve_attempt/settle_attempt` | 3.7 |
 | 配对评测 | `backend/app/real_evaluation.py`：`evaluate_paired`、`_paired_statistics`、`_bootstrap_ci` | 3.8 |
 | 三层记忆 | `backend/app/memory_v2.py`：`MemoryStore`、`MemoryContextProvider` | 3.9、3.10 |
+| 向量索引与降级 | `backend/app/embedding_worker.py`；`backend/alembic/versions/20260905_0001_enable_postgres_extensions.py`；`MemoryContextProvider.select` | 3.9、3.10 |
 | 经历归档 | `backend/app/memory_archive.py`：`ConversationArchiver` | 3.9 |
 | Context 组装 | `backend/app/context.py`：`ContextAssembler` | 3.10 |
 | 深度研究 | `backend/app/research/engine.py`：`ResearchEngine.run_research/_retrieve/_distill` | 3.11 |
@@ -168,7 +168,7 @@
 | Architecture | Checkpoint、Fencing、成本账本容易被追问事务窗口 | 能画正常时序、崩溃窗口和恢复路径 |
 | Result | “实现中断恢复/去重”不等于所有外部工具 exactly-once | 明确 at-least-once、幂等键和 reconciliation 边界 |
 | Evolution | “自进化”容易被理解为自动改代码并上线 | 主动表述为受控 Candidate、评测、审批、Canary、回滚 |
-| Retrieval | 项目名含 RAG，但 README 明确当前没有向量检索 | 不要声称使用向量数据库；准确说 FTS5 与证据检索 |
+| Retrieval | 已接入 pgvector HNSW，但缺少真实 Recall@K、延迟和索引调参结果 | 准确表述为“HNSW 语义召回优先，FTS/`pg_trgm` 降级”，不要虚构检索指标 |
 
 ## 6. 面试前最后检查
 

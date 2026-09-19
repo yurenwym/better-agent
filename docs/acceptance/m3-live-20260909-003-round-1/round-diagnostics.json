@@ -1,0 +1,39 @@
+{
+  "batch_id": "M3-LIVE-20260909-003",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_dd06ddb59c51496f8b5d928d730d03c7",
+      "status": "COMPLETED",
+      "policy": "answer",
+      "reason_code": "protocol_fallback",
+      "runtime_bundle_id": "bundle_186d51e96bc6fada6c8981d9"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-003-price-6b50792bc6f0",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 200
+    },
+    {
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-003-price-6b50792bc6f0",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 429
+    }
+  ]
+}

@@ -35,6 +35,9 @@ class BehaviorBundleService:
         self.db = db
 
     def ensure(self, manifest: dict[str, Any]) -> BehaviorBundle:
+        if "task_policy" in manifest:
+            from .task_policy import validate_task_policy
+            validate_task_policy(manifest["task_policy"])
         canonical = _json(manifest)
         digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
         with self.db.transaction() as connection:

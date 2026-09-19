@@ -1,0 +1,27 @@
+{
+  "version": "memory-reference-v2",
+  "seed": 982177,
+  "cases": 120,
+  "memories": 312,
+  "origin": "constructed scenarios; not production logs",
+  "splits": "60 dev / 60 holdout; 40 new entity identifiers, paired by scenario group",
+  "modes": [
+    "off",
+    "rules",
+    "hybrid"
+  ],
+  "ranking": "rrf",
+  "dense_k": 50,
+  "lexical_k": 50,
+  "rrf_k": 60,
+  "budget_bytes": 450,
+  "embedding_timeout_seconds": 5,
+  "resolver_timeout_seconds": 2,
+  "max_output_tokens": 256,
+  "max_deepseek_calls": 400,
+  "max_new_embedding_calls": 160,
+  "gate": "hybrid vs rules: improve holdout answerable strict answers; no wrong-entity completion, scope leaks, direct-query regressions, or unnecessary-clarification increase; ambiguous cases evaluated separately",
+  "frozen": "No changes after dev; run same implementation on holdout once; do not tune on holdout",
+  "prompt_version": "reference-v3",
+  "previous": "v1 holdout is consumed; v2 contains entirely new service identifiers and maintenance values; same frozen categories and selection gate"
+}

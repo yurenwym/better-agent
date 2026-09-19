@@ -30,7 +30,7 @@ describe("trajectory page", () => {
       seq: 2,
       thread_id: "thread-1",
       turn_id: "turn-1",
-      type: "turn.completed",
+      type: "message.completed",
       occurred_at: "2026-08-20T00:00:01Z",
       actor: "worker",
       data: {},
@@ -43,7 +43,7 @@ describe("trajectory page", () => {
     render(<TrajectoryPage run={null} threadId="thread-1" />);
 
     await waitFor(() => expect(screen.getByRole("region", { name: "对话时间线" })).toBeTruthy());
-    expect(screen.getByText("本轮对话完成")).toBeTruthy();
-    expect(screen.getByText("1 条事件，按发生顺序实时更新")).toBeTruthy();
+    expect(screen.getByText("回答生成完成")).toBeTruthy();
+    expect(screen.getByText("1 个关键节点，原始事件仍保留在调试视图")).toBeTruthy();
   });
 });

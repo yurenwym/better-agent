@@ -123,10 +123,23 @@ def test_post_evaluation_run_is_queued_worker_completes_and_cancel_is_observed(t
 
         queued = client.post("/api/evaluation-runs", json=payload, headers={**headers, "idempotency-key": "eval-cancel"}).json()
         cancelled = client.post(f"/api/evaluation-runs/{queued['id']}/cancel", json={}, headers={**headers, "idempotency-key": "cancel"})
-        assert cancelled.status_code == 200 and cancelled.json()["status"] == "CANCELLED"
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] in {"RUNNING", "CANCELLED"}
+        if cancelled.json()["status"] == "RUNNING":
+            import time
+
+            deadline = time.monotonic() + 2
+            while time.monotonic() < deadline:
+                cancelled = client.get(
+                    f"/api/evaluation-runs/{queued['id']}", headers={"host": "127.0.0.1:8000"},
+                )
+                if cancelled.json()["status"] == "CANCELLED":
+                    break
+                time.sleep(.01)
+        assert cancelled.json()["status"] == "CANCELLED"
 
 
-def test_budget_blocked_evaluation_resumes_through_api_without_repeating_case(tmp_path) -> None:
+def test_budget_blocked_evaluation_resumes_through_api_without_repeating_case(tmp_path, monkeypatch) -> None:
     import asyncio
     from app.main import create_app
     from app.real_evaluation import ManagedEvaluationWorker, RealEvaluator
@@ -137,6 +150,9 @@ def test_budget_blocked_evaluation_resumes_through_api_without_repeating_case(tm
     evaluator.register_release_suite("release-v1", _release_cases())
     runtime.real_evaluator = evaluator
     runtime.evaluation_worker = ManagedEvaluationWorker(evaluator)
+    async def manual_worker_only():
+        pass
+    monkeypatch.setattr(runtime.evaluation_worker,"start",manual_worker_only)
     base_id, candidate_id, models = _control_bindings(runtime)
     calls = []
     def measured(name, result):

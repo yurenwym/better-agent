@@ -19,6 +19,18 @@ const INLINE_PATTERN = new RegExp(
   "g",
 );
 
+function unwrapOuterMarkdownFence(content: string): string {
+  const normalized = content.replace(/\r\n?/g, "\n").trim();
+  const opening = normalized.match(/^`{3,}[ \t]*(?:markdown|md)[ \t]*\n/i);
+  const closing = normalized.match(/\n`{3,}[ \t]*$/);
+
+  if (!opening || !closing || closing.index === undefined || closing.index < opening[0].length) {
+    return content;
+  }
+
+  return normalized.slice(opening[0].length, closing.index).trim();
+}
+
 function splitTableCells(line: string): string[] {
   const trimmed = line.trim().replace(/^\|/, "").replace(/\|$/, "");
   return trimmed.split("|").map((cell) => cell.trim());
@@ -279,5 +291,5 @@ function renderBlocks(content: string): ReactNode[] {
 
 export default function MarkdownMessage({ content, className }: MarkdownMessageProps) {
   const classes = className ? "message-markdown " + className : "message-markdown";
-  return <div className={classes}>{renderBlocks(content)}</div>;
+  return <div className={classes}>{renderBlocks(unwrapOuterMarkdownFence(content))}</div>;
 }

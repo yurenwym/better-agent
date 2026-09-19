@@ -159,6 +159,38 @@ class SkillPlatform:
             ).fetchall()
             return [self.version(row["id"], connection=connection) for row in rows]
 
+    def store_candidate(self, package: bytes, *, job_id: str) -> dict[str, Any]:
+        """Store a workflow draft without installing, granting or selecting it."""
+        preview = self._validate_package(package)
+        if preview.manifest.get("kind") != "instruction_only":
+            raise SkillValidationError("learned skills must be instruction_only")
+        name, version = preview.manifest["name"], preview.manifest["version"]
+        timestamp = _now()
+        with self.db.transaction() as connection:
+            job = connection.execute("SELECT id FROM learning_jobs WHERE id=? AND owner_id=?", (job_id, self.owner_id)).fetchone()
+            if job is None:
+                raise SkillValidationError("candidate learning job missing")
+            skill = connection.execute("SELECT * FROM skills WHERE owner_id=? AND name=?", (self.owner_id, name)).fetchone()
+            skill_id = skill["id"] if skill else f"skill_{uuid.uuid4().hex}"
+            if skill is None:
+                connection.execute("INSERT INTO skills(id,owner_id,name,status,created_at,updated_at) VALUES (?,?,?,'INSTALLED',?,?)",
+                                   (skill_id, self.owner_id, name, timestamp, timestamp))
+            prior = connection.execute("SELECT * FROM skill_versions WHERE skill_id=? AND version=?", (skill_id, version)).fetchone()
+            if prior:
+                if prior["package_digest"] != preview.package_digest:
+                    raise SkillValidationError("same skill version has different content")
+                return self.version(prior["id"], connection=connection)
+            version_id = f"skill_version_{uuid.uuid4().hex}"
+            storage = self.root / name / version / preview.package_digest
+            self._extract(package, storage)
+            connection.execute(
+                "INSERT INTO skill_versions(id,skill_id,version,package_digest,manifest_digest,manifest_json,title,description,content,"
+                "requested_tools_json,connectors_json,phases_json,storage_path,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,'[]','[]',?,?,'INSTALLED',?)",
+                (version_id, skill_id, version, preview.package_digest, preview.manifest_digest, _json(preview.manifest),
+                 preview.manifest["title"], preview.manifest["description"], preview.content, _json(preview.manifest["phases"]), str(storage), timestamp))
+            self._event(connection, skill_id, version_id, "skill.candidate_stored", {"job_id": job_id}, f"candidate:{job_id}:{version_id}", actor="learning")
+            return self.version(version_id, connection=connection)
+
     def enabled_versions(self) -> list[dict[str, Any]]:
         return [item for item in self.list() if item["status"] == "ENABLED"]
 
@@ -255,6 +287,21 @@ class SkillPlatform:
         ).fetchone()
         if row is None:
             raise KeyError(version_id)
+        effective_status = "UNINSTALLED" if row["skill_status"] == "UNINSTALLED" else row["status"]
+        if effective_status == "ENABLED":
+            jobs = connection.execute("SELECT status,change_set_json,checkpoint_json FROM learning_jobs WHERE owner_id=? AND source_kind='method_feedback'", (self.owner_id,)).fetchall()
+            for job in jobs:
+                for change in json.loads(job["change_set_json"]):
+                    if change.get("asset_type") != "skill" or change.get("after") != version_id:
+                        continue
+                    valid = job["status"] == "APPLIED" and (change.get("adoption") == "ACTIVE" or change.get("expires_at", "") > _now())
+                    for source_id in json.loads(job["checkpoint_json"]).get("feedback_ids", []):
+                        source = connection.execute("SELECT f.kind,f.note,p.deleted_at FROM goal_action_feedback f JOIN goal_actions a ON a.id=f.action_id "
+                                                    "JOIN goal_programs p ON p.id=a.program_id WHERE f.id=? AND f.owner_id=?", (source_id, self.owner_id)).fetchone()
+                        from .learning_workflow import METHOD
+                        valid = valid and source is not None and source["deleted_at"] is None and source["kind"] == "method_success" and source["note"] == METHOD
+                    if not valid:
+                        effective_status = "DISABLED"
         return {
             "skill_id": row["skill_id"], "version_id": row["id"], "name": row["name"], "version": row["version"],
             "title": row["title"], "description": row["description"], "content": row["content"],
@@ -263,7 +310,9 @@ class SkillPlatform:
             "granted_tools": json.loads(row["granted_tools_json"] or "[]"),
             "connectors": json.loads(row["connectors_json"]), "phases": json.loads(row["phases_json"]),
             "grant_digest": row["grant_digest"],
-            "status": "UNINSTALLED" if row["skill_status"] == "UNINSTALLED" else row["status"],
+            "grant_status": row["grant_status"],
+            "kind": json.loads(row["manifest_json"]).get("kind", "tool_bound"),
+            "status": effective_status,
         }
 
     def effective_tools(
@@ -280,9 +329,24 @@ class SkillPlatform:
         snapshot = grant_snapshot or {
             "grant_digest": item.get("grant_digest"), "granted_tools": item.get("granted_tools", []),
         }
-        if item["status"] != "ENABLED" or not snapshot.get("grant_digest") or phase_name not in item["phases"]:
+        if item["status"] != "ENABLED" or item["grant_status"] != "ACTIVE" or not snapshot.get("grant_digest") or phase_name not in item["phases"]:
             return set()
-        return set(global_tools) & set(item["requested_tools"]) & set(snapshot["granted_tools"]) & set(role_tools) & set(phase_tools)
+        if item["kind"] == "instruction_only":
+            return set()
+        return set(global_tools) & set(item["requested_tools"]) & set(snapshot["granted_tools"]) & set(item["granted_tools"]) & set(role_tools) & set(phase_tools)
+
+    def context_text(self, binding_type: str, binding_id: str, phase_name: str) -> str:
+        """Read immutable content by the same version IDs used for authorization."""
+        try:
+            binding = self.binding(binding_type, binding_id)
+        except KeyError:
+            return ""
+        blocks = []
+        for version_id in binding["version_ids"]:
+            item = self.version(version_id)
+            if item["status"] == "ENABLED" and item["grant_status"] == "ACTIVE" and (phase_name == "*" or phase_name in item["phases"]):
+                blocks.append(f"## {item['title']} ({item['name']}@{item['version']})\n{item['content']}")
+        return "\n\n".join(blocks)
 
     def tool_authorization(
         self,
@@ -457,11 +521,11 @@ class SkillPlatform:
             "grant_snapshots": json.loads(row["grant_snapshots_json"] or "{}"),
         }
 
-    def _event(self, connection: Any, skill_id: str | None, version_id: str | None, event_type: str, data: dict[str, Any], key: str) -> None:
+    def _event(self, connection: Any, skill_id: str | None, version_id: str | None, event_type: str, data: dict[str, Any], key: str, *, actor: str = "user") -> None:
         connection.execute(
             "INSERT INTO skill_events(event_id,owner_id,skill_id,skill_version_id,type,actor,data_json,idempotency_key,occurred_at) "
-            "VALUES (?,?,?,?,?,'user',?,?,?)",
-            (f"skill_event_{uuid.uuid4().hex}", self.owner_id, skill_id, version_id, event_type, _json(data), key, _now()),
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (f"skill_event_{uuid.uuid4().hex}", self.owner_id, skill_id, version_id, event_type, actor, _json(data), key, _now()),
         )
 
 
@@ -483,7 +547,15 @@ def _validate_manifest(value: Any) -> dict[str, Any]:
         value[key] = list(dict.fromkeys(value[key]))
     if any(phase not in ALLOWED_PHASES for phase in value["phases"]):
         raise SkillValidationError("skill phase is invalid")
-    return {key: value[key] for key in (*required_strings, "schema_version", "requested_tools", "connectors", "phases")}
+    kind = value.get("kind", "tool_bound")
+    if kind not in {"instruction_only", "tool_bound"}:
+        raise SkillValidationError("invalid skill kind")
+    if kind == "instruction_only" and (value["requested_tools"] or value["connectors"]):
+        raise SkillValidationError("instruction_only skills cannot request tools or connectors")
+    result = {key: value[key] for key in (*required_strings, "schema_version", "requested_tools", "connectors", "phases")}
+    if "kind" in value:
+        result["kind"] = kind
+    return result
 
 
 def _safe_archive_path(value: str) -> PurePosixPath:

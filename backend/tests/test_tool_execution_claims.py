@@ -4,6 +4,69 @@ import time
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_write_timeout_blocks_runtime_and_preserves_claim_after_late_effect(tmp_path):
+    from app.runtime import MockModelGateway, ModelDecision
+    from app.tools import ToolCall, ToolRegistry, ToolReconciliationRequired, ToolResult, ToolRisk, ToolSpec
+    from test_runtime import make_runtime
+
+    call = ToolCall("slow-write", "write_note", {"path": "late.md", "content": "once"})
+    runtime = make_runtime(tmp_path, MockModelGateway(
+        plan_steps=[{"id": "step-1", "title": "Write"}],
+        decisions=[ModelDecision.tool(call), ModelDecision.complete("must not advance")],
+    ))
+    release = threading.Event()
+    finished = threading.Event()
+    effects = []
+
+    def effect(params):
+        try:
+            if not release.wait(5):
+                raise RuntimeError("test did not release handler")
+            effects.append(params["content"])
+            return ToolResult(True, "done")
+        finally:
+            finished.set()
+
+    spec = ToolSpec("write_note", "write", {
+        "type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+        "required": ["path", "content"], "additionalProperties": False,
+    }, ToolRisk.WRITE, effect, timeout_seconds=.01)
+    runtime.tools = ToolRegistry(tmp_path / "workspace", db=runtime.db, approval_service=runtime.approvals)
+    runtime.tools.register(spec)
+    run = await runtime.create_goal("Write", "Write once")
+    await runtime.handle_message(run.id, "Write with approval")
+    await runtime.approve_plan(run.id, 1)
+    approval = runtime.pending_approvals(run.id)[0]
+    try:
+        blocked = await runtime.grant_approval(approval.id)
+        assert blocked.state.value == "BLOCKED"
+        assert blocked.budget["blocked_reason_code"] == "TOOL_RECONCILIATION_REQUIRED"
+        assert effects == []
+        assert runtime.checkpoints.latest(run.id).pending_actions[0]["id"] == call.id
+        resumed = await runtime.resume(run.id)
+        assert resumed.state.value == "BLOCKED"
+        assert resumed.budget["blocked_reason_code"] == "TOOL_RECONCILIATION_REQUIRED"
+    finally:
+        release.set()
+        assert finished.wait(5)
+
+    assert effects == ["once"]
+    with runtime.db.connection() as connection:
+        claim = connection.execute("SELECT status,error_code FROM tool_execution_claims WHERE tool_call_id=?", (call.id,)).fetchone()
+        assert claim["status"] == "RECONCILIATION_REQUIRED"
+        assert claim["error_code"] == "timeout"
+        assert connection.execute("SELECT COUNT(*) FROM tool_calls WHERE id=?", (call.id,)).fetchone()[0] == 0
+    # Recreating the registry must not clear the durable uncertainty.
+    registry = ToolRegistry(tmp_path / "workspace", db=runtime.db, approval_service=runtime.approvals)
+    registry.register(spec)
+    with pytest.raises(ToolReconciliationRequired):
+        registry.execute(call, run_id=run.id, skill_tools=None)
+    events = [event for event in runtime.events.list(run.id) if event.type == "tool.reconciliation_required"]
+    assert len(events) == 1
+    assert effects == ["once"]
+
+
 def test_database_claim_allows_only_one_concurrent_tool_effect(tmp_path):
     from app.db import Database
     from app.tools import ToolCall, ToolRegistry, ToolRejected, ToolResult, ToolRisk, ToolSpec

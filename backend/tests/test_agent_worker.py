@@ -1,4 +1,5 @@
 import asyncio
+import pytest
 
 from app.agents import AgentTaskService, ManagedAgentWorker
 from app.behavior import BehaviorBundleService
@@ -15,6 +16,48 @@ class ExpertModel:
         }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["synthesis", "safety"])
+async def test_cancellation_stops_pending_synthesis_or_safety_judge(tmp_path, stage):
+    started, cancelled = asyncio.Event(), asyncio.Event()
+
+    class Model(ExpertModel):
+        async def judge(self, result):
+            return await self.synthesize(None, None, None)
+
+        async def synthesize(self, objective, experts, failed_roles):
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    db = Database(tmp_path / "coordinator-cancel.db")
+    pending = None
+    try:
+        bundle = BehaviorBundleService(db).ensure({"code": "test"})
+        service = AgentTaskService(db)
+        run = service.create_run("local-user", "goal", {}, bundle.id,
+                                 expert_roles=("critic",), idempotency_key="cancel-synthesis")
+        worker = ManagedAgentWorker(service, Model(), lease_seconds=30,
+                                    safety_judge=Model() if stage == "safety" else None)
+        await worker.run_once()
+        if stage == "synthesis":
+            await worker.run_once()
+        pending = asyncio.create_task(worker.run_once())
+        await asyncio.wait_for(started.wait(), 2)
+        service.cancel_run(run["id"], "cancel during synthesis")
+        await asyncio.wait_for(cancelled.wait(), 2)
+        await asyncio.wait_for(pending, 2)
+        assert service.get_run(run["id"])["status"] == "CANCELLED"
+        assert service.get_task(run["coordinator_task_id"])["result_artifact_id"] is None
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            await asyncio.gather(pending, return_exceptions=True)
+        db.close()
+
+
 def test_worker_runs_three_experts_and_coordinator_merges_deterministically(tmp_path):
     db = Database(tmp_path / "agent.db")
     bundle = BehaviorBundleService(db).ensure({"code":"test"})
@@ -28,6 +71,62 @@ def test_worker_runs_three_experts_and_coordinator_merges_deterministically(tmp_
     result = service.artifact(service.get_task(completed["coordinator_task_id"])["result_artifact_id"])["content"]
     assert [item["role"] for item in result["experts"]] == ["critic", "planner", "researcher"]
     assert "综合" in result["summary"]
+
+
+def test_coordinator_deterministically_stitches_claim_source_evidence():
+    from app.agents import _append_source_evidence
+
+    summary = _append_source_evidence("综合结论。", [
+        {
+            "role": "planner",
+            "result": {
+                "findings": [
+                    {"text": "方案A总耗时130分钟，超过120分钟。", "source_refs": ["S1"]},
+                    {"text": "方案B需要批准且状态未知。", "source_refs": ["S2"]},
+                ],
+            },
+        },
+        {
+            "role": "researcher",
+            "result": {
+                "findings": [
+                    {"text": "方案C的执行时间存在冲突。", "source_refs": ["S3", "S4"]},
+                ],
+            },
+        },
+    ])
+
+    assert summary.startswith("综合结论。\n\n来源证据")
+    assert "[S1] 方案A总耗时130分钟，超过120分钟。" in summary
+    assert "[S2] 方案B需要批准且状态未知。" in summary
+    assert "[S3, S4] 方案C的执行时间存在冲突。" in summary
+
+
+def test_coordinator_persists_distinct_role_scoped_child_objectives(tmp_path):
+    db = Database(tmp_path / "role-objectives.db")
+    try:
+        bundle = BehaviorBundleService(db).ensure({"code": "test"})
+        service = AgentTaskService(db)
+        run = service.create_run(
+            "local-user", "比较候选方案", {}, bundle.id, idempotency_key="role-objectives",
+        )
+        worker = ManagedAgentWorker(service, ExpertModel())
+
+        assert asyncio.run(worker.run_once()) is True
+
+        root = service.get_task(run["coordinator_task_id"])
+        children = {item["role"]: item for item in service.children(root["id"])}
+        objectives = {role: item["objective"] for role, item in children.items()}
+        assert set(objectives) == {"researcher", "planner", "critic"}
+        assert len(set(objectives.values())) == 3
+        assert all("比较候选方案" in objective for objective in objectives.values())
+        assert all("角色限定（优先遵守）" in objective for objective in objectives.values())
+        assert all(term in objectives["researcher"] for term in ("来源", "事实与推断", "证据不足", "source_refs"))
+        assert "无需覆盖没有来源争议的完整方案" in objectives["researcher"]
+        assert all(term in objectives["planner"] for term in ("时间", "顺序", "前置依赖", "可执行条件"))
+        assert all(term in objectives["critic"] for term in ("反例", "矛盾", "约束违反", "错误执行承诺"))
+    finally:
+        db.close()
 
 
 def test_completed_expert_run_projects_a_visible_thread_message_and_events(tmp_path):

@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse, PlainTextResponse, Response, Streami
 from .ask import AskValidationError
 from .agents import AgentTaskConflict
 from .events import export_jsonl
+from .evolution import EvolutionConflict, EvolutionGateError
 from .goal_program_compiler import GoalCompilationError
 from .goal_programs import GoalProgramConflict, GoalProgramNotFound
 from .plan_documents import PlanDocumentConflict, PlanDocumentValidationError
@@ -24,7 +25,7 @@ MAX_PLAN_HISTORY_LIMIT = 100
 
 async def _event_stream(service, run_id: str, request: Request, after_seq: int, follow: bool):
     cursor = after_seq
-    terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
+    terminal_states = {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}
     while True:
         events = service.events.list(run_id, cursor)
         for event in events:
@@ -43,7 +44,7 @@ async def _event_stream(service, run_id: str, request: Request, after_seq: int, 
 
 async def _thread_event_stream(service, thread_id: str, request: Request, after_seq: int, follow: bool):
     cursor = after_seq
-    terminal_states = {"COMPLETED", "FAILED", "CANCELLED"}
+    terminal_states = {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}
     while True:
         events = service.events.list(thread_id, cursor)
         for event in events:
@@ -53,7 +54,11 @@ async def _thread_event_stream(service, thread_id: str, request: Request, after_
             return
         if await request.is_disconnected():
             return
-        thread = service.thread(thread_id)
+        try:
+            thread = service.thread(thread_id)
+        except KeyError:
+            # A user may delete the thread while its event stream is open.
+            return
         with service.db.connection() as connection:
             research_active = connection.execute(
                 "SELECT 1 FROM research_jobs WHERE thread_id=? AND status IN ('QUEUED','RUNNING') LIMIT 1",
@@ -82,6 +87,56 @@ def register_routes(app) -> None:
                 raise HTTPException(status_code=403, detail="仅允许从本机页面发起请求")
         if request.headers.get("x-csrf-token") != request.app.state.csrf_token:
             raise HTTPException(status_code=403, detail="缺少有效的安全校验令牌")
+
+    @app.get("/api/learning/policy")
+    async def learning_policy(request: Request):
+        return runtime(request).learning.policy(owner_id(request))
+
+    @app.put("/api/learning/policy", dependencies=[Depends(mutate)])
+    async def configure_learning_policy(request: Request):
+        try:
+            return runtime(request).learning.configure(owner_id(request), **(await request.json()))
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=409 if exc.__class__.__name__ == "LearningConflict" else 422, detail=str(exc)) from exc
+
+    @app.get("/api/learning/history")
+    async def learning_history(request: Request):
+        return {"items": runtime(request).learning.history(owner_id(request))}
+
+    @app.post("/api/learning/prompt-suites", dependencies=[Depends(mutate)])
+    async def register_learning_suite(request: Request):
+        try:
+            payload = await request.json()
+            identity = runtime(request).learning.prompt_learning.register_suite(owner_id(request), payload["cases"])
+            return {"digest": identity}
+        except (ValueError, KeyError, RuntimeError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/learning/constraints", dependencies=[Depends(mutate)])
+    async def bind_learning_constraint(request: Request):
+        try:
+            payload = await request.json()
+            job_id = runtime(request).learning.bind_constraint_scope(owner_id(request), payload["message_id"], payload["applicability"])
+            return {"job_id": job_id}
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.delete("/api/learning/prompt-suites/{suite_digest}", dependencies=[Depends(mutate)])
+    async def forget_learning_suite(suite_digest: str, request: Request):
+        try:
+            runtime(request).learning.prompt_learning.forget_suite(owner_id(request), suite_digest)
+            return {"status": "FORGOTTEN"}
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/learning/jobs/{job_id}/suspend", dependencies=[Depends(mutate)])
+    async def suspend_learning(job_id: str, request: Request):
+        payload = await request.json()
+        try:
+            runtime(request).learning.suspend(job_id, owner_id(request), expected_version=payload["expected_version"], reason="user_requested")
+            return {"status": "SUSPENDED"}
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     def runtime(request: Request):
         value = getattr(request.app.state, "runtime", None)
@@ -144,7 +199,11 @@ def register_routes(app) -> None:
         return {
             "csrf_token": request.app.state.csrf_token,
             "version": config.version,
-            "api_key_env": getattr(config, "api_key_env", "AGENT_MODEL_API_KEY"),
+            "api_key_env": getattr(
+                request.app.state.runtime,
+                "model_api_key_env",
+                getattr(config, "api_key_env", "AGENT_MODEL_API_KEY"),
+            ),
             "api_key_configured": getattr(config, "api_key_configured", False),
             "human_mode": settings.get().human_mode if settings else False,
         }
@@ -161,9 +220,37 @@ def register_routes(app) -> None:
     async def list_model_profiles(service=Depends(model_admin)):
         return {"profiles": service.list_profiles()}
 
+    @app.get("/api/model-capacity")
+    async def resolve_model_capacity(
+        base_url: str, protocol: str = "openai_compatible", model: str = "",
+    ):
+        """Resolve one endpoint/model capacity so the console never guesses it."""
+        from .model_capacity import CapacityContractError, resolve_working_window
+
+        try:
+            resolution = resolve_working_window(
+                base_url=base_url, protocol=protocol, model_id=model,
+            )
+        except (ValueError, CapacityContractError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        return {
+            "capacity": resolution.public_view(),
+            "evidence": resolution.capacity_record(),
+            "entry": resolution.entry.public_view() if resolution.entry is not None else None,
+        }
+
+    @app.get("/api/model-readiness")
+    async def get_model_readiness(request: Request):
+        service = getattr(runtime(request), "model_readiness", None)
+        if service is None:
+            raise HTTPException(status_code=503, detail="模型就绪检查尚未配置")
+        return service.check()
+
     @app.post("/api/model-profiles", status_code=201, dependencies=[Depends(mutate)])
     async def create_model_profile(payload: dict[str, Any], service=Depends(model_admin)):
         from .model_admin import ModelAdminError
+        from .model_capacity import loads_capacity_record
+        payload["working_window_mode"] = payload.get("working_window_mode") or (loads_capacity_record(payload.get("capacity_evidence")) or {}).get("mode") or "manual"
         try: return service.create_profile(payload)
         except ModelAdminError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -175,6 +262,8 @@ def register_routes(app) -> None:
     @app.post("/api/model-profiles/{profile_id}/versions", status_code=201, dependencies=[Depends(mutate)])
     async def create_model_profile_version(profile_id: str, payload: dict[str, Any], service=Depends(model_admin)):
         from .model_admin import ModelAdminError
+        from .model_capacity import loads_capacity_record
+        payload["working_window_mode"] = payload.get("working_window_mode") or (loads_capacity_record(payload.get("capacity_evidence")) or {}).get("mode") or "manual"
         try: return service.add_version(profile_id, payload)
         except KeyError as exc: raise HTTPException(status_code=404, detail="model profile not found") from exc
         except ModelAdminError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -262,6 +351,7 @@ def register_routes(app) -> None:
                 timezone_name=_required_text(payload, "timezone"),
                 daily_minutes=_required_int(payload, "daily_minutes"),
                 requested_end_date=payload.get("requested_end_date"),
+                constraints=payload.get("schedule_constraints"),
                 idempotency_key=idempotency_key(request),
             )
         except GoalProgramNotFound as exc:
@@ -318,9 +408,50 @@ def register_routes(app) -> None:
         try: return service.get_action_context(action_id)
         except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="action not found") from exc
 
+    @app.post("/api/threads/{thread_id}/messages/{message_id}/save-plan", dependencies=[Depends(mutate)], response_model=None)
+    async def save_message_plan(thread_id: str, message_id: str, payload: dict[str, Any], request: Request, service=Depends(runtime), current_owner: str = Depends(owner_id)):
+        try:
+            if payload.get("confirmed") is not True or set(payload) != {"title", "confirmed"}:
+                raise ValueError("confirm this answer as a plan before saving")
+            title = _required_text(payload, "title")
+            from .plan_documents import validate_title
+            title = validate_title(title)
+            idempotency_key(request)
+            with service.db.connection() as connection:
+                row = connection.execute(
+                    "SELECT m.*,t.status turn_status FROM thread_messages m JOIN threads h ON h.id=m.thread_id "
+                    "JOIN turns t ON t.id=m.turn_id WHERE m.id=? AND m.thread_id=? AND h.owner_id=?",
+                    (message_id, thread_id, current_owner),
+                ).fetchone()
+            if row is None:
+                raise HTTPException(status_code=404, detail="message not found")
+            if row["role"] != "assistant" or row["status"] != "ready" or row["turn_status"] != "COMPLETED" or not row["content"].strip():
+                raise ValueError("only a completed assistant answer can be saved")
+            # The source turn is the durable deduplication identity, including after a lost HTTP response.
+            revision = service.plan_documents.save_model_revision(
+                thread_id=thread_id, title=title, markdown_content=row["content"],
+                source_turn_id=row["turn_id"], source_message_id=message_id, actor="user",
+            )
+            with service.db.transaction() as connection:
+                connection.execute("UPDATE thread_messages SET plan_document_version_id=? WHERE id=? AND thread_id=?",
+                                   (revision.id, message_id, thread_id))
+            return {"plan_document_id": revision.plan_document_id, "plan_document_version_id": revision.id}
+        except PlanDocumentConflict as exc:
+            return JSONResponse(status_code=409, content={"detail": str(exc)})
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    @app.post("/api/programs/{program_id}/days/{local_date}/close", dependencies=[Depends(mutate)], response_model=None)
+    async def close_goal_day(program_id: str, local_date: str, request: Request, service=Depends(goal_programs), current_owner: str = Depends(owner_id)):
+        return _goal_call(lambda: service.close_day(program_id, local_date, idempotency_key=idempotency_key(request), owner_id=current_owner))
+
+    @app.post("/api/actions/{action_id}/reopen", dependencies=[Depends(mutate)], response_model=None)
+    async def reopen_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs), current_owner: str = Depends(owner_id)):
+        return _goal_call(lambda: service.reopen_action(action_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request), owner_id=current_owner))
+
     @app.post("/api/actions/{action_id}/complete", dependencies=[Depends(mutate)], response_model=None)
     async def complete_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
-        return _goal_call(lambda: service.complete_action(action_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+        return _goal_call(lambda: service.complete_action(action_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request),feedback={key:value for key,value in payload.items() if key!="expected_version"}))
 
     @app.post("/api/actions/{action_id}/skip", dependencies=[Depends(mutate)], response_model=None)
     async def skip_goal_action(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
@@ -338,19 +469,58 @@ def register_routes(app) -> None:
     @app.post("/api/actions/{action_id}/request-help", status_code=202, dependencies=[Depends(mutate)], response_model=None)
     async def request_goal_help(action_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
         try:
+            if "expert" in payload and not isinstance(payload["expert"], bool):
+                raise ValueError("expert must be boolean")
             return service.request_help(
                 action_id, content=_required_text(payload, "content"),
                 expected_version=_required_int(payload, "expected_version"),
-                idempotency_key=idempotency_key(request), client_turn_id=payload.get("client_turn_id"),
+                idempotency_key=idempotency_key(request), client_turn_id=payload.get("client_turn_id"), expert=payload.get("expert", False),
             )
         except GoalProgramNotFound as exc: raise HTTPException(status_code=404, detail="action not found") from exc
         except GoalProgramConflict as exc: return _goal_conflict(exc)
         except ValueError as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    for operation in ("pause", "resume", "complete", "cancel"):
+    for operation in ("pause", "resume", "cancel"):
         async def lifecycle(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs), operation=operation):
             return _goal_call(lambda: service.transition(program_id, operation, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
         app.add_api_route(f"/api/programs/{{program_id}}/{operation}", lifecycle, methods=["POST"], dependencies=[Depends(mutate)], response_model=None)
+
+    @app.post("/api/programs/{program_id}/complete", dependencies=[Depends(mutate)], response_model=None)
+    async def complete_goal_program(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
+        response = _goal_call(lambda: service.transition(
+            program_id, "complete",
+            expected_version=_required_int(payload, "expected_version"),
+            idempotency_key=idempotency_key(request),
+        ))
+        if isinstance(response, JSONResponse):
+            return response
+        # 状态切换与模板总结已经落库；周期复盘是加成，模型不可用时保留模板总结。
+        try:
+            summary = await service.period_summary(program_id)
+            if summary:
+                return service.get(program_id)
+        except Exception:
+            pass
+        return response
+
+    @app.get("/api/programs/{program_id}/period-review")
+    async def period_review_status(program_id: str, service=Depends(goal_programs), current_owner: str = Depends(owner_id)):
+        try:
+            return service.period_summary_status(program_id, current_owner)
+        except GoalProgramNotFound as exc:
+            raise HTTPException(status_code=404, detail="program not found") from exc
+
+    @app.post("/api/programs/{program_id}/period-review/retry", dependencies=[Depends(mutate)], response_model=None)
+    async def retry_period_review(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs), current_owner: str = Depends(owner_id)):
+        try:
+            await service.period_summary(program_id, current_owner, retry_key=idempotency_key(request))
+            return service.period_summary_status(program_id, current_owner)
+        except GoalProgramNotFound as exc:
+            raise HTTPException(status_code=404, detail="program not found") from exc
+        except GoalProgramConflict as exc:
+            return _goal_conflict(exc)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.delete("/api/programs/{program_id}", dependencies=[Depends(mutate)], response_model=None)
     async def tombstone_goal_program(program_id: str, payload: dict[str, Any], request: Request, service=Depends(goal_programs)):
@@ -454,6 +624,23 @@ def register_routes(app) -> None:
             },
         )
 
+    @app.get("/api/threads/{thread_id}/archive")
+    async def archive_status(thread_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)):
+        try:
+            return service.archiver.status(thread_id, current_owner)
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.post("/api/threads/{thread_id}/archive/{job_id}/retry", dependencies=[Depends(mutate)])
+    async def retry_archive(thread_id: str, job_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)):
+        from .memory_archive import ArchiveError
+        try:
+            return service.archiver.retry(thread_id, current_owner, job_id, _required_text(payload, "expected_updated_at"))
+        except (KeyError, PermissionError) as exc:
+            raise HTTPException(status_code=404, detail="archive job not found") from exc
+        except ArchiveError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.get("/api/threads/{thread_id}/plan")
     async def get_thread_plan(
         thread_id: str,
@@ -480,7 +667,7 @@ def register_routes(app) -> None:
         if not isinstance(objective, str) or not objective.strip() or not isinstance(key, str) or not key.strip():
             raise HTTPException(status_code=422, detail="objective and idempotency_key are required")
         bundle = root.behavior.active("stable")
-        run = service.create_run(current_owner, objective, {"objective":objective,"thread_id":thread_id}, bundle.id, thread_id=thread_id, idempotency_key=key)
+        run = service.create_run(current_owner, objective, {"objective":objective,"thread_id":thread_id,"task_mode":"user_task"}, bundle.id, thread_id=thread_id, idempotency_key=key)
         return _agent_run_json(run)
 
     @app.get("/api/threads/{thread_id}/expert-runs/latest")
@@ -734,6 +921,7 @@ def register_routes(app) -> None:
     async def post_turn(
         thread_id: str,
         payload: dict[str, Any],
+        request: Request,
         service=Depends(conversation),
     ) -> dict[str, Any]:
         content = payload.get("content")
@@ -745,6 +933,17 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=422, detail="client_turn_id is required")
         if not isinstance(skill_names, list) or not all(isinstance(name, str) for name in skill_names):
             raise HTTPException(status_code=422, detail="skill_names must be an array of strings")
+        readiness_service = getattr(request.app.state.runtime, "model_readiness", None)
+        from .conversation import UnavailableConversationModel
+        from .live_model import LiveConversationModel
+        enforce_readiness = isinstance(
+            getattr(request.app.state.runtime, "conversation_model", None),
+            (LiveConversationModel, UnavailableConversationModel),
+        )
+        if readiness_service is not None and enforce_readiness:
+            readiness = readiness_service.check()
+            if not readiness["ready"]:
+                raise HTTPException(status_code=503, detail=readiness)
         try:
             accepted = service.accept_turn(thread_id, client_turn_id, content, skill_names)
         except KeyError as exc:
@@ -1305,44 +1504,72 @@ def register_routes(app) -> None:
         return {"memories": [_memory_json(record) for record in service.memory.all_records()]}
 
     @app.post("/api/memory/entries", status_code=201, dependencies=[Depends(mutate)])
-    async def create_memory_entry(payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+    async def create_memory_entry(payload: dict[str, Any], request: Request, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        from .memory_v2 import MemoryConflict
         try:
-            item=service.memory_store.remember(current_owner,payload.get("kind","fact"),payload.get("scope_type","user"),payload.get("scope_id",""),payload.get("content",""),payload.get("idempotency_key") or f"api:{uuid.uuid4().hex}",payload.get("source_refs",[]),pinned=payload.get("pinned",False),importance=float(payload.get("importance",.5)))
+            item=service.memory_store.remember(current_owner,payload.get("kind","fact"),payload.get("scope_type","user"),payload.get("scope_id",""),payload.get("content",""),idempotency_key(request),payload.get("source_refs",[]),pinned=payload.get("pinned",False),importance=payload.get("importance",.5),sensitivity=payload.get("sensitivity","normal"),source_thread_id=payload.get("source_thread_id"),source_run_id=payload.get("source_run_id"))
             return _memory_entry_json(item)
-        except (ValueError,KeyError) as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+        except (ValueError,TypeError) as exc:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_MEMORY_REQUEST","message":str(exc)}) from exc
 
     @app.patch("/api/memory/entries/{entry_id}", dependencies=[Depends(mutate)])
-    async def edit_memory_entry(entry_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
-        try:return _memory_entry_json(service.memory_store.edit(entry_id,current_owner,payload.get("content",""),payload.get("base_revision_id","")))
+    async def edit_memory_entry(entry_id:str,payload:dict[str,Any],request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        from .memory_v2 import MemoryConflict
+        try:return _memory_entry_json(service.memory_store.edit(entry_id,current_owner,payload.get("content",""),payload.get("base_revision_id",""),idempotency_key=idempotency_key(request)))
         except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
-        except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
-
-    @app.post("/api/memory/entries/{entry_id}/archive", dependencies=[Depends(mutate)])
-    async def archive_memory_entry(entry_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
-        try:return _memory_entry_json(service.memory_store.set_status(entry_id,current_owner,"ARCHIVED"))
-        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
-
-    @app.delete("/api/memory/entries/{entry_id}",status_code=204,dependencies=[Depends(mutate)])
-    async def purge_memory_entry(entry_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
-        try:service.memory_store.purge(entry_id,current_owner);return Response(status_code=204)
-        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
-
-    @app.post("/api/memory/proposals/{proposal_id}/decision",dependencies=[Depends(mutate)])
-    async def decide_memory_proposal(proposal_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
-        try:return _memory_proposal_json(service.memory_store.decide_proposal(proposal_id,current_owner,payload.get("accept") is True,payload.get("idempotency_key") or f"decision:{uuid.uuid4().hex}"))
-        except KeyError as exc:raise HTTPException(status_code=404,detail="proposal not found") from exc
-        except ValueError as exc:raise HTTPException(status_code=409,detail=str(exc)) from exc
-
-    @app.patch("/api/memory/episodes/{episode_id}",dependencies=[Depends(mutate)])
-    async def edit_memory_episode(episode_id:str,payload:dict[str,Any],service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
-        try:return _memory_episode_json(service.memory_store.edit_episode(episode_id,current_owner,payload.get("summary",""),payload.get("retrieval_policy")))
-        except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
         except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
-    @app.delete("/api/memory/episodes/{episode_id}",status_code=204,dependencies=[Depends(mutate)])
-    async def delete_memory_episode(episode_id:str,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
-        try:service.memory_store.delete_episode(episode_id,current_owner);return Response(status_code=204)
+    @app.post("/api/memory/entries/{entry_id}/archive", dependencies=[Depends(mutate)])
+    async def archive_memory_entry(entry_id:str,request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        from .memory_v2 import MemoryConflict
+        try:return _memory_entry_json(service.memory_store.set_status(entry_id,current_owner,"ARCHIVED",idempotency_key=idempotency_key(request)))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+
+    @app.post("/api/memory/entries/{entry_id}/restore", dependencies=[Depends(mutate)])
+    async def restore_memory_entry(entry_id:str,request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        from .memory_v2 import MemoryConflict
+        try:return _memory_entry_json(service.memory_store.restore(entry_id,current_owner,idempotency_key(request)))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+
+    @app.delete("/api/memory/entries/{entry_id}",status_code=204,dependencies=[Depends(mutate)])
+    async def purge_memory_entry(entry_id:str,request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
+        from .memory_v2 import MemoryConflict
+        try:service.memory_store.purge(entry_id,current_owner,idempotency_key=idempotency_key(request));return Response(status_code=204)
+        except KeyError as exc:raise HTTPException(status_code=404,detail="memory not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+
+    @app.post("/api/memory/proposals/{proposal_id}/decision",dependencies=[Depends(mutate)])
+    async def decide_memory_proposal(proposal_id:str,payload:dict[str,Any],request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        from .memory_v2 import MemoryConflict
+        if type(payload.get("accept")) is not bool:
+            raise HTTPException(status_code=422,detail={"reason_code":"INVALID_APPROVAL_DECISION","message":"accept must be a boolean"})
+        if "expected_version" not in payload:
+            raise HTTPException(status_code=422,detail={"reason_code":"INVALID_APPROVAL_DECISION","message":"expected_version is required"})
+        try:return _memory_proposal_json(service.memory_store.decide_proposal(proposal_id,current_owner,payload["accept"],idempotency_key(request),accepted_content=payload.get("accepted_content"),expected_version=payload["expected_version"]))
+        except KeyError as exc:raise HTTPException(status_code=404,detail="proposal not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+        except (ValueError,TypeError) as exc:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_APPROVAL_DECISION","message":str(exc)}) from exc
+
+    @app.patch("/api/memory/episodes/{episode_id}",dependencies=[Depends(mutate)])
+    async def edit_memory_episode(episode_id:str,payload:dict[str,Any],request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->dict[str,Any]:
+        from .memory_v2 import MemoryConflict
+        if "expected_version" not in payload:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_EPISODE_REQUEST","message":"expected_version is required"})
+        try:return _memory_episode_json(service.memory_store.edit_episode(episode_id,current_owner,payload.get("summary",""),payload.get("retrieval_policy"),payload["expected_version"],idempotency_key(request)))
         except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+        except (ValueError,TypeError) as exc:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_EPISODE_REQUEST","message":str(exc)}) from exc
+
+    @app.delete("/api/memory/episodes/{episode_id}",status_code=204,dependencies=[Depends(mutate)])
+    async def delete_memory_episode(episode_id:str,payload:dict[str,Any],request:Request,service=Depends(runtime),current_owner: str = Depends(owner_id))->Response:
+        from .memory_v2 import MemoryConflict
+        if "expected_version" not in payload:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_EPISODE_REQUEST","message":"expected_version is required"})
+        try:service.memory_store.delete_episode(episode_id,current_owner,payload["expected_version"],idempotency_key(request));return Response(status_code=204)
+        except KeyError as exc:raise HTTPException(status_code=404,detail="episode not found") from exc
+        except MemoryConflict as exc:raise HTTPException(status_code=409,detail={"reason_code":exc.reason_code,"message":str(exc)}) from exc
+        except (ValueError,TypeError) as exc:raise HTTPException(status_code=422,detail={"reason_code":"INVALID_EPISODE_REQUEST","message":str(exc)}) from exc
 
     @app.get("/api/memories/{memory_id}/versions")
     async def list_memory_versions(memory_id: str, request: Request, current_owner: str = Depends(owner_id)) -> dict[str, Any]:
@@ -1431,7 +1658,9 @@ def register_routes(app) -> None:
             task_type=_required_text(payload, "task_type"), outcome=_required_text(payload, "outcome"),
             lineage_group_hash=_required_text(payload, "lineage_group_hash"), source_content_hash=_required_text(payload, "source_content_hash"),
             runtime_bundle_id=_required_text(payload, "runtime_bundle_id"), dataset_partition=_required_text(payload, "dataset_partition"),
-            idempotency_key=idempotency_key(request),
+            idempotency_key=idempotency_key(request), root_task_id=str(payload.get("root_task_id") or ""),
+            target_role=str(payload.get("target_role") or ""), provenance=str(payload.get("provenance") or "production"),
+            source_version=str(payload.get("source_version") or ""),
         ))
 
     @app.post("/api/evolution/candidates", status_code=201, dependencies=[Depends(mutate)])
@@ -1441,7 +1670,50 @@ def register_routes(app) -> None:
             base_bundle_id=_required_text(payload, "base_bundle_id"), target_bundle_id=_required_text(payload, "target_bundle_id"),
             proposed_content=payload.get("proposed_content"), permission_diff=payload.get("permission_diff"),
             reason=_required_text(payload, "reason"), idempotency_key=idempotency_key(request),
+            problem_fingerprint=str(payload.get("problem_fingerprint") or ""),
+            root_cause_hypothesis=str(payload.get("root_cause_hypothesis") or ""),
+            confidence_limitations=str(payload.get("confidence_limitations") or ""),
+            target_role=str(payload.get("target_role") or ""), allowed_path=str(payload.get("allowed_path") or ""),
+            expected_metrics=payload.get("expected_metrics"), risks=payload.get("risks"), replay_case_ids=payload.get("replay_case_ids"),
         ))
+
+    @app.post("/api/evolution/content-authorizations", status_code=201, dependencies=[Depends(mutate)])
+    async def grant_evolution_content_authorization(payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.grant_content_authorization(
+            subject_id=_required_text(payload, "subject_id"), source_scope=payload.get("source_scope") or [],
+            purpose=_required_text(payload, "purpose"), expires_at=_required_text(payload, "expires_at"),
+            idempotency_key=idempotency_key(request),
+        ))
+
+    @app.post("/api/evolution/content-authorizations/{authorization_id}/revoke", dependencies=[Depends(mutate)])
+    async def revoke_evolution_content_authorization(authorization_id: str, service=Depends(evolution)):
+        return _evolution_call(lambda: service.revoke_content_authorization(authorization_id))
+
+    @app.post("/api/evolution/generation-batches", status_code=201, dependencies=[Depends(mutate)])
+    async def authorize_evolution_generation(payload: dict[str, Any], request: Request, service=Depends(evolution)):
+        return _evolution_call(lambda: service.authorize_generation_batch(
+            experience_ids=payload.get("experience_ids") or [], base_bundle_id=_required_text(payload, "base_bundle_id"),
+            problem_fingerprint=_required_text(payload, "problem_fingerprint"), root_budget_id=_required_text(payload, "root_budget_id"),
+            max_calls=_required_int(payload, "max_calls"), budget_microusd=_required_int(payload, "budget_microusd"),
+            deadline_at=_required_text(payload, "deadline_at"), generation_config=payload.get("generation_config") or {},
+            content_authorization_id=payload.get("content_authorization_id"), idempotency_key=idempotency_key(request),
+        ))
+
+    @app.get("/api/evolution/generation-batches/{batch_id}")
+    async def get_evolution_generation(batch_id: str, service=Depends(evolution)):
+        return _evolution_call(lambda: service.get_generation_batch(batch_id))
+
+    @app.post("/api/evolution/generation-batches/{batch_id}/run", dependencies=[Depends(mutate)])
+    async def run_evolution_generation(batch_id: str, request: Request):
+        generator = getattr(runtime(request), "candidate_generator", None)
+        if generator is None:
+            raise HTTPException(status_code=503, detail="candidate generator is not configured")
+        try:
+            return await asyncio.to_thread(generator.run_batch, batch_id)
+        except (EvolutionConflict, EvolutionGateError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/evolution/candidates")
     async def list_evolution_candidates(service=Depends(evolution)):
@@ -1460,7 +1732,7 @@ def register_routes(app) -> None:
     @app.post("/api/evaluation-runs", status_code=202, dependencies=[Depends(mutate)])
     async def create_evaluation_run(payload: dict[str, Any], request: Request, service=Depends(real_evaluator)):
         from .real_evaluation import EvaluationAccessError
-        try: return service.enqueue(service.authoritative_config(payload), idempotency_key=idempotency_key(request))
+        try: return service.enqueue(service.authoritative_config(payload), idempotency_key=idempotency_key(request), root_budget_id=payload.get("root_budget_id"))
         except KeyError as exc: raise HTTPException(status_code=404, detail="evaluation suite not found") from exc
         except (EvaluationAccessError, ValueError) as exc: raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -1548,7 +1820,19 @@ def register_routes(app) -> None:
 
     @app.post("/api/evolution/candidates/{candidate_id}/start-canary", dependencies=[Depends(mutate)])
     async def start_evolution_canary(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
-        return _evolution_call(lambda: service.start_canary_builtin(candidate_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request)))
+        return _evolution_call(lambda: service.start_canary_builtin(
+            candidate_id, expected_version=_required_int(payload,"expected_version"), idempotency_key=idempotency_key(request),
+            target_role=str(payload.get("target_role") or ""), target_purpose=str(payload.get("target_purpose") or ""),
+            budget_microusd=payload.get("budget_microusd"), deadline_at=payload.get("deadline_at"), max_calls=payload.get("max_calls"),
+        ))
+
+    @app.post("/api/evolution/canaries/{deployment_id}/quality", dependencies=[Depends(mutate)])
+    async def assess_evolution_quality(deployment_id: str, payload: dict[str, Any], service=Depends(evolution)):
+        _evolution_call(lambda: service.assess_canary_quality(
+            deployment_id, _required_text(payload, "run_id"), passed=payload.get("passed"),
+            prompt_digest=_required_text(payload, "prompt_digest"), reason=_required_text(payload, "reason"),
+        ))
+        return {"recorded": True}
 
     @app.post("/api/evolution/candidates/{candidate_id}/promote", dependencies=[Depends(mutate)])
     async def promote_evolution_candidate(candidate_id: str, payload: dict[str, Any], request: Request, service=Depends(evolution)):
@@ -1653,6 +1937,15 @@ def _turn_json(turn) -> dict[str, Any]:
         "materialized_run_id": turn.materialized_run_id,
         "direction_action": turn.direction_action,
         "direction_idempotency_key": turn.direction_idempotency_key,
+        "metrics": {
+            "queue_wait_ms": turn.queue_wait_ms,
+            "context_ms": turn.context_ms,
+            "model_ttft_ms": turn.model_ttft_ms,
+            "stream_ms": turn.stream_ms,
+            "answer_wait_ms": turn.answer_wait_ms,
+            "total_ms": turn.total_ms,
+            "model_attempt_count": turn.model_attempt_count,
+        },
         "created_at": turn.created_at,
         "updated_at": turn.updated_at,
     }
@@ -1685,6 +1978,7 @@ def _thread_message_json(message) -> dict[str, Any]:
         "research_job_id": getattr(message, "research_job_id", None),
         "created_at": message.created_at,
         "completed_at": message.completed_at,
+        "total_ms": getattr(message, "total_ms", None),
     }
 
 
@@ -1697,7 +1991,8 @@ def _research_job_json(job) -> dict[str, Any]:
         "cancel_requested_at": job.cancel_requested_at, "created_at": job.created_at, "updated_at": job.updated_at,
         "title": job.report_title, "source_count": job.source_count, "evidence_count": job.evidence_count,
         "assistant_message_id": job.assistant_message_id, "failure_reason_code": job.failure_reason_code,
-        "failure_details": job.failure_details,
+        "failure_details": job.failure_details, "traceability": list(job.traceability),
+        "missing_requirements": list(job.missing_requirements),
     }
 
 
@@ -1887,15 +2182,25 @@ def _memory_json(record) -> dict[str, Any]:
 
 
 def _memory_entry_json(item) -> dict[str, Any]:
-    return {"id":item.id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"status":item.status,"content":item.content,"revision_id":item.revision_id,"revision_no":item.revision_no,"pinned":item.pinned,"importance":item.importance,"sensitivity":item.sensitivity,"created_at":item.created_at,"updated_at":item.updated_at}
+    return {"id":item.id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"status":item.status,"content":item.content,"revision_id":item.revision_id,"revision_no":item.revision_no,"pinned":item.pinned,"importance":item.importance,"sensitivity":item.sensitivity,"evidence_state":item.evidence_state,"evidence_label":_evidence_label(item.evidence_state,len(item.evidence)),"evidence_count":len(item.evidence),"evidence":[_memory_evidence_json(value) for value in item.evidence],"created_at":item.created_at,"updated_at":item.updated_at}
 
 
 def _memory_proposal_json(item) -> dict[str, Any]:
-    return {"id":item.id,"operation":item.operation,"target_entry_id":item.target_entry_id,"base_revision_id":item.base_revision_id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"content":item.content,"confidence":item.confidence,"status":item.status,"accepted_revision_id":item.accepted_revision_id,"reason":item.reason,"created_at":item.created_at}
+    return {"id":item.id,"operation":item.operation,"target_entry_id":item.target_entry_id,"base_revision_id":item.base_revision_id,"kind":item.kind,"scope_type":item.scope_type,"scope_id":item.scope_id,"content":item.content,"original_content":item.original_content,"accepted_content":item.accepted_content,"model_confidence":item.confidence,"status":item.status,"accepted_revision_id":item.accepted_revision_id,"reason":item.reason,"evidence_state":item.evidence_state,"evidence_label":_evidence_label(item.evidence_state,len(item.evidence)),"evidence_count":len(item.evidence),"evidence":[_memory_evidence_json(value) for value in item.evidence],"version":item.version,"created_at":item.created_at}
+
+
+def _memory_evidence_json(item) -> dict[str, Any]:
+    return {"source_type":item.source_type,"source_id":item.source_id,"source_label":item.source_label,"excerpt":item.excerpt}
+
+
+def _evidence_label(state: str, count: int) -> str:
+    if state == "VERIFIED": return f"已验证用户依据（{count} 条）" if count else "用户直接确认"
+    if state == "INVALID": return "依据已失效"
+    return "历史记录，依据未验证"
 
 
 def _memory_episode_json(item) -> dict[str, Any]:
-    return {"id":item.id,"thread_id":item.thread_id,"project_id":item.project_id,"start_message_seq":item.start_message_seq,"end_message_seq":item.end_message_seq,"summary":item.summary,"sensitivity":item.sensitivity,"retrieval_policy":item.retrieval_policy,"status":item.status,"created_at":item.created_at}
+    return {"id":item.id,"thread_id":item.thread_id,"project_id":item.project_id,"start_message_seq":item.start_message_seq,"end_message_seq":item.end_message_seq,"summary":item.summary,"sensitivity":item.sensitivity,"retrieval_policy":item.retrieval_policy,"status":item.status,"version":item.version,"created_at":item.created_at}
 
 
 def _memory_version_json(version) -> dict[str, Any]:

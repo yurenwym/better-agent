@@ -71,7 +71,7 @@ def test_selected_skills_are_persisted_and_loaded_into_model_context(tmp_path) -
 
     assert response.status_code == 200
     assert runtime.get_run(run.id).skill_names == ("reflection",)
-    assert any("Execution reflection" in snapshot for snapshot in model.snapshots)
+    assert any("执行复盘" in snapshot for snapshot in model.snapshots)
     assert any(event.type == "skills.selected" for event in runtime.events.list(run.id))
 
 

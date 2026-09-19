@@ -47,3 +47,38 @@ evals/results/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local agent runtime state (PostgreSQL is the authoritative store; these are
+# rebuildable projections, working artifacts or leftovers from the SQLite era)
+backend/agent.db
+backend/agent.db-*
+backend/artifacts/
+backend/plans/
+backend/research_notes/
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local agent runtime state (PostgreSQL is the authoritative store; these are
+# rebuildable projections, working artifacts or leftovers from the SQLite era)
+backend/agent.db
+backend/agent.db-*
+backend/artifacts/
+backend/plans/
+backend/research_notes/
+backend/skills/
+
+# Scraped / debug leftovers
+bing.html
+page.html
+
+# Reasonix tool state (local session data and permission records, not project config)
+.reasonix/
+reasonix.toml
+
+# Ephemeral runtime and e2e test directories
+data-e2e*/
+outputs/
+.workbuddy-ai/

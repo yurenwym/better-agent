@@ -1,0 +1,25 @@
+{
+  "version": "memory-recall-v2",
+  "seed": 731902,
+  "origin": "All constructed operational scenarios; not production facts/logs.",
+  "cases": 100,
+  "memories": 168,
+  "split": "62 dev / 38 holdout; service entities disjoint, shared indexed corpus",
+  "arms": [
+    "legacy",
+    "rrf"
+  ],
+  "rrf_k": 60,
+  "semantic_min_score": 0.35,
+  "budgets": [
+    450,
+    750,
+    1500
+  ],
+  "max_deepseek_calls": 200,
+  "max_embedding_calls": 268,
+  "max_output_tokens_per_call": 256,
+  "model": "deepseek-flash",
+  "hypothesis": "RRF may improve exact-match ranking under distractors; no assumed improvement.",
+  "release_gate": "no scope leakage; holdout answer count must increase with no exact/code regression; reference failures assessed separately; do not tune on holdout"
+}

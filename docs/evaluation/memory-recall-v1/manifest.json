@@ -1,0 +1,12 @@
+{
+  "version": "memory-recall-v1",
+  "date": "2026-09-19",
+  "source_policy": "10 条仓库事实 + 12 条明确标注的构造记忆；24 道人工标注问题；不是生产用户日志。",
+  "split_policy": "固定前16题开发、后8题留出；共享语料库，非实体不相交；本轮不基于留出结果调参。",
+  "semantic_budget_bytes": 1500,
+  "model": "deepseek-flash",
+  "max_calls": 72,
+  "max_output_tokens_per_call": 256,
+  "max_elapsed_seconds": 900,
+  "production_code_changed": false
+}

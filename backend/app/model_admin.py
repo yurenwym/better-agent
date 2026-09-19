@@ -163,14 +163,14 @@ class ModelAdminService:
             )
         return self.policy(policy_id)
 
-    def ensure_profile(self, profile: Any) -> Any:
+    def ensure_profile(self, profile: Any, *, capabilities_env: str = "AGENT_MODEL_CAPABILITIES") -> Any:
         """Register a legacy environment profile once and return its immutable version binding."""
         configured = {
-            item.strip() for item in os.getenv("AGENT_MODEL_CAPABILITIES", "").split(",") if item.strip()
+            item.strip() for item in os.getenv(capabilities_env, "").split(",") if item.strip()
         }
         unknown = configured - MODEL_CAPABILITIES
         if unknown:
-            raise ModelAdminError(f"unknown AGENT_MODEL_CAPABILITIES: {', '.join(sorted(unknown))}")
+            raise ModelAdminError(f"unknown {capabilities_env}: {', '.join(sorted(unknown))}")
         capabilities = {name: name == "text" or name in configured for name in MODEL_CAPABILITIES}
         payload = {
             "provider_protocol": profile.provider_protocol, "provider_name": profile.provider_name,

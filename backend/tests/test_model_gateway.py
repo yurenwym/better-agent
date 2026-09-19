@@ -5,6 +5,84 @@ import httpx
 import pytest
 
 
+@pytest.mark.parametrize("required_index", [0, 1])
+def test_required_context_group_cannot_be_partially_packed(required_index):
+    from app.token_budget import ContextOverflow, pack_messages_newest
+    messages = [
+        {"role": "system", "content": "source boundary", "_context_group": "action", "_context_required": False},
+        {"role": "user", "content": "required action " * 100, "_context_group": "action", "_context_required": False},
+        {"role": "user", "content": "continue"},
+    ]
+    messages[required_index]["_context_required"] = True
+    with pytest.raises(ContextOverflow, match="required"):
+        pack_messages_newest(messages, budget=200)
+    result = pack_messages_newest(messages, budget=5000)
+    assert [item["content"] for item in result] == [item["content"] for item in messages]
+    assert all(not any(key.startswith("_context_") for key in item) for item in result)
+
+
+@pytest.mark.parametrize("required_index", [0, 1])
+def test_required_tool_message_keeps_call_and_result_together(required_index):
+    from app.token_budget import ContextOverflow, pack_messages_newest
+    messages = [
+        {"role": "assistant", "content": "", "tool_calls": [{"id": "call-1", "type": "function", "function": {"name": "lookup", "arguments": "{}"}}]},
+        {"role": "tool", "tool_call_id": "call-1", "content": "large result " * 100},
+        {"role": "user", "content": "continue"},
+    ]
+    messages[required_index]["_context_required"] = True
+    with pytest.raises(ContextOverflow):
+        pack_messages_newest(messages, budget=300)
+    result = pack_messages_newest(messages, budget=5000)
+    assert [item["role"] for item in result] == ["assistant", "tool", "user"]
+
+
+@pytest.mark.parametrize("base_url,provider_name", [("https://x/v1","deepseek"), ("https://api.deepseek.com","openai-compatible")])
+def test_deepseek_request_uses_explicit_thinking_policy(base_url, provider_name):
+    import httpx
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+    seen = []
+    def handler(request):
+        seen.append(json.loads(request.content))
+        body = 'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, content=body.encode())
+    gateway = ModelGateway(ModelProfile(base_url, "deepseek-v4-flash", "KEY", provider_name=provider_name, max_attempts=1), transport=httpx.MockTransport(handler))
+    import os
+    os.environ["KEY"] = "x"
+    import asyncio
+    asyncio.run(gateway.complete(ModelRequest(messages=[], purpose="expert_researcher", thinking=False)))
+    assert seen[0]["thinking"] == {"type": "disabled"}
+
+
+def test_openai_compatible_request_forwards_json_response_format():
+    import asyncio
+    import json
+    import os
+    import httpx
+
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    seen = []
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        body = 'data: {"choices":[{"delta":{"content":"{}"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, content=body.encode())
+
+    gateway = ModelGateway(
+        ModelProfile("https://provider.test/v1", "demo", "FORMAT_KEY", max_attempts=1),
+        transport=httpx.MockTransport(handler),
+    )
+    os.environ["FORMAT_KEY"] = "x"
+    try:
+        asyncio.run(gateway.complete(ModelRequest(
+            messages=[{"role": "system", "content": "return json"}],
+            response_format={"type": "json_object"},
+        )))
+    finally:
+        os.environ.pop("FORMAT_KEY", None)
+    assert seen[0]["response_format"] == {"type": "json_object"}
+
+
 def _sse(*payloads: dict | str) -> bytes:
     lines = []
     for payload in payloads:
@@ -115,6 +193,91 @@ def test_pack_messages_keeps_latest_user_and_stays_within_budget() -> None:
     assert DEFAULT_TOKEN_COUNTER.count_payload(bounded) <= 180
 
 
+def test_pack_messages_drops_optional_memory_and_never_returns_over_budget() -> None:
+    from app.token_budget import DEFAULT_TOKEN_COUNTER, pack_messages_newest
+
+    memory = {
+        "role": "system", "content": "memory" * 100,
+        "_context_required": False, "_context_priority": 10,
+        "_context_group": "memory",
+    }
+    messages = [
+        {"role": "system", "content": "policy"},
+        memory,
+        {"role": "user", "content": "current"},
+    ]
+
+    bounded = pack_messages_newest(messages, budget=180)
+
+    assert bounded == [messages[0], messages[-1]]
+    assert DEFAULT_TOKEN_COUNTER.count_payload(bounded) <= 180
+    assert all(not any(key.startswith("_context_") for key in message) for message in bounded)
+
+
+def test_pack_messages_keeps_tool_call_and_result_atomic() -> None:
+    from app.token_budget import pack_messages_newest
+
+    assistant = {
+        "role": "assistant", "content": "", "tool_calls": [{
+            "id": "call-1", "type": "function",
+            "function": {"name": "read", "arguments": "{}"},
+        }],
+    }
+    tool = {"role": "tool", "tool_call_id": "call-1", "content": "result" * 100}
+    messages = [
+        {"role": "system", "content": "policy"}, assistant, tool,
+        {"role": "user", "content": "current"},
+    ]
+
+    bounded = pack_messages_newest(messages, budget=180)
+
+    assert assistant not in bounded
+    assert tool not in bounded
+
+
+def test_pack_messages_keeps_or_drops_an_entire_conversation_turn() -> None:
+    from app.token_budget import pack_messages_newest
+
+    old_user = {"role": "user", "content": "old question"}
+    old_assistant = {"role": "assistant", "content": "large answer" * 100}
+    current = {"role": "user", "content": "current"}
+    bounded = pack_messages_newest([
+        {"role": "system", "content": "policy"}, old_user, old_assistant, current,
+    ], budget=180)
+
+    assert old_user not in bounded
+    assert old_assistant not in bounded
+    assert bounded[-1] == current
+
+
+def test_pack_messages_does_not_backfill_older_history_after_newer_turn_overflows() -> None:
+    from app.token_budget import DEFAULT_TOKEN_COUNTER, pack_messages_newest
+
+    messages = [
+        {"role": "system", "content": "system"},
+        {"role": "user", "content": "older-small-question"},
+        {"role": "assistant", "content": "older-small-answer"},
+        {"role": "user", "content": "newer-large-question-" + ("x" * 160)},
+        {"role": "assistant", "content": "newer-large-answer-" + ("y" * 160)},
+        {"role": "user", "content": "current"},
+    ]
+    budget = DEFAULT_TOKEN_COUNTER.count_payload([messages[0], messages[-1]]) + 100
+
+    bounded = pack_messages_newest(messages, budget=budget)
+
+    assert {message.get("content") for message in bounded} == {"system", "current"}
+
+
+def test_pack_messages_fails_when_required_content_exceeds_budget() -> None:
+    from app.token_budget import ContextOverflow, pack_messages_newest
+
+    with pytest.raises(ContextOverflow, match="required model messages"):
+        pack_messages_newest([
+            {"role": "system", "content": "policy" * 100},
+            {"role": "user", "content": "current"},
+        ], budget=100)
+
+
 @pytest.mark.asyncio
 async def test_gateway_delivers_text_deltas_before_complete_returns(monkeypatch) -> None:
     from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
@@ -178,7 +341,9 @@ async def test_gateway_retries_429_without_exceeding_attempt_budget(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_gateway_does_not_retry_authentication_failure(monkeypatch) -> None:
+@pytest.mark.parametrize("status,kind", [(401, "authentication"), (402, "payment")])
+@pytest.mark.parametrize("protocol", ["openai_compatible", "anthropic", "gemini"])
+async def test_gateway_does_not_retry_authentication_failure(monkeypatch, status, kind, protocol) -> None:
     from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
 
     monkeypatch.setenv("TEST_MODEL_KEY", "secret-key")
@@ -187,7 +352,7 @@ async def test_gateway_does_not_retry_authentication_failure(monkeypatch) -> Non
     async def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
         attempts += 1
-        return httpx.Response(401, json={"error": {"message": "bad key"}})
+        return httpx.Response(status, json={"error": {"message": "private supplier detail"}})
 
     gateway = ModelGateway(
         ModelProfile(
@@ -196,12 +361,14 @@ async def test_gateway_does_not_retry_authentication_failure(monkeypatch) -> Non
             api_key_env="TEST_MODEL_KEY",
             max_attempts=4,
             network_retries=2,
+            provider_protocol=protocol,
         ),
         transport=httpx.MockTransport(handler),
     )
 
-    with pytest.raises(GatewayError, match="authentication"):
+    with pytest.raises(GatewayError, match=kind) as caught:
         await gateway.complete(ModelRequest(messages=[]))
+    assert caught.value.kind == kind
     assert attempts == 1
 
 

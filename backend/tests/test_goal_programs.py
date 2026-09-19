@@ -34,7 +34,7 @@ def test_seven_day_lifecycle_is_durable_and_idempotent(tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_programs import GoalProgramService
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, fixture(daily_minutes=30))
     draft = preview(goals, version)
     assert draft["status"] == "DRAFT" and draft["compile_status"] == "READY"
     assert preview(goals, version)["id"] == draft["id"]
@@ -95,8 +95,8 @@ def test_duration_timezone_progress_and_feedback_privacy_invariants(tmp_path) ->
     from app.goal_programs import GoalProgramService
 
     db, _, goals, version = service(tmp_path)
-    with pytest.raises(ValueError, match="28 days"):
-        asyncio.run(goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai", daily_minutes=60, requested_end_date="2026-09-30", idempotency_key="30-days"))
+    with pytest.raises(ValueError, match="30 days"):
+        asyncio.run(goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai", daily_minutes=60, requested_end_date="2026-10-01", idempotency_key="31-days"))
     with pytest.raises(ValueError, match="IANA"):
         asyncio.run(goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="Mars/Olympus", daily_minutes=60, requested_end_date="2026-09-07", idempotency_key="tz"))
     draft = preview(goals, version)
@@ -118,8 +118,8 @@ def test_request_help_creates_action_linked_turn_without_run_and_bounded_owner_c
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     action = active["actions"][0]
     goals.feedback(action["id"], {"kind":"difficulty","difficulty":5,"note":"x"*1000}, expected_version=0, idempotency_key="feedback")
-    result = goals.request_help(action["id"], content="这道题怎么拆解？", expected_version=0, idempotency_key="help")
-    assert goals.request_help(action["id"], content="这道题怎么拆解？", expected_version=0, idempotency_key="help") == result
+    result = goals.request_help(action["id"], content="这道题怎么拆解？", expected_version=1, idempotency_key="help")
+    assert goals.request_help(action["id"], content="这道题怎么拆解？", expected_version=1, idempotency_key="help") == result
     context = GoalContextProvider(db).load_for_turn(result["thread_id"], result["turn_id"])
     assert context is not None and len(context.recent_feedback[0]) < 300
     assert "当前行动" in context.context_text
@@ -150,7 +150,7 @@ def test_compile_failure_retry_creates_one_initial_version_and_no_actions(tmp_pa
 
 
 def test_progress_excludes_optional_skipped_deferred_and_cancelled_sources(tmp_path) -> None:
-    value = fixture()
+    value = fixture(daily_minutes=30)
     value["actions"][1]["required"] = False
     _, _, goals, version = service(tmp_path, value)
     draft = preview(goals, version)
@@ -322,3 +322,35 @@ def test_program_list_exposes_plan_relationship_and_terminal_lifecycle(tmp_path)
     assert listed[0]["id"] == paused["id"]
     assert listed[0]["source_plan_document_id"] == version.plan_document_id
     assert listed[0]["status"] == "PAUSED"
+
+
+def test_model_calls_do_not_inherit_the_source_turn_root_budget(tmp_path) -> None:
+    from app.conversation import ConversationService
+    from app.db import Database
+    from app.goal_program_compiler import FixedGoalProgramCompiler
+    from app.goal_programs import GoalProgramService
+
+    db = Database(tmp_path / "agent.db")
+    conversation = ConversationService(db)
+    thread = conversation.create_thread("骑行")
+    turn_id = "turn_with_expired_root"
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO turns(id,thread_id,client_turn_id,status,version,runtime_bundle_id,root_budget_id,created_at,updated_at)"
+            " VALUES (?,?,?,'COMPLETED',1,NULL,'task_budget_expired','2026-09-10T00:00:00+00:00','2026-09-10T00:00:00+00:00')",
+            (turn_id, thread.id, turn_id),
+        )
+    version = conversation.plan_documents.save_model_revision(
+        thread_id=thread.id, title="一周骑行", markdown_content="# 一周骑行\n每天骑行 60 分钟",
+        source_turn_id=turn_id, source_message_id=None, actor="user",
+    )
+    goals = GoalProgramService(
+        db, FixedGoalProgramCompiler(fixture()), plan_documents=conversation.plan_documents, conversation=conversation,
+    )
+
+    draft = preview(goals, version)
+    context = goals._model_context(draft["id"], "planner", "compile_goal_program")
+
+    # 编译发生在那一轮对话结束之后，必须保留来源追溯但不能绑定已到期的根任务预算。
+    assert context.root_budget_id is None
+    assert context.turn_id == turn_id

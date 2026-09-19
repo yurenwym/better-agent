@@ -49,7 +49,58 @@ class FakeModel:
 class FakeRetriever:
     async def retrieve(self, query: str, request: ResearchRequest):
         suffix = "extra" if "补充" in query else "base"
-        return [Source(f"s-{suffix}", 0, "web", f"https://example.com/{suffix}#part", None, f"来源{suffix}", "有效正文" * 120, None, "2026-01-01T00:00:00+00:00", .8)]
+        content = f"来源{suffix} 支持核心事实。\n" + "有效正文" * 120
+        return [Source(f"s-{suffix}", 0, "web", f"https://example.com/{suffix}#part", None, f"来源{suffix}", content, None, "2026-01-01T00:00:00+00:00", .8)]
+
+
+def test_research_plan_rejects_body_inside_heading():
+    plan = ResearchPlan("Title", ("Heading\nUnverified body", "Other"), ("query",))
+    with pytest.raises(ValueError, match="single-line"):
+        ResearchEngine._valid_plan(plan, ResearchRequest("job", "topic", ("web",), ResearchLimits()))
+
+
+@pytest.mark.asyncio
+async def test_distill_rejects_fact_not_in_its_source():
+    class Gateway:
+        async def complete(self, request):
+            return SimpleNamespace(message='{"evidence":[{"text":"B-tree supports range queries.","relevance":0.9},{"text":"ANALYZE executes the statement.","relevance":0.9}]}')
+    source = Source("s", 1, "web", "https://example.com", None, "ANALYZE", "ANALYZE executes the statement.", None, "n", .8)
+    evidence = await LiveResearchModel(Gateway()).distill(source, "ANALYZE", ("ANALYZE",))
+    assert [item.text for item in evidence] == ["ANALYZE executes the statement."]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("message", "finish_reason"), [("", "stop"), ("partial", "length")])
+async def test_live_writer_rejects_empty_or_truncated_section(message, finish_reason):
+    class Gateway:
+        async def complete(self, request):
+            return SimpleNamespace(message=message, finish_reason=finish_reason)
+    with pytest.raises(ValueError, match="empty or truncated"):
+        await LiveResearchModel(Gateway()).write("Heading", "Thesis", [], "")
+
+
+@pytest.mark.asyncio
+async def test_research_structured_step_rejects_parseable_but_truncated_json():
+    class Gateway:
+        async def complete(self, request):
+            assert request.thinking is False
+            return SimpleNamespace(message='{"passes": true}', finish_reason="length")
+
+    with pytest.raises(ValueError, match="must be object"):
+        await LiveResearchModel(Gateway(), structured_attempts=1)._json("audit", "report")
+
+
+@pytest.mark.asyncio
+async def test_research_writer_and_repair_disable_reasoning_mode():
+    class Gateway:
+        async def complete(self, request):
+            assert request.thinking is False
+            return SimpleNamespace(message="supported [[source:s]]", finish_reason="stop")
+
+    model = LiveResearchModel(Gateway())
+    evidence = [Evidence("e", "s", "supported", None, .9)]
+    await model.write("heading", "thesis", evidence, "")
+    await model.repair("topic", ResearchPlan("t", ("heading",), ("q",)), ("heading",), (("s", "supported"),))
 
 
 @pytest.mark.asyncio
@@ -87,7 +138,7 @@ async def test_zero_evidence_and_unknown_citation_cannot_finalize() -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_planned_sections_cannot_be_published_as_completed() -> None:
+async def test_missing_planned_sections_are_published_only_as_partial() -> None:
     class Partial(FakeModel):
         async def plan(self, topic: str, limits: ResearchLimits):
             return ResearchPlan(topic, ("在招公司", "岗位要求", "投递渠道"), (topic,))
@@ -95,10 +146,14 @@ async def test_missing_planned_sections_cannot_be_published_as_completed() -> No
         async def curate(self, plan: ResearchPlan, evidence: list[Evidence]):
             return [("在招公司", "公司清单", tuple(item.id for item in evidence))]
 
-    with pytest.raises(TopicCoverageError, match="missing planned sections"):
-        _ = [event async for event in ResearchEngine(Partial(), FakeRetriever()).run_research(
-            ResearchRequest("coverage-sections", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
-        )]
+    events = [event async for event in ResearchEngine(Partial(), FakeRetriever()).run_research(
+        ResearchRequest("coverage-sections", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    assert report["completion_status"] == "PARTIAL"
+    assert report["missing_requirements"] == ("岗位要求", "投递渠道")
+    assert "## 未解决要求" in report["markdown"]
+    assert any(not row["supported"] for row in report["traceability"])
 
 
 @pytest.mark.asyncio
@@ -139,15 +194,17 @@ async def test_semantically_wrong_valid_curation_is_replaced_by_matching_evidenc
 
 
 @pytest.mark.asyncio
-async def test_failed_topic_audit_cannot_be_published_as_completed() -> None:
+async def test_failed_topic_audit_is_published_only_as_partial() -> None:
     class OffTopic(FakeModel):
         async def audit(self, topic: str, plan: ResearchPlan, report: str):
             return False, ("投递渠道",)
 
-    with pytest.raises(TopicCoverageError, match="投递渠道"):
-        _ = [event async for event in ResearchEngine(OffTopic(), FakeRetriever()).run_research(
-            ResearchRequest("coverage-audit", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
-        )]
+    events = [event async for event in ResearchEngine(OffTopic(), FakeRetriever()).run_research(
+        ResearchRequest("coverage-audit", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    assert report["completion_status"] == "PARTIAL"
+    assert report["missing_requirements"] == ("投递渠道",)
 
 
 @pytest.mark.asyncio
@@ -176,24 +233,42 @@ async def test_failed_topic_audit_repairs_once_then_publishes() -> None:
     assert model.audits == 2
     assert model.repairs == 1
     assert any(event.type == "report" and "## 投递渠道" in event.data["markdown"] for event in events)
+    report = next(event.data for event in events if event.type == "report")
+    repaired = next(row for row in report["traceability"] if row["requirement"] == "投递渠道")
+    assert report["completion_status"] == "COMPLETED"
+    assert repaired["supported"] is True
+    assert repaired["evidence_ids"] and repaired["source_ids"] == repaired["citation_source_ids"]
 
 
 @pytest.mark.asyncio
-async def test_topic_coverage_error_exposes_missing_requirements_after_one_repair() -> None:
+async def test_audit_gap_for_existing_section_is_unsupported_in_partial_matrix() -> None:
+    class ExistingSectionGap(FakeModel):
+        async def audit(self, topic, plan, report): return False, ("背景",)
+
+    events = [event async for event in ResearchEngine(ExistingSectionGap(), FakeRetriever()).run_research(
+        ResearchRequest("existing-gap", "x", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    background = next(row for row in report["traceability"] if row["requirement"] == "背景")
+    assert report["completion_status"] == "PARTIAL"
+    assert background["supported"] is False
+
+
+@pytest.mark.asyncio
+async def test_partial_report_exposes_missing_requirements_after_one_repair() -> None:
     class StillIncomplete(FakeModel):
         async def audit(self, topic, plan, report): return False, ("岗位要求", "投递渠道")
 
-    with pytest.raises(TopicCoverageError) as caught:
-        _ = [event async for event in ResearchEngine(StillIncomplete(), FakeRetriever()).run_research(
-            ResearchRequest("coverage-details", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
-        )]
-
-    assert caught.value.reason_code == "topiccoverageerror"
-    assert caught.value.diagnostics == {"missing_requirements": ["岗位要求", "投递渠道"]}
+    events = [event async for event in ResearchEngine(StillIncomplete(), FakeRetriever()).run_research(
+        ResearchRequest("coverage-details", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    assert report["completion_status"] == "PARTIAL"
+    assert report["missing_requirements"] == ("岗位要求", "投递渠道")
 
 
 @pytest.mark.asyncio
-async def test_repair_with_an_unknown_link_cannot_pass_the_second_audit() -> None:
+async def test_repair_with_an_unknown_link_is_discarded_from_partial_report() -> None:
     class UnsafeRepair(FakeModel):
         def __init__(self): super().__init__(); self.audits = 0
         async def audit(self, topic, plan, report):
@@ -203,12 +278,13 @@ async def test_repair_with_an_unknown_link_cannot_pass_the_second_audit() -> Non
             return "## 投递渠道\n\n未知事实。 [[source:unknown]]"
 
     model = UnsafeRepair()
-    with pytest.raises(TopicCoverageError) as caught:
-        _ = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
-            ResearchRequest("unsafe-repair", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
-        )]
+    events = [event async for event in ResearchEngine(model, FakeRetriever()).run_research(
+        ResearchRequest("unsafe-repair", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
     assert model.audits == 1
-    assert caught.value.diagnostics["repair_error"] == "unknowncitation"
+    assert report["completion_status"] == "PARTIAL"
+    assert "未知事实" not in report["markdown"]
 
 
 @pytest.mark.asyncio
@@ -220,11 +296,12 @@ async def test_repair_has_its_own_bounded_timeout() -> None:
 
     engine = ResearchEngine(SlowRepair(), FakeRetriever())
     engine.REPAIR_TIMEOUT_SECONDS = .01
-    with pytest.raises(TopicCoverageError) as caught:
-        _ = [event async for event in engine.run_research(
-            ResearchRequest("repair-timeout", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
-        )]
-    assert caught.value.diagnostics["repair_error"] == "timeout"
+    events = [event async for event in engine.run_research(
+        ResearchRequest("repair-timeout", "AI Agent 秋招", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    assert report["completion_status"] == "PARTIAL"
+    assert report["missing_requirements"] == ("投递渠道",)
 
 
 @pytest.mark.asyncio
@@ -245,6 +322,54 @@ async def test_repair_timeout_uses_cited_evidence_then_reaudits_once() -> None:
     assert model.audits == 2
     assert "审计缺口的证据补充" in report
     assert "https://example.com/base" in report
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["plan", "distill", "curate", "write", "summarize", "audit"])
+async def test_permanent_model_failures_are_never_downgraded_to_fallback(stage) -> None:
+    from app.model_gateway import GatewayError
+
+    class Permanent(FakeModel):
+        async def plan(self, *args):
+            if stage == "plan": raise GatewayError("denied", "authentication")
+            return await super().plan(*args)
+        async def distill(self, *args):
+            if stage == "distill": raise GatewayError("denied", "authentication")
+            return await super().distill(*args)
+        async def curate(self, *args):
+            if stage == "curate": raise GatewayError("denied", "authentication")
+            return await super().curate(*args)
+        async def write(self, *args):
+            if stage == "write": raise GatewayError("denied", "authentication")
+            return await super().write(*args)
+        async def summarize(self, *args):
+            if stage == "summarize": raise GatewayError("denied", "authentication")
+            return await super().summarize(*args)
+        async def audit(self, *args):
+            if stage == "audit": raise GatewayError("denied", "authentication")
+            return await super().audit(*args)
+
+    with pytest.raises(GatewayError) as caught:
+        _ = [event async for event in ResearchEngine(Permanent(), FakeRetriever()).run_research(
+            ResearchRequest(f"permanent-{stage}", "x", ("web",), ResearchLimits(reflection_rounds=0))
+        )]
+    assert caught.value.kind == "authentication"
+
+
+@pytest.mark.asyncio
+async def test_completed_report_carries_requirement_evidence_conclusion_citation_matrix() -> None:
+    events = [event async for event in ResearchEngine(FakeModel(), FakeRetriever()).run_research(
+        ResearchRequest("traceability", "x", ("web",), ResearchLimits(reflection_rounds=0))
+    )]
+    report = next(event.data for event in events if event.type == "report")
+    assert report["completion_status"] == "COMPLETED"
+    assert report["traceability"]
+    for row in report["traceability"]:
+        assert row["supported"] is True
+        assert row["requirement"] and row["conclusion"]
+        assert row["evidence_ids"] and row["source_ids"] == row["citation_source_ids"]
+        assert len(row["source_versions"][0]["content_hash"]) > 0
+        assert row["evidence_locations"][0]["char_start"] >= 0
 
 
 def test_repair_evidence_selects_each_gap_instead_of_only_global_top_scores() -> None:
@@ -479,6 +604,15 @@ def test_fallback_distill_keeps_one_fact_for_each_query_intent() -> None:
     assert "create_task" in text and "asyncio.timeout" in text and "CancelledError" in text
 
 
+def test_fallback_distill_keeps_late_source_fact_and_sql_example():
+    source = Source("s", 1, "web", "https://example.com", None, "SQL", "Intro.\n\n" * 700 +
+                    "B-trees support equality and range queries.\n\nBEGIN; EXPLAIN ANALYZE ...; ROLLBACK;",
+                    None, "n", .9, metadata={"queries":["B-tree equality range", "EXPLAIN ANALYZE ROLLBACK"]})
+    result = LiveResearchModel.fallback_distill(source, "SQL", ("B-tree", "EXPLAIN ANALYZE"))
+    assert any("equality and range" in item.text for item in result)
+    assert any("ROLLBACK" in item.text for item in result)
+
+
 def test_live_research_fallback_distill_only_extracts_relevant_source_text() -> None:
     source = Source(
         "fallback-source", 1, "web", "https://example.com/job", None, "Example AI 招聘",
@@ -514,7 +648,7 @@ async def test_live_research_json_calls_bound_model_output() -> None:
 
     await model.distill(source, "AI Agent 秋招", ("岗位要求",))
 
-    assert gateway.requests[0].max_tokens == 1200
+    assert gateway.requests[0].max_tokens == 4096
     assert "忽略导航" in gateway.requests[0].messages[0]["content"]
 
 

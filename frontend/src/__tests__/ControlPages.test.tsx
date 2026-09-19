@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ModelsPage from "../pages/ModelsPage";
 import UsagePage from "../pages/UsagePage";
@@ -6,7 +6,7 @@ import EvaluationPage from "../pages/EvaluationPage";
 import SkillsPage from "../pages/SkillsPage";
 
 const api = vi.hoisted(() => ({
-  listModelProfiles: vi.fn(), listRoutingPolicies: vi.fn(), createModelProfile: vi.fn(), createRoutingPolicy: vi.fn(), verifyModelVersion: vi.fn(),
+  listModelProfiles: vi.fn(), listRoutingPolicies: vi.fn(), createModelProfile: vi.fn(), createRoutingPolicy: vi.fn(), verifyModelVersion: vi.fn(), resolveModelCapacity: vi.fn(),
   getCostSummary: vi.fn(), getUsageSummary: vi.fn(), setCostBudget: vi.fn(), listEvaluationSuites: vi.fn(), createEvaluationRun: vi.fn(), getEvaluationRun: vi.fn(), getEvaluationReport: vi.fn(), getEvaluationEvents: vi.fn(), subscribeToEvaluationEvents: vi.fn(), cancelEvaluationRun: vi.fn(), resumeEvaluationRun: vi.fn(),
   listSkillVersions: vi.fn(), getSkills: vi.fn(), listInstalledSkills: vi.fn(), listTrustedConnectors: vi.fn(), setSkillVersionEnabled: vi.fn(), uninstallSkill: vi.fn(), previewSkillInstall: vi.fn(), confirmSkillInstall: vi.fn(),
 }));
@@ -14,11 +14,16 @@ vi.mock("../api", () => api);
 afterEach(cleanup);
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  vi.resetAllMocks();
   api.listModelProfiles.mockResolvedValue({profiles:[{id:"p1",name:"主模型",status:"ACTIVE",created_at:"",updated_at:"",versions:[{id:"pv1",profile_id:"p1",profile_name:"主模型",version:1,provider_protocol:"anthropic",provider_name:"Anthropic",base_url:"https://api.anthropic.com",model_name:"claude",credential_env_ref:"ANTHROPIC_API_KEY",credential_configured:true,capabilities:{text:true,streaming:true,tool_calling:true,json_object:true},context_window:100000,max_output_tokens:4096,timeout_seconds:30,max_attempts:2,config_digest:"digest",status:"ACTIVE",verified_at:null,verification_status:"UNVERIFIED",verification_error_kind:null,created_at:""}]}]});
   api.listRoutingPolicies.mockResolvedValue({policies:[]});
   api.createModelProfile.mockResolvedValue({id:"p2",name:"规划模型",status:"ACTIVE",created_at:"",updated_at:"",versions:[]});
   api.createRoutingPolicy.mockResolvedValue({id:"route",name:"默认策略",version:1,roles:{},policy_digest:"digest",created_at:""});
+  api.resolveModelCapacity.mockResolvedValue({
+    capacity:{mode:"auto",status:"verified",source:"catalog",effective_context_limit:1048576,model_context_limit:1048576,model_max_output_limit:131072,counter_id:"synthetic-exact",counter_version:"synthetic-exact-v1",counter_mode:"verified",reason:""},
+    evidence:{mode:"auto",status:"verified",source:"catalog",effective_context_limit:1048576,model_context_limit:1048576,model_max_output_limit:131072,counter_mode:"verified"},
+    entry:{model_id:"planner-v1",model_version:"Synthetic-1",context_limit:1048576,max_output_limit:131072,context_verified:true,counter_verified:true,verified_at:"",evidence:{urls:[],fetched_at:"",snapshot_sha256:[],notes:""}},
+  });
   api.getCostSummary.mockResolvedValue({limit_microusd:100000,reserved_microusd:1000,charged_microusd:2500});
   api.getUsageSummary.mockResolvedValue({groups:[{role:"planner",provider:"供应商",profile_version_id:"pv1",attempts:2,succeeded:2,fallbacks:1,cost_microusd:2500,unknown_cost_attempts:1,success_rate:1,fallback_rate:.5,ttft_seconds:.2,tps:30,p95_latency_seconds:1.2}]});
   api.setCostBudget.mockResolvedValue({limit_microusd:200000,reserved_microusd:1000,charged_microusd:2500});
@@ -43,6 +48,11 @@ describe("control plane pages", () => {
     expect(await screen.findByRole("heading", {name:"模型控制台"})).toBeTruthy();
     expect(screen.getAllByText("Anthropic").length).toBeGreaterThan(0);
     expect(screen.getByText("凭据已配置")).toBeTruthy();
+    const registration = screen.getByText("注册模型档案", {selector:"summary"}).closest("details");
+    const routing = screen.getByText("创建角色路由", {selector:"summary"}).closest("details");
+    expect(registration?.open).toBe(false);
+    expect(routing?.open).toBe(false);
+    expect(screen.getByRole("heading", {name:"模型版本"}).compareDocumentPosition(registration! ) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(screen.getByRole("button", {name:"验证连接"}));
     await waitFor(()=>expect(api.verifyModelVersion).toHaveBeenCalledWith("pv1","csrf"));
   });
@@ -50,6 +60,7 @@ describe("control plane pages", () => {
   it("registers a model profile without collecting a secret", async () => {
     render(<ModelsPage csrfToken="csrf"/>);
     await screen.findByRole("heading", {name:"模型控制台"});
+    fireEvent.click(screen.getByText("注册模型档案", {selector:"summary"}));
     fireEvent.change(screen.getByLabelText("档案名称"), {target:{value:"规划模型"}});
     fireEvent.change(screen.getByLabelText("供应商名称"), {target:{value:"本地网关"}});
     fireEvent.change(screen.getByLabelText("接口地址"), {target:{value:"https://api.example.com/v1"}});
@@ -58,12 +69,49 @@ describe("control plane pages", () => {
     fireEvent.click(screen.getByLabelText("工具调用"));
     fireEvent.click(screen.getByRole("button", {name:"注册模型档案"}));
     await waitFor(()=>expect(api.createModelProfile).toHaveBeenCalledWith(expect.objectContaining({capabilities:{text:true,streaming:true,tool_calling:true,json_object:false}}),"csrf"));
+    const payload=api.createModelProfile.mock.calls[0][0] as Record<string,unknown>;
+    // Auto follows the verified catalog capacity instead of submitting an implicit 32K.
+    expect(payload.working_window_mode).toBe("auto");
+    expect(payload.context_window).toBeUndefined();
+    expect(payload.capacity_evidence).toBeUndefined();
+    expect(payload.context_window).not.toBe(32768);
     expect(screen.queryByLabelText(/API Key/)).toBeNull();
+  });
+
+  it("submits an explicit manual window without an implicit 32k", async () => {
+    render(<ModelsPage csrfToken="csrf"/>);
+    await screen.findByRole("heading", {name:"模型控制台"});
+    fireEvent.click(screen.getByText("注册模型档案", {selector:"summary"}));
+    fireEvent.change(screen.getByLabelText("档案名称"), {target:{value:"规划模型"}});
+    fireEvent.change(screen.getByLabelText("供应商名称"), {target:{value:"本地网关"}});
+    fireEvent.change(screen.getByLabelText("接口地址"), {target:{value:"https://api.example.com/v1"}});
+    fireEvent.change(screen.getByLabelText("模型名称"), {target:{value:"planner-v1"}});
+    fireEvent.change(screen.getByLabelText("凭据环境变量"), {target:{value:"PLANNER_API_KEY"}});
+    fireEvent.change(screen.getByLabelText("工作窗口模式"), {target:{value:"manual"}});
+    fireEvent.change(screen.getByLabelText("手动工作窗口"), {target:{value:"65536"}});
+    fireEvent.click(screen.getByRole("button", {name:"注册模型档案"}));
+    await waitFor(()=>expect(api.createModelProfile).toHaveBeenCalledWith(expect.objectContaining({working_window_mode:"manual",context_window:65536,soft_context_limit:65536}),"csrf"));
+  });
+
+  it("blocks an unverified auto window and asks for a manual limit", async () => {
+    api.createModelProfile.mockRejectedValueOnce(new Error("上下文容量尚未核实，请使用手动窗口"));
+    render(<ModelsPage csrfToken="csrf"/>);
+    await screen.findByRole("heading", {name:"模型控制台"});
+    fireEvent.click(screen.getByText("注册模型档案", {selector:"summary"}));
+    fireEvent.change(screen.getByLabelText("档案名称"), {target:{value:"DeepSeek"}});
+    fireEvent.change(screen.getByLabelText("供应商名称"), {target:{value:"deepseek"}});
+    fireEvent.change(screen.getByLabelText("接口地址"), {target:{value:"https://api.deepseek.com"}});
+    fireEvent.change(screen.getByLabelText("模型名称"), {target:{value:"deepseek-flash"}});
+    fireEvent.change(screen.getByLabelText("凭据环境变量"), {target:{value:"DEEPSEEK_API_KEY"}});
+    fireEvent.click(screen.getByRole("button", {name:"注册模型档案"}));
+    expect(await screen.findByText(/上下文容量尚未核实/)).toBeTruthy();
+    expect(api.createModelProfile).toHaveBeenCalledWith(expect.objectContaining({working_window_mode:"auto"}),"csrf");
   });
 
   it("creates a complete immutable role routing policy", async () => {
     render(<ModelsPage csrfToken="csrf"/>);
     await screen.findByRole("heading", {name:"模型控制台"});
+    fireEvent.click(screen.getByText("创建角色路由", {selector:"summary"}));
     expect(document.querySelector(".route-policy-form")).toBeTruthy();
     expect(document.querySelectorAll(".route-field")).toHaveLength(10);
     fireEvent.change(screen.getByLabelText("策略名称"), {target:{value:"默认策略"}});
@@ -74,19 +122,26 @@ describe("control plane pages", () => {
     await waitFor(()=>expect(api.createRoutingPolicy).toHaveBeenCalledWith(expect.objectContaining({name:"默认策略",roles:expect.objectContaining({conversation:{primary:"pv1",fallback:[]},judge_safety:{primary:"pv1",fallback:[]}})}),"csrf"));
   });
 
+  it("opens registration when there are no model profiles", async () => {
+    api.listModelProfiles.mockResolvedValueOnce({profiles:[]});
+    render(<ModelsPage csrfToken="csrf"/>);
+    await screen.findByRole("heading", {name:"还没有模型配置"});
+    expect(screen.getByText("注册模型档案", {selector:"summary"}).closest("details")?.open).toBe(true);
+    expect(screen.getByText("创建角色路由", {selector:"summary"}).closest("details")?.open).toBe(false);
+    expect(screen.getByRole("textbox", {name:"凭据环境变量"})).toBeTruthy();
+    expect(screen.queryByLabelText(/API Key/)).toBeNull();
+  });
+
   it("renders authoritative cost without recomputing unknown values", async () => {
     render(<UsagePage csrfToken="csrf"/>);
-    expect(await screen.findByRole("heading", {name:"用量与预算"})).toBeTruthy();
-    expect(document.querySelectorAll(".budget-layer-grid .inline-control-form")).toHaveLength(3);
+    expect(await screen.findByRole("heading", {name:"用量与费用"})).toBeTruthy();
+    expect(document.querySelectorAll(".budget-layer-grid .inline-control-form")).toHaveLength(0);
     expect(screen.getByRole("table").classList.contains("usage-table")).toBe(true);
     expect(screen.getAllByRole("row")).toHaveLength(2);
     expect(screen.getAllByText("$0.002500").length).toBeGreaterThan(0);
-    expect(screen.getByText("$0.001000")).toBeTruthy();
     expect(screen.getByText("规划")).toBeTruthy();
     expect(screen.getByText("1 次不可用")).toBeTruthy();
-    fireEvent.change(screen.getByLabelText("每日上限（microusd）"), {target:{value:"200000"}});
-    fireEvent.click(screen.getAllByRole("button", {name:"保存预算"})[1]);
-    await waitFor(()=>expect(api.setCostBudget).toHaveBeenCalledWith(200000,"csrf","DAILY",expect.any(String)));
+    expect(screen.queryByRole("button", {name:"保存预算"})).toBeNull();
   });
 
   it("starts a frozen release evaluation from the console", async () => {
@@ -113,13 +168,11 @@ describe("control plane pages", () => {
     expect(screen.getByRole("dialog", {name:"取消评测？"})).toBeTruthy();
   });
 
-  it("resumes a budget blocked evaluation from an inline form", async () => {
+  it("resumes a historical blocked evaluation without asking for money", async () => {
     api.getEvaluationRun.mockResolvedValueOnce({id:"e1",suite_id:"release-v1",baseline_bundle_id:"b",candidate_bundle_id:"c",status:"BUDGET_BLOCKED",budget_microusd:10000,attempts:1,created_at:"",updated_at:"",finished_at:null,cancel_requested_at:null});
     render(<EvaluationPage evaluationId="e1" csrfToken="csrf"/>);
-    const input=await screen.findByLabelText(/新预算/);
-    fireEvent.change(input,{target:{value:"20000"}});
-    fireEvent.click(screen.getByRole("button",{name:"追加预算并恢复"}));
-    await waitFor(()=>expect(api.resumeEvaluationRun).toHaveBeenCalledWith("e1",20000,"csrf"));
+    fireEvent.click(await screen.findByRole("button",{name:"恢复评测"}));
+    await waitFor(()=>expect(api.resumeEvaluationRun).toHaveBeenCalledWith("e1",10001,"csrf"));
   });
 
   it("shows installed skills and expands version permissions", async () => {
@@ -141,4 +194,28 @@ describe("control plane pages", () => {
     fireEvent.click(screen.getByRole("button", {name:"确认安装"}));
     await waitFor(()=>expect(api.confirmSkillInstall).toHaveBeenCalledWith("token",["calculator"],"csrf"));
   });
+});
+
+
+it("discards capacity from a previous model and ignores late lookup responses", async () => {
+  let finishA!:(value:unknown)=>void;
+  let finishB!:(value:unknown)=>void;
+  api.resolveModelCapacity.mockImplementationOnce(()=>new Promise(resolve=>{finishA=resolve;}));
+  api.resolveModelCapacity.mockImplementationOnce(()=>new Promise(resolve=>{finishB=resolve;}));
+  render(<ModelsPage csrfToken="csrf"/>);
+  await screen.findByRole("heading",{name:"模型控制台"});
+  fireEvent.click(screen.getByText("注册模型档案",{selector:"summary"}));
+  fireEvent.change(screen.getByLabelText("接口地址"),{target:{value:"https://example.test"}});
+  fireEvent.change(screen.getByLabelText("模型名称"),{target:{value:"model-a"}});
+  fireEvent.click(screen.getByRole("button",{name:"查询容量"}));
+  fireEvent.change(screen.getByLabelText("模型名称"),{target:{value:"model-b"}});
+  fireEvent.click(screen.getByRole("button",{name:"查询容量"}));
+  const result=(limit:number)=>({capacity:{status:"verified",effective_context_limit:limit,counter_mode:"estimate"},entry:{context_limit:limit}});
+  await act(async()=>{finishB(result(222222));});
+  expect(screen.getByText(/官方容量：222222/)).toBeTruthy();
+  await act(async()=>{finishA(result(111111));});
+  expect(screen.queryByText(/官方容量：111111/)).toBeNull();
+  expect(screen.getByText(/官方容量：222222/)).toBeTruthy();
+  fireEvent.change(screen.getByLabelText("协议"),{target:{value:"anthropic"}});
+  expect(screen.queryByText(/官方容量：222222/)).toBeNull();
 });

@@ -1,0 +1,53 @@
+{
+  "batch_id": "M5-LIVE-20260909-001",
+  "status": "FAILED",
+  "network_started": false,
+  "limits": {
+    "candidates": 1,
+    "samples_per_candidate": 60,
+    "model_attempts": 300,
+    "max_seconds": 3600,
+    "max_cost_microusd": 7600000,
+    "fallback_models": 0,
+    "network_retries": 0,
+    "minimum_challenger_samples": 20,
+    "minimum_champion_samples": 20
+  },
+  "requirements": [
+    "脱敏故障回放与 DEV/HOLDOUT/SAFETY 固定分区",
+    "candidate permission diff 只能收缩，且与受影响角色绑定",
+    "baseline/candidate/quality judge/safety judge 使用独立 profile version",
+    "人工审批后才能启动受限 Canary；全量发布始终另行决定"
+  ],
+  "stop_policy": "first failure stops the batch; no automatic rerun",
+  "profile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "context_window": 32768,
+    "max_output_tokens": 8192,
+    "max_attempts": 1,
+    "network_retries": 0
+  },
+  "price_snapshot": {
+    "uncached_input_rate": 440000,
+    "cache_read_rate": 14000,
+    "output_rate": 1320000
+  },
+  "owner_id": "m5-live-20260909-001-9e02a96662",
+  "stable_bundle_id": "bundle_8040b4cc18e6bf2282d15992",
+  "stage_complete": false,
+  "failure": {
+    "type": "RoutingError",
+    "message": "runtime bundle routing policy is missing or changed"
+  },
+  "elapsed_seconds": 0.555,
+  "cost_evidence": {
+    "attempt_count": 0,
+    "charged_microusd": 0,
+    "all_priced": false,
+    "all_single_attempt": true,
+    "attempts": []
+  },
+  "stable_unchanged": true
+}

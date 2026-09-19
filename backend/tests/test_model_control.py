@@ -129,6 +129,33 @@ async def test_idempotency_key_rejects_a_different_request_digest(tmp_path, monk
     assert calls == 1
 
 
+def test_child_call_context_scopes_nested_model_purposes() -> None:
+    from app.model_control import ModelCallContext, child_call_context
+
+    parent = ModelCallContext(
+        "conversation",
+        "route_and_respond",
+        invocation_id="conversation:turn-1",
+        idempotency_key="conversation:turn-1",
+    )
+
+    classifier = child_call_context(
+        parent,
+        role="conversation",
+        purpose="classify_research_request",
+    )
+    answer = child_call_context(
+        parent,
+        role="conversation",
+        purpose="route_and_respond",
+    )
+
+    assert classifier.invocation_id == "conversation:turn-1:classify_research_request"
+    assert classifier.idempotency_key == "conversation:turn-1:classify_research_request"
+    assert answer.invocation_id == "conversation:turn-1"
+    assert answer.idempotency_key == "conversation:turn-1"
+
+
 @pytest.mark.asyncio
 async def test_gateway_persists_real_attempts_and_emits_contiguous_run_events(tmp_path, monkeypatch) -> None:
     from app.db import Database
@@ -274,7 +301,9 @@ async def test_connect_failure_is_retryable_with_separate_attempts(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_evaluation_attempt_pins_price_snapshot_while_regular_call_uses_current_price(tmp_path, monkeypatch) -> None:
+@pytest.mark.parametrize("cost_mode", ["enforce", "observe"])
+async def test_evaluation_attempt_pins_price_snapshot_while_regular_call_uses_current_price(tmp_path, monkeypatch, cost_mode) -> None:
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", cost_mode)
     from app.costs import CostService, PriceSnapshot
     from app.db import Database
     from app.model_control import ModelCallContext, ModelControlStore
@@ -338,13 +367,28 @@ async def test_evaluation_attempt_pins_price_snapshot_while_regular_call_uses_cu
         ).fetchall()
         reserves = connection.execute(
             "SELECT invocation_id,price_snapshot_id,amount_microusd FROM cost_ledger "
-            "WHERE entry_type='RESERVE' ORDER BY invocation_id"
+            "WHERE entry_type='RESERVE' AND period_kind='DAILY' ORDER BY invocation_id"
         ).fetchall()
     assert [tuple(row) for row in attempts] == [
         ("eval-priced", "price-frozen", 20),
         ("regular-priced", "price-current", 200),
     ]
     assert [tuple(row) for row in reserves] == [
-        ("eval-priced", "price-frozen", 140),
-        ("regular-priced", "price-current", 1400),
+        ("eval-priced", "price-frozen", 140 if cost_mode == "enforce" else 0),
+        ("regular-priced", "price-current", 1400 if cost_mode == "enforce" else 0),
     ]
+
+
+    with db.connection() as connection:
+        charges = connection.execute(
+            "SELECT invocation_id,price_snapshot_id,amount_microusd FROM cost_ledger "
+            "WHERE entry_type='CHARGE' AND period_kind='DAILY' ORDER BY invocation_id"
+        ).fetchall()
+        balance = connection.execute(
+            "SELECT reserved_microusd,charged_microusd FROM cost_budgets WHERE period_kind='DAILY'"
+        ).fetchone()
+        all_reserves = connection.execute("SELECT * FROM cost_ledger WHERE entry_type='RESERVE'").fetchall()
+    assert [tuple(row) for row in charges] == [("eval-priced", "price-frozen", 20), ("regular-priced", "price-current", 200)]
+    assert tuple(balance) == (0, 220)
+    assert len(all_reserves) == (2 if cost_mode == "enforce" else 6)
+    assert len({(r["attempt_id"], r["period_kind"], r["period_key"]) for r in all_reserves}) == len(all_reserves)

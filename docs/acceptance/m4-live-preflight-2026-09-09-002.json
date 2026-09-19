@@ -1,0 +1,85 @@
+{
+  "batch_id": "M4-LIVE-20260909-002",
+  "status": "NOT_AUTHORISED",
+  "network_started": false,
+  "storage": "current_better_agent_with_batch_scoped_cleanup",
+  "source_manifest": {
+    "files": {
+      "alembic/versions/20260909_0004_research_partial_status.py": "60fbdf152bd578d115c484f239ea237a08f0f798af39ece967ec2bb750a42832",
+      "app/costs.py": "d4f2c2bfcb53b16efceabfa484c9a3bed56272f6ed98dc2ff19c6482399739cb",
+      "app/db.py": "49891bb6e33cc3068c31ba4b0736e4e423b74df40d5fe8f7d704250fe94b1be5",
+      "app/model_control.py": "29b5012911ab94a6b5c46a92d39976e3cabc216eddc559bb0e931e8c9896cc25",
+      "app/research/__init__.py": "37590eb3d1185a913975e1f9b107d189f9df1d939860298006da86a0986ca951",
+      "app/research/citations.py": "bebb3deef33ebd88119f9a7329e129f94748f60cf9a8d43b53f4406d3f5c36b9",
+      "app/research/engine.py": "23c722419eae067f63e0e601c58d1a94657e7e5fbf5b50a5f0608ccc617cd36c",
+      "app/research/live.py": "af0e695d25e54c0017e42efce121addb5b08979b9cc76e99de274b885182b8d5",
+      "app/research/models.py": "2890af2bc55b934804ff8293c739c8b1ff3a5abdfd55be41bea455447ca3746d",
+      "app/research/retriever.py": "104f54a008f2910af3f40d46f73ff020409aea64f57531e23de210c3945e6792",
+      "app/research/scheduler.py": "f7b582e384b196ea738170d6cf27c63b07a719d417a98b08af3b062695b19e61",
+      "app/research/service.py": "aa6f534d703318a97ffd3fa36050b0df7c8b41715a29de11696dd5a5957f958c",
+      "app/research/tavily.py": "d2d910033d93b2c3578dacd7d46d75ee07f193ff355c1ce63a8a030132322ef0",
+      "app/research/web.py": "4261ea27dbaa0c71360efc0177a2087e54c0c5d6d36fcd02ae5daeb17ad92a48",
+      "app/research/worker.py": "4cd944adf7eb2d11b8efb8351540f275ede65c4239c08f41582351247799d218",
+      "scripts/m4_live_acceptance.py": "ffef3b80cdcf71b839f3ba259a4f2b0589ccca528b755f43b971d84126d08021"
+    },
+    "digest": "e99ee39adb310f35ba263794b9e947607c0f9afffe80eb3e088e8962c06f0026"
+  },
+  "case_digest": "e7b337f2487b9bf07f05dc5b1b1a028390aec4a3c7084e772f101016e1a107cc",
+  "cases": [
+    {
+      "id": "python-asyncio-v1",
+      "topic": "仅依据给定的 Python 官方文档研究 asyncio，必须分别说明：TaskGroup 内某任务首次发生非 CancelledError 异常后其余任务如何处理；asyncio.timeout 如何处理取消并在何处转换为 TimeoutError。",
+      "hosts": [
+        "docs.python.org"
+      ],
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-exceptions.html"
+      ]
+    },
+    {
+      "id": "postgres-explain-v1",
+      "topic": "仅依据给定的 PostgreSQL 官方文档研究 EXPLAIN，必须分别说明：EXPLAIN ANALYZE 是否实际执行语句以及由此产生的副作用边界；BUFFERS 选项报告什么，以及启用 ANALYZE 时它的默认行为。",
+      "hosts": [
+        "www.postgresql.org"
+      ],
+      "urls": [
+        "https://www.postgresql.org/docs/current/sql-explain.html",
+        "https://www.postgresql.org/docs/current/using-explain.html"
+      ]
+    },
+    {
+      "id": "git-undo-v1",
+      "topic": "仅依据给定的 Git 官方文档比较撤销方式，必须分别说明：git revert 如何通过新提交逆转既有提交；git reset 对 HEAD、索引和工作区的作用边界。",
+      "hosts": [
+        "git-scm.com"
+      ],
+      "urls": [
+        "https://git-scm.com/docs/git-revert",
+        "https://git-scm.com/docs/git-reset"
+      ]
+    }
+  ],
+  "limits": {
+    "rounds": 3,
+    "model_attempts_per_round": 10,
+    "model_attempts": 30,
+    "source_requests": 12,
+    "max_seconds": 1800,
+    "fallback_models": 0,
+    "network_retries": 0,
+    "structured_output_retries": 0,
+    "worst_attempt_microusd": 25232,
+    "worst_batch_microusd": 756960
+  },
+  "price_snapshot": {
+    "source": "M3-LIVE-20260909-022 frozen DeepSeek profile rates",
+    "uncached_input_rate": 440000,
+    "cache_read_rate": 14000,
+    "cache_write_rate": 0,
+    "output_rate": 1320000,
+    "reasoning_rate": 0
+  },
+  "stop_policy": "first failure stops the batch; no automatic rerun",
+  "reason": "M3 passes; set M4_LIVE_APPROVED=1 only after approving this exact M4 batch and budget"
+}

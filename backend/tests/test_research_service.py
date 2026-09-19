@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from app.behavior import BehaviorBundleService
 from app.conversation import ConversationService
 from app.db import Database
 from app.research.models import Evidence, ResearchEvent, Source
@@ -24,6 +25,20 @@ class CoverageFailureEngine:
     async def run_research(self, request):
         raise TopicCoverageError("incomplete", ("岗位要求", "投递渠道"))
         yield
+
+
+@pytest.mark.asyncio
+async def test_requested_cancel_wins_over_model_failure(tmp_path):
+    _, conversation, service = build(tmp_path)
+    job = service.create_manual(conversation.create_thread().id, "cancel", "cancel-error", ("web",))
+    class Engine:
+        async def run_research(self, request):
+            service.cancel(request.job_id)
+            raise ValueError("model failure after cancel")
+            yield
+    service.engine = Engine()
+    await ManagedResearchWorker(service).run_once()
+    assert service.get(job.id).status == "CANCELLED"
 
 
 def build(tmp_path):
@@ -70,6 +85,92 @@ def test_claim_lease_takeover_and_old_owner_cannot_finalize(tmp_path) -> None:
     with db.connection() as connection:
         attempts = connection.execute("SELECT status FROM research_job_attempts WHERE job_id=? ORDER BY attempt", (job.id,)).fetchall()
     assert [row[0] for row in attempts] == ["LEASE_LOST", "COMPLETED"]
+
+
+def test_partial_delivery_is_terminal_and_persists_traceability(tmp_path) -> None:
+    _, conversation, service = build(tmp_path)
+    job = service.create_manual(conversation.create_thread().id, "研究", "partial", ("web",))
+    service.claim_next("worker", 30)
+    traceability = ({
+        "requirement": "已支持项", "conclusion": "结论", "evidence_ids": ["e1"],
+        "source_ids": ["s1"], "citation_source_ids": ["s1"],
+        "source_versions": [{"source_id": "s1", "content_hash": "hash", "retrieved_at": "now"}],
+        "supported": True,
+    },)
+    partial = service.complete_partial(
+        job.id, "worker", "部分报告", "# 部分报告", 1, 1,
+        traceability, ("缺失项",),
+    )
+    assert partial.status == "PARTIAL" and partial.phase == "partial"
+    assert partial.missing_requirements == ("缺失项",)
+    assert partial.traceability == traceability
+    assert conversation.messages(job.thread_id)[-1].status == "ready"
+    assert "research.partial" in [event.type for event in conversation.events.list(job.thread_id)]
+
+
+def test_manual_research_pins_runtime_bundle_and_retry_preserves_it(tmp_path) -> None:
+    db, conversation, service = build(tmp_path)
+    bundles = BehaviorBundleService(db)
+    bundle_id = bundles.ensure({"test": "research-bundle-pin"}).id
+    bundles.activate("stable", bundle_id, "research-bundle-pin")
+    thread = conversation.create_thread()
+    first = service.create_manual(thread.id, "研究", "bundle-pin", ("web",))
+    with db.connection() as connection:
+        pinned = connection.execute(
+            "SELECT runtime_bundle_id FROM turns WHERE id=?", (first.source_turn_id,),
+        ).fetchone()["runtime_bundle_id"]
+    assert pinned == bundle_id
+    service.claim_next("worker", 30)
+    service.fail(first.id, "worker", "permanent", retryable=False)
+    retried = service.retry(first.id, None, "bundle-pin-retry")
+    with db.connection() as connection:
+        retry_pinned = connection.execute(
+            "SELECT runtime_bundle_id FROM turns WHERE id=?", (retried.source_turn_id,),
+        ).fetchone()["runtime_bundle_id"]
+    assert retry_pinned == bundle_id
+
+
+def test_exact_claim_does_not_consume_an_unrelated_queued_job(tmp_path) -> None:
+    _, conversation, service = build(tmp_path)
+    first = service.create_manual(conversation.create_thread().id, "first", "exact-first", ("web",))
+    second = service.create_manual(conversation.create_thread().id, "second", "exact-second", ("web",))
+    claimed = service.claim(second.id, "dedicated-worker", 30)
+    assert claimed and claimed.id == second.id
+    assert service.get(first.id).status == "QUEUED"
+
+
+def test_recovery_accepts_citation_alias_without_source_prefix(tmp_path) -> None:
+    db, conversation, service = build(tmp_path)
+    job = service.create_manual(conversation.create_thread().id, "alias", "citation-alias", ("web",))
+    service.claim_next("worker", 30)
+    source_id = "source_abc123"
+    source = Source(source_id, 1, "web", "https://example.com", None, "source", "quoted evidence", None, "now", .9, "hash")
+    evidence = Evidence("evidence_alias", source_id, "quoted evidence", None, .9)
+    service.apply_event(job.id, "worker", ResearchEvent("plan", "planning", {"title":"alias","sections":["answer"],"queries":["alias"]}))
+    service.apply_event(job.id, "worker", ResearchEvent("sources", "retrieving", {"items":[source]}))
+    service.apply_event(job.id, "worker", ResearchEvent("evidence", "distilling", {"items":[evidence]}))
+    service.apply_event(job.id, "worker", ResearchEvent("section", "writing", {"ordinal":1,"heading":"answer","markdown":"## answer\n\nquoted evidence [[source:abc123]]","summary":"answer"}))
+    sections, sources, evidence_rows, plan = service.recovery_context(job.id)
+    assert sections and [item.id for item in sources] == [source_id]
+    assert [item.id for item in evidence_rows] == [evidence.id]
+    assert plan and plan.sections == ("answer",)
+
+
+@pytest.mark.asyncio
+async def test_worker_exposes_permanent_gateway_failure_kind(tmp_path) -> None:
+    from app.model_gateway import GatewayError
+
+    _, conversation, service = build(tmp_path)
+    class Engine:
+        async def run_research(self, request):
+            raise GatewayError("payment required", "payment")
+            yield
+    service.engine = Engine()
+    job = service.create_manual(conversation.create_thread().id, "x", "payment", ("web",))
+    await ManagedResearchWorker(service, lease_seconds=30).run_once()
+    failed = service.get(job.id)
+    assert failed.status == "FAILED"
+    assert failed.failure_reason_code == "payment"
 
 
 def test_cancel_and_retry_are_idempotent_new_jobs(tmp_path) -> None:

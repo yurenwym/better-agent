@@ -10,6 +10,7 @@ export function hydrateThreadMessages(messages: ThreadMessage[]): MessageRecord[
   return messages.filter((message) => message.status !== "interrupted").map((message) => ({
     id: message.id,
     run_id: message.thread_id,
+    turn_id: message.turn_id,
     interaction_id: null,
     role: message.role,
     content: message.content,
@@ -21,6 +22,7 @@ export function hydrateThreadMessages(messages: ThreadMessage[]): MessageRecord[
     presentation: message.presentation ?? "standard",
     origin: "history",
     research_job_id: message.research_job_id,
+    total_ms: message.total_ms,
   }));
 }
 
@@ -121,6 +123,7 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
     return [...messages, {
       id,
       run_id: event.thread_id,
+      turn_id: event.turn_id,
       interaction_id: null,
       role: "assistant",
       content: "",
@@ -137,6 +140,7 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
     const next = {
       id,
       run_id: event.thread_id,
+      turn_id: event.turn_id,
       interaction_id: null,
       role: "assistant" as const,
       content,
@@ -180,6 +184,7 @@ export function applyThreadEvent(messages: MessageRecord[], event: ThreadEvent):
 
 export function shouldRefreshThreadMessages(event: ThreadEvent): boolean {
   return event.type === "ask.answered" || event.type === "turn.accepted" || event.type === "research.queued"
+    || event.type === "message.completed" || event.type === "turn.metrics.updated"
     || event.type === "expert.run.queued" || event.type === "expert.run.completed";
 }
 
@@ -207,18 +212,17 @@ export function useThreadTelemetry(
   useEffect(() => {
     let active = true;
     let close: () => void = () => undefined;
+    setThread(null);
+    setEvents([]);
+    setMessages([]);
+    setPendingAsk(null);
+    setError("");
     if (!threadId) {
-      setThread(null);
-      setEvents([]);
-      setMessages([]);
-      setPendingAsk(null);
       setLoading(false);
-      setError("");
       return () => { active = false; };
     }
     const id = threadId;
     setLoading(true);
-    setError("");
 
     async function refreshMessages() {
       const result = await getThreadMessages(id);

@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   promoteEvolutionCandidate: vi.fn(),
   rollbackEvolutionCandidate: vi.fn(),
   getGrowthProfile: vi.fn(),
+  getLearningPolicy: vi.fn(), getLearningHistory: vi.fn(), saveLearningPolicy: vi.fn(), suspendLearningJob: vi.fn(),
 }));
 
 vi.mock("../api", () => api);
@@ -19,9 +20,12 @@ afterEach(cleanup);
 describe("GrowthPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getLearningPolicy.mockResolvedValue({version: 0, paused: true, config: {}});
+    api.getLearningHistory.mockResolvedValue({items: []});
     api.listEvolutionCandidates.mockResolvedValue({ candidates: [{
       id: "candidate-1", kind: "policy", title: "减少不必要追问", summary: "仅在关键信息缺失时询问。",
       status: "PENDING_APPROVAL", version: 3, risk_level: "medium", evidence_count: 24,
+      approval_eligible: true,
       reason: "多次研究都扩大了用户没有要求的范围。",
       proposed_content: { prompts: "research-scope-bounded" },
       evaluation: { status: "PASSED", deterministic_pass: true, score_delta: 0.12, regressions: [], passed: 12, total: 12, baseline_correct: 8, candidate_correct: 9, quality_delta: .1, safety_violations: 0 },
@@ -40,11 +44,25 @@ describe("GrowthPage", () => {
     }] });
   });
 
-  it("shows candidate evidence, evaluation and permission changes", async () => {
+  it("opens the personal profile without engineering controls or requests", async () => {
     render(<GrowthPage csrfToken="csrf" />);
 
-    expect(await screen.findByRole("heading", { name: "Agent 正在怎样变得更好" })).toBeTruthy();
-    expect(screen.getByText("减少不必要追问")).toBeTruthy();
+    expect(await screen.findByText("4/4 必做行动")).toBeTruthy();
+    expect(screen.getByRole("heading", {name:"我的成长档案"})).toBeTruthy();
+    expect(screen.getByText("完成行动")).toBeTruthy();
+    expect(screen.getByRole("link", {name:"完成第一次骑行"}).getAttribute("href")).toBe("/workspace/plan-1");
+    expect(screen.queryByLabelText("自主学习政策与记录")).toBeNull();
+    expect(screen.queryByLabelText("成长候选列表")).toBeNull();
+    expect(api.listEvolutionCandidates).not.toHaveBeenCalled();
+    expect(api.getLearningPolicy).not.toHaveBeenCalled();
+  });
+
+  it("shows candidate evidence, evaluation and permission changes in the Agent view", async () => {
+    render(<GrowthPage csrfToken="csrf" />);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
+
+    expect(await screen.findByText("减少不必要追问")).toBeTruthy();
+    expect(screen.getByRole("heading", {name:"Agent 改进"})).toBeTruthy();
     expect(screen.getByText("评测已通过")).toBeTruthy();
     expect(screen.getByText("新增权限 1 项")).toBeTruthy();
     expect(screen.getByText("24 条证据")).toBeTruthy();
@@ -56,13 +74,13 @@ describe("GrowthPage", () => {
     expect(screen.getByRole("list")).toBeTruthy();
     expect(screen.getByText("基线正确")).toBeTruthy();
     expect(screen.getByText("候选正确")).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "我的成长档案" })).toBeTruthy();
-    expect(screen.getByText("完成行动")).toBeTruthy();
-    expect(screen.getByText("4/4 必做行动")).toBeTruthy();
+    expect(screen.queryByRole("heading", {name:"我的成长档案"})).toBeNull();
+    expect(screen.getByLabelText("自主学习政策与记录")).toBeTruthy();
   });
 
   it("approves with the expected candidate version", async () => {
     render(<GrowthPage csrfToken="csrf" />);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
     fireEvent.click(await screen.findByRole("button", { name: "批准候选" }));
 
     await waitFor(() => expect(api.approveEvolutionCandidate).toHaveBeenCalledWith("candidate-1", 3, "csrf"));
@@ -74,6 +92,7 @@ describe("GrowthPage", () => {
       status:"CANARY",version:3,risk_level:"medium",evidence_count:3,evaluation:{status:"COMPLETED",deterministic_pass:true,regressions:[],passed:12,total:12},permission_diff:{added:[],removed:[]},canary:{sample_size:0},created_at:"",updated_at:"",
     }] });
     render(<GrowthPage csrfToken="csrf"/>);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
     expect((await screen.findAllByText("研究任务曾多次扩大用户没有要求的范围。")).length).toBeGreaterThan(0);
     expect(screen.queryByText("????????")).toBeNull();
   });
@@ -85,6 +104,7 @@ describe("GrowthPage", () => {
       canary:{sample_size:4,challenger_sample_size:4,champion_sample_size:7,required_samples:20,safety_failures:0,success_failures:0,promotable:false},created_at:"",updated_at:"",
     }] });
     render(<GrowthPage csrfToken="csrf"/>);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
     expect(await screen.findByText("挑战组 4/20 · 对照组 7/20")).toBeTruthy();
     expect(screen.getByText("还需 16 个挑战组样本、13 个对照组样本")).toBeTruthy();
   });
@@ -98,6 +118,7 @@ describe("GrowthPage", () => {
     }] });
 
     render(<GrowthPage csrfToken="csrf"/>);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
 
     expect(await screen.findByText("用户手动回滚")).toBeTruthy();
     expect(screen.getByText("这是一条演示数据，用于验证进化流程，不代表 Agent 从真实任务中自动学习的结果。")).toBeTruthy();
@@ -116,6 +137,7 @@ describe("GrowthPage", () => {
     }] });
 
     render(<GrowthPage csrfToken="csrf"/>);
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
 
     expect(await screen.findByText("真实行为评测未运行")).toBeTruthy();
     expect(screen.getByText("当前未配置评测模型。基础检查已通过，但候选质量和安全性尚未验证，因此暂不可批准。")).toBeTruthy();
@@ -123,5 +145,38 @@ describe("GrowthPage", () => {
     expect(screen.queryByText(/behavior_evaluation_configured/)).toBeNull();
     expect(screen.getAllByText("对话任务连续出现 9 条独立失败记录。").length).toBeGreaterThan(0);
     expect(screen.getByText("针对重复失败改进提示词，不新增权限，也不改变核心策略。")).toBeTruthy();
+  });
+
+  it("accepts an Agent deep link and reports view changes to the parent", async () => {
+    const onViewChange = vi.fn();
+    const page = render(<GrowthPage csrfToken="csrf" view="agent" onViewChange={onViewChange}/>);
+    expect(await screen.findByText("减少不必要追问")).toBeTruthy();
+    expect(api.getGrowthProfile).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("radio", {name:"我的成长档案"}));
+    expect(onViewChange).toHaveBeenCalledWith("personal");
+    page.rerender(<GrowthPage csrfToken="csrf" view="personal" onViewChange={onViewChange}/>);
+    expect(await screen.findByText("4/4 必做行动")).toBeTruthy();
+    expect(screen.queryByLabelText("成长候选列表")).toBeNull();
+  });
+
+  it("keeps personal history available when engineering candidates fail", async () => {
+    api.listEvolutionCandidates.mockRejectedValue(new Error("候选服务不可用"));
+    render(<GrowthPage csrfToken="csrf"/>);
+    expect(await screen.findByText("4/4 必做行动")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", {name:"Agent 改进"}));
+    expect(await screen.findByText("候选服务不可用")).toBeTruthy();
+    fireEvent.click(screen.getByRole("radio", {name:"我的成长档案"}));
+    expect(screen.getByText("4/4 必做行动")).toBeTruthy();
+    expect(screen.queryByText("候选服务不可用")).toBeNull();
+  });
+
+  it("does not present zero metrics as a loaded profile after a request failure", async () => {
+    api.getGrowthProfile.mockRejectedValueOnce(new Error("档案暂时不可用"));
+    render(<GrowthPage csrfToken="csrf"/>);
+    expect(await screen.findByText("档案暂时不可用")).toBeTruthy();
+    expect(screen.queryByText("完成行动")).toBeNull();
+    expect(screen.queryByText("还没有目标执行记录")).toBeNull();
+    fireEvent.click(screen.getByRole("button", {name:"重新加载档案"}));
+    expect(await screen.findByText("4/4 必做行动")).toBeTruthy();
   });
 });

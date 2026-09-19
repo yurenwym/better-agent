@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
-from typing import Any, Iterable
+from dataclasses import dataclass, replace
+from typing import Any, Callable, Iterable
 
 from .ask import questions_from_json, tool_result_payload
 from .token_budget import DEFAULT_TOKEN_COUNTER, TokenCounter
@@ -224,26 +224,168 @@ class CanonicalTurnTranscriptBuilder:
         digest = _source_hash(scope, turns, manifest)
         return CanonicalTranscript(scope, tuple(turns), digest, manifest)
 
+    def project_context(
+        self,
+        transcript: CanonicalTranscript,
+        *,
+        limit_bytes: int,
+    ) -> CanonicalTranscript:
+        """Replace oversized tool results with a bounded projection.
+
+        This is the *context* view only. The canonical transcript keeps the
+        original result, so the archiver still summarises what really happened;
+        only what the model reads is projected. The projection is mechanical -
+        see :mod:`app.tool_projection` - so a tool result is never replaced by an
+        unverified paraphrase.
+        """
+        from .tool_projection import project_result_content
+
+        turns: list[TranscriptTurn] = []
+        for turn in transcript.turns:
+            events: list[TranscriptEvent] = []
+            for event in turn.events:
+                if (
+                    event.event_type == "tool_result"
+                    and len(event.content.encode("utf-8")) > limit_bytes
+                ):
+                    reference = {
+                        "tool": "ask_user",
+                        "call_id": event.call_id,
+                        "turn_id": event.turn_id,
+                    }
+                    events.append(replace(event, content=project_result_content(
+                        event.content, limit_bytes=limit_bytes, reference=reference,
+                    )))
+                else:
+                    events.append(event)
+            turns.append(replace(turn, events=tuple(events)))
+        manifest = transcript.source_manifest
+        return CanonicalTranscript(
+            transcript.scope, tuple(turns),
+            _source_hash(transcript.scope, turns, manifest), manifest,
+        )
+
+    def measure(
+        self,
+        transcript: CanonicalTranscript,
+        *,
+        counter: TokenCounter = DEFAULT_TOKEN_COUNTER,
+    ) -> int:
+        """Conservative size of a transcript in the units ``pack_recent`` uses."""
+        return sum(
+            counter.count_text(json.dumps(turn.canonical(), ensure_ascii=False, sort_keys=True))
+            for turn in transcript.turns
+        )
+
     def pack_recent(
         self,
         transcript: CanonicalTranscript,
         token_budget: int,
         *,
+        min_turns: int = 0,
+        recent_budget: int | None = None,
         counter: TokenCounter = DEFAULT_TOKEN_COUNTER,
+        on_degraded: Callable[[str], None] | None = None,
     ) -> CanonicalTranscript:
-        selected: list[TranscriptTurn] = []
-        used = 0
-        for turn in reversed(transcript.turns):
-            cost = counter.count_text(json.dumps(turn.canonical(), ensure_ascii=False, sort_keys=True))
-            if used + cost <= token_budget:
-                selected.append(turn)
-                used += cost
-            else:
-                # The hot window and archive coverage are contiguous. Once the
-                # next newest complete Turn cannot fit, older Turns must not be
-                # pulled in around that boundary.
-                break
-        selected.reverse()
+        """Keep a contiguous newest-Turn suffix as the hot window.
+
+        Two constraints apply to the *soft-protected* recent window, and they do
+        different jobs:
+
+        * ``min_turns`` (``N``) is a **floor on the count** - the newest few
+          turns are a property of the window, not a best effort. It is why how
+          many turns survive stops depending on how large one turn happens to be.
+        * ``recent_budget`` (``R``) is a **ceiling on the bytes** the recent window
+        may occupy. Without it a long recent conversation fills the whole budget
+        and crowds out the summary, which is the channel that carries the older
+        facts. It bounds both the protected suffix and the expansion into older
+        turns - bounding only the floor would leave the expansion free to refill
+        the window and defeat the reservation.
+
+        When the protected suffix exceeds ``R``, protection is released from the
+        **oldest** recent turn first, so the newest turns keep their guarantee.
+        Protection is never released below one turn, and the release never skips
+        a newer turn to backfill an older smaller one: the suffix stays
+        contiguous.
+
+        Two things are deliberately *not* done:
+
+        * If the whole transcript fits ``token_budget``, nothing is trimmed for
+          ``R`` - the window cannot crowd out a summary that also fits, so
+          trimming would be a pure loss of original text.
+        * If a single Turn alone exceeds the *hard cap* (``token_budget``), that
+          is reported through ``on_degraded`` rather than silently absorbed. The
+          hard cap, not ``R``, decides this: a huge newest turn is not dropped
+          merely for exceeding the window share.
+        """
+        ordered = list(transcript.turns)
+        total = len(ordered)
+        if total == 0:
+            return transcript
+        costs = [
+            counter.count_text(json.dumps(turn.canonical(), ensure_ascii=False, sort_keys=True))
+            for turn in ordered
+        ]
+
+        # Everything fits the hard cap: keep the original text and do not let R
+        # trim it.
+        if sum(costs) <= token_budget:
+            return transcript
+
+        required = min(max(int(min_turns), 0), total)
+        window_budget = token_budget if recent_budget is None else max(int(recent_budget), 0)
+
+        # R2-02: release soft protection from the oldest recent turn until the
+        # protected suffix fits R, never below one turn.
+        if recent_budget is not None and required > 0:
+            protected = sum(costs[total - required:])
+            released = 0
+            while required > 1 and protected > window_budget:
+                required -= 1
+                released += 1
+                protected = sum(costs[total - required:])
+            if released and on_degraded is not None:
+                on_degraded(
+                    f"recent window exceeded recent_budget={window_budget}; released soft "
+                    f"protection from {released} oldest of the newest turns "
+                    f"(min_turns floor now {required})"
+                )
+
+        # The newest `required` complete Turns are carried unconditionally, even
+        # when together they exceed the budget: the floor is a property of the
+        # window, not a best effort. The hard cap is enforced later, by the
+        # final request validation, which sees the whole request.
+        kept = required
+        used = sum(costs[total - required:]) if required else 0
+        guaranteed = costs[total - required:] if required else []
+
+        if guaranteed and max(guaranteed) > token_budget:
+            # Degradation: a single Turn alone already exceeds the whole budget,
+            # so no contiguous window can hold it. Keep the newest suffix that
+            # does fit, never reach back past the boundary, and report it.
+            kept = 0
+            used = 0
+            for index in range(total - 1, -1, -1):
+                if used + costs[index] <= token_budget:
+                    kept += 1
+                    used += costs[index]
+                else:
+                    break
+            if on_degraded is not None:
+                on_degraded(
+                    f"a single complete turn exceeds budget={token_budget}; "
+                    f"kept {kept} of {total} complete turns (min_turns={required})"
+                )
+        else:
+            for index in range(total - required - 1, -1, -1):
+                cost = costs[index]
+                if used + cost <= window_budget:
+                    kept += 1
+                    used += cost
+                else:
+                    break
+
+        selected = ordered[total - kept:] if kept else []
         selected_ids = {turn.turn_id for turn in selected}
         manifest = tuple(row for row in transcript.source_manifest if row["turn_id"] in selected_ids)
         return CanonicalTranscript(

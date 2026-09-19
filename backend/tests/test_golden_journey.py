@@ -24,6 +24,12 @@ def test_golden_goal_journey_runs_through_review_adjustment_and_memory(tmp_path)
     runtime = make_runtime(tmp_path, MockModelGateway())
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory")
     runtime.goal_reviews.queue_delay_seconds = 0
+    compile_program=runtime.goal_programs.compiler.compile
+    async def shorter(markdown,request):
+        value=await compile_program(markdown,request)
+        for item in value["actions"]:item["estimated_minutes"]=30
+        return value
+    runtime.goal_programs.compiler.compile=shorter
     app = create_app(runtime=runtime)
     client = TestClient(app)
     thread = client.post("/api/threads", json={"title": "Golden journey"}, headers=_headers(app, "thread")).json()

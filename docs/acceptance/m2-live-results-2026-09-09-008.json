@@ -1,0 +1,769 @@
+{
+  "batch_id": "M2-LIVE-20260909-008",
+  "status": "PASSED",
+  "database": "better_agent",
+  "temporary_schema": "m2_accept_fa292359bb81",
+  "limits": {
+    "rounds": 3,
+    "attempts_per_round": 10,
+    "total_attempts": 30,
+    "max_seconds": 1200,
+    "worst_cost_microusd": 756960,
+    "fallback_models": 0
+  },
+  "source_manifest": {
+    "files": {
+      "alembic/env.py": "248ce65ac9aaf86765fec2dba884dc009cc40233c2a8ffca92ac5e4aac565931",
+      "alembic/versions/20260905_0001_enable_postgres_extensions.py": "4bcdbb48b4787b697261b8e11a29bea9dc38e1d78039efb6c068792d67729945",
+      "alembic/versions/20260909_0002_root_task_budgets.py": "90e43105b62bc51c7b99aa184dbaa4bc96b62a5fbd6323f16f87abafe28aee57",
+      "alembic/versions/20260909_0003_archive_budget_binding.py": "6e2bfca5073a9b8afb888a0eddb703a3187fb06508eb049e340f9b71ceea051a",
+      "app/__init__.py": "ab45d6a0bfe2e56adaeac0b4beae2bd61ef98b73b1e73fd17c71e1c1a05f41e8",
+      "app/agents.py": "2efd724922355c256bf060f8850a76eb15ffc7937cda0214dff1c323efda9470",
+      "app/api.py": "bec0ba494a6b2ae30a6ec4a6b8ebbe2ad27be3130b75f0f0db160619229e5327",
+      "app/ask.py": "b4fa7bcdd8d5a8e8482dcb2318baa64f1f429e0df01d6a009df5d2e50833d481",
+      "app/behavior.py": "cff1d29af88fe14b560936f5bfea450ff4834805622bab019ee3cf140d60b071",
+      "app/config.py": "b1cbf9f26f9c569f9c0b667df27801ed87a9d8225f64f4dccd952f00156c426e",
+      "app/context.py": "0d6bad676bde61d0b769c152457b7a908d6d0bc3ff62aa0c322621a6d09523ff",
+      "app/control_exports.py": "fcae562283ed187cb7a082622f8411dc58f1af9b69297736ecdbc840be269b90",
+      "app/conversation.py": "37cf19d5126f68760ea538f6f2ff0cb00b5d3cf4a459722c6f6b23927b8e9a7b",
+      "app/costs.py": "d4f2c2bfcb53b16efceabfa484c9a3bed56272f6ed98dc2ff19c6482399739cb",
+      "app/db.py": "bbf8192358b6e2b629c182fa9c31765a1c447ebefa4ba6c6fd55eb32fca5addb",
+      "app/domain.py": "7432d5f2c5138632b9e7464d751977077fbad31ccaf9de4c6e258de835e7b46f",
+      "app/durable_queue.py": "676faaeadac03d118931feb6efe2c3b78a7be873e4999035665ebd7778c3dfeb",
+      "app/embedding.py": "5727535cd896844c5387ba1c35cec58826b0bc4836c372dfc1aa5a67e9ace705",
+      "app/embedding_worker.py": "25ce27b986e0d683e6436c9689aa7c2e5382a49dbc3aa7ff1be168c87406c487",
+      "app/eval.py": "78ec687ac71c2278ae4d6c80cf46af18559d886bd0a86616d5409b557b369f25",
+      "app/evals.py": "1cb490c46c2eae4976943403db72a8bd988faa377704b7271db7003ba8eead38",
+      "app/events.py": "2443209bec5aece2cbf3fcb1c38e7e07490ef7d0dbbde69ffdf1278a11d52cc4",
+      "app/evolution.py": "c168a3289efcf8daeed416130d75aa3d424d8b57099ad2c24144231279b7db83",
+      "app/experience_observer.py": "b1a38f82dca2be87c92bc9fc7b6922701f9711f249be0b6c37021be01d5d36ba",
+      "app/goal_adjustments.py": "4201617ebe6e724444b34a699ac803bbae8e11ffc59c0e2a0e2321ab5161923a",
+      "app/goal_context.py": "e229bbd854b999ca3f68a6f1a0e311763716d4ca0e442a141a10c4bce70e7cb8",
+      "app/goal_program_compiler.py": "d2e63b3ce2bf2358c3432c6ec354473737301bc90b2e9940a100bb1b2c479ada",
+      "app/goal_programs.py": "df3601efc532a765bc2e45171d41ad671f8a2217ae2ffb72d23ea441f7f6aaea",
+      "app/goal_reviews.py": "3bac2fa1de0b3044d4ecb648a3b4e7efc7a4a72895b8bd186a118183f625ab70",
+      "app/goal_workspace.py": "805d726a49270b4fea7eed535f0e7db191aeaefab4356bb1c077a05474865385",
+      "app/growth.py": "bbdab0cdaabc3fc096961fdaeb1e7baad45d34f03e38ac7b19d40f59478bd254",
+      "app/live_model.py": "0e6b911da86e9cc503f9fa050f16def57a4756228da6c226fb86a893ff1181af",
+      "app/main.py": "c7302620ce02086b5e362ccc1a5f25ff8be563139bb239b4c733ac4d6a59848e",
+      "app/memory.py": "101ac1bdc327f6027c11a69316431512304c32553906265759128bc13177a5fc",
+      "app/memory_archive.py": "60e1cf964ca684bd4e3197c3fdfbee57261d589da5e745eec68f5308fb244003",
+      "app/memory_v2.py": "857b74803a1f06b9fddd6a67aca50b85c3f9aa749a5825cef65fd26000e6cddb",
+      "app/model_admin.py": "496b99acec11b29ab6e758514d69ede9eba27387ac86852d7a1d881557ffb9c7",
+      "app/model_control.py": "a3f1390bd158492c043b1f3d78c3f31a7382a59882dfd42b0f86eb0bce747acd",
+      "app/model_gateway.py": "6f8c45b439a5ef1508dbda187f4d8f2626122ce4e920764acb6f12c66c298504",
+      "app/notifications.py": "554495dca4e9fa5df7d8cac9523b82b9347d3dc6d5914e75b28a305bdb43a6a1",
+      "app/plan_context.py": "10cbef88c2cf5f32251c23a493687f79c3ec8636ea9ba7aa1a458885dfc4cc9e",
+      "app/plan_documents.py": "1921a9175a8f7c9cad04f01b7772ac2f4176efedb137ef86a633f5e3f677eda4",
+      "app/plan_execution.py": "fd415d082f2b2b04c4ed1b2eb1b1a0c4a717cc33bc5059e6ee89c6114fea23e1",
+      "app/plan_files.py": "178a976757fdafe534da150058b42eb93e38359cfcd557934f35a1ea68f68c5f",
+      "app/public_text.py": "0f74758e020fbb18147b92286b6f0d813953f93a8f6dd5e9f2a8596e06362666",
+      "app/real_evaluation.py": "be0e2f795e3b66075a1cd31a4783812f8e573e77cdf2bd19e3c5ed5040cfa3d7",
+      "app/research/__init__.py": "37590eb3d1185a913975e1f9b107d189f9df1d939860298006da86a0986ca951",
+      "app/research/citations.py": "bebb3deef33ebd88119f9a7329e129f94748f60cf9a8d43b53f4406d3f5c36b9",
+      "app/research/engine.py": "efe1bd863583219d0735d2e6466782cfd5e6183a8db59dd871e6127fea629288",
+      "app/research/live.py": "acc724510673f22b2e7496559083adb5a853c159bc5d9cf07702d1f2e255ce19",
+      "app/research/models.py": "2890af2bc55b934804ff8293c739c8b1ff3a5abdfd55be41bea455447ca3746d",
+      "app/research/retriever.py": "104f54a008f2910af3f40d46f73ff020409aea64f57531e23de210c3945e6792",
+      "app/research/scheduler.py": "f7b582e384b196ea738170d6cf27c63b07a719d417a98b08af3b062695b19e61",
+      "app/research/service.py": "8c52d72091f417dfb40494784ae3392516560da3c8dce574cfe1c605b4c8bd96",
+      "app/research/tavily.py": "d2d910033d93b2c3578dacd7d46d75ee07f193ff355c1ce63a8a030132322ef0",
+      "app/research/web.py": "4261ea27dbaa0c71360efc0177a2087e54c0c5d6d36fcd02ae5daeb17ad92a48",
+      "app/research/worker.py": "c44b9f891c63720b5b54b355d52a7b9d6539a11f843dc91ff273a59fd2b2c724",
+      "app/runtime.py": "c001dd639629e72b59f60ca7fa2e97d88116376c2a273c4544893ec012fcba80",
+      "app/settings.py": "db5a10b5aa61a799b57d51c4e029084c6ead37b99406d9372ce62fe08c0d1be0",
+      "app/skill_platform.py": "c090f7bf788ee227c3aad04d835ea2354af84e593bf249339e70888c11711d76",
+      "app/skill_registry.py": "d4982586f9bde7e2870d6f6016d4c8cec07e48c118483e2e2b8e0ab7d7eee94d",
+      "app/startup.py": "6c42a232ec57391550a6a76ef417df404a72f24eb7913ce0ab63b9482363dd97",
+      "app/stats.py": "ecb25d7c8ff60b044300322d687c68367a4fc671bd085b079122f71fb000a474",
+      "app/token_budget.py": "f5b2abed7eb6ee8be28a004100a94232393f62b469fa68f2a26a981cc9337664",
+      "app/tools.py": "9a466f6a015214ed4508f27eb347a614eebe5c4b4fe6d1f95b89c6e29a58a584",
+      "app/transcript.py": "b6cf4cd65e0dec218039bef812cedfcfdab7172f4f7c42d91f955c1f57f81d8e",
+      "app/trusted_connectors.py": "525fab6c6aecbdc8b0b907cbb53519d791110eb6f2be898c588a14b45df7ae02",
+      "scripts/m2_live_acceptance.py": "b3a226b512d05738c74d103fafe6f0325b6e6e85554786f46324bc195ce86b43"
+    },
+    "digest": "3c043fc3ec8cbfe3ce7885bdc760a67211505d35808b2e60aaa947cd97b3de96"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "status": "PASSED",
+      "owner_id": "m2-live-20260909-008-1-53f81fae",
+      "thread_id": "thread_8e9d4b980d4041e989ba6f43ee8ca45c",
+      "ask": {
+        "turn_id": "turn_2e1f49ac56ec44c79285d9df0c275eb5",
+        "question_count": 1,
+        "answers": [
+          "3天"
+        ]
+      },
+      "continuation": {
+        "turn_id": "turn_3c1f764fee3b4d0ca99e35b218d616f9",
+        "root_budget_id": "task_budget_cbcf916015ec75d886e316e0009535bd7680e559d21d015554a0637d8e0353ec"
+      },
+      "target_update": {
+        "turn_id": "turn_111385427bf74051ba12610607e3b217",
+        "plan_version_unchanged": "planv_097ea5ef803c46bd9434556ac2a5c7f8"
+      },
+      "plan_revision": {
+        "turn_id": "turn_3f1b289718554f359df2533f42136fd0",
+        "from": "planv_097ea5ef803c46bd9434556ac2a5c7f8",
+        "to": "planv_6528cd92e74b4ba7bdb7cb70e658bcd4"
+      },
+      "bundles": {
+        "initial": "bundle_5dc8535daaaad831f4430d35",
+        "replacement": "bundle_1aa7f43d8b04da464f2c53d3"
+      },
+      "root_budget": {
+        "id": "task_budget_cbcf916015ec75d886e316e0009535bd7680e559d21d015554a0637d8e0353ec",
+        "max_attempts": 30,
+        "attempts_started": 3
+      },
+      "invocations": [
+        {
+          "id": "conversation:turn_2e1f49ac56ec44c79285d9df0c275eb5",
+          "turn_id": "turn_2e1f49ac56ec44c79285d9df0c275eb5",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_5dc8535daaaad831f4430d35",
+          "root_budget_id": "task_budget_cbcf916015ec75d886e316e0009535bd7680e559d21d015554a0637d8e0353ec",
+          "request_digest": "c568f949c04b38603215b515990781a277894f01c0fb9c0db00a64dacef953b4"
+        },
+        {
+          "id": "conversation:turn_2e1f49ac56ec44c79285d9df0c275eb5:generate_clarification",
+          "turn_id": "turn_2e1f49ac56ec44c79285d9df0c275eb5",
+          "role": "ask",
+          "purpose": "generate_clarification",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_5dc8535daaaad831f4430d35",
+          "root_budget_id": "task_budget_cbcf916015ec75d886e316e0009535bd7680e559d21d015554a0637d8e0353ec",
+          "request_digest": "ea5657a27a2345c99ddd2b7212398332bd004e9427dc78209fe44ab40cf7abc2"
+        },
+        {
+          "id": "conversation:turn_3c1f764fee3b4d0ca99e35b218d616f9",
+          "turn_id": "turn_3c1f764fee3b4d0ca99e35b218d616f9",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_5dc8535daaaad831f4430d35",
+          "root_budget_id": "task_budget_cbcf916015ec75d886e316e0009535bd7680e559d21d015554a0637d8e0353ec",
+          "request_digest": "b99cf82d3a566575426d4cbf1a4cdd8ac8707efeb3c2d4403ba29d7536b4cfe9"
+        },
+        {
+          "id": "conversation:turn_111385427bf74051ba12610607e3b217",
+          "turn_id": "turn_111385427bf74051ba12610607e3b217",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_1aa7f43d8b04da464f2c53d3",
+          "root_budget_id": "task_budget_99748d5c0f2461f8a3657d3856bd0185506a9b51fb5572b4f0abc92b1b1be5d8",
+          "request_digest": "806832a9bdf447b1d7e20b4e9e3ae8ae82d2e8a783e62aec97ece92d076dd437"
+        },
+        {
+          "id": "conversation:turn_3f1b289718554f359df2533f42136fd0",
+          "turn_id": "turn_3f1b289718554f359df2533f42136fd0",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_1aa7f43d8b04da464f2c53d3",
+          "root_budget_id": "task_budget_16b224f758ff1d7e7f9295fc0151c58cfe458448ae53318ebedc097c2263f66a",
+          "request_digest": "64b036d2b8570991098717fad1e925662e174e087aa6cf67a2c16d3afbcd9bc8"
+        },
+        {
+          "id": "conversation:turn_3f1b289718554f359df2533f42136fd0:force_plan_document",
+          "turn_id": "turn_3f1b289718554f359df2533f42136fd0",
+          "role": "conversation",
+          "purpose": "force_plan_document",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_1aa7f43d8b04da464f2c53d3",
+          "root_budget_id": "task_budget_16b224f758ff1d7e7f9295fc0151c58cfe458448ae53318ebedc097c2263f66a",
+          "request_digest": "460e8a4b50a966ed3cfdf4ffcdc391e79a5c8c1d6ba77873d620f90961cb775f"
+        }
+      ],
+      "charged_microusd": 151392
+    },
+    {
+      "round": 2,
+      "status": "PASSED",
+      "owner_id": "m2-live-20260909-008-2-031d231d",
+      "thread_id": "thread_bde05a47efee4d15bafab7175b029371",
+      "ask": {
+        "turn_id": "turn_5c60ddf13b514e27ba012168d1674c9e",
+        "question_count": 1,
+        "answers": [
+          "3天"
+        ]
+      },
+      "continuation": {
+        "turn_id": "turn_5f4ca91388f1428baf108009a7350e3f",
+        "root_budget_id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f"
+      },
+      "target_update": {
+        "turn_id": "turn_e361194f35ab427aad7f7f6c8d8e0d2a",
+        "plan_version_unchanged": "planv_a6719297c7f74081800e20c97a6d104c"
+      },
+      "plan_revision": {
+        "turn_id": "turn_42eebd9f55a94491aeeb0d54b028ebb0",
+        "from": "planv_a6719297c7f74081800e20c97a6d104c",
+        "to": "planv_fb94ca1b554541d5a53bb399cc6ef1ca"
+      },
+      "bundles": {
+        "initial": "bundle_c95406e03eff0ac2b50d50b7",
+        "replacement": "bundle_fd1d46cca63ce77bf048dec2"
+      },
+      "root_budget": {
+        "id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f",
+        "max_attempts": 30,
+        "attempts_started": 4
+      },
+      "invocations": [
+        {
+          "id": "conversation:turn_5c60ddf13b514e27ba012168d1674c9e",
+          "turn_id": "turn_5c60ddf13b514e27ba012168d1674c9e",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_c95406e03eff0ac2b50d50b7",
+          "root_budget_id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f",
+          "request_digest": "c568f949c04b38603215b515990781a277894f01c0fb9c0db00a64dacef953b4"
+        },
+        {
+          "id": "conversation:turn_5c60ddf13b514e27ba012168d1674c9e:generate_clarification",
+          "turn_id": "turn_5c60ddf13b514e27ba012168d1674c9e",
+          "role": "ask",
+          "purpose": "generate_clarification",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_c95406e03eff0ac2b50d50b7",
+          "root_budget_id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f",
+          "request_digest": "ea5657a27a2345c99ddd2b7212398332bd004e9427dc78209fe44ab40cf7abc2"
+        },
+        {
+          "id": "conversation:turn_5f4ca91388f1428baf108009a7350e3f",
+          "turn_id": "turn_5f4ca91388f1428baf108009a7350e3f",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_c95406e03eff0ac2b50d50b7",
+          "root_budget_id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f",
+          "request_digest": "da4bfb2dee19fc1a95f344150cc0accaaba6289aac8439cbb5a018575b855e81"
+        },
+        {
+          "id": "conversation:turn_5f4ca91388f1428baf108009a7350e3f:force_plan_document",
+          "turn_id": "turn_5f4ca91388f1428baf108009a7350e3f",
+          "role": "conversation",
+          "purpose": "force_plan_document",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_c95406e03eff0ac2b50d50b7",
+          "root_budget_id": "task_budget_c1d2ab116fb204c347e07f350bf550bd488e9248bb995b4e07abc6af310a449f",
+          "request_digest": "addc74d70c16a5edfbd025e9b2c0b98b9a170c733bfcd9a5687840bf939137fa"
+        },
+        {
+          "id": "conversation:turn_e361194f35ab427aad7f7f6c8d8e0d2a",
+          "turn_id": "turn_e361194f35ab427aad7f7f6c8d8e0d2a",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_fd1d46cca63ce77bf048dec2",
+          "root_budget_id": "task_budget_5c3f01b1754946519a23ef6439f38d727cbc5a1c4a0af3a7e3a79c26779bd244",
+          "request_digest": "a440a4ec6f83de146b6b158bceffa96f58b694d5b6090cfdead26865adcec5a9"
+        },
+        {
+          "id": "conversation:turn_42eebd9f55a94491aeeb0d54b028ebb0",
+          "turn_id": "turn_42eebd9f55a94491aeeb0d54b028ebb0",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_fd1d46cca63ce77bf048dec2",
+          "root_budget_id": "task_budget_660ece1afbbcdda95b3639ca7151d5f8b375ea50d58db7534f19b30dbfdceed2",
+          "request_digest": "9d1c00aebd0e80eddd4ecc28225586fa85da2cd752b660aaa325edb196923636"
+        },
+        {
+          "id": "conversation:turn_42eebd9f55a94491aeeb0d54b028ebb0:force_plan_document",
+          "turn_id": "turn_42eebd9f55a94491aeeb0d54b028ebb0",
+          "role": "conversation",
+          "purpose": "force_plan_document",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_fd1d46cca63ce77bf048dec2",
+          "root_budget_id": "task_budget_660ece1afbbcdda95b3639ca7151d5f8b375ea50d58db7534f19b30dbfdceed2",
+          "request_digest": "c43b79d315a1478e6bd2070dce914f323f537dd66082cb5596feb96cfd7ac63a"
+        }
+      ],
+      "charged_microusd": 176624
+    },
+    {
+      "round": 3,
+      "status": "PASSED",
+      "owner_id": "m2-live-20260909-008-3-e35ffa9a",
+      "thread_id": "thread_523ac075d1274bab93f8227c9fd37195",
+      "ask": {
+        "turn_id": "turn_c90667674ace4c10a1469433705f78bc",
+        "question_count": 1,
+        "answers": [
+          "3天"
+        ]
+      },
+      "continuation": {
+        "turn_id": "turn_ac574e04188c4e0882f8a76d5c9e8542",
+        "root_budget_id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b"
+      },
+      "target_update": {
+        "turn_id": "turn_3ed2414e259b4e429ab11dc184bfa9c4",
+        "plan_version_unchanged": "planv_28c3e59b17ec467d83ed5c27777799c5"
+      },
+      "plan_revision": {
+        "turn_id": "turn_9f3279877f9241b79d5b8d03baf8f628",
+        "from": "planv_28c3e59b17ec467d83ed5c27777799c5",
+        "to": "planv_82c5a4f4ad054ea498f8aa0e03ec0bba"
+      },
+      "bundles": {
+        "initial": "bundle_87e4a71a1d0077d51d0449db",
+        "replacement": "bundle_a6c5067669b995b555fba41f"
+      },
+      "root_budget": {
+        "id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b",
+        "max_attempts": 30,
+        "attempts_started": 4
+      },
+      "invocations": [
+        {
+          "id": "conversation:turn_c90667674ace4c10a1469433705f78bc",
+          "turn_id": "turn_c90667674ace4c10a1469433705f78bc",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_87e4a71a1d0077d51d0449db",
+          "root_budget_id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b",
+          "request_digest": "c568f949c04b38603215b515990781a277894f01c0fb9c0db00a64dacef953b4"
+        },
+        {
+          "id": "conversation:turn_c90667674ace4c10a1469433705f78bc:generate_clarification",
+          "turn_id": "turn_c90667674ace4c10a1469433705f78bc",
+          "role": "ask",
+          "purpose": "generate_clarification",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_87e4a71a1d0077d51d0449db",
+          "root_budget_id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b",
+          "request_digest": "ea5657a27a2345c99ddd2b7212398332bd004e9427dc78209fe44ab40cf7abc2"
+        },
+        {
+          "id": "conversation:turn_ac574e04188c4e0882f8a76d5c9e8542",
+          "turn_id": "turn_ac574e04188c4e0882f8a76d5c9e8542",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_87e4a71a1d0077d51d0449db",
+          "root_budget_id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b",
+          "request_digest": "f05bf89f0de68d7cd06ecbc35d0ddd1414d51a0c4cbdc31b0d9056cf8ad194e4"
+        },
+        {
+          "id": "conversation:turn_ac574e04188c4e0882f8a76d5c9e8542:force_plan_document",
+          "turn_id": "turn_ac574e04188c4e0882f8a76d5c9e8542",
+          "role": "conversation",
+          "purpose": "force_plan_document",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_87e4a71a1d0077d51d0449db",
+          "root_budget_id": "task_budget_3393b416292e7d79167eaa55ff87223305012a0e0e2c5d56c137d7d2fd78933b",
+          "request_digest": "4cdb2a29fed0280a9ed35ed6b55e283c23a4a0116f03dfca799bf41b52728fe9"
+        },
+        {
+          "id": "conversation:turn_3ed2414e259b4e429ab11dc184bfa9c4",
+          "turn_id": "turn_3ed2414e259b4e429ab11dc184bfa9c4",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_a6c5067669b995b555fba41f",
+          "root_budget_id": "task_budget_b9c9b1d338b41a29d61141cbe856b6e090bfcac7a7e6f221b9f0a3bf54eebea8",
+          "request_digest": "07d015972c5f8f2ead0459a0f8ce2ca2af70fa9fca2d98694343fe9d37762cb3"
+        },
+        {
+          "id": "conversation:turn_9f3279877f9241b79d5b8d03baf8f628",
+          "turn_id": "turn_9f3279877f9241b79d5b8d03baf8f628",
+          "role": "conversation",
+          "purpose": "route_and_respond",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_a6c5067669b995b555fba41f",
+          "root_budget_id": "task_budget_592001c3d89f19eea191eb885de7e1bc128a254cbbd42f7d473b6c202f5eb4ae",
+          "request_digest": "f76e5807c9d708c80b34340ffe4b0449c79f69edde65fc9b39e1a719ea6e3a76"
+        },
+        {
+          "id": "conversation:turn_9f3279877f9241b79d5b8d03baf8f628:force_plan_document",
+          "turn_id": "turn_9f3279877f9241b79d5b8d03baf8f628",
+          "role": "conversation",
+          "purpose": "force_plan_document",
+          "status": "SUCCEEDED",
+          "runtime_bundle_id": "bundle_a6c5067669b995b555fba41f",
+          "root_budget_id": "task_budget_592001c3d89f19eea191eb885de7e1bc128a254cbbd42f7d473b6c202f5eb4ae",
+          "request_digest": "941d5dbfe3869b37a9c607a65c0182d5d6db2628587281cdc2ab9e64612aef11"
+        }
+      ],
+      "charged_microusd": 176624
+    }
+  ],
+  "cleanup": {
+    "temporary_schema_removed": true
+  },
+  "attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "f524ba602b64b850931689c9512983cc5014d0ab78bdf7c58b77f532a8517083",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 174,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "ask",
+      "purpose": "generate_clarification",
+      "request_digest": "f27548562172f9b2b4fc832345ed0bdfa38d5923d7e2dd8b6dbf2579e64853bf",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 161,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "490b80d0830af8c59c81f1a521ff61663a6fc4a6ead230efd6891897e489d322",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "d62527e96d27953f0b12f96416a081f28414f8bb37dfb857350d4ebd61002bc2",
+      "visible_output_bytes": 2423,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 739,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "86eddf5684a179688df44c9eb6c8870b79123db7a3db901dec32243ac79fa966",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "fa4e35020ce1b4f94f6806845709b7929ebe9f6bdd200f07ecdc942209216445",
+      "visible_output_bytes": 186,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 40,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 5,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "b9b00a3ad48c2bf522b5ffbd47fbf9eefa14ffbbfbea9025faefb3c20aa05695",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "31b90ea8e12b747ab3693a9f8b6b767ee3c9350b604cc55bf25f8ce228d55a50",
+      "visible_output_bytes": 2236,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 673,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 6,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "force_plan_document",
+      "request_digest": "0f25dd1e55e6fd709cbbb4307ee03cdda5e199816951a17a85e9d4c9e9942a7b",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "a5808aba54652cf4b22592fd2ba4155cd7c6fdbc8d01126c6fbd9a902bc07d8e",
+      "visible_output_bytes": 2252,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 667,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 7,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "f524ba602b64b850931689c9512983cc5014d0ab78bdf7c58b77f532a8517083",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 175,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 8,
+      "round": 2,
+      "role": "ask",
+      "purpose": "generate_clarification",
+      "request_digest": "f27548562172f9b2b4fc832345ed0bdfa38d5923d7e2dd8b6dbf2579e64853bf",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 175,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 9,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "b1d0954470eea42a0e91f013ce16df6b3bfb8377d0d0e2d0cb065fe2f0f73c4c",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "3f3b394f53eb956b27f9c0a7e7e40edcab6d073befe36ab272f3e1c0d27a88d8",
+      "visible_output_bytes": 3063,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 989,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 10,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "force_plan_document",
+      "request_digest": "31c25f2c961f28b28ab4bb7cf76fbd55f1f846b57d4f0b4a59f113554cf8e0ca",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "2bd623c193c8d853ecd46bdb38ac895e662f1fb709e75e8013b6aaef868e0a43",
+      "visible_output_bytes": 5475,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1716,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 11,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "008d5cce999df78d164f3af461b5e8e85ebf36c319499d11456112e977b192d3",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "02a127bb115fc3c513ce96a9435bd993e454318a990a007d5743892a34ca423c",
+      "visible_output_bytes": 233,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 47,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 12,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "783cc062e55b94eb3c44d7d9bc410902fa9f825ee4b5897110c41250a08bfa6e",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "1e9e4ed73439098ea60074376232e86bce3a2b85b54c03eb5a42ce546d6dbd5f",
+      "visible_output_bytes": 5095,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1548,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 13,
+      "round": 2,
+      "role": "conversation",
+      "purpose": "force_plan_document",
+      "request_digest": "627261f8e4ed804a22b8b1079e835d72a46743ecf48c7b4963b9e8a920db2c18",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "c1e6083b97a93d2e99ca7ec8044681cb801b362bb2b92a6e69f28b65f371556f",
+      "visible_output_bytes": 4960,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1513,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 14,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "f524ba602b64b850931689c9512983cc5014d0ab78bdf7c58b77f532a8517083",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 173,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 15,
+      "round": 3,
+      "role": "ask",
+      "purpose": "generate_clarification",
+      "request_digest": "f27548562172f9b2b4fc832345ed0bdfa38d5923d7e2dd8b6dbf2579e64853bf",
+      "status": "succeeded",
+      "finish_reason": "tool_calls",
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "visible_output_bytes": 0,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 175,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 16,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "e8cd2520bd14e2dd64200ce1701090cb74c3fdcd84c18f0eaf90ec8a3f3dae9c",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "4fea9e1e0363da8082ff80ea6b52c6432e238bf08a2f5c73cb8352e847472a3c",
+      "visible_output_bytes": 2968,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 963,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 17,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "force_plan_document",
+      "request_digest": "316e9b08b0391739ff40dbca6a2bcf396530cf5fa162cdd489bf5ccb08897aa8",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "5401c9a566ea1085dc2152d06a65948c1e83e6291947f2b350f6b28a961214b9",
+      "visible_output_bytes": 5361,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1571,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 18,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "a0d41d8814390af3f06bf9908c31a0bf625211192e14967cd46e7bbc5c982a61",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "113973f814407997db3669d744409901a7704fcef42a52c546b4c6fe015fdb5f",
+      "visible_output_bytes": 206,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 44,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 19,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "request_digest": "9ef339accab86a9107c7d0e35141087d01466876c1a695e1194b6141b0fbd9e4",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "e1e5ddb6e63762f99b21d4144c630e02ad08f5487d7cc08bf5994336a0dcb600",
+      "visible_output_bytes": 4829,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1389,
+        "reasoning_tokens": null
+      }
+    },
+    {
+      "ordinal": 20,
+      "round": 3,
+      "role": "conversation",
+      "purpose": "force_plan_document",
+      "request_digest": "8a8ed7d4db9c7392b9acb1b8f9338738627907682d11da139627eba05d3debe5",
+      "status": "succeeded",
+      "finish_reason": "stop",
+      "output_digest": "30d6cec6a7e8adc1dd7a8655c93b7cb4d80e02e908fcaa740fdded06fb7dcf03",
+      "visible_output_bytes": 4721,
+      "usage": {
+        "uncached_input_tokens": null,
+        "cache_read_tokens": null,
+        "cache_write_tokens": null,
+        "output_tokens": 1377,
+        "reasoning_tokens": null
+      }
+    }
+  ],
+  "elapsed_seconds": 113.21
+}

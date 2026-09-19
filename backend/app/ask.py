@@ -66,6 +66,70 @@ ASK_TOOL_SCHEMA: dict[str, Any] = {
 }
 
 
+# 复盘工具复用 ask 的问题结构（同一个解析器与同一张 turn_asks 表），
+# 只是语义与触发时机不同：用户在复盘场景下被问到的是当天的真实感受。
+REVIEW_TOOL_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "review_check_in",
+        "description": (
+            "当用户想复盘某个执行计划（目标、训练计划、学习计划等）当天或最近的实际表现时调用："
+            "先向他问清真实的感受、遇到的困难与当天状态，再据此复盘。"
+            "问题要像这份计划对应的专业角色那样提出（健身计划就像教练问训练与恢复，学习计划就像导师问方法与理解），"
+            "并优先给出可选项，方便他直接点选。一次最多问四个问题，且不要在同一次响应里输出正文。"
+        ),
+        "parameters": {
+            "type": "object",
+            "required": ["questions"],
+            "additionalProperties": False,
+            "properties": {
+                "questions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 4,
+                    "items": {
+                        "type": "object",
+                        "required": [
+                            "id",
+                            "header",
+                            "question",
+                            "options",
+                            "multi_select",
+                            "allow_free_text",
+                        ],
+                        "additionalProperties": False,
+                        "properties": {
+                            "id": {"type": "string", "minLength": 1, "maxLength": 64},
+                            "header": {"type": "string", "minLength": 1, "maxLength": 80},
+                            "question": {"type": "string", "minLength": 1, "maxLength": 400},
+                            "options": {
+                                "type": "array",
+                                "minItems": 0,
+                                "maxItems": 4,
+                                "items": {
+                                    "type": "object",
+                                    "required": ["label", "description"],
+                                    "additionalProperties": False,
+                                    "properties": {
+                                        "label": {"type": "string", "minLength": 1, "maxLength": 80},
+                                        "description": {"type": "string", "maxLength": 200},
+                                    },
+                                },
+                            },
+                            "multi_select": {"type": "boolean"},
+                            "allow_free_text": {"type": "boolean"},
+                        },
+                    },
+                }
+            },
+        },
+    },
+}
+
+CONVERSATION_TOOL_SCHEMAS: tuple[dict[str, Any], ...] = (ASK_TOOL_SCHEMA, REVIEW_TOOL_SCHEMA)
+CONVERSATION_TOOL_NAMES: frozenset[str] = frozenset(schema["function"]["name"] for schema in CONVERSATION_TOOL_SCHEMAS)
+
+
 @dataclass(frozen=True)
 class AskQuestion:
     id: str
@@ -105,7 +169,7 @@ def parse_ask_tool_call(call: dict[str, Any]) -> AskRequest:
     function = call.get("function")
     if not isinstance(call_id, str) or not call_id.strip():
         raise AskValidationError("ask tool call id is required")
-    if not isinstance(function, dict) or function.get("name") != "ask_user":
+    if not isinstance(function, dict) or function.get("name") not in CONVERSATION_TOOL_NAMES:
         raise AskValidationError("unsupported conversation tool")
     arguments = function.get("arguments", "{}")
     if isinstance(arguments, str):

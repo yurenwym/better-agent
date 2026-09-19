@@ -1,4 +1,5 @@
 import type { Run, Stats } from "../types";
+import { runStateStatsLabels } from "../localization";
 
 interface StatsBarProps {
   stats?: Stats | null;
@@ -21,20 +22,6 @@ function tokens(value: number): string {
   return `${value >= 1000 ? `${(value / 1000).toFixed(1)}K` : integer(value)} tok`;
 }
 
-const stateLabels: Record<string, string> = {
-  RECEIVED: "已收到目标",
-  CLARIFYING: "正在澄清",
-  PLANNING: "正在规划",
-  AWAITING_APPROVAL: "等待审批",
-  EXECUTING: "执行中",
-  AWAITING_OUTCOME: "等待结果",
-  REFLECTING: "复盘中",
-  COMPLETED: "已完成",
-  BLOCKED: "已阻塞",
-  FAILED: "运行失败",
-  CANCELLED: "已取消",
-};
-
 export default function StatsBar({ stats, run }: StatsBarProps) {
   const metrics = [
     ["交互", valueOrUnavailable(stats?.interactions, integer)],
@@ -48,7 +35,7 @@ export default function StatsBar({ stats, run }: StatsBarProps) {
     ["缓存命中", valueOrUnavailable(stats?.cache_hit_rate, (value) => `${(value * 100).toFixed(0)}%`)],
     ["输入 Token", valueOrUnavailable(stats?.input_tokens, tokens)],
     ["输出 Token", valueOrUnavailable(stats?.output_tokens, tokens)],
-    ["当前状态", stateLabels[stats?.state ?? run?.state ?? ""] ?? "不可用"],
+    ["当前状态", runStateStatsLabels[stats?.state ?? run?.state ?? ""] ?? "不可用"],
   ] as const;
 
   return (

@@ -1,0 +1,213 @@
+{
+  "batch_id": "M4-LIVE-20260909-001",
+  "status": "FAILED",
+  "network_started": true,
+  "storage": "current_better_agent_with_batch_scoped_cleanup",
+  "source_manifest": {
+    "files": {
+      "alembic/versions/20260909_0004_research_partial_status.py": "60fbdf152bd578d115c484f239ea237a08f0f798af39ece967ec2bb750a42832",
+      "app/costs.py": "d4f2c2bfcb53b16efceabfa484c9a3bed56272f6ed98dc2ff19c6482399739cb",
+      "app/db.py": "49891bb6e33cc3068c31ba4b0736e4e423b74df40d5fe8f7d704250fe94b1be5",
+      "app/model_control.py": "29b5012911ab94a6b5c46a92d39976e3cabc216eddc559bb0e931e8c9896cc25",
+      "app/research/__init__.py": "37590eb3d1185a913975e1f9b107d189f9df1d939860298006da86a0986ca951",
+      "app/research/citations.py": "bebb3deef33ebd88119f9a7329e129f94748f60cf9a8d43b53f4406d3f5c36b9",
+      "app/research/engine.py": "23c722419eae067f63e0e601c58d1a94657e7e5fbf5b50a5f0608ccc617cd36c",
+      "app/research/live.py": "af0e695d25e54c0017e42efce121addb5b08979b9cc76e99de274b885182b8d5",
+      "app/research/models.py": "2890af2bc55b934804ff8293c739c8b1ff3a5abdfd55be41bea455447ca3746d",
+      "app/research/retriever.py": "104f54a008f2910af3f40d46f73ff020409aea64f57531e23de210c3945e6792",
+      "app/research/scheduler.py": "f7b582e384b196ea738170d6cf27c63b07a719d417a98b08af3b062695b19e61",
+      "app/research/service.py": "7245b97a8aa5f650d48cccf1afe05108659c851e4732a5130be7521044a3f510",
+      "app/research/tavily.py": "d2d910033d93b2c3578dacd7d46d75ee07f193ff355c1ce63a8a030132322ef0",
+      "app/research/web.py": "4261ea27dbaa0c71360efc0177a2087e54c0c5d6d36fcd02ae5daeb17ad92a48",
+      "app/research/worker.py": "4cd944adf7eb2d11b8efb8351540f275ede65c4239c08f41582351247799d218",
+      "scripts/m4_live_acceptance.py": "810f294f20c50f7b5000f9abdb6d5c23c48d435150be5687805cb03715b4bdeb"
+    },
+    "digest": "65a2b2d6834df7bbcebdb3e1faedc7ad8c7ddbe639492363c1ee11ea724b6aee"
+  },
+  "case_digest": "e7b337f2487b9bf07f05dc5b1b1a028390aec4a3c7084e772f101016e1a107cc",
+  "cases": [
+    {
+      "id": "python-asyncio-v1",
+      "topic": "仅依据给定的 Python 官方文档研究 asyncio，必须分别说明：TaskGroup 内某任务首次发生非 CancelledError 异常后其余任务如何处理；asyncio.timeout 如何处理取消并在何处转换为 TimeoutError。",
+      "hosts": [
+        "docs.python.org"
+      ],
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-exceptions.html"
+      ]
+    },
+    {
+      "id": "postgres-explain-v1",
+      "topic": "仅依据给定的 PostgreSQL 官方文档研究 EXPLAIN，必须分别说明：EXPLAIN ANALYZE 是否实际执行语句以及由此产生的副作用边界；BUFFERS 选项报告什么，以及启用 ANALYZE 时它的默认行为。",
+      "hosts": [
+        "www.postgresql.org"
+      ],
+      "urls": [
+        "https://www.postgresql.org/docs/current/sql-explain.html",
+        "https://www.postgresql.org/docs/current/using-explain.html"
+      ]
+    },
+    {
+      "id": "git-undo-v1",
+      "topic": "仅依据给定的 Git 官方文档比较撤销方式，必须分别说明：git revert 如何通过新提交逆转既有提交；git reset 对 HEAD、索引和工作区的作用边界。",
+      "hosts": [
+        "git-scm.com"
+      ],
+      "urls": [
+        "https://git-scm.com/docs/git-revert",
+        "https://git-scm.com/docs/git-reset"
+      ]
+    }
+  ],
+  "limits": {
+    "rounds": 3,
+    "model_attempts_per_round": 10,
+    "model_attempts": 30,
+    "source_requests": 12,
+    "max_seconds": 1800,
+    "fallback_models": 0,
+    "network_retries": 0,
+    "structured_output_retries": 0,
+    "worst_attempt_microusd": 25232,
+    "worst_batch_microusd": 756960
+  },
+  "price_snapshot": {
+    "source": "M3-LIVE-20260909-022 frozen DeepSeek profile rates",
+    "uncached_input_rate": 440000,
+    "cache_read_rate": 14000,
+    "cache_write_rate": 0,
+    "output_rate": 1320000,
+    "reasoning_rate": 0
+  },
+  "stop_policy": "first failure stops the batch; no automatic rerun",
+  "profile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "context_window": 32768,
+    "max_output_tokens": 8192
+  },
+  "database": {
+    "name": "better_agent",
+    "mode": "current_runtime"
+  },
+  "rounds": [],
+  "failure": {
+    "type": "AcceptanceFailure",
+    "message": "source scope mismatch"
+  },
+  "cost_evidence": {
+    "attempt_count": 8,
+    "charged_microusd": 201856,
+    "all_priced": true
+  },
+  "cleanup": {
+    "error": "stable bundle changed"
+  },
+  "elapsed_seconds": 103.814543,
+  "model_network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "274fad064120fbc7f8a7fa0c27cf6d0f299993e4966d4f6d8e3a42bbeb187fbe",
+      "output_digest": "c25cdfb8b7f8e52b9463999f6a2c31cab9abc3eb18b72043e122c05cb85d7ddb",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "bd5fffce6da6ef9e781730fed803a519973a7238b7deb33047b2e75a49b8bbea",
+      "output_digest": "4c2c3b561791140740be93d096f5e6824f7573cf1f62bde0b68453989d957805",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "de9bb04131585786af1fb1958cae8a27c6dcc36acd89fac8515d05d4027720bf",
+      "output_digest": "1bf0de8da8e72ab7a4acb6aa9f5d6f1f6cd6616b6e462541e1b0eb72ebd73cc4",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "3bfd5ac6107198961bcb4c7b6a810a7ee62dc8e6896a72bc711d5460dbe2d3b5",
+      "output_digest": "2b6bc93cbb95dd0c8a1a3c7d003a852d2bf39b42cd465498194c700690efb1cd",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 5,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "b041ece32afeec30810242e76b135b206f73dd72d2d2f3cc8c39607944bb14b5",
+      "output_digest": "a655b5e2c07f9b74ce3d642077ff36d1a45be487463ee642fa2b22235ae7fd30",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 6,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "a077d4ba426746c989d5cad0ea56365e3f5e400831ef43928170ee203346ff8f",
+      "output_digest": "7841066d788e34771f042dbdfbe522a162056916b198e0f922810fc6c2eeb0b7",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 7,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "d4102028092b09e4c8d435b4c5705daa0231b14a50be169f4bdef4149454a2ae",
+      "output_digest": "de8c9e394496f6d9ca1febd00a491821b50cc885e8f61fff8afb2f9293d6fb86",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 8,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "49757a2761ee868ae9c23d7a90b278aaf660bfb6a23a827910cce2cdb5e8406e",
+      "output_digest": "243a0c176cb496fc9720c862fa41300077b9f40e07d0cc0be3be195e88a4ace0",
+      "finish_reason": "stop"
+    }
+  ],
+  "source_network_requests": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "url": "https://docs.python.org/3/library/asyncio-task.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://docs.python.org/3/library/asyncio-task.html",
+      "content_hash": "aa6b689e7f850130f5061c26de4a502e8ff9227ec1360a562a6bd2028fabe2a2",
+      "bytes": 177075
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+      "content_hash": "9d425ec8d01da8dfaa3f478664f8805fd30292afe8fa7b94a530d4fd3c47fffe",
+      "bytes": 22090
+    }
+  ]
+}

@@ -1,0 +1,136 @@
+{
+  "batch_id": "M3-LIVE-20260909-010",
+  "round": 2,
+  "turns": [
+    {
+      "id": "turn_d14d7a0cec514478b97df92dfc3db5f0",
+      "status": "COMPLETED",
+      "policy": "start_expert",
+      "reason_code": "explicit_expert_collab",
+      "runtime_bundle_id": "bundle_db97cc03e922e1c04aa6cd04"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 200
+    },
+    {
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 410
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 8192
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 6133
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 5615
+    },
+    {
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-a3fd60844529",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 303
+    }
+  ],
+  "agent_runs": [
+    {
+      "id": "agent_run_632c9a0527e64420aa04bd710af122f0",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_86cc81b850d04375bca2859e640c869b"
+    }
+  ],
+  "agent_tasks": [
+    {
+      "id": "agent_task_86cc81b850d04375bca2859e640c869b",
+      "agent_run_id": "agent_run_632c9a0527e64420aa04bd710af122f0",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_d34d207a8f6c4178a2bd330bb58ffc74"
+    },
+    {
+      "id": "agent_task_932a6ca91b0d46fa9eea9f2ce5475ee2",
+      "agent_run_id": "agent_run_632c9a0527e64420aa04bd710af122f0",
+      "role": "researcher",
+      "status": "FAILED",
+      "error_code": "EXPERT_GATEWAYERROR",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_b2d3fa5b100647dda12b5f4561d7cbd9",
+      "agent_run_id": "agent_run_632c9a0527e64420aa04bd710af122f0",
+      "role": "planner",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_aeb95f90175e4336a274ce27b0fd6d91"
+    },
+    {
+      "id": "agent_task_b50c0334975249afabb82b03e91a08dd",
+      "agent_run_id": "agent_run_632c9a0527e64420aa04bd710af122f0",
+      "role": "critic",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_7b9a9fe2b9144fa194ca4cf3c8d60c7b"
+    }
+  ]
+}

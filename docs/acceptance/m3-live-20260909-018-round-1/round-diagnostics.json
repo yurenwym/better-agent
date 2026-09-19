@@ -1,0 +1,184 @@
+{
+  "batch_id": "M3-LIVE-20260909-018",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_f8394efa119a484cb650c72377a51308",
+      "status": "COMPLETED",
+      "policy": "start_expert",
+      "reason_code": "explicit_collaboration",
+      "runtime_bundle_id": "bundle_291c564860c717930ea4fb8a"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-018-price-9ed812307de6",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 289
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-018-price-9ed812307de6",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 289
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "FAILED",
+      "error_kind": "provider_unavailable",
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-018-price-9ed812307de6",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null
+    },
+    {
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-018-price-9ed812307de6",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 207
+    }
+  ],
+  "agent_runs": [
+    {
+      "id": "agent_run_ed3ece6b942948ddba8005c0690ff3f6",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_4ded427e71c345c9828c8403da2f9631"
+    }
+  ],
+  "agent_tasks": [
+    {
+      "id": "agent_task_4ded427e71c345c9828c8403da2f9631",
+      "agent_run_id": "agent_run_ed3ece6b942948ddba8005c0690ff3f6",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_dd5ca8f2670247bea3dae7e663654c68"
+    },
+    {
+      "id": "agent_task_16158f14933d4055851b65f9c0053ee7",
+      "agent_run_id": "agent_run_ed3ece6b942948ddba8005c0690ff3f6",
+      "role": "planner",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_a5b5898433a940209f1385fb3770c06d"
+    },
+    {
+      "id": "agent_task_8380e52bb6d2457e878fcefa1c66b2fe",
+      "agent_run_id": "agent_run_ed3ece6b942948ddba8005c0690ff3f6",
+      "role": "researcher",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_a1dc36e2c4d1438e8a46b266436a9484"
+    },
+    {
+      "id": "agent_task_f00d24baf3da4cf5b87399db99935c1b",
+      "agent_run_id": "agent_run_ed3ece6b942948ddba8005c0690ff3f6",
+      "role": "critic",
+      "status": "FAILED",
+      "error_code": "EXPERT_GATEWAYERROR",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    }
+  ],
+  "network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "succeeded",
+      "prompt_digest": "a69ab731fd0251337ece82e92f9c94e6bf7954318e1ff08b900b1a8c8f15e0dc",
+      "request_digest": "1f4acf5851bb601fa9740af757a7ea47bb0baba082145bfa4a0a5ae7f5d59f63",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "cd1feef5f0ded0a6c7acf806bc120fe39e0ccf3638fbb17a8c7ffc1cbc88512f",
+      "finish_reason": "stop",
+      "visible_output_bytes": 974
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "succeeded",
+      "prompt_digest": "e088259d8780c7a64befa3e9b2b807a81630f26ae47d68f1aaef4005b1ef6276",
+      "request_digest": "15c670c403d16df2e509d91c64ee49e1c5dc2327376615cffbac9d76513a6401",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "cd1feef5f0ded0a6c7acf806bc120fe39e0ccf3638fbb17a8c7ffc1cbc88512f",
+      "finish_reason": "stop",
+      "visible_output_bytes": 974
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "failed",
+      "prompt_digest": "a24e6983322081fb006f7b3c3adee66a6feb2be6d38f0a66da411539d4cb51f0",
+      "request_digest": "8a3117d8c5877185f778d3f8b8cc6276939440fe110a92723d465bcebcd2f7fe",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "error_kind": "provider_unavailable"
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "succeeded",
+      "prompt_digest": "bdfa5a6d1be1a389e99c1b863bab7ab5bc87a20f4819e6fb8a819f8430dc865c",
+      "request_digest": "3f09ec67c8e0cfba854fac909553a8bef44c226074b0adfea61ac7b8ed910650",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "ea28f25356b7a3179ba6d52e704911f491be4957e4e91f03dc2e1d4f52bacc6c",
+      "finish_reason": "stop",
+      "visible_output_bytes": 768
+    }
+  ],
+  "role_audit": null,
+  "normalized_experts": []
+}

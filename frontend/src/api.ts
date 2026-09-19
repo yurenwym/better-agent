@@ -24,6 +24,7 @@ import type {
   Turn,
   ResearchJob,
   ResearchSchedule,
+  ResearchSource,
   NotificationChannel,
   GoalProgram,
   GoalWorkspace,
@@ -44,6 +45,29 @@ import type {
 
 export type Fetcher = typeof fetch;
 
+export interface LearningPolicy {
+  version: number; paused: boolean;
+  config: { allowed_assets?: string[]; cycle_microusd?: number; daily_microusd?: number; monthly_microusd?: number; max_attempts?: number; trial_days?: number; prompt_suite_digest?: string | null };
+}
+export interface LearningJob {
+  id: string; version: number; status: string; reason: string; created_at: string; provenance: string;
+  changes: { asset_type: string; adoption: string; effect: string; after: string }[];
+}
+export async function getLearningPolicy(): Promise<LearningPolicy> {
+  return json<LearningPolicy>(await fetch("/api/learning/policy"));
+}
+export async function getLearningHistory(): Promise<{items: LearningJob[]}> {
+  return json<{items: LearningJob[]}>(await fetch("/api/learning/history"));
+}
+export async function saveLearningPolicy(policy: LearningPolicy, csrfToken: string): Promise<LearningPolicy> {
+  return json<LearningPolicy>(await fetch("/api/learning/policy", {method: "PUT", headers: {"content-type": "application/json", "x-csrf-token": csrfToken},
+    body: JSON.stringify({expected_version: policy.version, paused: policy.paused, ...policy.config})}));
+}
+export async function suspendLearningJob(job: LearningJob, csrfToken: string): Promise<unknown> {
+  return json(await fetch(`/api/learning/jobs/${encodeURIComponent(job.id)}/suspend`, {method: "POST", headers: {"content-type": "application/json", "x-csrf-token": csrfToken},
+    body: JSON.stringify({expected_version: job.version})}));
+}
+
 export class ApiError extends Error {
   readonly status: number;
   readonly payload: unknown;
@@ -62,6 +86,21 @@ function readableError(raw: string, fallback: string): string {
     const payload = JSON.parse(raw) as { detail?: unknown };
     if (typeof payload.detail === "string" && payload.detail.trim()) {
       return /[\u3400-\u9fff]/.test(payload.detail) ? payload.detail : fallback;
+    }
+    if (payload.detail && typeof payload.detail === "object") {
+      const detail = payload.detail as { reason_code?: unknown; message?: unknown };
+      const messages: Record<string, string> = {
+        IDEMPOTENT_RESULT_SUPERSEDED: "请求完成后内容又被更新，请刷新查看最新结果",
+        ACTIVE_DUPLICATE: "已有相同的生效记忆",
+        IDEMPOTENCY_KEY_REUSED: "请求标识已用于其他操作，请刷新后重试",
+        PROPOSAL_ALREADY_DECIDED: "这条记忆建议已经处理",
+        REJECTED_WITHOUT_NEW_EVIDENCE: "没有新的用户表达，不能再次提出该建议",
+        STALE_BASE_REVISION: "记忆已被更新，请刷新后重试",
+        STALE_PROPOSAL_VERSION: "记忆建议已被更新，请刷新后重试",
+        UNVERIFIED_EVIDENCE: "记忆建议缺少可验证的用户表达",
+      };
+      if (typeof detail.reason_code === "string" && messages[detail.reason_code]) return messages[detail.reason_code];
+      if (typeof detail.message === "string" && /[\u3400-\u9fff]/.test(detail.message)) return detail.message;
     }
     return fallback;
   } catch {
@@ -85,10 +124,31 @@ async function planJson<T>(response: Response): Promise<T> {
     const rawMessage = payload && typeof payload === "object" && typeof (payload as Record<string, unknown>).detail === "string"
       ? String((payload as Record<string, unknown>).detail)
       : "";
-    const message = /[\u3400-\u9fff]/.test(rawMessage) ? rawMessage : `计划请求失败（${response.status}）`;
+    const message = planReasonMessage(payload) ?? (/[\u3400-\u9fff]/.test(rawMessage) ? rawMessage : `计划请求失败（${response.status}）`);
     throw new ApiError(message, response.status, payload);
   }
   return response.json() as Promise<T>;
+}
+
+const PLAN_REASON_MESSAGES: Record<string, string> = {
+  MODEL_UNAVAILABLE: "模型服务当前不可用，执行预览没有生成，请稍后重试。",
+  MODEL_BUDGET_BLOCKED: "本次执行达到调用次数或时间限制，已有进度保留。请检查任务状态后继续。",
+  MODEL_OUTPUT_TRUNCATED: "模型一次生成的执行预览超出长度限制。请把结束日期缩短到 7~14 天后再生成。",
+  INVALID_MODEL_OUTPUT: "模型返回的执行预览结构无效，请重试。",
+  MODEL_INPUT_TOO_LARGE: "计划文档超出当前模型的输入上限，请精简计划内容或换用上下文更大的模型后重试。",
+  TASK_POLICY_REVOKED: "运行策略已变更，本次结果已作废，请重新生成。",
+  MEMORY_REVOKED: "长期记忆中的约束已变更，本次结果已作废，请重新生成。",
+  REST_DAY: "模型在已确认的休息日安排了任务，预览未保存，请重新生成。",
+  DAILY_BUDGET: "模型生成的每日安排超过时间预算，预览未保存，请重新生成。",
+};
+
+function planReasonMessage(payload: unknown): string | null {
+  if (!payload || typeof payload !== "object") return null;
+  const detail = (payload as Record<string, unknown>).detail;
+  if (!detail || typeof detail !== "object") return null;
+  const code = (detail as Record<string, unknown>).reason_code;
+  if (typeof code !== "string" || !code) return null;
+  return PLAN_REASON_MESSAGES[code] ?? `执行预览没有生成（${code}），请重试。`;
 }
 
 function mutationHeaders(csrfToken: string): HeadersInit {
@@ -105,6 +165,7 @@ export async function listModelProfiles(fetcher:Fetcher=fetch):Promise<{profiles
 export async function listRoutingPolicies(fetcher:Fetcher=fetch):Promise<{policies:RoutingPolicy[]}>{return json(await fetcher("/api/model-routing-policies"));}
 export async function createRoutingPolicy(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<RoutingPolicy>{return json(await fetcher("/api/model-routing-policies",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify(payload)}));}
 export async function createModelProfile(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ModelProfileRecord>{return json(await fetcher("/api/model-profiles",{method:"POST",headers:idempotentHeaders(csrf),body:JSON.stringify(payload)}));}
+export async function resolveModelCapacity(base_url:string,protocol:string,model:string,fetcher:Fetcher=fetch):Promise<import("./types").ModelCapacityResolution>{return json(await fetcher(`/api/model-capacity?base_url=${encodeURIComponent(base_url)}&protocol=${encodeURIComponent(protocol)}&model=${encodeURIComponent(model)}`));}
 export async function verifyModelVersion(id:string,csrf:string,fetcher:Fetcher=fetch){return json(await fetcher(`/api/model-profile-versions/${id}/verify`,{method:"POST",headers:idempotentHeaders(csrf),body:"{}"}));}
 export async function getCostSummary(periodKind="DAILY",periodKey=new Date().toISOString().slice(0,10),fetcher:Fetcher=fetch):Promise<CostSummary>{return json(await fetcher(`/api/cost/summary?period_kind=${encodeURIComponent(periodKind)}&period_key=${encodeURIComponent(periodKey)}`));}
 export async function getUsageSummary(fetcher:Fetcher=fetch):Promise<{groups:import("./types").UsageGroup[]}>{return json(await fetcher("/api/usage/summary"));}
@@ -276,6 +337,9 @@ function evolutionCandidate(raw: Record<string, unknown>): EvolutionCandidate {
     canary: raw.canary && typeof raw.canary === "object" ? raw.canary as EvolutionCandidate["canary"] : null,
     rollback: raw.rollback && typeof raw.rollback === "object" ? raw.rollback as EvolutionCandidate["rollback"] : null,
     approval_id: typeof raw.approval_id === "string" ? raw.approval_id : null,
+    approval_eligible: raw.approval_eligible === true,
+    approval_block_reason: typeof raw.approval_block_reason === "string" ? raw.approval_block_reason : null,
+    approval_block_code: typeof raw.approval_block_code === "string" ? raw.approval_block_code : undefined,
     created_at: String(raw.created_at ?? ""), updated_at: String(raw.updated_at ?? raw.created_at ?? ""),
   };
 }
@@ -388,7 +452,7 @@ export async function retryPlanProjection(planDocumentId: string, csrfToken: str
   }));
 }
 
-export async function previewGoalProgram(planDocumentId: string, payload: { start_date: string; requested_end_date?: string; timezone: string; daily_minutes: number }, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
+export async function previewGoalProgram(planDocumentId: string, payload: { start_date: string; requested_end_date?: string; timezone: string; daily_minutes: number; schedule_constraints?: {available_weekdays: number[]; excluded_dates: string[]} }, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
   return planJson(await fetcher(`/api/plans/${planDocumentId}/program-preview`, { method:"POST", headers:goalMutationHeaders(csrf,key), body:JSON.stringify(payload) }));
 }
 export async function activateGoalProgram(programId: string, expectedVersion: number, key: string, csrf: string, fetcher: Fetcher = fetch): Promise<GoalProgram> {
@@ -404,7 +468,9 @@ export async function getGoalAction(actionId:string,fetcher:Fetcher=fetch):Promi
 export async function getToday(date?: string, fetcher: Fetcher = fetch): Promise<TodayResponse> { return planJson(await fetcher(`/api/today${date ? `?date=${encodeURIComponent(date)}` : ""}`)); }
 export async function getGoalReview(programId:string,localDate:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview|null>{const response=await fetcher(`/api/programs/${programId}/reviews/${localDate}`);if(response.status===204)return null;return planJson(response);}
 export async function retryGoalReview(reviewId:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview>{return planJson(await fetcher(`/api/reviews/${reviewId}/retry`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:"{}"}));}
-export async function mutateGoalAction(actionId: string, operation: "complete"|"skip"|"defer"|"feedback", payload:Record<string,unknown>, key:string, csrf:string, fetcher:Fetcher=fetch):Promise<unknown>{
+export async function closeGoalDay(programId:string,localDate:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalDailyReview>{return planJson(await fetcher(`/api/programs/${programId}/days/${localDate}/close`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:"{}"}));}
+export async function saveMessagePlan(threadId:string,messageId:string,title:string,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<{plan_document_id:string;plan_document_version_id:string}>{return planJson(await fetcher(`/api/threads/${threadId}/messages/${messageId}/save-plan`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify({title,confirmed:true})}));}
+export async function mutateGoalAction(actionId: string, operation: "complete"|"skip"|"defer"|"feedback"|"reopen", payload:Record<string,unknown>, key:string, csrf:string, fetcher:Fetcher=fetch):Promise<unknown>{
   return planJson(await fetcher(`/api/actions/${actionId}/${operation}`,{method:"POST",headers:goalMutationHeaders(csrf,key),body:JSON.stringify(payload)}));
 }
 export async function transitionGoalProgram(programId:string,operation:"pause"|"resume"|"complete"|"cancel",expectedVersion:number,key:string,csrf:string,fetcher:Fetcher=fetch):Promise<GoalProgram>{
@@ -432,6 +498,7 @@ export async function cancelResearch(id:string,csrf:string,fetcher:Fetcher=fetch
 export async function deleteResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/research/jobs/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除研究失败");}
 export async function retryResearch(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<{job_id:string;status:string}>{return json(await fetcher(`/api/research/jobs/${id}/retry`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({client_request_id:crypto.randomUUID()})}));}
 export async function getResearchReport(id:string,fetcher:Fetcher=fetch):Promise<{job_id:string;title:string;markdown:string}>{return json(await fetcher(`/api/research/jobs/${id}/report`));}
+export async function getResearchSources(id:string,fetcher:Fetcher=fetch):Promise<{sources:ResearchSource[]}>{return json(await fetcher(`/api/research/jobs/${id}/sources`));}
 export async function getSchedules(fetcher:Fetcher=fetch):Promise<{schedules:ResearchSchedule[]}>{return json(await fetcher("/api/research/schedules"));}
 export async function createSchedule(payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchSchedule>{return json(await fetcher("/api/research/schedules",{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
 export async function updateSchedule(id:string,payload:Record<string,unknown>,csrf:string,fetcher:Fetcher=fetch):Promise<ResearchSchedule>{return json(await fetcher(`/api/research/schedules/${id}`,{method:"PUT",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
@@ -646,13 +713,16 @@ export function subscribeToEvents(
   return () => source.close();
 }
 export async function getMemoryOverview(fetcher:Fetcher=fetch):Promise<{entries:MemoryEntry[];proposals:MemoryProposal[];episodes:MemoryEpisode[]}>{return json(await fetcher("/api/memories"));}
-export async function createMemoryEntry(payload:{kind:string;scope_type:string;scope_id:string;content:string;idempotency_key:string},csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher("/api/memory/entries",{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify(payload)}));}
-export async function updateMemoryEntry(id:string,content:string,base_revision_id:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}`,{method:"PATCH",headers:mutationHeaders(csrf),body:JSON.stringify({content,base_revision_id})}));}
-export async function archiveMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}/archive`,{method:"POST",headers:mutationHeaders(csrf),body:"{}"}));}
-export async function purgeMemoryEntry(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/entries/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除失败");}
-export async function decideMemoryProposal(id:string,accept:boolean,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryProposal>{return json(await fetcher(`/api/memory/proposals/${id}/decision`,{method:"POST",headers:mutationHeaders(csrf),body:JSON.stringify({accept,idempotency_key:crypto.randomUUID()})}));}
-export async function updateMemoryEpisode(id:string,summary:string,retrieval_policy:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEpisode>{return json(await fetcher(`/api/memory/episodes/${id}`,{method:"PATCH",headers:mutationHeaders(csrf),body:JSON.stringify({summary,retrieval_policy})}));}
-export async function deleteMemoryEpisode(id:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/episodes/${id}`,{method:"DELETE",headers:mutationHeaders(csrf),body:"{}"});if(!response.ok)throw new Error("删除经历失败");}
+type MemoryDecision = {accept:boolean;accepted_content?:string;expected_version?:number;idempotency_key:string};
+const memoryMutationHeaders=(csrf:string,key:string):HeadersInit=>({...mutationHeaders(csrf),"Idempotency-Key":key});
+export async function createMemoryEntry(payload:{kind:string;scope_type:string;scope_id:string;content:string;idempotency_key:string},csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{const {idempotency_key,...body}=payload;return json(await fetcher("/api/memory/entries",{method:"POST",headers:memoryMutationHeaders(csrf,idempotency_key),body:JSON.stringify(body)}));}
+export async function updateMemoryEntry(id:string,content:string,base_revision_id:string,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}`,{method:"PATCH",headers:memoryMutationHeaders(csrf,idempotency_key),body:JSON.stringify({content,base_revision_id})}));}
+export async function archiveMemoryEntry(id:string,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}/archive`,{method:"POST",headers:memoryMutationHeaders(csrf,idempotency_key)}));}
+export async function restoreMemoryEntry(id:string,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEntry>{return json(await fetcher(`/api/memory/entries/${id}/restore`,{method:"POST",headers:memoryMutationHeaders(csrf,idempotency_key)}));}
+export async function purgeMemoryEntry(id:string,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/entries/${id}`,{method:"DELETE",headers:memoryMutationHeaders(csrf,idempotency_key)});if(!response.ok){const detail=await response.text();throw new Error(readableError(detail,`删除失败（${response.status}）`));}}
+export async function decideMemoryProposal(id:string,decision:MemoryDecision,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryProposal>{const {idempotency_key,...body}=decision;return json(await fetcher(`/api/memory/proposals/${id}/decision`,{method:"POST",headers:memoryMutationHeaders(csrf,idempotency_key),body:JSON.stringify(body)}));}
+export async function updateMemoryEpisode(id:string,summary:string,retrieval_policy:string,expected_version:number,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<MemoryEpisode>{return json(await fetcher(`/api/memory/episodes/${id}`,{method:"PATCH",headers:memoryMutationHeaders(csrf,idempotency_key),body:JSON.stringify({summary,retrieval_policy,expected_version})}));}
+export async function deleteMemoryEpisode(id:string,expected_version:number,idempotency_key:string,csrf:string,fetcher:Fetcher=fetch):Promise<void>{const response=await fetcher(`/api/memory/episodes/${id}`,{method:"DELETE",headers:memoryMutationHeaders(csrf,idempotency_key),body:JSON.stringify({expected_version})});if(!response.ok){const detail=await response.text();throw new Error(readableError(detail,`删除经历失败（${response.status}）`));}}
 
 export function subscribeToThreadEvents(
   threadId: string,

@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 
 type GoalAction = { scheduled_date: string; title: string };
-type GoalProgram = { actions: GoalAction[] };
+type GoalProgram = { id: string; actions: GoalAction[] };
 
 async function json(response: { ok(): boolean; status(): number; json(): Promise<unknown> }) {
   expect(response.ok(), `request failed with ${response.status()}`).toBeTruthy();
@@ -18,12 +18,12 @@ function dateInShanghai(offsetDays = 0): string {
   return date.toISOString().slice(0, 10);
 }
 
-test("golden journey completes the durable goal loop", async ({ page, request }) => {
+test("golden journey preserves deferred work and blocks legacy release evidence", async ({ page, request }) => {
   const startDate = dateInShanghai();
   const endDate = dateInShanghai(1);
 
   const plans = await json(await request.get("/api/plans"));
-  const source = plans.plans[0] as { id: string; title: string };
+  const source = plans.plans.find((plan:any)=>plan.title==="两天行动计划") as { id: string; title: string };
   expect(source.title).toBe("两天行动计划");
 
   await page.goto(`/plans/${source.id}`);
@@ -35,17 +35,18 @@ test("golden journey completes the durable goal loop", async ({ page, request })
   await page.getByLabel("执行结束日期").fill(endDate);
   await page.getByRole("button", { name: "生成预览" }).click();
   await page.getByRole("button", { name: "确认并激活" }).click();
-  await expect(page.getByText("ACTIVE · v2")).toBeVisible();
+  await expect(page.getByText("已启用 · v2")).toBeVisible();
 
-  const active = (await json(await request.get("/api/programs"))).programs[0] as GoalProgram;
+  const active = (await json(await request.get("/api/programs"))).programs.find((program:any)=>program.source_plan_document_id===source.id) as GoalProgram;
 
-  await page.goto("/today");
+  await page.goto(`/today?program=${active.id}`);
   await expect(page.getByRole("heading", { name: "两天行动计划" })).toBeVisible();
-  await expect(page.getByText("FULL SCHEDULE")).toBeVisible();
+  await expect(page.getByRole("region", { name: "完整执行日程" })).toBeVisible();
 
   const first = active.actions.find((action) => action.scheduled_date === startDate);
   expect(first).toBeDefined();
   const firstCard = page.getByRole("article").filter({ has: page.getByRole("heading", { name: first!.title }) });
+  await firstCard.locator(".daily-action-more > summary").click();
   await firstCard.getByLabel(`${first!.title} 延期日期`).fill(endDate);
   await firstCard.getByRole("button", { name: "确认延期" }).click();
 
@@ -77,14 +78,12 @@ test("golden journey completes the durable goal loop", async ({ page, request })
   await expect(page.getByRole("heading", { name: "最近经历" })).toBeVisible();
   await expect(page.getByText(/已完成目标/)).toBeVisible();
 
-  await page.goto("/growth");
-  await expect(page.getByRole("heading", { name: "可信改进闭环" })).toBeVisible();
+  await page.goto("/growth?view=agent");
+  await expect(page.getByRole("heading", { name: "评测与发布" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "提示词候选" })).toBeVisible();
   await expect(page.getByText("3 条证据")).toBeVisible();
-  await page.getByRole("button", { name: "批准候选" }).click();
-  await expect(page.getByText("已批准")).toBeVisible();
-  await page.getByRole("button", { name: "开始 Canary" }).click();
-  await expect(page.getByText("灰度中")).toBeVisible();
-  await page.getByRole("button", { name: "回滚 Canary" }).click();
-  await expect(page.getByText("已回滚", { exact: true })).toBeVisible();
+  await expect(page.getByText("冒烟通过，待发布评测")).toBeVisible();
+  await expect(page.getByText(/仅通过冒烟评测，尚无可发布证据/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "批准候选" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "开始 Canary" })).toHaveCount(0);
 });

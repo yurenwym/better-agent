@@ -83,6 +83,8 @@ def test_accept_rejects_future_action_added_after_snapshot(tmp_path,monkeypatch)
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
     db,_,goals,adjustments,active=active_services(tmp_path)
+    with db.transaction() as connection:
+        connection.execute("UPDATE goal_actions SET estimated_minutes=30 WHERE program_id=?",(active["id"],))
     proposal=asyncio.run(adjustments.propose(active["id"],reason="adjust",expected_version=active["version"],idempotency_key="propose"))
     first=active["actions"][0]
     goals.defer_action(first["id"],expected_version=0,scheduled_date="2026-09-07",idempotency_key="defer")
@@ -110,7 +112,7 @@ def test_sync_recovers_when_revision_committed_before_proposal_receipt(tmp_path,
         assert connection.execute("SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id=?",(active["source_plan_document_id"],)).fetchone()[0]==2
 
 
-def test_unchanged_adjustment_is_retried_once_and_not_persisted(tmp_path, monkeypatch) -> None:
+def test_unchanged_adjustment_is_no_change_without_forced_retry(tmp_path, monkeypatch) -> None:
     from app.goal_adjustments import GoalAdjustmentService
     from app.goal_programs import GoalProgramConflict
 
@@ -125,7 +127,7 @@ def test_unchanged_adjustment_is_retried_once_and_not_persisted(tmp_path, monkey
             idempotency_key="empty-proposal",
         ))
 
-    assert compiler.calls == 2
+    assert compiler.calls == 1
     with db.connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM goal_adjustment_proposals").fetchone()[0] == 0
         assert connection.execute(

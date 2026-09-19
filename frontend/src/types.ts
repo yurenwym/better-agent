@@ -50,7 +50,50 @@ export interface SkillDefinition {
   package_digest?: string;
 }
 
-export interface ModelProfileVersion { id:string;profile_id:string;profile_name:string;version:number;provider_protocol:"openai_compatible"|"anthropic"|"gemini";provider_name:string;base_url:string;model_name:string;credential_env_ref:string;credential_configured:boolean;capabilities:Record<string,boolean>;context_window:number;max_output_tokens:number;timeout_seconds:number;max_attempts:number;config_digest:string;status:"ACTIVE"|"DISABLED";verified_at:string|null;verification_status:"UNVERIFIED"|"VERIFIED"|"FAILED";verification_error_kind:string|null;created_at:string; }
+export interface ModelProfileVersion {
+  id:string;profile_id:string;profile_name:string;version:number;
+  provider_protocol:"openai_compatible"|"anthropic"|"gemini";provider_name:string;base_url:string;model_name:string;
+  credential_env_ref:string;credential_configured:boolean;capabilities:Record<string,boolean>;
+  context_window:number;max_output_tokens:number;timeout_seconds:number;max_attempts:number;
+  config_digest:string;status:"ACTIVE"|"DISABLED";
+  verified_at:string|null;verification_status:"UNVERIFIED"|"VERIFIED"|"FAILED";verification_error_kind:string|null;
+  created_at:string;
+  working_window_mode?: "auto"|"manual"|null;
+  model_context_limit?: number|null;
+  model_max_output_limit?: number|null;
+  capacity_status?: "verified"|"unverified"|"manual"|"legacy"|null;
+  capacity_source?: string|null;
+  counter_mode?: "estimate"|"verified"|null;
+  counter_id?: string|null;
+  counter_version?: string|null;
+  admitted_context_limit?: number|null;
+  soft_context_limit?: number|null;
+  context_window_verified?: boolean;
+  validation_tier?: string|null;
+  capacity?: ModelCapacityRecord|null;
+}
+export interface ModelCapacityRecord {
+  mode?: "auto"|"manual";
+  status?: "verified"|"unverified"|"manual"|"legacy";
+  source?: string;
+  effective_context_limit?: number|null;
+  model_context_limit?: number|null;
+  model_max_output_limit?: number|null;
+  counter_id?: string|null;
+  counter_version?: string|null;
+  counter_mode?: "estimate"|"verified"|null;
+  reason?: string;
+  catalog_version?: string|null;
+}
+export interface ModelCapacityResolution {
+  capacity: ModelCapacityRecord & {effective_context_limit:number|null;reason?:string};
+  evidence: ModelCapacityRecord;
+  entry: {
+    model_id:string;model_version:string|null;context_limit:number|null;max_output_limit:number|null;
+    context_verified:boolean;counter_verified:boolean;verified_at:string;
+    evidence:{urls:string[];fetched_at:string;snapshot_sha256:string[];notes:string};
+  }|null;
+}
 export interface ModelProfileRecord {id:string;name:string;status:string;created_at:string;updated_at:string;versions:ModelProfileVersion[];}
 export interface RoutingPolicy {id:string;name:string;version:number;roles:Record<string,{primary:string;fallback:string[]}>;policy_digest:string;created_at:string;}
 export interface CostSummary {limit_microusd:number;reserved_microusd:number;charged_microusd:number;}
@@ -82,6 +125,8 @@ export interface Run {
 }
 
 export interface MessageRecord {
+  turn_id?: string;
+  total_ms?: number | null;
   id: string;
   run_id: string;
   interaction_id: string | null;
@@ -127,8 +172,19 @@ export interface Turn {
   materialized_run_id: string | null;
   direction_action: string | null;
   direction_idempotency_key: string | null;
+  metrics?: TurnMetrics;
   created_at: string;
   updated_at: string;
+}
+
+export interface TurnMetrics {
+  queue_wait_ms: number | null;
+  context_ms: number | null;
+  model_ttft_ms: number | null;
+  stream_ms: number | null;
+  answer_wait_ms: number | null;
+  total_ms: number | null;
+  model_attempt_count: number;
 }
 
 export interface AskOption {
@@ -173,6 +229,7 @@ export interface Thread {
 }
 
 export interface ThreadMessage {
+  total_ms?: number | null;
   id: string;
   thread_id: string;
   turn_id: string;
@@ -188,7 +245,9 @@ export interface ThreadMessage {
   completed_at: string | null;
 }
 
-export interface ResearchJob { id:string;thread_id:string;source_turn_id:string;schedule_id:string|null;retry_of_job_id:string|null;trigger_kind:string;topic:string;source_scopes:string[];status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED"|"CANCELLED";phase:string;attempts:number;cancel_requested_at:string|null;created_at:string;updated_at:string;title:string|null;source_count:number;evidence_count:number;assistant_message_id:string|null;failure_reason_code?:string|null;failure_details?:{missing_requirements?:string[]}|null; }
+export interface ResearchSource { id:string;ordinal:number;kind:string;canonical_url:string|null;locator:string|null;title:string|null;published_at:string|null;retrieved_at:string|null;quality_score:number|null; }
+export interface ResearchTraceability { requirement:string;conclusion:string;evidence_ids:string[];source_ids:string[];citation_source_ids:string[];source_versions:{source_id:string;content_hash:string;retrieved_at:string}[];evidence_locations:{evidence_id:string;source_id:string;char_start:number;char_end:number;exact_quote_hash:string}[];supported:boolean; }
+export interface ResearchJob { id:string;thread_id:string;source_turn_id:string;schedule_id:string|null;retry_of_job_id:string|null;trigger_kind:string;topic:string;source_scopes:string[];status:"QUEUED"|"RUNNING"|"COMPLETED"|"PARTIAL"|"FAILED"|"CANCELLED";phase:string;attempts:number;cancel_requested_at:string|null;created_at:string;updated_at:string;title:string|null;source_count:number;evidence_count:number;assistant_message_id:string|null;failure_reason_code?:string|null;failure_details?:{missing_requirements?:string[]}|null;traceability?:ResearchTraceability[];missing_requirements?:string[]; }
 export interface ResearchSchedule { id:string;name:string;thread_id:string;topic:string;source_scopes:string[];trigger_type:"daily"|"weekly"|"interval_hours";trigger_time:string|null;trigger_weekday:number|null;interval_hours:number|null;timezone:string;enabled:boolean;notify_enabled:boolean;next_run_at:string|null;last_run_at:string|null;last_job_id:string|null;created_at:string;updated_at:string; }
 export interface NotificationChannel {id:string;name:string;channel_type:"serverchan"|"wecom"|"dingtalk"|"webhook";secret_env_name:string;enabled:boolean;configured:boolean;}
 
@@ -285,6 +344,8 @@ export interface GoalAction {
   estimated_minutes: number; completion_criteria: string; required: boolean;
   status: GoalActionStatus; version: number; completed_at: string | null; skipped_at: string | null;
   deferred_at: string | null; cancelled_at: string | null; deferred_from_action_id: string | null; cancel_reason: string | null;
+  progress?: {state?: "PARTIAL" | "CARRIED_OVER"; source_action_id?: string; actual_minutes?: number; difficulty?: number; note?: string; completed_work?: string; remaining_work?: string; output?: string};
+  time_entry?: {actual_date:string;actual_minutes:number|null};
 }
 
 export interface GoalProgress {
@@ -307,12 +368,19 @@ export interface GoalProgram {
   source_plan_content_hash: string; current_program_version_id: string | null;
   structure: ProgramStructure | null; actions: GoalAction[]; progress: GoalProgress; next_event_seq: number; deleted_at: string | null;
   completion_summary: string | null; completion_episode_id: string | null;
+  schedule_constraints?: {available_weekdays: number[]; excluded_dates: string[]};
+  calendar?: {natural_days: number; study_days: number; available_dates: string[]; rest_dates: string[]};
 }
 
 export interface TodayProgramGroup {
   program: Pick<GoalProgram, "id" | "objective_title" | "objective_summary" | "status" | "timezone" | "start_date" | "end_date" | "version">;
   local_date: string; day_number: number; today: GoalAction[]; overdue: GoalAction[];
   today_estimated_minutes: number; progress: GoalProgress; review: GoalDailyReview | null;
+  completed?: GoalAction[];
+  day_time?: {spent_minutes:number;remaining_minutes:number|null;time_complete:boolean;unknown_action_ids:string[];has_execution_record:boolean};
+  needs_review?: boolean;
+  pending_review_dates?: string[];
+  has_execution_record?: boolean;
 }
 
 export interface TodayResponse { date: string | null; programs: TodayProgramGroup[]; }
@@ -330,6 +398,9 @@ export interface GoalDailyReview {
   id:string;program_id:string;local_date:string;status:"QUEUED"|"RUNNING"|"COMPLETED"|"FAILED";
   signals:string[];summary:string|null;encouragement:string|null;needs_adjustment:boolean|null;
   adjustment_reason:string|null;proposal:GoalAdjustmentProposal|null;error_code:string|null;
+  evidence_stale?:boolean;revision?:number;history?:unknown[];
+  adjustment_status?:"NOT_NEEDED"|"PENDING"|"RUNNING"|"COMPLETED"|"NO_CHANGE"|"FAILED";
+  adjustment_error_code?:string|null;adjustment_attempts?:number;
 }
 
 export interface ThreadPlanResponse {
@@ -458,6 +529,9 @@ export interface EvolutionCandidate {
   summary: string;
   status: EvolutionCandidateStatus;
   version: number;
+  approval_eligible?: boolean;
+  approval_block_reason?: string | null;
+  approval_block_code?: string;
   risk_level: "low" | "medium" | "high" | string;
   evidence_count: number;
   evidence_refs?: string[];
@@ -487,6 +561,34 @@ export interface EvolutionCandidate {
   created_at: string;
   updated_at: string;
 }
-export interface MemoryEntry {id:string;kind:"preference"|"constraint"|"fact"|"decision"|"lesson";scope_type:"user"|"project";scope_id:string;status:"ACTIVE"|"ARCHIVED"|"PURGED";content:string;revision_id:string;revision_no:number;pinned:boolean;importance:number;sensitivity:string;created_at:string;updated_at:string;}
-export interface MemoryProposal {id:string;operation:string;target_entry_id:string|null;base_revision_id:string|null;kind:string;scope_type:string;scope_id:string;content:string;confidence:number;status:string;accepted_revision_id:string|null;reason:string;created_at:string;}
-export interface MemoryEpisode {id:string;thread_id:string;project_id:string|null;start_message_seq:number;end_message_seq:number;summary:string;sensitivity:string;retrieval_policy:string;status:string;created_at:string;}
+export interface MemoryEvidence {
+  source_type: string;
+  source_id: string;
+  source_label: string;
+  excerpt: string;
+}
+export interface MemoryEntry {id:string;kind:"preference"|"constraint"|"fact"|"decision"|"lesson";scope_type:"user"|"project";scope_id:string;status:"ACTIVE"|"ARCHIVED"|"PURGED";content:string;revision_id:string;revision_no:number;pinned:boolean;importance:number;sensitivity:string;evidence_state?:string;evidence_label?:string;evidence_count?:number;evidence?:MemoryEvidence[];created_at:string;updated_at:string;}
+export interface MemoryProposal {
+  id:string;
+  version?:number;
+  operation:string;
+  target_entry_id:string|null;
+  base_revision_id:string|null;
+  kind:string;
+  scope_type:string;
+  scope_id:string;
+  content:string;
+  original_content?:string;
+  accepted_content?:string|null;
+  model_confidence?:number;
+  confidence?:number;
+  evidence_state?:"VERIFIED"|"LEGACY_UNVERIFIED"|"INVALID"|string;
+  independent_user_turn_count?:number;
+  evidence_label?:string;
+  evidence?:MemoryEvidence[];
+  status:string;
+  accepted_revision_id:string|null;
+  reason:string;
+  created_at:string;
+}
+export interface MemoryEpisode {id:string;thread_id:string;project_id:string|null;start_message_seq:number;end_message_seq:number;summary:string;sensitivity:string;retrieval_policy:string;status:string;version:number;created_at:string;}

@@ -436,7 +436,7 @@ class CheckpointStore:
     def latest(self, run_id: str) -> Checkpoint | None:
         with self.db.connection() as connection:
             row = connection.execute(
-                "SELECT * FROM checkpoints WHERE run_id = ? ORDER BY rowid DESC LIMIT 1",
+                "SELECT * FROM checkpoints WHERE run_id = ? ORDER BY created_at DESC,id DESC LIMIT 1",
                 (run_id,),
             ).fetchone()
         if row is None:
@@ -455,8 +455,11 @@ class CheckpointStore:
     def record_completed_tool(self, run_id: str, tool_call_id: str, result: dict[str, Any]) -> None:
         with self.db.transaction() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
-                "created_at, completed_at) VALUES (?, ?, '', '', 'WRITE', 'completed', ?, ?, ?)",
+                "INSERT INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
+                "created_at, completed_at) VALUES (?, ?, '', '', 'WRITE', 'completed', ?, ?, ?) "
+                "ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id,tool_name=excluded.tool_name,"
+                "params_hash=excluded.params_hash,risk=excluded.risk,status=excluded.status,"
+                "result_json=excluded.result_json,created_at=excluded.created_at,completed_at=excluded.completed_at",
                 (
                     tool_call_id,
                     run_id,

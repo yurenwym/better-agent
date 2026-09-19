@@ -1,22 +1,26 @@
 from __future__ import annotations
 
+import hashlib
 import os
 import json
 import subprocess
 from pathlib import Path
 
-from .config import load_llm_ap, load_model_profile_from_env
+from .config import load_llm_ap, load_model_price, load_model_profile_from_env, load_model_profile_from_environment
 from .db import Database
 from .domain import ApprovalService, CheckpointStore, PlanVersionService
 from .events import EventStore
 from .live_model import LiveConversationModel, LiveRuntimeModel
 from .memory import MemoryService
 from .memory_v2 import MemoryContextProvider, MemoryStore
-from .memory_archive import ConversationArchiver, LiveEpisodeSummarizer, ManagedArchiveWorker
+from .memory_archive import (
+    ConversationArchiver, LiveEpisodeSummarizer, ManagedArchiveWorker,
+    archive_jobs_per_minute_from_env, foreground_turn_pending,
+)
 from .model_gateway import ModelGateway, ModelProfile
 from .model_control import ModelControlStore, RoutedModelGateway
 from .model_admin import ModelAdminService, ROLES
-from .costs import CostService
+from .costs import CostService, PriceSnapshot
 from .runtime import AgentRuntime, MockModelGateway
 from .tools import create_default_registry
 from .trusted_connectors import TrustedConnectorService
@@ -80,27 +84,83 @@ def _has_valid_model_routing(db: Database, bundle) -> bool:
     )
 
 
-def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, llm_ap_path: str | Path | None = None) -> AgentRuntime:
+def build_runtime(
+    data_root: str | Path,
+    profile: ModelProfile | None = None,
+    llm_ap_path: str | Path | None = None,
+    *,
+    database_url: str | None = None,
+    conversation_model=None,
+    activate_stable: bool = True,
+) -> AgentRuntime:
     root = Path(data_root)
-    db = Database(root / "agent.db", workspace=root / "artifacts")
+    configured_database = database_url or os.getenv("DATABASE_URL")
+    if configured_database and not configured_database.startswith(("postgresql://", "postgres://")):
+        raise RuntimeError("DATABASE_URL must use PostgreSQL; PostgreSQL is the authoritative database")
+    if not configured_database and os.getenv("BETTER_AGENT_TEST_ALLOW_SQLITE") != "1":
+        raise RuntimeError("DATABASE_URL is required; PostgreSQL is the authoritative database")
+    db = Database(
+        configured_database if configured_database else root / "agent.db",
+        workspace=root / "artifacts",
+    )
     events = EventStore(db)
     approvals = ApprovalService(db)
     connectors = TrustedConnectorService(db)
     tools = create_default_registry(root / "artifacts", db=db, approval_service=approvals, connectors=connectors)
     configured_profile = profile
-    configured_path = llm_ap_path or os.getenv("LLM_AP_PATH")
+    # Explicit environment configuration wins over a stale desktop path.
+    configured_path = llm_ap_path or (
+        None if any(os.getenv(name) for name in ("AGENT_MODEL_BASE_URL", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "DEEPSEEK_API_KEY"))
+        else os.getenv("LLM_AP_PATH")
+    )
     if configured_profile is None and configured_path:
         configured_profile = load_llm_ap(configured_path)
-    if configured_profile is None and os.getenv("AGENT_MODEL_BASE_URL"):
-        configured_profile = load_model_profile_from_env()
+    if configured_profile is None:
+        configured_profile = load_model_profile_from_environment()
+    configured_fallback = (
+        load_model_profile_from_env("AGENT_FALLBACK_MODEL")
+        if os.getenv("AGENT_FALLBACK_MODEL_BASE_URL") else None
+    )
     costs = CostService(db)
     model_admin = ModelAdminService(db)
     registered_profile = model_admin.ensure_profile(configured_profile) if configured_profile else None
+    registered_fallback = model_admin.ensure_profile(
+        configured_fallback, capabilities_env="AGENT_FALLBACK_MODEL_CAPABILITIES",
+    ) if configured_fallback else None
+    if registered_profile is None and registered_fallback is not None:
+        registered_profile, registered_fallback = registered_fallback, None
+    for raw_profile, registered, prefix in (
+        (configured_profile, registered_profile, "AGENT_MODEL"),
+        (configured_fallback, registered_fallback, "AGENT_FALLBACK_MODEL"),
+    ):
+        if raw_profile is None or registered is None:
+            continue
+        price = load_model_price(raw_profile, prefix)
+        if price is None:
+            continue
+        payload = json.dumps({
+            "profile_version_id": registered.registered_profile_version_id,
+            "rates": [price.uncached_input_rate, price.cache_read_rate, price.cache_write_rate, price.output_rate, price.reasoning_rate],
+            "effective_at": price.effective_at,
+            "source_url": price.source_url,
+        }, sort_keys=True, separators=(",", ":"))
+        price_id = "model_price_" + hashlib.sha256(payload.encode()).hexdigest()[:32]
+        costs.register_price(
+            registered.registered_profile_version_id,
+            PriceSnapshot(
+                price_id, price.uncached_input_rate, price.cache_read_rate,
+                price.cache_write_rate, price.output_rate, price.reasoning_rate,
+            ),
+            price.effective_at,
+            price.source_url,
+        )
     control_store = ModelControlStore(db, events=events, costs=costs)
     gateway = RoutedModelGateway(db, control_store) if registered_profile else None
     settings = SettingsService(db)
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
-    conversation_model = LiveConversationModel(gateway, settings) if gateway else UnavailableConversationModel()
+    conversation_model = conversation_model or (
+        LiveConversationModel(gateway, settings) if gateway else UnavailableConversationModel()
+    )
     runtime = AgentRuntime(
         db=db,
         events=events,
@@ -112,6 +172,14 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         model=model,
         conversation_model=conversation_model,
     )
+    # Keep the selected adapter explicit for API preflight checks.  The
+    # ConversationService also owns this object as ``route_model``, but the
+    # runtime-level reference makes the configured/unconfigured distinction
+    # stable without reaching into service internals.
+    runtime.conversation_model = conversation_model
+    runtime.model_api_key_env = (
+        registered_profile.api_key_env if registered_profile is not None else "AGENT_MODEL_API_KEY"
+    )
     runtime.costs = costs
     runtime.model_admin = model_admin
     runtime.connectors = connectors
@@ -120,7 +188,7 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.real_evaluator.runner_factory = LiveEvaluationRunner(runtime.model_admin, ModelControlStore(db, events=events, costs=costs)).runners
     runtime.evaluation_worker = ManagedEvaluationWorker(runtime.real_evaluator)
     from .research.engine import ResearchEngine
-    from .research.live import LiveResearchModel
+    from .research.live import DEFAULT_EVIDENCE_STATEMENT, LiveResearchModel
     from .research.service import ResearchService
     from .research.web import WebSearchRetriever
     from .research.tavily import TavilySearchRetriever
@@ -128,18 +196,50 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     from .research.worker import ManagedResearchWorker
 
     runtime.memory_store = MemoryStore(db, root / "memory")
+    from .learning import LearningService
+    runtime.learning = LearningService(db, runtime.memory_store, costs)
+    runtime.memory_store.learning_assets = runtime.learning.assets
+    control_store.learning_assets = runtime.learning.assets
+    runtime.learning.skill_root = runtime.skill_platform.root
+    if gateway is not None:
+        gateway.learning = runtime.learning
+        from .learning_extraction import ConstraintExtractor
+        runtime.learning.constraint_extractor = ConstraintExtractor(gateway)
+    runtime.goal_programs.learning = runtime.learning
     if conversation_model is not None:
         conversation_model.memory_store = runtime.memory_store
     runtime.settings = settings
-    runtime.memory_context = MemoryContextProvider(db)
+    runtime.embedding_worker = None
+    embedding_client = None
+    from .embedding import embedding_api_key_env_from_env
+    embedding_key_configured = embedding_api_key_env_from_env() is not None
+    if db.backend == "postgresql" and embedding_key_configured:
+        from .embedding import OpenAICompatibleEmbeddingClient, load_embedding_profile_from_env
+        from .embedding_worker import EmbeddingWorker, ManagedEmbeddingWorker
+
+        embedding_client = OpenAICompatibleEmbeddingClient(load_embedding_profile_from_env())
+        runtime.embedding_worker = ManagedEmbeddingWorker(
+            EmbeddingWorker(db, embedding_client, owner=f"embedding-{os.getpid()}")
+        )
+    runtime.embedding_client = embedding_client
+    runtime.memory_context = MemoryContextProvider(db, embedding_provider=embedding_client)
     runtime.archiver = ConversationArchiver(
         db, runtime.memory_store, LiveEpisodeSummarizer(gateway) if gateway else None,
     )
-    runtime.archive_worker = ManagedArchiveWorker(runtime.archiver) if gateway else None
+    # R2-03: the background pass is bounded and yields to the foreground. The
+    # rate cap is optional (unset means "as often as the static line allows"),
+    # while the foreground probe is always wired: a queued user turn must never
+    # compete with a background archival call for the same model budget.
+    runtime.archive_worker = ManagedArchiveWorker(
+        runtime.archiver,
+        max_jobs_per_minute=archive_jobs_per_minute_from_env(),
+        foreground_probe=lambda: foreground_turn_pending(db),
+    ) if gateway else None
     runtime.memory_store.recover_projections()
-    provider=os.getenv("RESEARCH_SEARCH_PROVIDER","duckduckgo").strip().lower()
+    provider=os.getenv("RESEARCH_SEARCH_PROVIDER","bing").strip().lower()
     if provider=="tavily":web_retriever=TavilySearchRetriever(os.getenv("TAVILY_API_KEY",""))
-    elif provider=="duckduckgo":web_retriever=WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", "https://html.duckduckgo.com/html/"))
+    elif provider=="bing":web_retriever=WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", WebSearchRetriever.DEFAULT_SEARCH_URL))
+    elif provider=="duckduckgo":web_retriever=WebSearchRetriever(search_base_url=os.getenv("RESEARCH_SEARCH_BASE_URL", "https://html.duckduckgo.com/html/"),fallback_search_base_url=WebSearchRetriever.DEFAULT_SEARCH_URL)
     else:raise ValueError(f"unsupported RESEARCH_SEARCH_PROVIDER: {provider}")
     research_model = LiveResearchModel(gateway) if gateway else None
     engine = ResearchEngine(research_model, CombinedRetriever(web_retriever, LocalNoteRetriever(root / "research_notes"))) if gateway else None
@@ -154,17 +254,49 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
     runtime.behavior = BehaviorBundleService(db)
     model_manifest = registered_profile.public_view() if registered_profile else {"configured": False}
     model_manifest.pop("api_key_configured", None)
+    fallback_manifests = []
+    if registered_fallback is not None:
+        fallback_manifest = registered_fallback.public_view()
+        fallback_manifest.pop("api_key_configured", None)
+        fallback_manifests.append(fallback_manifest)
     skill_manifest = {item.name: __import__("hashlib").sha256(item.content.encode("utf-8")).hexdigest() for item in runtime.skills.list()}
-    routing_policy = model_admin.ensure_policy("默认运行时路由", {
-        role: {"primary": registered_profile.registered_profile_version_id, "fallback": []}
-        for role in ROLES
-    }) if registered_profile else None
+    fallback_ids = (
+        [registered_fallback.registered_profile_version_id]
+        if registered_fallback is not None
+        and registered_fallback.registered_profile_version_id != registered_profile.registered_profile_version_id
+        else []
+    )
+    # A configured profile may intentionally expose only a subset of role
+    # capabilities (for example, text-only local test models).  Keep startup
+    # usable and let the gateway reject unsupported roles when they are used.
+    routing_roles = {}
+    if registered_profile:
+        profile_capabilities = {
+            name for name, enabled in model_admin.version(
+                registered_profile.registered_profile_version_id
+            )["capabilities"].items() if enabled
+        }
+        from .model_admin import ROLE_CAPABILITIES
+        routing_roles = {
+            role: {"primary": registered_profile.registered_profile_version_id, "fallback": fallback_ids}
+            for role in ROLES
+            if ROLE_CAPABILITIES[role].issubset(profile_capabilities)
+        }
+    routing_policy = model_admin.ensure_policy("默认运行时路由", routing_roles) if routing_roles else None
     bundle = runtime.behavior.ensure({
         "code": _code_version(),
         "model": model_manifest,
+        "fallback_models": fallback_manifests,
         "skills": skill_manifest,
         "policy": "personal-agent-v1",
-        "prompts": "live-model-v1",
+        "prompts": {
+            "version": "live-model-v1",
+            "researcher": {
+                "write_research_section": {
+                    "evidence_statement": DEFAULT_EVIDENCE_STATEMENT,
+                }
+            },
+        },
         "tools": __import__("hashlib").sha256(__import__("json").dumps(tools.describe(), sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest(),
         "context": {"renderer": "context-v1", "tokenizer": "estimate-v1"},
         "model_routing": ({"policy_id": routing_policy["id"], "digest": routing_policy["policy_digest"]}
@@ -175,36 +307,56 @@ def build_runtime(data_root: str | Path, profile: ModelProfile | None = None, ll
         stable = runtime.behavior.active("stable")
     except KeyError:
         stable = None
-    if stable is None or (registered_profile and not _has_valid_model_routing(db, stable)):
+    configured_model_changed = bool(
+        registered_profile
+        and stable is not None
+        and (
+            stable.manifest.get("model") != model_manifest
+            or stable.manifest.get("fallback_models", []) != fallback_manifests
+        )
+    )
+    if activate_stable and (stable is None or configured_model_changed or (registered_profile and not _has_valid_model_routing(db, stable))):
         runtime.behavior.activate("stable", bundle.id, f"startup-stable:{bundle.id}")
     runtime.evolution = EvolutionService(
         db, runtime.behavior, evaluator=runtime.real_evaluator,
         behavior_runner=LiveBehaviorRunner(gateway) if gateway else None,
     )
+    runtime.learning.evolution = runtime.evolution
+    runtime.evolution.learning_assets = runtime.learning.assets
+    runtime.evolution.recover_generation_batches()
+    runtime.evolution.maintain_canaries()
     if runtime.research_worker is not None:
         runtime.research_worker.evolution = runtime.evolution
+        runtime.research_worker.learning = runtime.learning
         runtime.research_worker.safety_judge = LiveSafetyJudge(gateway) if gateway else None
-    prompt_policy = lambda: runtime.behavior.active("stable").manifest.get("prompts", runtime.behavior.active("stable").manifest.get("prompt"))
     if gateway:
+        prompt_policy = gateway.prompt_policy
         model.runtime_prompt_policy = prompt_policy
         conversation_model.runtime_prompt_policy = prompt_policy
         research_model.runtime_prompt_policy = prompt_policy
         runtime.goal_programs.compiler.runtime_prompt_policy = prompt_policy
     runtime.observer = ExperienceObserver(db, runtime.events, runtime.evolution, thread_events=runtime.conversation.events)
+    runtime.observer.learning = runtime.learning
     runtime.candidate_generator = EvolutionCandidateGenerator(
         runtime.evolution, runtime.behavior, LivePromptCandidateProposer(gateway) if gateway else None,
     )
-    runtime.observer_worker = ManagedExperienceObserver(runtime.observer, candidate_generator=runtime.candidate_generator)
+    from .learning_prompt import PromptLearning
+    runtime.learning.prompt_learning = PromptLearning(runtime.learning, runtime.candidate_generator, root / "learning_suites", gateway)
+    # Observation is a local projection only. Paid proposal generation is
+    # started exclusively through an explicitly approved generation batch.
+    runtime.observer_worker = ManagedExperienceObserver(runtime.observer)
     runtime.agent_tasks = AgentTaskService(db, thread_events=runtime.conversation.events, evolution=runtime.evolution)
     runtime.agent_worker = ManagedAgentWorker(
-        runtime.agent_tasks, LiveExpertModel(gateway) if gateway else None,
+        runtime.agent_tasks, LiveExpertModel(gateway, thinking=False) if gateway else None,
         safety_judge=LiveSafetyJudge(gateway) if gateway else None,
     )
     runtime.safety_judge = LiveSafetyJudge(gateway) if gateway else None
+    from .model_readiness import ModelReadinessService
+    runtime.model_readiness = ModelReadinessService(db, runtime.behavior)
     runtime.expert_advisor = ExpertAdvisoryService(runtime.agent_tasks, runtime.behavior) if gateway else None
+    runtime.goal_programs.automatic_expert_advice = False
     if runtime.expert_advisor is not None:
         runtime.goal_programs.expert_advisor = runtime.expert_advisor
-        runtime.goal_review_worker.expert_advisor = runtime.expert_advisor
         if runtime.research_worker is not None:
             runtime.research_worker.expert_advisor = runtime.expert_advisor
     return runtime

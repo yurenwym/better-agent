@@ -18,8 +18,12 @@ def npm_command() -> str:
 
 
 def main() -> None:
-    subprocess.run([npm_command(), "run", "build"], cwd=FRONTEND, check=True)
     sys.path.insert(0, str(BACKEND))
+    from app.config import load_env_file, load_user_model_environment
+
+    load_env_file(ROOT / ".env")
+    load_user_model_environment()
+    subprocess.run([npm_command(), "run", "build"], cwd=FRONTEND, check=True)
     import uvicorn
 
     from app.main import create_app
@@ -27,7 +31,11 @@ def main() -> None:
 
     data_root = Path(os.getenv("BETTER_AGENT_DATA_ROOT", str(ROOT / "data"))).resolve()
     app = create_app(runtime=build_runtime(data_root), static_dir=FRONTEND / "dist")
-    uvicorn.run(app, host=DEFAULT_HOST, port=DEFAULT_PORT)
+    uvicorn.run(
+        app,
+        host=os.getenv("BETTER_AGENT_HOST", DEFAULT_HOST),
+        port=int(os.getenv("PORT", str(DEFAULT_PORT))),
+    )
 
 
 if __name__ == "__main__":

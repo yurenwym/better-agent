@@ -28,7 +28,7 @@ from .public_text import public_message, reason_message
 from .skill_registry import SkillCatalog
 from .skill_platform import SkillPlatform
 from .stats import StatsProjector
-from .tools import ToolCall, ToolRegistry, ToolRejected, ToolResult
+from .tools import ToolCall, ToolRegistry, ToolRejected, ToolReconciliationRequired, ToolResult
 
 
 @dataclass
@@ -80,7 +80,10 @@ class RuntimeModel(Protocol):
 
     async def decide(self, step: dict[str, Any], observation: str, iteration: int) -> ModelDecision: ...
 
-    async def reflect(self, goal: dict[str, Any], plan: PlanVersion, run_id: str) -> list[dict[str, Any]]: ...
+    async def reflect(
+        self, goal: dict[str, Any], plan: PlanVersion, run_id: str,
+        evidence_catalog: list[dict[str, str | None]] | None = None,
+    ) -> list[dict[str, Any]]: ...
 
 
 class MockModelGateway:
@@ -106,7 +109,10 @@ class MockModelGateway:
     async def decide(self, step: dict[str, Any], observation: str, iteration: int) -> ModelDecision:
         return self.decisions.popleft() if self.decisions else ModelDecision.complete()
 
-    async def reflect(self, goal: dict[str, Any], plan: PlanVersion, run_id: str) -> list[dict[str, Any]]:
+    async def reflect(
+        self, goal: dict[str, Any], plan: PlanVersion, run_id: str,
+        evidence_catalog: list[dict[str, str | None]] | None = None,
+    ) -> list[dict[str, Any]]:
         return self.reflection_candidates
 
 
@@ -128,6 +134,7 @@ class RunSnapshot:
     source_plan_content_hash: str | None = None
     runtime_bundle_id: str | None = None
     source_turn_id: str | None = None
+    root_budget_id: str | None = None
 
 
 class AgentRuntime:
@@ -159,7 +166,7 @@ class AgentRuntime:
         from .trusted_connectors import TrustedConnectorService
         self.connectors = TrustedConnectorService(db)
         self.skills = skill_catalog or SkillCatalog(platform=self.skill_platform)
-        from .conversation import ConversationService, ManagedTurnWorker
+        from .conversation import ConversationService, ManagedTurnWorkerPool
 
         self.conversation = ConversationService(
             db,
@@ -180,7 +187,7 @@ class AgentRuntime:
         self.goal_reviews = GoalReviewService(self.goal_programs, goal_compiler, self.goal_adjustments)
         self.goal_programs.reviews = self.goal_reviews
         self.goal_review_worker = ManagedGoalReviewWorker(self.goal_reviews)
-        self.turn_worker = ManagedTurnWorker(self.conversation)
+        self.turn_worker = ManagedTurnWorkerPool(self.conversation)
         self.research = None
         self.research_worker = None
         self.scheduler = None
@@ -206,6 +213,12 @@ class AgentRuntime:
             evolution = getattr(self, "evolution", None)
             if evolution is not None:
                 bundle_id, _ = evolution.assign_run(run_id, project_id or goal_id, connection=connection)
+            root_budget_id = None
+            costs = getattr(self, "costs", None)
+            if self.db.backend == "postgresql" and costs is not None:
+                root_budget_id = costs.create_default_root_budget(
+                    "local-user", "run", run_id, connection=connection,
+                )["id"]
             connection.execute(
                 "INSERT INTO goals(id, title, description, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
                 (goal_id, title, description, project_id, now, now),
@@ -215,9 +228,9 @@ class AgentRuntime:
                 (session_id, goal_id, now, now),
             )
             connection.execute(
-                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, runtime_bundle_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?)",
-                (run_id, goal_id, session_id, json.dumps(budget), bundle_id, now, now),
+                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, runtime_bundle_id, root_budget_id, created_at, updated_at) "
+                "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?, ?)",
+                (run_id, goal_id, session_id, json.dumps(budget), bundle_id, root_budget_id, now, now),
             )
         self.events.append(run_id, goal_id, "run.created", "runtime", {})
         return self.get_run(run_id)
@@ -256,6 +269,7 @@ class AgentRuntime:
             source_plan_content_hash=row["source_plan_content_hash"],
             runtime_bundle_id=row["runtime_bundle_id"],
             source_turn_id=row["source_turn_id"],
+            root_budget_id=row["root_budget_id"] if "root_budget_id" in row.keys() else None,
         )
 
     def recoverable_runs(self) -> list[RunSnapshot]:
@@ -529,16 +543,6 @@ class AgentRuntime:
                 "runtime",
                 {"plan_step_id": step.id, "plan_version_id": plan.id},
             )
-            applied = self.memory.apply_confirmed(run_id, run.goal_id, run.project_id, None)
-            if applied:
-                budget = dict(self.get_run(run_id).budget)
-                versions = list(budget.get("applied_memory_versions", []))
-                for record in applied:
-                    reference = f"{record.id}:{record.version or 0}"
-                    if reference not in versions:
-                        versions.append(reference)
-                budget["applied_memory_versions"] = versions
-                self._set_run_fields(run_id, budget=budget)
             outcome = await self._execute_step(run_id, plan, step.id)
             if outcome in {"blocked", "awaiting_outcome", "approval", "cancelled"}:
                 return self.get_run(run_id)
@@ -726,6 +730,17 @@ class AgentRuntime:
                     [approval.id],
                 )
                 return "approval"
+            except ToolReconciliationRequired:
+                reason = "TOOL_RECONCILIATION_REQUIRED"
+                outcome = self._block(
+                    run_id, reason, reason_message(reason),
+                    self.get_run(run_id).budget, "run.blocked",
+                )
+                if outcome != "cancelled":
+                    self._save_checkpoint(run_id, reason_message(reason), [
+                        {"id": call.id, "name": call.name, "params": call.params}
+                    ])
+                return outcome
             except ToolRejected as exc:
                 return self._block(
                     run_id,
@@ -762,20 +777,27 @@ class AgentRuntime:
         if self._is_cancelled(run_id):
             return run
         plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
-        candidates = await self._model_call(run, "reflection", self.model.reflect, self._goal(run.goal_id), plan, run_id)
+        candidates = await self._model_call(
+            run, "reflection", self.model.reflect, self._goal(run.goal_id), plan, run_id,
+            self._reflection_evidence_catalog(run),
+        )
         if candidates is None or self._is_cancelled(run_id):
             return self.get_run(run_id)
         v2_store = getattr(self, "memory_store", None)
-        owner_id = "local-user"
-        source_scope_missing = False
+        owner_id = None
+        source_thread_id = None
+        authoritative_project_id = None
+        source_scope_missing = run.source_turn_id is None
         if run.source_turn_id:
             with self.db.connection() as connection:
                 scope = connection.execute(
-                    "SELECT h.owner_id FROM turns t JOIN threads h ON h.id=t.thread_id "
+                    "SELECT h.owner_id,h.id thread_id,h.project_id FROM turns t JOIN threads h ON h.id=t.thread_id "
                     "WHERE t.id=? AND h.deleted_at IS NULL", (run.source_turn_id,),
                 ).fetchone()
             if scope:
                 owner_id = scope["owner_id"]
+                source_thread_id = scope["thread_id"]
+                authoritative_project_id = scope["project_id"]
             else:
                 # A materialized run must never fall back to the legacy
                 # default owner when its source turn was deleted or malformed.
@@ -786,19 +808,21 @@ class AgentRuntime:
                     raise ValueError("reflection source scope is unavailable")
                 if v2_store is not None:
                     source_scope = candidate["scope"]
-                    if source_scope == "skill":
-                        raise ValueError("skill-scoped reflection memory is unsupported")
+                    if source_scope not in {"global", "project"}:
+                        raise ValueError("reflection memory scope is unsupported")
+                    if candidate["kind"] not in {"preference", "constraint"}:
+                        raise ValueError("reflection memory kind is unsupported")
                     scope_type = "project" if source_scope == "project" else "user"
-                    scope_id = str(candidate.get("project_id") or run.project_id or "") if scope_type == "project" else ""
+                    scope_id = str(authoritative_project_id or "") if scope_type == "project" else ""
                     if scope_type == "project" and not scope_id:
                         raise ValueError("project reflection memory requires project_id")
-                    kind = candidate["kind"] if candidate["kind"] in {"preference", "constraint", "fact", "decision", "lesson"} else "preference"
                     v2_store.propose(
-                        owner_id=owner_id, operation="ADD", kind=kind,
+                        owner_id=str(owner_id), operation="ADD", kind=candidate["kind"],
                         scope_type=scope_type, scope_id=scope_id,
                         content=candidate["content"], confidence=candidate.get("confidence", 0.5),
                         evidence_refs=candidate.get("evidence_event_ids", []),
                         idempotency_key=f"reflection:{run_id}:{index}",
+                        source_thread_id=source_thread_id, source_run_id=run.id,
                         reason="Agent 任务完成后的反思候选",
                     )
                 else:
@@ -848,6 +872,7 @@ class AgentRuntime:
                 token = gateway.set_call_context(ModelCallContext(
                     role="judge_safety", purpose="judge_run_output", run_id=run.id,
                     goal_id=run.goal_id, runtime_bundle_id=run.runtime_bundle_id,
+                    root_budget_id=run.root_budget_id,
                 ))
             try:
                 safety_pass = await judge.judge({"run_id": run_id, "output": "\n\n".join(messages[-8:])})
@@ -1002,13 +1027,15 @@ class AgentRuntime:
             call_context_token = gateway.set_call_context(ModelCallContext(
                 role=role,
                 purpose=kind,
+                invocation_id=invocation_id,
                 run_id=run.id,
                 goal_id=run.goal_id,
                 thread_id=thread_id,
                 turn_id=run.source_turn_id,
                 runtime_bundle_id=run.runtime_bundle_id,
+                root_budget_id=run.root_budget_id,
             ))
-        self._prepare_model_context(run, kind, args)
+        snapshot = self._prepare_model_context(run, kind, args, invocation_id)
         message_id = self._create_model_message(run)
         if not persistent_calls:
             self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
@@ -1120,6 +1147,8 @@ class AgentRuntime:
             self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
             if not persistent_calls:
                 self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
+            if snapshot is not None:
+                self._record_applied_context(run, kind, invocation_id, snapshot)
             return result
         finally:
             if persistent_calls and call_context_token is not None:
@@ -1143,13 +1172,17 @@ class AgentRuntime:
             {"model_invocation_id": invocation_id, "kind": kind, "status": "cancelled"},
         )
 
-    def _prepare_model_context(self, run: RunSnapshot, kind: str, args: tuple[Any, ...]) -> None:
+    def _prepare_model_context(
+        self, run: RunSnapshot, kind: str, args: tuple[Any, ...], invocation_id: str,
+    ):
         setter = getattr(self.model, "set_context_snapshot", None)
         if setter is None:
-            return
+            return None
         goal = self._goal(run.goal_id)
         interactions = self._interaction_text(run.id)
-        provider = getattr(self, "memory_context", None)
+        # Reflection may compare against existing memory elsewhere, but existing
+        # memory and lossy episodes are never source evidence for new proposals.
+        provider = None if kind == "reflection" else getattr(self, "memory_context", None)
         if provider is not None:
             from .memory_v2 import MemoryContextRequest
             if run.source_turn_id:
@@ -1167,6 +1200,7 @@ class AgentRuntime:
                 selected = provider.select(MemoryContextRequest(
                     scope["owner_id"], scope["thread_id"], scope["project_id"],
                     interactions[-1] if interactions else "", purpose=kind,
+                    model_invocation_id=invocation_id, parent_type="run", parent_id=run.id,
                 ))
                 memories = []
                 if selected.revision_ids:
@@ -1188,9 +1222,10 @@ class AgentRuntime:
                             content=f"[{row['kind']}/{row['scope_type']}] {row['content']}",
                             scope="project" if row["scope_type"] == "project" else "global",
                             status="confirmed",
-                            project_id=row["scope_id"] if row["scope_type"] == "project" else None,
-                            skill_name=None,
-                        ))
+                                 project_id=row["scope_id"] if row["scope_type"] == "project" else None,
+                                 skill_name=None,
+                                 source_type="revision",
+                             ))
                 if selected.episode_ids:
                     placeholders = ",".join("?" for _ in selected.episode_ids)
                     with self.db.connection() as connection:
@@ -1208,13 +1243,24 @@ class AgentRuntime:
                                 content=row["summary"],
                                 scope="global",
                                 status="confirmed",
-                                project_id=row["project_id"],
-                                skill_name=None,
-                            ))
+                                 project_id=row["project_id"],
+                                 skill_name=None,
+                                 source_type="episode",
+                             ))
         else:
-            memories = [MemoryForContext(id=record.id,content=record.content,scope=record.scope,status=record.status,project_id=record.project_id,skill_name=record.skill_name) for record in self.memory.all_records()]
+            memories = [] if kind == "reflection" else [
+                MemoryForContext(
+                    id=record.id, content=record.content, scope=record.scope,
+                    status=record.status, project_id=record.project_id,
+                    skill_name=record.skill_name,
+                )
+                for record in self.memory.all_records()
+            ]
         plan = args[1] if kind == "reflection" and len(args) > 1 else ""
-        step = args[0] if kind == "react" and args else ""
+        if kind == "reflection" and len(args) > 3:
+            step = {"evidence_catalog": args[3]}
+        else:
+            step = args[0] if kind == "react" and args else ""
         observation = args[1] if kind == "react" and len(args) > 1 else ""
         phase_skill_name = "goal-planning" if kind in {"clarification", "planning", "react"} else "reflection"
         memory_skill_names = tuple(dict.fromkeys((phase_skill_name, *run.skill_names)))
@@ -1223,9 +1269,13 @@ class AgentRuntime:
             goal=json.dumps(goal, ensure_ascii=False, sort_keys=True),
             plan=json.dumps(plan, ensure_ascii=False, default=str) if plan else "",
             step=json.dumps(step, ensure_ascii=False, default=str),
-            skill=self.skills.context_text(run.skill_names, phase_skill_name),
-            history=interactions + ([observation] if observation else []),
-            tool_results=[],
+            skill=(self.skill_platform.context_text("RUN", run.id, "*")
+                   if run.skill_names else self.skills.context_text((), phase_skill_name)),
+            # The latest interaction is already the user_instruction block.
+            history=interactions[:-1],
+            # A tool observation is useful only as a whole. ContextAssembler
+            # drops this block atomically when it cannot fit.
+            tool_results=[{"summary": observation}] if observation else [],
             memories=memories,
             project_id=run.project_id,
             skill_name=phase_skill_name,
@@ -1233,12 +1283,69 @@ class AgentRuntime:
         )
         setter(snapshot.snapshot_hash, snapshot.text)
         self.events.append(
-            run.id,
-            run.goal_id,
-            "context.snapshot_created",
-            "runtime",
-            {"snapshot_hash": snapshot.snapshot_hash, "cropped": snapshot.cropped, "crop_count": snapshot.crop_count},
+            run.id, run.goal_id, "context.snapshot_created", "runtime",
+            {
+                "model_invocation_id": invocation_id, "kind": kind,
+                "snapshot_hash": snapshot.snapshot_hash,
+                "cropped": snapshot.cropped, "crop_count": snapshot.crop_count,
+            },
         )
+        return snapshot
+
+    def _record_applied_context(self, run: RunSnapshot, kind: str, invocation_id: str, snapshot) -> None:
+        revision_ids = [item.id for item in snapshot.memories if item.source_type == "revision"]
+        episode_ids = [item.id for item in snapshot.memories if item.source_type == "episode"]
+        with self.db.transaction() as connection:
+            applied = connection.execute(
+                "SELECT data_json FROM events WHERE run_id=? AND type='memory.context_applied'",
+                (run.id,),
+            ).fetchall()
+            if any(
+                json.loads(item["data_json"]).get("model_invocation_id") == invocation_id
+                for item in applied
+            ):
+                return
+            self.events.append(
+                run.id, run.goal_id, "memory.context_applied", "runtime",
+                {
+                    "model_invocation_id": invocation_id, "kind": kind,
+                    "snapshot_hash": snapshot.snapshot_hash,
+                    "revision_ids": revision_ids[:64], "episode_ids": episode_ids[:64],
+                }, connection=connection,
+            )
+            row = connection.execute("SELECT budget_json FROM runs WHERE id=?", (run.id,)).fetchone()
+            budget = json.loads(row["budget_json"]) if row is not None else dict(run.budget)
+            versions = list(budget.get("applied_memory_versions", []))
+            for revision_id in revision_ids:
+                if revision_id not in versions:
+                    versions.append(revision_id)
+            budget["applied_memory_versions"] = versions[-256:]
+            connection.execute(
+                "UPDATE runs SET budget_json=?,updated_at=?,version=version+1 WHERE id=?",
+                (json.dumps(budget, ensure_ascii=False), _now(), run.id),
+            )
+        checkpoint = self.checkpoints.latest(run.id)
+        if checkpoint is not None:
+            self._save_checkpoint(
+                run.id, checkpoint.observation,
+                list(checkpoint.pending_actions), list(checkpoint.pending_approvals),
+            )
+
+    def _reflection_evidence_catalog(self, run: RunSnapshot) -> list[dict[str, str | None]]:
+        if not run.source_turn_id:
+            return []
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT id,content FROM thread_messages WHERE turn_id=? AND role='user' "
+                "ORDER BY created_at,id LIMIT 1", (run.source_turn_id,),
+            ).fetchall()
+        return [
+            {
+                "ref": row["id"], "source_type": "thread_message",
+                "excerpt": row["content"][:1000], "turn_id": run.source_turn_id,
+            }
+            for row in rows
+        ]
 
     def _record_model_response(self, run: RunSnapshot, invocation_id: str, attempt_id: str, response: Any) -> None:
         if response is None:
@@ -1457,13 +1564,17 @@ class AgentRuntime:
             except KeyError: return set()
             global_tools = {item["function"]["name"] for item in self.tools.describe()}
             selected_tools: set[str] = set()
+            tool_bound = False
             for version_id in binding["version_ids"]:
+                if self.skill_platform.version(version_id)["kind"] == "instruction_only":
+                    continue
+                tool_bound = True
                 selected_tools |= self.skill_platform.effective_tools(
                     version_id, global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
                     phase_name="executor" if phase_name == "react" else phase_name,
                     grant_snapshot=binding["grant_snapshots"].get(version_id),
                 )
-            return allowed & selected_tools
+            return allowed & selected_tools if tool_bound else allowed
         return allowed
 
     def _tool_authorization(self, run: RunSnapshot, phase_name: str, call: ToolCall) -> dict[str, str] | None:

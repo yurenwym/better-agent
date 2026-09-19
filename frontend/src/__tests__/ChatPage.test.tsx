@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ChatPage from "../pages/ChatPage";
 import type { Run } from "../types";
@@ -36,11 +36,12 @@ const api = vi.hoisted(() => ({
   getAgentTasks: vi.fn(),
   getAgentArtifacts: vi.fn(),
   cancelAgentRun: vi.fn(),
+  saveMessagePlan: vi.fn(),
 }));
 
 vi.mock("../api", () => api);
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 
 const initialRun: Run = {
   id: "run-1",
@@ -56,8 +57,54 @@ const initialRun: Run = {
 };
 
 describe("ChatPage streaming bootstrap", () => {
+  it.each(["FAILED","CANCELLED","PARTIAL","RUNNING"])("hides plan saving for %s turns",async(status)=>{
+    api.getThread.mockResolvedValue({id:"thread-1",turns:[{id:"turn-1",status}],active_turn_id:"turn-1",next_event_seq:1});
+    api.getThreadMessages.mockResolvedValue({messages:[{id:"error-answer",thread_id:"thread-1",turn_id:"turn-1",role:"assistant",content:"历史整理失败",status:"ready",generation:1,created_at:"2026-09-13T00:00:00Z"}]});
+    render(<ChatPage csrfToken="csrf" threadId="thread-1" run={null} onRun={vi.fn()} onOpenPlan={vi.fn()} onOpenTrajectory={vi.fn()}/>);
+    await screen.findByText("历史整理失败");
+    expect(screen.queryByRole("button",{name:"将此回答设为计划"})).toBeNull();
+  });
+  it("embeds the conversation without duplicate page navigation while retaining the action context",async()=>{
+    api.getThread.mockResolvedValue({id:"thread-1",title:"Chat",turns:[],active_turn_id:null,next_event_seq:1});
+    api.getGoalAction.mockResolvedValue({action:{id:"action-1",title:"读取CSV",scheduled_date:"2026-09-13"},program:{id:"program-1",objective_title:"学习Python"}});
+    render(<ChatPage embedded sourceActionId="action-1" threadId="thread-1" csrfToken="csrf" run={null} onRun={vi.fn()} onOpenPlan={vi.fn()} onOpenTrajectory={vi.fn()}/>);
+    expect(await screen.findByText("读取CSV")).toBeTruthy();
+    expect(screen.getByRole("complementary",{name:"当前行动上下文"})).toBeTruthy();
+    expect(screen.queryByRole("heading",{name:"当前目标对话"})).toBeNull();
+    expect(screen.queryByRole("tablist",{name:"对话视图"})).toBeNull();
+    expect(screen.queryByRole("link",{name:"返回这项行动"})).toBeNull();
+    expect(screen.getByLabelText("输入消息")).toBeTruthy();
+  });
+  it("saves the confirmed message without a model turn and retries with the same key", async () => {
+    api.getThread.mockResolvedValue({ id: "thread-1", title: "Chat", turns: [{id:"turn-1",status:"COMPLETED"}], active_turn_id: "turn-1", next_event_seq: 1 });
+    api.getThreadMessages.mockResolvedValue({ messages: [{ id: "answer-plan", thread_id: "thread-1", turn_id: "turn-1", role: "assistant", content: "# 一周计划\n每天练习", status: "ready", generation: 1, created_at: "2026-09-13T00:00:00Z" }] });
+    api.saveMessagePlan.mockRejectedValueOnce(new Error("暂时无法保存")).mockResolvedValueOnce({ plan_document_id: "plan-1", plan_document_version_id: "v-1" });
+    render(<ChatPage csrfToken="csrf" threadId="thread-1" run={null} onRun={vi.fn()} onOpenPlan={vi.fn()} onOpenTrajectory={vi.fn()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "将此回答设为计划" }));
+    fireEvent.change(screen.getByLabelText("计划名称"), { target: { value: "一周练习" } });
+    fireEvent.click(screen.getByLabelText("确认将这条回答全文作为计划正文"));
+    fireEvent.click(screen.getByRole("button", { name: "保存并安排日程" }));
+    await screen.findByText("暂时无法保存");
+    fireEvent.click(screen.getByRole("button", { name: "保存并安排日程" }));
+    await waitFor(() => expect(window.location.pathname + window.location.search).toBe("/plans/plan-1?execute=1"));
+    expect(api.saveMessagePlan).toHaveBeenCalledTimes(2);
+    expect(api.saveMessagePlan.mock.calls[0]).toEqual(["thread-1", "answer-plan", "一周练习", expect.any(String), "csrf"]);
+    expect(api.saveMessagePlan.mock.calls[1][3]).toBe(api.saveMessagePlan.mock.calls[0][3]);
+    expect(api.submitTurn).not.toHaveBeenCalled();
+  });
+  it("retains the draft when thread creation succeeds but the first turn fails", async()=>{
+    api.getThread.mockResolvedValue({id:"thread-1",title:"Chat",turns:[],active_turn_id:null,next_event_seq:1});
+    api.submitTurn.mockRejectedValueOnce(new Error("暂时无法发送"));
+    render(<ChatPage csrfToken="csrf" run={null} onRun={()=>undefined} onThread={()=>undefined} onOpenPlan={()=>undefined} onOpenTrajectory={()=>undefined}/>);
+    fireEvent.change(screen.getByLabelText("输入消息"),{target:{value:"保留首次发送失败的草稿"}});
+    fireEvent.click(screen.getByRole("button",{name:"发送"}));
+    await screen.findByText("暂时无法发送");
+    expect((screen.getByLabelText("输入消息") as HTMLTextAreaElement).value).toBe("保留首次发送失败的草稿");
+    fireEvent.change(screen.getByLabelText("输入消息"),{target:{value:""}});
+  });
   beforeEach(() => {
     vi.clearAllMocks();
+    api.getResearchJobs.mockResolvedValue({ jobs: [] });
     api.createGoal.mockResolvedValue({ id: "goal-1", run_id: "run-1", state: "RECEIVED" });
     api.createThread.mockResolvedValue({ id: "thread-1", title: "Chat", version: 0, active_turn_id: null, next_event_seq: 1, turns: [] });
     api.submitTurn.mockResolvedValue({ thread_id: "thread-1", turn_id: "turn-1", status: "ACCEPTED", version: 0, event_cursor: 1 });
@@ -94,8 +141,50 @@ describe("ChatPage streaming bootstrap", () => {
     expect(workspace?.classList.contains("chat-workspace-expert")).toBe(true);
     const expertCard = await screen.findByRole("region", { name: "专家协同任务" });
     expect(expertCard.closest(".conversation-content")).not.toBeNull();
+    expect(screen.queryByRole("complementary", { name: "当前对话轨迹" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
     const activityRail = screen.getByRole("complementary", { name: "当前对话轨迹" });
-    expect(activityRail.closest(".chat-main-column")).not.toBeNull();
+    expect(activityRail.closest("[role=tabpanel]")).not.toBeNull();
+  });
+
+  it("shows the user message before submitTurn resolves", async () => {
+    api.submitTurn.mockImplementation(() => new Promise(() => {}));
+    render(<ChatPage csrfToken="csrf" run={null} onThread={vi.fn()} onRun={vi.fn()} onOpenTrajectory={vi.fn()} onOpenPlan={vi.fn()} />);
+    fireEvent.change(screen.getByRole("textbox", {name:"输入消息"}), {target:{value:"立即显示的测试消息"}});
+    fireEvent.click(screen.getByRole("button", {name:"发送"}));
+    await waitFor(() => expect(api.submitTurn).toHaveBeenCalled());
+    expect(screen.getByText("立即显示的测试消息", {selector: ".message-summary p"})).toBeTruthy();
+  });
+
+  it("ignores a previous conversation's delayed research response", async () => {
+    let resolveResearch: (value: unknown) => void = () => undefined;
+    api.getResearchJobs.mockImplementation((id: string) => id === "thread-research-a"
+      ? new Promise(resolve => { resolveResearch = resolve; })
+      : Promise.resolve({ jobs: [{ id: "job-b", title: "B 的研究", status: "COMPLETED", phase: "completed", source_count: 1, evidence_count: 1 }] }));
+    api.getThread.mockImplementation(async (id: string) => ({ id, active_turn_id: null, turns: [] }));
+    api.getThreadMessages.mockImplementation(async (id: string) => ({ messages: [{ id: `message-${id}`, thread_id: id, role: "assistant", content: "报告正文", status: "ready", created_at: "2026-09-12T00:00:00Z", research_job_id: id === "thread-research-a" ? "job-a" : "job-b" }] }));
+    const props = { csrfToken: "csrf", run: null, onRun: vi.fn(), onOpenTrajectory: vi.fn(), onOpenPlan: vi.fn() };
+    const view = render(<ChatPage {...props} threadId="thread-research-a" />);
+    await waitFor(() => expect(api.getResearchJobs).toHaveBeenCalledWith("thread-research-a"));
+    view.rerender(<ChatPage {...props} threadId="thread-research-b" />);
+    expect(await screen.findByText("B 的研究")).toBeTruthy();
+    await act(async () => { resolveResearch({ jobs: [{ id: "job-a", title: "A 的迟到研究", status: "COMPLETED", phase: "completed" }] }); });
+    expect(screen.getByText("B 的研究")).toBeTruthy();
+    expect(screen.queryByText("A 的迟到研究")).toBeNull();
+  });
+
+  it("clears a failed send error when opening another conversation", async () => {
+    api.getThread.mockImplementation(async (id: string) => ({ id, active_turn_id: null, turns: [] }));
+    api.submitTurn.mockRejectedValue(new Error("A 的发送失败"));
+    const props = { csrfToken: "csrf", run: null, onThread: vi.fn(), onRun: vi.fn(), onOpenTrajectory: vi.fn(), onOpenPlan: vi.fn() };
+    const view = render(<ChatPage {...props} threadId="thread-error-a" />);
+    await screen.findByRole("textbox", { name: "输入消息" });
+    fireEvent.change(screen.getByRole("textbox", { name: "输入消息" }), { target: { value: "失败消息" } });
+    await waitFor(() => expect(screen.getByRole("button", { name: "发送" }).hasAttribute("disabled")).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "发送" }));
+    expect(await screen.findByText("A 的发送失败")).toBeTruthy();
+    view.rerender(<ChatPage {...props} threadId="thread-error-b" />);
+    expect(screen.queryByText("A 的发送失败")).toBeNull();
   });
 
   it("mounts the new run before sending its first message", async () => {
@@ -172,7 +261,7 @@ describe("ChatPage streaming bootstrap", () => {
       seq: 2,
       thread_id: "thread-1",
       turn_id: "turn-1",
-      type: "turn.completed",
+      type: "message.completed",
       occurred_at: "2026-08-19T00:00:01Z",
       actor: "worker",
       data: {},
@@ -189,9 +278,35 @@ describe("ChatPage streaming bootstrap", () => {
       />,
     );
 
-    await waitFor(() => expect(screen.getByRole("complementary", { name: "当前对话轨迹" })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole("tab", { name: "事实对话" })).toBeTruthy());
+    expect(screen.getByRole("tab", { name: "事实对话" }).getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByRole("complementary", { name: "当前对话轨迹" })).toBeNull();
+    fireEvent.click(screen.getByRole("tab", { name: "轨迹" }));
+    expect(screen.getByRole("tab", { name: "轨迹" }).getAttribute("aria-selected")).toBe("true");
     const rail = screen.getByRole("complementary", { name: "当前对话轨迹" });
-    expect(rail.querySelector(".activity-list")?.textContent).toContain("本轮对话完成");
+    expect(rail.querySelector(".activity-list")?.textContent).toContain("回答生成完成");
+  });
+
+  it("keeps an expert failure visible and explains how to recover", async () => {
+    api.getAgentRun.mockResolvedValue({
+      id: "agent-run-1", thread_id: "thread-1", objective: "制定一个骑行计划", mode: "expert", status: "FAILED",
+      runtime_bundle_id: "bundle-1", budget_units: 16, reserved_budget_units: 0, version: 2,
+      cancel_requested_at: null, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:02Z", finished_at: "2026-08-24T00:00:02Z",
+    });
+    api.getAgentTasks.mockResolvedValue({ tasks: [{
+      id: "task-1", agent_run_id: "agent-run-1", root_task_id: "task-1", parent_task_id: null,
+      child_key: null, role: "coordinator", objective: "制定一个骑行计划", output_schema: "brief.v1",
+      status: "FAILED", priority: 0, join_policy: null, attempts: 1, max_attempts: 1, lease_epoch: 1,
+      budget_units: 1, result_artifact_id: null, error_code: "MODEL_NOT_CONFIGURED", cancel_requested_at: null,
+      cancel_reason: null, version: 2, created_at: "2026-08-24T00:00:00Z", updated_at: "2026-08-24T00:00:02Z", finished_at: "2026-08-24T00:00:02Z",
+    }] });
+
+    render(<ChatPage csrfToken="csrf" run={null} threadId="thread-1" initialExpertRun={await api.getAgentRun()} onRun={vi.fn()} onOpenTrajectory={vi.fn()} onOpenPlan={vi.fn()} />);
+
+    expect(await screen.findByText("这次没有生成回答")).toBeTruthy();
+    expect(screen.getByText(/尚未配置可用模型/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "前往模型配置" }));
+    expect(window.location.pathname).toBe("/models");
   });
 
   it("shows a dismissible context banner for an action-linked turn", async () => {
@@ -483,3 +598,4 @@ describe("ChatPage streaming bootstrap", () => {
     await waitFor(() => expect((screen.getByRole("checkbox", { name: "执行复盘" }) as HTMLInputElement).checked).toBe(false));
   });
 });
+vi.mock("../components/ArchiveStatus", () => ({ default: () => null }));

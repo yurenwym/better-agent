@@ -1,18 +1,73 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, createResearch, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listEvolutionCandidates, listThreads, putPlanDocument, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents } from "../api";
+import { answerAsk, createGoal, createMemoryEntry, createResearch, decideMemoryProposal, deleteMemoryEpisode, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listEvolutionCandidates, listThreads, putPlanDocument, restoreMemoryEntry, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents, updateMemoryEpisode } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
+  it("binds memory mutations to idempotency keys and sends edited proposal content", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ id: "memory-1" }) });
+
+    await createMemoryEntry({kind:"preference",scope_type:"user",scope_id:"",content:"简洁回答",idempotency_key:"create-key"}, "csrf", fetcher);
+    await decideMemoryProposal("proposal-1", {accept:true,accepted_content:"一句话回答",expected_version:3,idempotency_key:"decision-key"}, "csrf", fetcher);
+    await restoreMemoryEntry("memory-1", "restore-key", "csrf", fetcher);
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/memory/entries", expect.objectContaining({headers:expect.objectContaining({"Idempotency-Key":"create-key"}),body:JSON.stringify({kind:"preference",scope_type:"user",scope_id:"",content:"简洁回答"})}));
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/memory/proposals/proposal-1/decision", expect.objectContaining({headers:expect.objectContaining({"Idempotency-Key":"decision-key"}),body:JSON.stringify({accept:true,accepted_content:"一句话回答",expected_version:3})}));
+    expect(fetcher).toHaveBeenNthCalledWith(3, "/api/memory/entries/memory-1/restore", expect.objectContaining({headers:expect.objectContaining({"Idempotency-Key":"restore-key"})}));
+  });
+
+  it("shows a localized reason for structured memory conflicts", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({detail:{reason_code:"STALE_PROPOSAL_VERSION",message:"proposal version conflict"}}),
+    });
+
+    await expect(decideMemoryProposal("proposal-1", {accept:true,expected_version:1,idempotency_key:"key"}, "csrf", fetcher))
+      .rejects.toThrow("记忆建议已被更新，请刷新后重试");
+  });
+  it("tells the user to refresh when an idempotent result was superseded", async () => {
+    const fetcher = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      text: async () => JSON.stringify({ detail: { reason_code: "IDEMPOTENT_RESULT_SUPERSEDED" } }),
+    });
+
+    await expect(deleteMemoryEpisode("episode-1", 1, "old-key", "csrf", fetcher))
+      .rejects.toThrow("请求完成后内容又被更新，请刷新查看最新结果");
+  });
+
+  it("versions and deduplicates episode edits and deletes", async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "episode-1", version: 5 }) })
+      .mockResolvedValueOnce({ ok: true });
+
+    await updateMemoryEpisode("episode-1", "updated summary", "thread", 4, "edit-key", "csrf", fetcher);
+    await deleteMemoryEpisode("episode-1", 5, "delete-key", "csrf", fetcher);
+
+    expect(fetcher).toHaveBeenNthCalledWith(1, "/api/memory/episodes/episode-1", expect.objectContaining({
+      method: "PATCH",
+      headers: expect.objectContaining({ "Idempotency-Key": "edit-key" }),
+      body: JSON.stringify({ summary: "updated summary", retrieval_policy: "thread", expected_version: 4 }),
+    }));
+    expect(fetcher).toHaveBeenNthCalledWith(2, "/api/memory/episodes/episode-1", expect.objectContaining({
+      method: "DELETE",
+      headers: expect.objectContaining({ "Idempotency-Key": "delete-key" }),
+      body: JSON.stringify({ expected_version: 5 }),
+    }));
+  });
+
   it("preserves the evolution reason, proposed change and evaluation progress", async () => {
     const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ candidates: [{
       id:"candidate-1",candidate_type:"prompt",reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},
       status:"EVALUATED",version:1,experience_ids:["one","two","three"],permission_diff:{added:[]},
+      approval_eligible:false,approval_block_reason:"缺少发布证据",approval_block_code:"RELEASE_EVIDENCE_REQUIRED",
       evaluation:{status:"COMPLETED",deterministic_pass:true,checks:{safety:true},metrics:{passed:12,total:12}},
       rollback:{kind:"manual",actor:"user",reason:"user rollback",occurred_at:"2026-08-25T07:36:55Z"},
       record_origin:"demo",evidence_source_kinds:["manual"],
     }] }) });
 
     const { candidates } = await listEvolutionCandidates(fetcher);
+    expect(candidates[0]).toMatchObject({approval_eligible:false,approval_block_reason:"缺少发布证据",approval_block_code:"RELEASE_EVIDENCE_REQUIRED"});
 
     expect(candidates[0]).toMatchObject({reason:"研究范围被扩大",proposed_content:{prompts:"scope-bounded"},evidence_count:3,evaluation:{passed:12,total:12},rollback:{kind:"manual",reason:"user rollback"},record_origin:"demo",evidence_source_kinds:["manual"]});
   });

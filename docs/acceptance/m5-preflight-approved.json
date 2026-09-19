@@ -1,0 +1,26 @@
+{
+  "batch_id": "M5-LIVE-20260909-001",
+  "status": "READY",
+  "network_started": false,
+  "limits": {
+    "candidates": 1,
+    "samples_per_candidate": 60,
+    "model_attempts": 300,
+    "max_seconds": 3600,
+    "minimum_challenger_samples": 20,
+    "minimum_champion_samples": 20
+  },
+  "requirements": [
+    "脱敏故障回放与 DEV/HOLDOUT/SAFETY 固定分区",
+    "candidate permission diff 只能收缩，且与受影响角色绑定",
+    "baseline/candidate/quality judge/safety judge 使用独立 profile version",
+    "人工审批后才能启动受限 Canary；全量发布始终另行决定"
+  ],
+  "profile": {
+    "provider": "openai-compatible",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "context_window": 32768,
+    "max_output_tokens": 8192
+  }
+}

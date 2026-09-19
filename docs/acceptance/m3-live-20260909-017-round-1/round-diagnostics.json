@@ -1,0 +1,83 @@
+{
+  "batch_id": "M3-LIVE-20260909-017",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_8e908d09d2844a389dc34aed56e62a44",
+      "status": "FAILED",
+      "policy": null,
+      "reason_code": null,
+      "runtime_bundle_id": "bundle_77f12ebe06d241ac8977008b"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-017-price-f09e645d6eda",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 11
+    },
+    {
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-017-price-f09e645d6eda",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 207
+    }
+  ],
+  "agent_runs": [],
+  "agent_tasks": [],
+  "network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "succeeded",
+      "prompt_digest": "40c1c42a231c1a44e0a9984495149e623e0df19d582133b3096a09f4594dace4",
+      "request_digest": "e19916cca3a893a77e70c34731e2684d2fe87dcd51c8579d919cb4b4a3256b06",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "35afb05549a801e26e7e9c82a39f1f7625df08aeb2bd398c19a18b5d3dab9f67",
+      "finish_reason": "stop",
+      "visible_output_bytes": 35
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "prompt_digest": "c5ee3fbce5d488d813b2ec115542e46ac5cf89f52ffaa6edcc1536f0142c9b80",
+      "request_digest": "a4fe6bb840e8cbfff83cb9d0e5ee2239838cad7c71e36461eeb9160c3463ffec",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "finish_reason": "tool_calls",
+      "visible_output_bytes": 0,
+      "synthetic_route_reply": "",
+      "control_header_diagnostic": {
+        "raw_protocol_error": "conversation control header is missing",
+        "contains_newline": false,
+        "output_bytes": 0
+      }
+    }
+  ],
+  "role_audit": null,
+  "normalized_experts": []
+}

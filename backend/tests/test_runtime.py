@@ -213,26 +213,35 @@ async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_conf
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
+    class EvidenceModel(MockModelGateway):
+        async def reflect(self, goal, plan, run_id, evidence_catalog=None):
+            assert evidence_catalog
+            return [{
+                "kind": "preference", "content": "Prefer concise answers", "scope": "global",
+                "confidence": 0.9, "evidence_event_ids": [evidence_catalog[0]["ref"]],
+            }]
+
     runtime = make_runtime(
         tmp_path,
-        MockModelGateway(
+        EvidenceModel(
             plan_steps=[{"id": "step-1", "title": "完成任务"}],
             decisions=[ModelDecision.complete("完成")],
-            reflection_candidates=[{
-                "kind": "preference", "content": "Prefer concise answers", "scope": "global",
-                "confidence": 0.9, "evidence_event_ids": ["event-1"],
-            }],
         ),
     )
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
+    source = runtime.conversation.accept_turn(
+        thread.id, "source-evidence", "Prefer concise answers", owner_id="local-user",
+    )
     run = await runtime.create_goal("Goal", "Complete it")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
     await runtime.handle_message(run.id, "Complete it")
     completed = await runtime.approve_plan(run.id, 1)
 
     assert completed.state.value == "COMPLETED"
     proposals = runtime.memory_store.list_proposals("local-user", "PENDING")
     assert len(proposals) == 1
-    accepted = runtime.memory_store.decide_proposal(proposals[0].id, "local-user", True, "decision-1")
+    accepted = runtime.memory_store.decide_proposal(proposals[0].id, "local-user", True, "decision-1", expected_version=proposals[0].version)
     assert accepted.status == "ACCEPTED"
     assert accepted.accepted_revision_id
     entries = runtime.memory_store.list_entries("local-user", "ACTIVE")
@@ -246,6 +255,44 @@ async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_conf
     )
     assert accepted.accepted_revision_id in bundle.revision_ids
     assert "Prefer concise answers" in bundle.rendered
+
+
+@pytest.mark.asyncio
+async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp_path) -> None:
+    from app.memory_v2 import MemoryStore
+    from app.runtime import MockModelGateway, ModelDecision
+
+    class ProjectModel(MockModelGateway):
+        async def reflect(self, goal, plan, run_id, evidence_catalog=None):
+            return [{
+                "kind": "constraint", "content": "Use the project formatter", "scope": "project",
+                "project_id": "forged-project", "confidence": .9,
+                "evidence_event_ids": [evidence_catalog[0]["ref"]],
+            }]
+
+    runtime = make_runtime(
+        tmp_path, ProjectModel(
+            plan_steps=[{"id": "step-1", "title": "Complete"}],
+            decisions=[ModelDecision.complete("done")],
+        ),
+    )
+    runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    thread = runtime.conversation.create_thread("Evidence", owner_id="alice")
+    with runtime.db.transaction() as connection:
+        connection.execute("UPDATE threads SET project_id='trusted-project' WHERE id=?", (thread.id,))
+    source = runtime.conversation.accept_turn(
+        thread.id, "project-source", "Always use the project formatter", owner_id="alice",
+    )
+    run = await runtime.create_goal("Goal", "Complete it", project_id="stale-run-project")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
+    await runtime.handle_message(run.id, "Complete it")
+    await runtime.approve_plan(run.id, 1)
+
+    proposals = runtime.memory_store.list_proposals("alice", "PENDING")
+    assert len(proposals) == 1
+    assert proposals[0].scope_type == "project"
+    assert proposals[0].scope_id == "trusted-project"
+    assert runtime.memory_store.list_proposals("local-user") == []
 
 
 @pytest.mark.asyncio
@@ -267,6 +314,33 @@ async def test_reflection_with_missing_source_turn_does_not_write_default_owner(
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     run = await runtime.create_goal("Goal", "Complete it")
     runtime._set_run_fields(run.id, source_turn_id="deleted-turn")
+    await runtime.handle_message(run.id, "Complete it")
+    completed = await runtime.approve_plan(run.id, 1)
+
+    assert completed.state.value == "COMPLETED"
+    assert runtime.memory_store.list_proposals("local-user") == []
+
+
+@pytest.mark.asyncio
+async def test_runtime_rejects_non_preference_reflection_memory(tmp_path) -> None:
+    from app.memory_v2 import MemoryStore
+    from app.runtime import MockModelGateway, ModelDecision
+
+    class FactModel(MockModelGateway):
+        async def reflect(self, goal, plan, run_id, evidence_catalog=None):
+            return [{
+                "kind": "fact", "content": "The current task uses Python", "scope": "global",
+                "confidence": .9, "evidence_event_ids": [evidence_catalog[0]["ref"]],
+            }]
+
+    runtime = make_runtime(tmp_path, FactModel(decisions=[ModelDecision.complete("done")]))
+    runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
+    source = runtime.conversation.accept_turn(
+        thread.id, "source-fact", "This task uses Python", owner_id="local-user",
+    )
+    run = await runtime.create_goal("Goal", "Complete it")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
     await runtime.handle_message(run.id, "Complete it")
     completed = await runtime.approve_plan(run.id, 1)
 
@@ -475,6 +549,66 @@ async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) 
 
     assert model.snapshots
     assert any(event.type == "context.snapshot_created" for event in runtime.events.list(run.id))
+
+
+@pytest.mark.asyncio
+async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path) -> None:
+    from app.runtime import MockModelGateway, ModelDecision
+
+    class EvidenceModel(MockModelGateway):
+        def __init__(self):
+            super().__init__(decisions=[ModelDecision.complete("done")])
+            self.catalog = None
+
+        async def reflect(self, goal, plan, run_id, evidence_catalog=None):
+            self.catalog = evidence_catalog
+            return []
+
+    model = EvidenceModel()
+    runtime = make_runtime(tmp_path, model)
+    thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
+    source = runtime.conversation.accept_turn(
+        thread.id, "source-evidence", "Prefer short answers", owner_id="local-user",
+    )
+    run = await runtime.create_goal("Evidence", "Finish")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
+    run = runtime.get_run(run.id)
+    await runtime.handle_message(run.id, "Prefer short answers")
+    await runtime.approve_plan(run.id, 1)
+
+    assert model.catalog
+    assert model.catalog[0]["source_type"] == "thread_message"
+    assert model.catalog[0]["ref"].startswith("message_")
+    assert model.catalog[0]["excerpt"] == "Prefer short answers"
+
+
+@pytest.mark.asyncio
+async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog(tmp_path) -> None:
+    from app.runtime import MockModelGateway
+
+    class ContextModel(MockModelGateway):
+        def __init__(self):
+            super().__init__()
+            self.text = ""
+
+        def set_context_snapshot(self, snapshot_hash, text):
+            self.text = text
+
+    model = ContextModel()
+    runtime = make_runtime(tmp_path, model)
+    thread = runtime.conversation.create_thread("Evidence", owner_id="alice")
+    source = runtime.conversation.accept_turn(
+        thread.id, "source", "Prefer short answers", owner_id="alice",
+    )
+    run = await runtime.create_goal("Evidence", "Finish")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
+    run = runtime.get_run(run.id)
+    catalog = runtime._reflection_evidence_catalog(run)
+
+    runtime._prepare_model_context(run, "reflection", ({}, object(), run.id, catalog), "invocation-test")
+
+    assert catalog[0]["ref"] in model.text
+    assert "evidence_catalog" in model.text
 
 
 def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path) -> None:

@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, ArrowUpRight, MessageSquare } from "lucide-react";
 import { ApiError, approvePlan, cancelStep, deletePlanDocument, getPlans, getPlanDocument, getPlanVersion, getThreadPlan, listPlanDocuments, putPlanDocument, restorePlanDocument, retryPlanProjection, syncPlanFile, revisePlan, previewGoalProgram, activateGoalProgram, retryGoalProgramCompile, listGoalPrograms } from "../api";
 import MarkdownMessage from "../components/MarkdownMessage";
 import PlanVisualEditor from "../components/PlanVisualEditor";
 import ConfirmDialog from "../components/ConfirmDialog";
 import { localizedCode } from "../localization";
 import AppToast from "../components/AppToast";
+import { todayPath } from "../navigation";
 import type { GoalProgram, PlanDocument, PlanDocumentSummary, PlanDocumentVersion, PlanResponse, PlanStep, Run } from "../types";
 
 interface PlanPageProps {
+  embedded?: boolean;
   csrfToken: string;
   run: Run | null;
   threadId?: string | null;
@@ -15,6 +18,7 @@ interface PlanPageProps {
   onRun: (run: Run) => void;
   onSelectPlan?: (planId: string) => void;
   onDeleted?: () => void;
+  onOpenToday?: (programId?: string) => void;
 }
 
 interface PlanLibraryProps {
@@ -39,6 +43,32 @@ function planStatusLabel(status: string): string {
   if (status === "conflict") return "有冲突";
   if (status === "pending") return "准备中";
   return status;
+}
+
+function executionStatusLabel(program: GoalProgram): string {
+  if (program.status === "DRAFT" && program.compile_status === "FAILED") return "执行生成失败";
+  if (program.status === "DRAFT" && program.compile_status === "COMPILING") return "正在生成执行预览";
+  if (program.status === "DRAFT") return "执行待确认";
+  if (program.status === "PAUSED") return "执行已暂停";
+  if (program.status === "ACTIVE") return "正在执行";
+  if (program.status === "COMPLETED") return "执行已完成";
+  return "执行已取消";
+}
+
+function executionStatusClass(program: GoalProgram): string {
+  if (program.status === "DRAFT" && program.compile_status === "FAILED") return "status-failed";
+  if (program.status === "DRAFT" && program.compile_status === "COMPILING") return "status-compiling";
+  return `status-${program.status.toLowerCase()}`;
+}
+
+function executionStatusDescription(program: GoalProgram): string {
+  if (program.status === "DRAFT" && program.compile_status === "FAILED") return "执行安排尚未创建，今日行动暂时不会出现任务。";
+  if (program.status === "DRAFT" && program.compile_status === "COMPILING") return "正在把计划整理为具体日期和行动。";
+  if (program.status === "DRAFT") return "预览已经生成，确认后才会进入今日行动。";
+  if (program.status === "ACTIVE") return "行动已进入今日行动，可以开始记录进度。";
+  if (program.status === "PAUSED") return "当前行动已暂停，不会继续推进。";
+  if (program.status === "COMPLETED") return "这份执行安排已经完成。";
+  return "这份执行安排已经取消。";
 }
 
 function PlanLibrary({ plans, selectedPlanId, busy, onSelect }: PlanLibraryProps) {
@@ -71,10 +101,10 @@ function PlanLibrary({ plans, selectedPlanId, busy, onSelect }: PlanLibraryProps
   );
 }
 
-function PlanShell({ children, plans, selectedPlanId, busy, onSelect }: PlanLibraryProps & { children: ReactNode }) {
+function PlanShell({ children, plans, selectedPlanId, busy, onSelect, embedded=false }: PlanLibraryProps & { children: ReactNode; embedded?:boolean }) {
   return (
-    <div className="plan-workspace">
-      <PlanLibrary plans={plans} selectedPlanId={selectedPlanId} busy={busy} onSelect={onSelect} />
+    <div className={`plan-workspace${embedded?" plan-workspace-embedded":""}`}>
+      {!embedded&&<PlanLibrary plans={plans} selectedPlanId={selectedPlanId} busy={busy} onSelect={onSelect} />}
       <section className="plan-detail-column">{children}</section>
     </div>
   );
@@ -84,7 +114,7 @@ function editableSteps(steps: PlanStep[]): Array<{ id: string; title: string }> 
   return steps.filter((step) => step.status !== "completed" && step.status !== "cancelled").map((step) => ({ id: step.id, title: step.title }));
 }
 
-export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun, onSelectPlan, onDeleted }: PlanPageProps) {
+export default function PlanPage({ csrfToken, run, threadId = null, planId = null, onRun, onSelectPlan, onDeleted, onOpenToday, embedded=false }: PlanPageProps) {
   const [planSummaries, setPlanSummaries] = useState<PlanDocumentSummary[]>([]);
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(planId);
   const [document, setDocument] = useState<PlanDocument | null>(null);
@@ -100,15 +130,29 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   const [editing, setEditing] = useState(false);
   const [program, setProgram] = useState<GoalProgram | null>(null);
   const [showExecution, setShowExecution] = useState(false);
+  const executionPanelRef = useRef<HTMLElement>(null);
+  function openExecution() {
+    setShowExecution(true);
+    requestAnimationFrame(() => {
+      executionPanelRef.current?.scrollIntoView?.({ behavior: "auto", block: "start" });
+      executionPanelRef.current?.focus({ preventScroll: true });
+    });
+  }
   const [showLibrary, setShowLibrary] = useState(false);
   const [startDate, setStartDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [endDate, setEndDate] = useState("");
   const [timezone, setTimezone] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Asia/Shanghai");
   const [dailyMinutes, setDailyMinutes] = useState(60);
+  const [availableWeekdays,setAvailableWeekdays] = useState([0,1,2,3,4,5,6]);
+  const [excludedDates,setExcludedDates] = useState<string[]>([]);
+  const [excludedDate,setExcludedDate] = useState("");
+  const latestEndDate = startDate ? new Date(Date.parse(`${startDate}T00:00:00Z`)+29*86400000).toISOString().slice(0,10) : "";
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteNotice, setDeleteNotice] = useState<{
+  const [notice, setNotice] = useState<{
     message: string;
     tone: "success" | "error";
+    action?: { label: string; onClick: () => void };
+    durationMs?: number;
   } | null>(null);
   const [linkedProgram, setLinkedProgram] = useState<GoalProgram | null>(null);
 
@@ -164,6 +208,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
             ...(endDate ? { requested_end_date: endDate } : {}),
             timezone,
             daily_minutes: dailyMinutes,
+            schedule_constraints: {available_weekdays:availableWeekdays,excluded_dates:excludedDates},
           },
           crypto.randomUUID(),
           csrfToken,
@@ -184,6 +229,11 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       const next = await activateGoalProgram(program.id, program.version, crypto.randomUUID(), csrfToken);
       setProgram(next);
       setLinkedProgram(next);
+      setNotice({
+        message: "执行已激活，今天起会按日期生成行动。",
+        tone: "success",
+        ...(onOpenToday ? { action: { label: "去查看今日行动", onClick: () => onOpenToday(next.id) }, durationMs: 0 } : {}),
+      });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "激活执行项目失败");
     } finally {
@@ -252,11 +302,13 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           if (linked?.status === "DRAFT") {
             setProgram(linked);
             setShowExecution(true);
+          } else if (!linked && nextDocument?.current && new URLSearchParams(window.location.search).get("execute") === "1") {
+            openExecution();
           }
           setDraft(nextStructuredPlans?.current ? editableSteps(nextStructuredPlans.current.steps) : []);
         }
       } catch (caught) {
-        if (active) setError(caught instanceof Error ? caught.message : "Plan failed to load");
+        if (active) setError(caught instanceof Error ? caught.message : "计划加载失败");
       }
     }
     void load();
@@ -356,10 +408,10 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       setProgram(null);
       setShowExecution(false);
       setShowLibrary(true);
-      setDeleteNotice({ message: "计划已删除", tone: "success" });
+      setNotice({ message: "计划已删除", tone: "success" });
       onDeleted?.();
     } catch {
-      setDeleteNotice({ message: "计划删除失败，请稍后重试", tone: "error" });
+      setNotice({ message: "计划删除失败，请稍后重试", tone: "error" });
     } finally {
       setBusy(false);
       setDeleteOpen(false);
@@ -442,23 +494,27 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       setTitle(fullVersion.title);
       setMarkdown(fullVersion.markdown ?? "");
     } catch (caught) {
-      handleDocumentError(caught, "Version failed to load");
+      handleDocumentError(caught, "版本历史加载失败");
     } finally {
       setBusy(false);
     }
   }
 
   async function approve() {
-    if (!run || !structuredPlans?.current) return;
+    if (!run || !structuredPlans?.current || busy) return;
+    setBusy(true);
     try {
       onRun(await approvePlan(run.id, structuredPlans.current.version, csrfToken));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "计划批准失败");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function revise() {
-    if (!run || !structuredPlans?.current || draft.some((step) => !step.title.trim())) return;
+    if (!run || !structuredPlans?.current || busy || draft.some((step) => !step.title.trim())) return;
+    setBusy(true);
     try {
       const next = await revisePlan(
         run.id,
@@ -472,15 +528,20 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
       });
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "计划调整保存失败");
+    } finally {
+      setBusy(false);
     }
   }
 
   async function stopStep(stepId: string) {
-    if (!run) return;
+    if (!run || busy) return;
+    setBusy(true);
     try {
       onRun(await cancelStep(run.id, stepId, csrfToken));
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "步骤取消失败");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -496,8 +557,8 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
               <h3>{structured.summary || "执行步骤"}</h3>
             </div>
             {structured.status !== "approved" && (
-              <button className="button button-primary" type="button" onClick={() => void approve()}>
-                批准计划
+              <button className="button button-primary" type="button" disabled={busy} onClick={() => void approve()}>
+                {busy ? "正在…" : "批准计划"}
               </button>
             )}
           </div>
@@ -510,8 +571,8 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                   <span>{localizedCode(step.status)}</span>
                 </div>
                 {step.status === "pending" && (
-                  <button className="button button-quiet" type="button" onClick={() => void stopStep(step.id)}>
-                    取消步骤
+                  <button className="button button-quiet" type="button" disabled={busy} onClick={() => void stopStep(step.id)}>
+                    {busy ? "正在…" : "取消步骤"}
                   </button>
                 )}
               </li>
@@ -541,8 +602,8 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           </div>
           <div className="form-footer">
             <span className="muted">当前版本 v{structured.version}</span>
-            <button className="button button-primary" type="button" disabled={draft.length === 0 || draft.some((step) => !step.title.trim())} onClick={() => void revise()}>
-              保存新版本
+            <button className="button button-primary" type="button" disabled={busy || draft.length === 0 || draft.some((step) => !step.title.trim())} onClick={() => void revise()}>
+              {busy ? "正在…" : "保存新版本"}
             </button>
           </div>
         </section>
@@ -551,6 +612,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   }
 
   const shellProps = {
+    embedded,
     plans: planSummaries,
     selectedPlanId: activePlanId,
     busy,
@@ -564,7 +626,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
           <section className="plan-document-hero">
             <div>
               <span className="eyebrow">计划文档 · 准备中</span>
-              <h2>{document.title}</h2>
+              {!embedded&&<h2>{document.title}</h2>}
               <p>
                 计划编号 · {document.id} · {document.file_path}
               </p>
@@ -590,94 +652,71 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
   }
 
   if (document && current) {
+    const workspaceHref = `/workspace/${encodeURIComponent(document.id)}`;
+    const executionHref = linkedProgram ? todayPath(linkedProgram.id) : "#plan-execution-settings";
     return (
       <PlanShell {...shellProps}>
         <div className="page-stack plan-document-page">
-          <section className="plan-document-hero">
+          {!embedded&&<nav className="goal-breadcrumb" aria-label="目标路径"><a href={workspaceHref}><ArrowLeft size={16} aria-hidden="true" />目标概览</a></nav>}
+          <section className={embedded?"plan-document-controls":"plan-document-hero"} aria-label="计划操作">
             <div>
-              <span className="eyebrow">计划文档</span>
-              <h2>{document.title}</h2>
-              <p>已保存计划 · 可直接查看和编辑</p>
+              {!embedded&&<><span className="eyebrow">计划文档</span><h2>{document.title}</h2></>}
+              <p>计划 v{current.version} · {planStatusLabel(document.file_status)}</p>
             </div>
-            <div className="button-row">
-              <span className={`version-badge file-status-${document.file_status}`}>{localizedCode(document.file_status, "状态已更新")}</span>
+            <div className="plan-hero-actions">
               {editing ? (
-                <>
-                  <button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>
-                    取消编辑
-                  </button>
-                  <button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>
-                    保存计划
-                  </button>
-                </>
+                <div className="plan-hero-edit-actions">
+                  <span className="plan-hero-action-label">正在编辑</span>
+                  <div className="button-row">
+                    <button className="button button-secondary" disabled={busy} type="button" onClick={cancelEditing}>
+                      取消编辑
+                    </button>
+                    <button className="button button-primary" disabled={busy || !markdown.trim()} type="button" onClick={() => void saveDocument()}>
+                      保存计划
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <>
+                  <div className="plan-hero-statuses" aria-label="计划状态">
+                    <span><i className="status-dot status-ready" aria-hidden="true" />计划已保存</span>
+                    {linkedProgram && <span className={executionStatusClass(linkedProgram)}><i className="status-dot" aria-hidden="true" />{executionStatusLabel(linkedProgram)}</span>}
+                  </div>
+                  <p className="plan-hero-action-copy">{linkedProgram ? executionStatusDescription(linkedProgram) : "生成执行预览后，确认的行动才会进入今日行动。"}</p>
                   {linkedProgram ? (
-                    <span className={`plan-execution-status status-${linkedProgram.status.toLowerCase()}`}>{linkedProgram.status === "PAUSED" ? "执行已暂停" : linkedProgram.status === "ACTIVE" ? "正在执行" : linkedProgram.status === "DRAFT" ? "执行待确认" : linkedProgram.status === "COMPLETED" ? "执行已完成" : "执行已取消"}</span>
+                    <>
+                      {linkedProgram.status === "DRAFT" && linkedProgram.compile_status === "READY" && (
+                        <button className="button button-primary plan-hero-primary-action" disabled={busy} type="button" onClick={() => void activateProgram()}>
+                          {busy ? "正在确认…" : "确认并开始执行"}
+                        </button>
+                      )}
+                      {linkedProgram.status === "DRAFT" && linkedProgram.compile_status === "FAILED" && (
+                        <button className="button button-primary plan-hero-primary-action" disabled={busy} type="button" onClick={() => void retryProgramCompile()}>
+                          {busy ? "正在重新生成…" : "重新生成执行预览"}
+                        </button>
+                      )}
+                      {linkedProgram.status !== "DRAFT" && <a className="button button-primary plan-hero-primary-action" href={executionHref} onClick={event => { if (onOpenToday && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onOpenToday(linkedProgram.id); } }}>查看执行<ArrowUpRight size={16} aria-hidden="true" /></a>}
+                    </>
                   ) : (
-                    <button className="button button-secondary" disabled={busy} type="button" onClick={() => setShowExecution((value) => !value)}>
-                      开始执行
+                    <button className="button button-primary plan-hero-primary-action" disabled={busy} type="button" aria-expanded={showExecution} aria-controls="plan-execution-settings" onClick={openExecution}>
+                      {busy ? "正在处理…" : "开始执行"}
                     </button>
                   )}
-                  <button className="button button-primary" disabled={busy} type="button" onClick={() => setEditing(true)}>
-                    编辑计划
-                  </button>
+                  <div className="plan-hero-utilities">
+                    <button className="button button-quiet" disabled={busy} type="button" onClick={() => setEditing(true)}>
+                      编辑计划
+                    </button>
+                    <button className="button button-quiet button-quiet-danger" disabled={busy} type="button" onClick={() => setDeleteOpen(true)}>
+                      删除计划
+                    </button>
+                  </div>
                 </>
               )}
-              <button className="button button-danger" disabled={busy} type="button" onClick={() => setDeleteOpen(true)}>
-                删除计划
-              </button>
             </div>
           </section>
-          {linkedProgram && (
-            <section className="plan-linked-program">
-              <div>
-                <span className="eyebrow">关联执行计划</span>
-                <strong>{linkedProgram.objective_title}</strong>
-                <p>
-                  必做进度 {linkedProgram.progress.required_completed}/{linkedProgram.progress.required_total} · {linkedProgram.start_date} 至 {linkedProgram.end_date}
-                </p>
-              </div>
-              <span>{localizedCode(linkedProgram.status)}</span>
-            </section>
-          )}
-          {error && (
-            <div className="error-message" role="alert">
-              <span>{error}</span>
-              {document.file_status === "failed" && (
-                <button className="button button-danger" type="button" onClick={() => void retryProjection()}>
-                  重试写入计划文件
-                </button>
-              )}
-            </div>
-          )}
-          {conflict && (
-            <section className="plan-conflict" role="status">
-              <strong>检测到更新的服务端版本</strong>
-              <p>你的草稿已保留。请比较服务端内容后重新加载或手动合并。</p>
-              <div className="plan-conflict-preview">
-                <MarkdownMessage content={String(conflict.markdown ?? "")} />
-              </div>
-            </section>
-          )}
-          {editing ? (
-            <section className="card plan-editor-card">
-              <PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} />
-            </section>
-          ) : (
-            <section className="card plan-readable-card">
-              <div className="panel-toolbar">
-                <div>
-                  <span className="eyebrow">计划内容</span>
-                  <h3>可读计划</h3>
-                </div>
-                <span className="muted">渲染视图</span>
-              </div>
-              <MarkdownMessage content={markdown} />
-            </section>
-          )}
+          {!embedded&&!editing && <nav className="goal-section-nav" aria-label="目标页面"><a href={workspaceHref}>概览</a><a aria-current="page" href={`/plans/${encodeURIComponent(document.id)}`}>计划</a>{linkedProgram ? <a href={executionHref}>执行</a> : <button type="button" onClick={openExecution}>执行</button>}<a href={`${workspaceHref}#goal-review`}>复盘</a><a className="goal-conversation-link" href={`/threads/${encodeURIComponent(document.thread_id)}`}><MessageSquare size={16} aria-hidden="true" />继续对话</a></nav>}
           {showExecution && (
-            <section className="card program-preview-card" aria-busy={busy}>
+            <section ref={executionPanelRef} id="plan-execution-settings" tabIndex={-1} className="card program-preview-card" aria-label="执行设置" aria-busy={busy}>
               <div className="panel-toolbar">
                 <div>
                   <span className="eyebrow">执行计划</span>
@@ -697,7 +736,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                   </label>
                   <label>
                     结束日期（可选）
-                    <input aria-label="执行结束日期" min={startDate} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+                    <input aria-label="执行结束日期" min={startDate} max={latestEndDate} type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
                   </label>
                   <label>
                     时区
@@ -707,7 +746,9 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                     每日分钟
                     <input aria-label="每日可用分钟" min="5" max="1440" type="number" value={dailyMinutes} onChange={(event) => setDailyMinutes(Number(event.target.value))} />
                   </label>
-                  <button className="button button-primary" disabled={busy || Boolean(endDate && endDate < startDate)} type="button" onClick={() => void createProgramPreview()}>
+                  <fieldset className="program-weekdays"><legend>可用学习日</legend>{["周一","周二","周三","周四","周五","周六","周日"].map((label,index)=><label key={label}><input type="checkbox" checked={availableWeekdays.includes(index)} onChange={event=>setAvailableWeekdays(days=>event.target.checked?[...days,index].sort():days.filter(day=>day!==index))}/>{label}</label>)}</fieldset>
+                  <div className="program-excluded-dates"><label>额外休息日期<input aria-label="额外休息日期" type="date" min={startDate} max={endDate||latestEndDate} value={excludedDate} onChange={event=>setExcludedDate(event.target.value)}/></label><button type="button" className="button button-secondary" disabled={!excludedDate||excludedDates.includes(excludedDate)} onClick={()=>{setExcludedDates(dates=>[...dates,excludedDate].sort());setExcludedDate("");}}>添加休息日</button>{excludedDates.map(day=><label key={day}><input type="checkbox" checked onChange={()=>setExcludedDates(dates=>dates.filter(value=>value!==day))}/>{day}</label>)}</div>
+                  <button className="button button-primary" disabled={busy || !startDate || !availableWeekdays.length || Boolean(endDate && (endDate < startDate || endDate > latestEndDate))} type="button" onClick={() => void createProgramPreview()}>
                     {busy ? "正在编译…" : "生成预览"}
                   </button>
                 </div>
@@ -719,6 +760,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                   <p>
                     {program.start_date} — {program.end_date} · {program.timezone} · 每日预算 {program.daily_minutes} 分钟
                   </p>
+                  {program.calendar&&<p>{program.calendar.natural_days} 个自然日 · {program.calendar.study_days} 个可用学习日 · {program.calendar.rest_dates.length} 个休息日</p>}
                   {program.compile_status === "FAILED" ? (
                     <div className="error-message" role="alert">
                       <span>
@@ -759,12 +801,49 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
               )}
             </section>
           )}
-          <section className="card plan-history-card">
-            <div className="panel-toolbar">
+          {linkedProgram && (
+            <section className="plan-linked-program">
               <div>
-                <span className="eyebrow">不可变历史</span>
-                <h3>版本历史</h3>
+                <span className="eyebrow">关联执行计划</span>
+                <strong>{linkedProgram.objective_title}</strong>
+                <p>
+                  必做进度 {linkedProgram.progress.required_completed}/{linkedProgram.progress.required_total} · {linkedProgram.start_date} 至 {linkedProgram.end_date}
+                </p>
               </div>
+              <span>{localizedCode(linkedProgram.status)}</span>
+            </section>
+          )}
+          {error && (
+            <div className="error-message" role="alert">
+              <span>{error}</span>
+              {document.file_status === "failed" && (
+                <button className="button button-danger" type="button" onClick={() => void retryProjection()}>
+                  重试写入计划文件
+                </button>
+              )}
+            </div>
+          )}
+          {conflict && (
+            <section className="plan-conflict" role="status">
+              <strong>检测到更新的服务端版本</strong>
+              <p>你的草稿已保留。请比较服务端内容后重新加载或手动合并。</p>
+              <div className="plan-conflict-preview">
+                <MarkdownMessage content={String(conflict.markdown ?? "")} />
+              </div>
+            </section>
+          )}
+          {editing ? (
+            <section className="card plan-editor-card">
+              <PlanVisualEditor title={title} onTitleChange={setTitle} markdown={markdown} onChange={setMarkdown} disabled={busy} />
+            </section>
+          ) : (
+            <section className="plan-readable-card" aria-label="计划正文">
+              <MarkdownMessage content={markdown} />
+            </section>
+          )}
+          <details className="plan-history-card">
+            <summary>版本历史 · {history.length} 个版本</summary>
+            <div className="panel-toolbar">
               <div className="button-row">
                 <button className="button button-secondary" disabled={busy} type="button" onClick={() => void syncFile()}>
                   同步计划文件
@@ -791,10 +870,10 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                 </div>
               ))}
             </div>
-          </section>
+          </details>
           {renderStructuredPlan()}
           <ConfirmDialog open={deleteOpen} title="删除计划？" description={`确定删除“${document.title}”吗？计划内容及其历史版本将无法恢复。`} busy={busy} onCancel={() => setDeleteOpen(false)} onConfirm={() => void deleteDocument()} />
-          {deleteNotice && <AppToast message={deleteNotice.message} tone={deleteNotice.tone} onDismiss={() => setDeleteNotice(null)} />}
+          {notice && <AppToast message={notice.message} tone={notice.tone} action={notice.action} durationMs={notice.durationMs} onDismiss={() => setNotice(null)} />}
         </div>
       </PlanShell>
     );
@@ -810,7 +889,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
             <p>{planSummaries.length ? "从左侧选择计划名称，查看计划内容和可编辑详情。" : "保存计划后，它们会显示在左侧列表中。"}</p>
           </section>
         </PlanShell>
-        {deleteNotice && <AppToast message={deleteNotice.message} tone={deleteNotice.tone} onDismiss={() => setDeleteNotice(null)} />}
+        {notice && <AppToast message={notice.message} tone={notice.tone} action={notice.action} durationMs={notice.durationMs} onDismiss={() => setNotice(null)} />}
       </>
     );
   if (!document && threadId)

@@ -22,7 +22,7 @@ const api = vi.hoisted(() => ({
 
 vi.mock("../api", () => ({ ...api, ApiError: class ApiError extends Error { status = 409; payload: unknown; constructor(message: string, status: number, payload: unknown) { super(message); this.status = status; this.payload = payload; } } }));
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); window.history.replaceState({}, "", "/"); });
 
 const current = {
   id: "version-2",
@@ -64,6 +64,24 @@ async function enterEditMode() {
 }
 
 describe("PlanPage document editor", () => {
+  it("embeds only the document and controls while retaining collapsed history and editing",async()=>{
+    render(<PlanPage embedded csrfToken="csrf" run={null} planId="plan-1" onRun={vi.fn()}/>);
+    const body=await screen.findByRole("region",{name:"计划正文"});
+    expect(within(body).getByRole("heading",{name:"Travel plan"})).toBeTruthy();
+    expect(screen.getAllByRole("heading",{name:"Travel plan"})).toHaveLength(1);
+    expect(screen.queryByRole("navigation",{name:"已保存计划"})).toBeNull();
+    expect(screen.queryByRole("navigation",{name:"目标路径"})).toBeNull();
+    expect(screen.queryByRole("navigation",{name:"目标页面"})).toBeNull();
+    expect(screen.queryByText("可读计划")).toBeNull();
+    const history=screen.getByText("版本历史 · 2 个版本");
+    expect((history.closest("details") as HTMLDetailsElement).open).toBe(false);
+    fireEvent.click(history);
+    expect((history.closest("details") as HTMLDetailsElement).open).toBe(true);
+    expect(screen.getByRole("button",{name:"恢复版本 1"})).toBeTruthy();
+    expect(screen.getByRole("button",{name:"删除计划"})).toBeTruthy();
+    await enterEditMode();
+    expect(screen.getByRole("button",{name:"保存计划"})).toBeTruthy();
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     api.listPlanDocuments.mockResolvedValue({ plans: [
@@ -116,6 +134,10 @@ describe("PlanPage document editor", () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 
     fireEvent.click(await screen.findByRole("button", { name: "开始执行" }));
+    expect(screen.getByRole("button", {name:"开始执行"}).getAttribute("aria-expanded")).toBe("true");
+    await waitFor(() => expect(window.document.activeElement).toBe(screen.getByRole("region", {name:"执行设置"})));
+    fireEvent.click(screen.getByRole("button", { name: "开始执行" }));
+    expect(screen.getByLabelText("执行开始日期")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("执行开始日期"), { target: { value: "2026-09-01" } });
     fireEvent.change(screen.getByLabelText("执行结束日期"), { target: { value: "2026-09-02" } });
     fireEvent.click(screen.getByRole("button", { name: "生成预览" }));
@@ -126,6 +148,24 @@ describe("PlanPage document editor", () => {
       expect.any(String),
       "csrf",
     ));
+  });
+
+  it("opens execution settings from the conversation without creating or activating a program", async () => {
+    window.history.replaceState({}, "", "/plans/plan-1?execute=1");
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    expect(await screen.findByLabelText("执行开始日期")).toBeTruthy();
+    expect(screen.getByLabelText("每日可用分钟")).toBeTruthy();
+    expect(api.previewGoalProgram).not.toHaveBeenCalled();
+    expect(api.activateGoalProgram).not.toHaveBeenCalled();
+  });
+
+  it("does not offer a duplicate preview through the conversation shortcut for an active program", async () => {
+    window.history.replaceState({}, "", "/plans/plan-1?execute=1");
+    api.listGoalPrograms.mockResolvedValue({ programs: [{ id: "program-1", source_plan_document_id: "plan-1", objective_title: "Travel plan", status: "ACTIVE", progress: { required_completed: 0, required_total: 7 } }] });
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    expect(await screen.findByText("正在执行")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "生成预览" })).toBeNull();
+    expect(api.previewGoalProgram).not.toHaveBeenCalled();
   });
 
   it("shows the linked execution instead of offering a duplicate start", async () => {
@@ -146,13 +186,40 @@ describe("PlanPage document editor", () => {
     };
     api.listGoalPrograms.mockResolvedValue({programs:[linked]});
     api.activateGoalProgram.mockResolvedValue({...linked,status:"ACTIVE",version:4});
-    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
+    const onOpenToday = vi.fn();
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onOpenToday={onOpenToday} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "确认并激活" }));
+    expect(await screen.findByText("执行待确认")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "确认并开始执行" }));
 
     await waitFor(() => expect(api.activateGoalProgram).toHaveBeenCalledWith(
       "program-1", 3, expect.any(String), "csrf",
     ));
+    expect(await screen.findByText("正在执行")).toBeTruthy();
+    expect(await screen.findByText("执行已激活，今天起会按日期生成行动。")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "去查看今日行动" }));
+    expect(onOpenToday).toHaveBeenCalledTimes(1);
+    expect(onOpenToday).toHaveBeenCalledWith("program-1");
+  });
+
+  it("keeps plan, goal, source conversation and execution links on the same object", async () => {
+    api.listGoalPrograms.mockResolvedValue({ programs: [{
+      id: "program-7", source_plan_document_id: "plan-1", objective_title: "Travel plan", status: "ACTIVE", version: 3,
+      progress: { required_completed: 2, required_total: 7, completion_rate: 2 / 7, completion_ready: false },
+    }] });
+    const onOpenToday = vi.fn();
+    render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} onOpenToday={onOpenToday} />);
+
+    const navigation = await screen.findByRole("navigation", { name: "目标页面" });
+    expect(within(navigation).getByRole("link", { name: "概览" }).getAttribute("href")).toBe("/workspace/plan-1");
+    expect(within(navigation).getByRole("link", { name: "计划" }).getAttribute("aria-current")).toBe("page");
+    expect(within(navigation).getByRole("link", { name: "复盘" }).getAttribute("href")).toBe("/workspace/plan-1#goal-review");
+    expect(within(navigation).getByRole("link", { name: "继续对话" }).getAttribute("href")).toBe("/threads/thread-1");
+    expect(within(navigation).getByRole("link", { name: "执行" }).getAttribute("href")).toBe("/today?program=program-7");
+    const openExecution = screen.getByRole("link", { name: "查看执行" });
+    expect(openExecution.getAttribute("href")).toBe("/today?program=program-7");
+    fireEvent.click(openExecution);
+    expect(onOpenToday).toHaveBeenCalledWith("program-7");
   });
 
   it("shows and retries a linked failed draft instead of offering activation", async () => {
@@ -166,14 +233,15 @@ describe("PlanPage document editor", () => {
     api.retryGoalProgramCompile.mockResolvedValue({...failed,compile_status:"READY",compile_error_code:null,version:5,structure:{assumptions:[],actions:[]}});
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 
+    expect(await screen.findByText("执行生成失败")).toBeTruthy();
     expect((await screen.findByRole("alert")).textContent).toContain("COMPILE_TIMEOUT");
     expect(screen.queryByRole("button", { name: "确认并激活" })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "重新生成预览" }));
+    fireEvent.click(screen.getByRole("button", { name: "重新生成执行预览" }));
 
     await waitFor(() => expect(api.retryGoalProgramCompile).toHaveBeenCalledWith(
       "program-1", 3, expect.any(String), "csrf",
     ));
-    expect(await screen.findByRole("button", { name: "确认并激活" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "确认并开始执行" })).toBeTruthy();
   });
 
   it("starts in rendered mode and saves edits made in the visual plan", async () => {

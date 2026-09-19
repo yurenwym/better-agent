@@ -52,6 +52,32 @@ describe("MarkdownMessage", () => {
     expect(screen.getByText('<script>alert("x")</script>')).toBeTruthy();
   });
 
+  it("unwraps an outer Markdown fence while preserving nested code blocks", () => {
+    const fence = String.fromCharCode(96).repeat(3);
+    render(
+      <MarkdownMessage
+        content={[
+          fence + "markdown",
+          "# Math study plan",
+          "",
+          "| Week | Topic |",
+          "| --- | --- |",
+          "| 1 | Calculus |",
+          "",
+          fence + "text",
+          "Daily review",
+          fence,
+          fence,
+        ].join("\n")}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Math study plan" })).toBeTruthy();
+    expect(screen.getByRole("table")).toBeTruthy();
+    expect(screen.getByRole("code").textContent).toBe("Daily review");
+    expect(screen.queryByText("# Math study plan")).toBeNull();
+  });
+
   it("renders model br tags as line breaks without enabling raw HTML", () => {
     render(<MarkdownMessage content={'第一行<br>第二行<br/>第三行<br />第四行<script>alert("x")</script>'} />);
 

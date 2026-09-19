@@ -1,0 +1,499 @@
+[
+  {
+    "id": "q01",
+    "split": "dev",
+    "category": "exact",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 的默认 embedding 模型名称是什么？",
+    "history": [],
+    "gold_memory_ids": [
+      "r02"
+    ],
+    "answer_contains_all": [
+      "Qwen/Qwen3-Embedding-4B"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q02",
+    "split": "dev",
+    "category": "exact",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better embedding 默认多少维？",
+    "history": [],
+    "gold_memory_ids": [
+      "r02"
+    ],
+    "answer_contains_all": [
+      "1024"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q03",
+    "split": "dev",
+    "category": "synonym",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 把文本转成向量的服务，请求等多久就超时？",
+    "history": [],
+    "gold_memory_ids": [
+      "r03"
+    ],
+    "answer_contains_all": [
+      "0.8"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q04",
+    "split": "dev",
+    "category": "exact",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 默认费用模式叫什么？",
+    "history": [],
+    "gold_memory_ids": [
+      "r08"
+    ],
+    "answer_contains_all": [
+      "observe"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q05",
+    "split": "dev",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "那个超时值是多少秒？",
+    "history": [
+      {
+        "role": "user",
+        "content": "我们现在讨论 Better 的 embedding 请求配置。"
+      },
+      {
+        "role": "assistant",
+        "content": "接下来确认请求的超时设置。"
+      }
+    ],
+    "gold_memory_ids": [
+      "r03"
+    ],
+    "answer_contains_all": [
+      "0.8"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q06",
+    "split": "dev",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "这个缓存默认保留多久？",
+    "history": [
+      {
+        "role": "user",
+        "content": "我要查 Better 同一次模型调用的记忆 pin 配置。"
+      }
+    ],
+    "gold_memory_ids": [
+      "r07"
+    ],
+    "answer_contains_all": [
+      "900"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q07",
+    "split": "dev",
+    "category": "exact",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "苍鹭项目唯一部署区域是什么？",
+    "history": [],
+    "gold_memory_ids": [
+      "s01"
+    ],
+    "answer_contains_all": [
+      "cn-north-7"
+    ],
+    "forbidden_memory_ids": [
+      "d01",
+      "d04"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q08",
+    "split": "dev",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "它允许回退多长时间？",
+    "history": [
+      {
+        "role": "user",
+        "content": "正在检查苍鹭项目的回滚保留期。"
+      }
+    ],
+    "gold_memory_ids": [
+      "s02"
+    ],
+    "answer_contains_all": [
+      "17"
+    ],
+    "forbidden_memory_ids": [
+      "d03"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q09",
+    "split": "dev",
+    "category": "entity",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "HERON_E417 是什么错误？",
+    "history": [],
+    "gold_memory_ids": [
+      "s04"
+    ],
+    "answer_contains_all": [
+      "索引租约过期"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q10",
+    "split": "dev",
+    "category": "stale",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "苍鹭项目现在的检索延迟目标是多少毫秒？",
+    "history": [],
+    "gold_memory_ids": [
+      "s05"
+    ],
+    "answer_contains_all": [
+      "230"
+    ],
+    "forbidden_memory_ids": [
+      "d02"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q11",
+    "split": "dev",
+    "category": "negative",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "苍鹭项目数据库备份桶叫什么名字？",
+    "history": [],
+    "gold_memory_ids": [],
+    "answer_contains_all": [],
+    "forbidden_memory_ids": [],
+    "expected_abstention": true,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q12",
+    "split": "dev",
+    "category": "negative",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "这位演示用户的生日是哪天？",
+    "history": [],
+    "gold_memory_ids": [],
+    "answer_contains_all": [],
+    "forbidden_memory_ids": [],
+    "expected_abstention": true,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q13",
+    "split": "dev",
+    "category": "multi",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 默认向量候选数和最低相似度分别是多少？",
+    "history": [],
+    "gold_memory_ids": [
+      "r05"
+    ],
+    "answer_contains_all": [
+      "50",
+      "0.35"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q14",
+    "split": "dev",
+    "category": "multi",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 的向量和模糊文本检索需要哪两个 PostgreSQL 扩展？",
+    "history": [],
+    "gold_memory_ids": [
+      "r01"
+    ],
+    "answer_contains_all": [
+      "vector",
+      "pg_trgm"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q15",
+    "split": "dev",
+    "category": "budget",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 长期记忆召回的默认预算是多少，按什么单位计数？",
+    "history": [],
+    "gold_memory_ids": [
+      "r04"
+    ],
+    "answer_contains_all": [
+      "1500",
+      "UTF-8"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q16",
+    "split": "dev",
+    "category": "precedence",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "用户原来的文档语言偏好是什么？注意我这次要求用英语回答。",
+    "history": [],
+    "gold_memory_ids": [
+      "s06"
+    ],
+    "answer_contains_all": [
+      "Chinese"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q17",
+    "split": "holdout",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "那个区域代码是什么？",
+    "history": [
+      {
+        "role": "user",
+        "content": "我们只讨论苍鹭项目的唯一部署区域。"
+      }
+    ],
+    "gold_memory_ids": [
+      "s01"
+    ],
+    "answer_contains_all": [
+      "cn-north-7"
+    ],
+    "forbidden_memory_ids": [
+      "d01",
+      "d04"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q18",
+    "split": "holdout",
+    "category": "synonym",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "苍鹭服务最近规定要在多少毫秒内完成检索？",
+    "history": [],
+    "gold_memory_ids": [
+      "s05"
+    ],
+    "answer_contains_all": [
+      "230"
+    ],
+    "forbidden_memory_ids": [
+      "d02"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q19",
+    "split": "holdout",
+    "category": "multi",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "苍鹭项目允许哪天几点维护数据库，回滚保留多少天？",
+    "history": [],
+    "gold_memory_ids": [
+      "s02",
+      "s03"
+    ],
+    "answer_contains_all": [
+      "17",
+      "03:20",
+      "周二"
+    ],
+    "forbidden_memory_ids": [
+      "d03"
+    ],
+    "expected_abstention": false,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q20",
+    "split": "holdout",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "最终保存几个完整轮次？",
+    "history": [
+      {
+        "role": "user",
+        "content": "现在解释 Better 上下文压缩后保护近期对话的默认规则。"
+      }
+    ],
+    "gold_memory_ids": [
+      "r06"
+    ],
+    "answer_contains_all": [
+      "5"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q21",
+    "split": "holdout",
+    "category": "negative",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 官方承诺的在线可用性 SLA 是多少？",
+    "history": [],
+    "gold_memory_ids": [],
+    "answer_contains_all": [],
+    "forbidden_memory_ids": [],
+    "expected_abstention": true,
+    "origin": "constructed scenario",
+    "notes": ""
+  },
+  {
+    "id": "q22",
+    "split": "holdout",
+    "category": "exact",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "Better 普通对话的 episode_token_budget 是多少？",
+    "history": [],
+    "gold_memory_ids": [
+      "r09"
+    ],
+    "answer_contains_all": [
+      "0"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q23",
+    "split": "holdout",
+    "category": "context",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "这个数是多少？",
+    "history": [
+      {
+        "role": "user",
+        "content": "我要核对 Better 登记的 DeepSeek 官方最大输出容量，注意不是上下文窗口。"
+      }
+    ],
+    "gold_memory_ids": [
+      "r10"
+    ],
+    "answer_contains_all": [
+      "393216"
+    ],
+    "forbidden_memory_ids": [],
+    "expected_abstention": false,
+    "origin": "repository-grounded question",
+    "notes": ""
+  },
+  {
+    "id": "q24",
+    "split": "holdout",
+    "category": "scope",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "query": "黑鹭项目的唯一部署区域是什么？",
+    "history": [],
+    "gold_memory_ids": [],
+    "answer_contains_all": [],
+    "forbidden_memory_ids": [
+      "d01",
+      "d04"
+    ],
+    "expected_abstention": true,
+    "origin": "constructed scenario",
+    "notes": "当前项目限定为 better-eval；其他项目和其他用户事实不可使用。"
+  }
+]

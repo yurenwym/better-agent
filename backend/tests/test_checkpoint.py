@@ -35,20 +35,39 @@ from test_runtime import make_runtime
 
 @pytest.mark.asyncio
 async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path) -> None:
+    from app.memory_v2 import MemoryContextProvider, MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
-    runtime = make_runtime(tmp_path, MockModelGateway(
-        plan_steps=[{"id": "step-1", "title": "Observe"}],
-        decisions=[ModelDecision.await_outcome("wait")],
-    ))
-    candidate = runtime.memory.create_candidate("memory", "memory", "preference", "Use concise plans", "global", 0.9, [])
-    runtime.memory.confirm(candidate.id)
-    run = await runtime.create_goal("Memory", "Use memory")
-    await runtime.handle_message(run.id, "Use memory")
+    class ContextModel(MockModelGateway):
+        def __init__(self):
+            super().__init__(
+                plan_steps=[{"id": "step-1", "title": "Observe"}],
+                decisions=[ModelDecision.await_outcome("wait")],
+            )
+            self.contexts = []
+
+        def set_context_snapshot(self, snapshot_hash, text):
+            self.contexts.append(text)
+
+    model = ContextModel()
+    runtime = make_runtime(tmp_path, model)
+    store = MemoryStore(runtime.db, tmp_path / "memory-v2")
+    entry = store.remember("local-user", "preference", "user", "", "Use concise plans", "remember-1")
+    runtime.memory_store = store
+    runtime.memory_context = MemoryContextProvider(runtime.db)
+    thread = runtime.conversation.create_thread("Memory", owner_id="local-user")
+    source = runtime.conversation.accept_turn(thread.id, "source", "Use memory", owner_id="local-user")
+    run = await runtime.create_goal("Memory", "Use concise plans")
+    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
+    run = runtime.get_run(run.id)
+    await runtime.handle_message(run.id, "Use concise plans")
     await runtime.approve_plan(run.id, 1)
 
     checkpoint = runtime.checkpoints.latest(run.id)
 
     assert checkpoint is not None
-    assert checkpoint.applied_memory_versions
-    assert any(event.type == "memory.applied" for event in runtime.events.list(run.id))
+    assert any("Use concise plans" in context for context in model.contexts)
+    assert entry.revision_id in checkpoint.applied_memory_versions
+    applied = [event for event in runtime.events.list(run.id) if event.type == "memory.context_applied"]
+    assert applied
+    assert entry.revision_id in applied[-1].data["revision_ids"]

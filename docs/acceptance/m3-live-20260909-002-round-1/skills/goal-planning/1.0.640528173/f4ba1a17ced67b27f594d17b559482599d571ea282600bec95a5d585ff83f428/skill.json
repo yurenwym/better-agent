@@ -1,0 +1,1 @@
+{"connectors":[],"description":"Turn one local user goal into a short, ordered list of atomic steps that can be reviewed and approved before execution.","entry_document":"SKILL.md","name":"goal-planning","phases":["ask","planner","executor"],"requested_tools":["local_time","calculator","read_note"],"schema_version":1,"title":"Goal planning","version":"1.0.640528173"}

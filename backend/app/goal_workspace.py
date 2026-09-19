@@ -81,7 +81,7 @@ class GoalWorkspaceService:
         status = program["status"]
         if status == "DRAFT":
             if program.get("compile_status") == "READY":
-                return "READY_TO_START", self._action("activate_program", "开始执行计划", f"/plans/{plan.id}", program["id"], "执行预览已准备好，确认后会生成 Today 行动清单。")
+                return "READY_TO_START", self._action("activate_program", "开始执行计划", f"/plans/{plan.id}", program["id"], "执行预览已准备好，确认后会生成今日行动清单。")
             return "PLANNING", self._action("retry_compile", "重试生成执行安排", f"/plans/{plan.id}", program["id"], "执行安排尚未准备好。")
         if status == "ACTIVE":
             if review and review.get("proposal") and review["proposal"].get("status") == "PENDING":
@@ -90,8 +90,8 @@ class GoalWorkspaceService:
                 return "REVIEWING", self._action("open_review", "查看每日复盘", "/today", program["id"], "今日记录已提交，Agent 正在生成复盘。")
             action = self._next_scheduled(program)
             if action:
-                return "EXECUTING", self._action("complete_action", "完成下一项行动", "/today", action["id"], "Today 中有待完成行动。")
-            return "EXECUTING", self._action("open_today", "查看 Today", "/today", program["id"], "查看当前执行进度和完整日程。")
+                return "EXECUTING", self._action("complete_action", "完成下一项行动", "/today", action["id"], "今日行动中有待完成行动。")
+            return "EXECUTING", self._action("open_today", "查看今日行动", "/today", program["id"], "查看当前执行进度和完整日程。")
         if status == "PAUSED":
             return "PAUSED", self._action("resume_program", "恢复执行", "/today", program["id"], "目标已暂停，恢复后会继续显示行动。")
         if status == "COMPLETED":

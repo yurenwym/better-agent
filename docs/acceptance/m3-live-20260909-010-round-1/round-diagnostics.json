@@ -1,0 +1,243 @@
+{
+  "batch_id": "M3-LIVE-20260909-010",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_2ec94f874db54f05b0dad10ea91e2e7e",
+      "status": "COMPLETED",
+      "policy": "start_expert",
+      "reason_code": "",
+      "runtime_bundle_id": "bundle_9cde99d21fdcd7459f25d3fb"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 200
+    },
+    {
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 684
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 8114
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 8028
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 1290
+    },
+    {
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 650
+    },
+    {
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-010-price-241072894c27",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 952
+    }
+  ],
+  "agent_runs": [
+    {
+      "id": "agent_run_3f986f8976324aad9d298a900f46a940",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_f4cba05538ce4d4cbef4237de50518e9"
+    },
+    {
+      "id": "agent_run_48d16d85f115450b90cf03f01f1ee44f",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_332ceb5361204e00beca24a360a5de62"
+    },
+    {
+      "id": "agent_run_eb9b70de5a954ed2893b7eb1a8c25898",
+      "status": "FAILED",
+      "coordinator_task_id": "agent_task_93b01e9795d94a608091a3abc407b42a"
+    },
+    {
+      "id": "agent_run_8425c91c1280470c81130dfdfbac7251",
+      "status": "CANCELLED",
+      "coordinator_task_id": "agent_task_656a9df04d58439e8610ac1a68863d26"
+    }
+  ],
+  "agent_tasks": [
+    {
+      "id": "agent_task_f4cba05538ce4d4cbef4237de50518e9",
+      "agent_run_id": "agent_run_3f986f8976324aad9d298a900f46a940",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_1cd95cc7e8ec413dbd8983d7d3fe5679"
+    },
+    {
+      "id": "agent_task_4d3611e9f6cf4e4b8934fd5e7b38f4f1",
+      "agent_run_id": "agent_run_3f986f8976324aad9d298a900f46a940",
+      "role": "planner",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_668997bdac48417eb05417eb32e764b3"
+    },
+    {
+      "id": "agent_task_5ef54f54802745fb9dd78bf3fcd9031f",
+      "agent_run_id": "agent_run_3f986f8976324aad9d298a900f46a940",
+      "role": "critic",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_118bbbdd2b40465babfaf8eee4c50a54"
+    },
+    {
+      "id": "agent_task_7bba7118f70a465583e80ef9b2fec2e6",
+      "agent_run_id": "agent_run_3f986f8976324aad9d298a900f46a940",
+      "role": "researcher",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_5c52df21fd9d46c484befe8070023c29"
+    },
+    {
+      "id": "agent_task_332ceb5361204e00beca24a360a5de62",
+      "agent_run_id": "agent_run_48d16d85f115450b90cf03f01f1ee44f",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_80a0c424fa6a44b08975b7853673df5f"
+    },
+    {
+      "id": "agent_task_91674e0be79549d2a5e4bea5c7e4b7f9",
+      "agent_run_id": "agent_run_48d16d85f115450b90cf03f01f1ee44f",
+      "role": "critic",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_89bf5596ab344ea987a3bc65f39a84b1"
+    },
+    {
+      "id": "agent_task_d56f33f6f8b64c76bb8e8001b5454ccd",
+      "agent_run_id": "agent_run_48d16d85f115450b90cf03f01f1ee44f",
+      "role": "researcher",
+      "status": "FAILED",
+      "error_code": "MODEL_ERROR",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_93b01e9795d94a608091a3abc407b42a",
+      "agent_run_id": "agent_run_eb9b70de5a954ed2893b7eb1a8c25898",
+      "role": "coordinator",
+      "status": "FAILED",
+      "error_code": "ALL_EXPERTS_FAILED",
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_308b8849e9794b87873b13d6141de2bb",
+      "agent_run_id": "agent_run_eb9b70de5a954ed2893b7eb1a8c25898",
+      "role": "researcher",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_398573dca7394856847482d758a42543",
+      "agent_run_id": "agent_run_eb9b70de5a954ed2893b7eb1a8c25898",
+      "role": "critic",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_82ae1dcfe9e24edbbbb686e56727f48c",
+      "agent_run_id": "agent_run_eb9b70de5a954ed2893b7eb1a8c25898",
+      "role": "planner",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_656a9df04d58439e8610ac1a68863d26",
+      "agent_run_id": "agent_run_8425c91c1280470c81130dfdfbac7251",
+      "role": "coordinator",
+      "status": "CANCELLED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 3,
+      "result_artifact_id": null
+    }
+  ]
+}

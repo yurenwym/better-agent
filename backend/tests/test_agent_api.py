@@ -33,7 +33,17 @@ def test_expert_run_rejects_unknown_thread_and_empty_objective(tmp_path):
     assert http.post(f"/api/threads/{thread['id']}/expert-runs", headers=headers(app), json={"objective":"","idempotency_key":"x"}).status_code == 422
 
 
-def test_expert_run_worker_without_model_fails_visibly(tmp_path):
+def test_expert_run_worker_without_model_fails_visibly(tmp_path, monkeypatch):
+    for name in (
+        "LLM_AP_PATH",
+        "AGENT_MODEL_BASE_URL",
+        "AGENT_MODEL_ID",
+        "AGENT_MODEL_API_KEY",
+        "AGENT_FALLBACK_MODEL_BASE_URL",
+        "AGENT_FALLBACK_MODEL_ID",
+        "AGENT_FALLBACK_MODEL_API_KEY",
+    ):
+        monkeypatch.delenv(name, raising=False)
     runtime = build_runtime(tmp_path)
     app = create_app(runtime=runtime)
     with TestClient(app) as http:

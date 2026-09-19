@@ -66,12 +66,63 @@ def test_runtime_uses_one_configured_profile_without_cross_vendor_fallback(tmp_p
     runtime = build_runtime(tmp_path)
 
     assert isinstance(runtime.model, LiveRuntimeModel)
+    assert runtime.memory_context.ranking_strategy == "rrf"
+    assert runtime.memory_context.semantic_candidate_limit == 50
+    assert runtime.memory_context.lexical_candidate_limit == 50
+
+
+def test_runtime_routes_all_roles_to_an_explicit_fallback_after_primary(tmp_path, monkeypatch) -> None:
+    from app.startup import build_runtime
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "primary-secret")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://primary.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "primary-model")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    monkeypatch.setenv("AGENT_FALLBACK_MODEL_API_KEY", "fallback-secret")
+    monkeypatch.setenv("AGENT_FALLBACK_MODEL_BASE_URL", "https://api.siliconflow.cn/v1")
+    monkeypatch.setenv("AGENT_FALLBACK_MODEL_ID", "Qwen/Qwen3.5-122B-A10B")
+    monkeypatch.setenv("AGENT_FALLBACK_MODEL_PROVIDER_NAME", "siliconflow")
+    monkeypatch.setenv("AGENT_FALLBACK_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+
+    runtime = build_runtime(tmp_path)
+    stable = runtime.behavior.active("stable").manifest
+
+    assert stable["model"]["model"] == "primary-model"
+    assert [item["model"] for item in stable["fallback_models"]] == ["Qwen/Qwen3.5-122B-A10B"]
+    with runtime.db.connection() as connection:
+        for route in stable["model_role_bindings"].values():
+            assert len(route["fallback"]) == 1
+            primary = connection.execute(
+                "SELECT model_name FROM model_profile_versions WHERE id=?", (route["primary"],),
+            ).fetchone()
+            fallback = connection.execute(
+                "SELECT model_name,credential_env_ref FROM model_profile_versions WHERE id=?",
+                (route["fallback"][0],),
+            ).fetchone()
+            assert primary["model_name"] == "primary-model"
+            assert fallback["model_name"] == "Qwen/Qwen3.5-122B-A10B"
+            assert fallback["credential_env_ref"] == "AGENT_FALLBACK_MODEL_API_KEY"
+        dump = "\n".join(connection.iterdump())
+    assert "primary-secret" not in dump
+    assert "fallback-secret" not in dump
 
 
 def test_configured_startup_repairs_an_unroutable_stable_bundle(tmp_path, monkeypatch) -> None:
     from app.startup import build_runtime
 
-    for name in ("LLM_AP_PATH", "AGENT_MODEL_BASE_URL", "AGENT_MODEL_ID", "AGENT_MODEL_API_KEY"):
+    for name in (
+        "LLM_AP_PATH",
+        "AGENT_MODEL_BASE_URL",
+        "AGENT_MODEL_ID",
+        "AGENT_MODEL_API_KEY",
+        "AGENT_FALLBACK_MODEL_BASE_URL",
+        "AGENT_FALLBACK_MODEL_ID",
+        "AGENT_FALLBACK_MODEL_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "AGENT_MODEL_PROVIDER",
+    ):
         monkeypatch.delenv(name, raising=False)
     build_runtime(tmp_path)
 
@@ -92,7 +143,7 @@ def test_configured_startup_repairs_an_unroutable_stable_bundle(tmp_path, monkey
     assert policy["policy_digest"] == routing["digest"]
 
 
-def test_configured_startup_preserves_an_existing_routable_stable_bundle(tmp_path, monkeypatch) -> None:
+def test_configured_startup_activates_a_changed_model_profile(tmp_path, monkeypatch) -> None:
     from app.startup import build_runtime
 
     monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
@@ -106,14 +157,35 @@ def test_configured_startup_preserves_an_existing_routable_stable_bundle(tmp_pat
     monkeypatch.setenv("AGENT_MODEL_ID", "second")
     second = build_runtime(tmp_path)
 
-    assert second.behavior.active("stable").id == stable_id
+    stable = second.behavior.active("stable")
+    assert stable.id != stable_id
+    assert stable.manifest["model"]["base_url"] == "https://provider-two.test/v1"
+    with second.db.connection() as connection:
+        selected = connection.execute(
+            "SELECT base_url FROM model_profile_versions WHERE id=?",
+            (stable.manifest["model_role_bindings"]["conversation"]["primary"],),
+        ).fetchone()
+    assert selected is not None
+    assert selected["base_url"] == "https://provider-two.test/v1"
 
 
 @pytest.mark.asyncio
 async def test_runtime_without_model_fails_visibly_instead_of_echoing_user_input(tmp_path, monkeypatch) -> None:
     from app.startup import build_runtime
 
-    for name in ("LLM_AP_PATH", "AGENT_MODEL_BASE_URL", "AGENT_MODEL_ID", "AGENT_MODEL_API_KEY"):
+    for name in (
+        "LLM_AP_PATH",
+        "AGENT_MODEL_BASE_URL",
+        "AGENT_MODEL_ID",
+        "AGENT_MODEL_API_KEY",
+        "AGENT_FALLBACK_MODEL_BASE_URL",
+        "AGENT_FALLBACK_MODEL_ID",
+        "AGENT_FALLBACK_MODEL_API_KEY",
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "AGENT_MODEL_PROVIDER",
+    ):
         monkeypatch.delenv(name, raising=False)
     runtime = build_runtime(tmp_path)
     thread = runtime.conversation.create_thread("模型配置检查")
@@ -143,3 +215,57 @@ def test_runtime_rejects_tavily_without_key(tmp_path,monkeypatch)->None:
     monkeypatch.setenv("AGENT_MODEL_API_KEY","configured");monkeypatch.setenv("AGENT_MODEL_BASE_URL","https://provider.test/v1");monkeypatch.setenv("AGENT_MODEL_ID","demo")
     monkeypatch.setenv("RESEARCH_SEARCH_PROVIDER","tavily");monkeypatch.delenv("TAVILY_API_KEY",raising=False)
     with pytest.raises(ValueError,match="TAVILY_API_KEY"):build_runtime(tmp_path)
+
+
+def test_official_deepseek_startup_registers_price_and_is_ready(tmp_path, monkeypatch) -> None:
+    from app.main import create_app
+    from app.startup import build_runtime
+
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_MODEL_ID", "AGENT_MODEL_API_KEY", "LLM_AP_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    for name in ("AGENT_FALLBACK_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_ID", "AGENT_FALLBACK_MODEL_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_PROVIDER", "deepseek")
+
+    runtime = build_runtime(tmp_path)
+    readiness = runtime.model_readiness.check()
+    bootstrap = TestClient(create_app(runtime=runtime)).get(
+        "/api/bootstrap", headers={"host": "127.0.0.1:8000"},
+    ).json()
+
+    assert readiness["ready"] is True
+    assert readiness["network_verified"] is False
+    assert bootstrap["api_key_env"] == "DEEPSEEK_API_KEY"
+    assert set(readiness["required_roles"]) == {"conversation", "ask"}
+    assert all(item["source_url"].startswith("https://api-docs.deepseek.com/") for item in readiness["prices"].values())
+
+
+def test_custom_unpriced_model_is_rejected_before_turn_is_accepted(tmp_path, monkeypatch) -> None:
+    from app.main import create_app
+    from app.startup import build_runtime
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://custom.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "custom")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    runtime = build_runtime(tmp_path)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    headers = {
+        "host": "127.0.0.1:8000", "origin": "http://127.0.0.1:8000",
+        "content-type": "application/json", "x-csrf-token": app.state.csrf_token,
+    }
+    thread = client.post("/api/threads", headers=headers, json={"title": "readiness"}).json()
+
+    readiness = client.get("/api/model-readiness", headers={"host": "127.0.0.1:8000"})
+    response = client.post(
+        f"/api/threads/{thread['id']}/turns", headers=headers,
+        json={"client_turn_id": "not-accepted", "content": "hello"},
+    )
+
+    assert readiness.status_code == 200
+    assert readiness.json()["errors"][0]["code"] == "MODEL_PRICE_MISSING"
+    assert response.status_code == 503
+    assert response.json()["detail"]["errors"][0]["retryable"] is False
+    assert runtime.conversation.turns(thread["id"]) == []

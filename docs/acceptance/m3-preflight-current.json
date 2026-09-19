@@ -1,0 +1,15 @@
+{
+  "batch_id": "M3-LIVE-20260909-001",
+  "status": "NOT_AUTHORISED",
+  "network_started": false,
+  "limits": {
+    "rounds": 3,
+    "attempts_per_round": 4,
+    "total_attempts": 18,
+    "worst_attempt_microusd": 25232,
+    "worst_batch_microusd": 454176,
+    "max_seconds": 900,
+    "fallback_models": 0
+  },
+  "reason": "set M3_LIVE_APPROVED=1 only after approving the complete M3 budget sheet"
+}

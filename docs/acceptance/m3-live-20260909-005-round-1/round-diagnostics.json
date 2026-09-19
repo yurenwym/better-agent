@@ -1,0 +1,99 @@
+{
+  "batch_id": "M3-LIVE-20260909-005",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_3432afb7029e4e27976be5667f706228",
+      "status": "COMPLETED",
+      "policy": "start_expert",
+      "reason_code": "explicit_expert_collab",
+      "runtime_bundle_id": "bundle_2e73ec6b2665a53ddccdd5bd"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "conversation",
+      "purpose": "classify_research_request",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 200
+    },
+    {
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 280
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 4496
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 4165
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 2297
+    },
+    {
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-005-price-48d53033d519",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 318
+    },
+    {
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "STARTED",
+      "error_kind": null,
+      "cost_status": "UNAVAILABLE",
+      "cost_microusd": null,
+      "price_snapshot_id": null,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": null
+    }
+  ]
+}

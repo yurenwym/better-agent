@@ -13,11 +13,12 @@ describe("personal agent workspace", () => {
   it("switches between the four core pages", () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
+    fireEvent.click(screen.getByText("控制台"));
+    fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
     expect(screen.getAllByRole("heading", { name: "运行轨迹" }).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "计划" }));
-    expect(screen.getAllByRole("heading", { name: "已保存计划" }).length).toBeGreaterThan(0);
-    fireEvent.click(screen.getByRole("button", { name: "记忆" }));
+    fireEvent.click(screen.getByRole("link", { name: "计划" }));
+    expect(screen.getByRole("navigation", { name: "计划视图" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("link", { name: "记忆" }));
     expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
   });
 
@@ -33,10 +34,11 @@ describe("personal agent workspace", () => {
   it("uses a wider shell for the trajectory workspace", () => {
     render(<App />);
 
-    fireEvent.click(screen.getByRole("button", { name: "轨迹" }));
+    fireEvent.click(screen.getByText("控制台"));
+    fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
 
     const main = screen.getByRole("main");
-    expect(main.querySelector(".workspace-page-header")?.className).toContain("workspace-page-header-trajectory");
+    expect(main.querySelector(".workspace-topbar h1")?.textContent).toBe("运行轨迹");
     expect(main.querySelector(".workspace-page")?.className).toContain("workspace-page-trajectory");
   });
 
@@ -70,9 +72,28 @@ describe("personal agent workspace", () => {
 
     const main = screen.getByRole("main");
     expect(main.querySelector(".workspace-page-header-today")).toBeNull();
-    expect(main.querySelector(".workspace-page-today")?.className).toContain("workspace-page-fluid");
-    expect(main.querySelector(".today-list")).toBeTruthy();
-    expect(main.querySelector(".today-detail")).toBeTruthy();
+    expect(main.querySelector(".workspace-page-today")?.className).toContain("workspace-page-wide");
+    expect(main.querySelector(".workspace-page-today")?.className).not.toContain("workspace-page-fluid");
+    expect(main.querySelector(".today-load-state")).toBeTruthy();
+    const goalNav=screen.getByRole("navigation",{name:"工作区导航"});
+    expect(goalNav.querySelector('[aria-current="page"]')?.textContent).toBe("计划");
+  });
+
+  it("keeps four daily work destinations visible instead of hiding goals",()=>{
+    render(<WorkspaceSidebar activePage="chat" bootstrap={null} run={null} onNavigate={()=>undefined} onNewConversation={()=>undefined}/>);
+    const goalNav=screen.getByRole("navigation",{name:"工作区导航"});
+    expect(goalNav.querySelectorAll("a")).toHaveLength(3);
+    expect(goalNav.textContent).toContain("计划");
+    expect(goalNav.textContent).not.toContain("今日");
+    expect(goalNav.querySelector('[aria-current="page"]')?.textContent).toBe("对话");
+  });
+
+  it("restores plan deep links when browser history changes",async()=>{
+    window.history.pushState({},"","/plans/plan-first");
+    render(<App/>);
+    window.history.pushState({},"","/plans/plan-second");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+    expect(window.location.pathname).toBe("/plans/plan-second");
   });
 
   it("keeps multiple conversation entries and switches the active thread", () => {
@@ -83,10 +104,10 @@ describe("personal agent workspace", () => {
     const onSelectThread = vi.fn();
     render(<WorkspaceSidebar activePage="chat" activeThreadId="thread-2" bootstrap={null} run={null} threads={threads} onNavigate={()=>undefined} onNewConversation={()=>undefined} onSelectThread={onSelectThread}/>);
 
-    expect(screen.getByRole("button", { name: /^广西旅行/ }).getAttribute("aria-current")).toBe("page");
-    fireEvent.click(screen.getByRole("button", { name: /^骑行计划/ }));
+    expect(screen.getByRole("link", { name: /^广西旅行/ }).getAttribute("aria-current")).toBe("page");
+    fireEvent.click(screen.getByRole("link", { name: /^骑行计划/ }));
     expect(onSelectThread).toHaveBeenCalledWith("thread-1");
-    expect(screen.getByRole("button", { name: /^广西旅行/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /^广西旅行/ })).toBeTruthy();
   });
 
   it("offers a separate labelled delete action for every conversation", () => {

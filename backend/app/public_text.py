@@ -11,6 +11,7 @@ RUNTIME_REASON_MESSAGES = {
     "INVALID_MODEL_ACTION": "模型返回了无法识别的操作",
     "MODEL_REQUESTED_BLOCK": "模型请求暂停当前任务",
     "TOOL_AUTHORIZATION_DENIED": "工具调用未通过安全授权",
+    "TOOL_RECONCILIATION_REQUIRED": "写入结果尚未确认，操作可能仍在执行；任务已暂停，请先核对实际结果，不要重复提交",
     "MODEL_AUTHENTICATION": "模型凭证未通过验证",
     "MODEL_RATE_LIMIT": "模型服务当前请求过多，请稍后重试",
     "MODEL_REQUEST": "模型服务拒绝了当前请求格式",

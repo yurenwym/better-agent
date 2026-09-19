@@ -25,13 +25,15 @@ async function expectResponsiveShell(page: Page) {
   await page.setViewportSize({ width: 390, height: 844 });
   await expectNoHorizontalOverflow(page);
   await expect(page.locator(".workspace-app")).toHaveCSS("display", "block");
-  await expect(page.locator(".workspace-sidebar")).toHaveCSS("position", "relative");
+  await expect(page.locator(".workbench-sidebar")).toBeHidden();
+  await expect(page.getByRole("button",{name:"打开导航"})).toBeVisible();
   await expect.poll(async () => (await page.locator(".workspace-main").boundingBox())?.width ?? Infinity).toBeLessThanOrEqual(390);
 }
 
 async function openControlPage(page: Page, label: string, pathname: string) {
   await page.goto("/");
-  await page.getByRole("button", { name: label, exact: true }).click();
+  await page.locator(".workbench-controls > summary").click();
+  await page.getByRole("link", { name: label === "Skill" ? "技能" : label, exact: true }).click();
   await expect(page).toHaveURL(new RegExp(`${pathname.replace("/", "\\/")}$`));
 }
 
@@ -95,7 +97,7 @@ test("models recovers from loading failure and verifies a registered model", asy
   await expectResponsiveShell(page);
 });
 
-test("usage renders authoritative metrics and reports a rejected then saved budget", async ({ page }) => {
+test("usage renders estimated fees without monetary budget controls", async ({ page }) => {
   await mockShell(page);
   const summaries: Record<string, { limit_microusd: number; reserved_microusd: number; charged_microusd: number }> = {
     INVOCATION: { limit_microusd: 100_000, reserved_microusd: 2_000, charged_microusd: 8_000 },
@@ -111,27 +113,13 @@ test("usage renders authoritative metrics and reports a rejected then saved budg
     fallbacks: 1, cost_microusd: 123_456, unknown_cost_attempts: 0, success_rate: 0.9, fallback_rate: 0.1,
     ttft_seconds: 0.42, tps: 31.25, p95_latency_seconds: 2.7,
   }] }));
-  let saves = 0;
-  await page.route("**/api/cost/budgets", async route => {
-    expect(route.request().method()).toBe("PUT");
-    const payload = JSON.parse(route.request().postData() ?? "{}") as { period_kind: string; limit_microusd: number };
-    expect(payload).toMatchObject({ period_kind: "DAILY", limit_microusd: 1_500_000 });
-    saves += 1;
-    if (saves === 1) return fulfillJson(route, { detail: "预算版本冲突，请重试" }, 409);
-    summaries.DAILY = { ...summaries.DAILY, limit_microusd: payload.limit_microusd };
-    return fulfillJson(route, summaries.DAILY);
-  });
 
   await openControlPage(page, "用量", "/usage");
-  await expect(page.getByRole("heading", { name: "用量与预算" })).toBeVisible();
-  await expect(page.getByRole("table")).toContainText("planner");
+  await expect(page.getByRole("heading", { name: "用量与费用" })).toBeVisible();
+  await expect(page.getByRole("table")).toContainText("规划");
   await expect(page.getByRole("table")).toContainText("90.0%");
-  const daily = page.locator("form").filter({ hasText: "DAILY 上限" });
-  await daily.getByRole("spinbutton").fill("1500000");
-  await daily.getByRole("button", { name: "保存预算" }).click();
-  await expect(page.getByRole("alert")).toContainText("预算版本冲突，请重试");
-  await daily.getByRole("button", { name: "保存预算" }).click();
-  await expect(page.getByRole("status")).toContainText("DAILY 预算已保存");
+  await expect(page.getByRole("button", { name: "保存预算" })).toHaveCount(0);
+  await expect(page.getByText("$0.250000",{exact:true})).toBeVisible();
 
   await expectResponsiveShell(page);
 });
@@ -169,9 +157,9 @@ test("evaluation detail exposes progress and confirms cancellation through the U
   });
 
   await openControlPage(page, "评测", "/evaluations");
-  await page.getByLabel("基线 Bundle").fill("stable");
-  await page.getByLabel("候选 Bundle").fill("candidate");
-  for (const [label, value] of [["基线模型", "baseline"], ["候选模型", "candidate"], ["质量 Judge", "quality-judge"], ["安全 Judge", "safety-judge"]] as const) {
+  await page.getByLabel("基线配置包").fill("stable");
+  await page.getByLabel("候选配置包").fill("candidate");
+  for (const [label, value] of [["基线模型", "baseline"], ["候选模型", "candidate"], ["质量评审模型", "quality-judge"], ["安全评审模型", "safety-judge"]] as const) {
     await page.getByLabel(label).selectOption(value);
   }
   await page.getByRole("button", { name: "启动真实评测" }).click();
@@ -185,7 +173,7 @@ test("evaluation detail exposes progress and confirms cancellation through the U
   await expect(page.getByRole("alert")).toContainText("评测正在结算，请稍后重试");
   await page.getByRole("button", { name: "取消评测" }).click();
   await page.getByRole("dialog", { name: "取消评测？" }).getByRole("button", { name: "确认取消" }).click();
-  await expect(page.getByText("CANCELLED")).toBeVisible();
+  await expect(page.getByText("已取消")).toBeVisible();
   await expect(page.getByRole("status")).toContainText("评测取消请求已提交");
 
   await expectResponsiveShell(page);
@@ -226,20 +214,22 @@ test("skills reveals version permissions and safely toggles a fixed version", as
   await page.getByRole("button", { name: "停用版本" }).click();
   await expect(page.getByRole("alert")).toContainText("版本正在被新运行绑定");
   await page.getByRole("button", { name: "停用版本" }).click();
-  await expect(page.getByText("DISABLED")).toBeVisible();
+  await expect(page.getByText("已停用", { exact: true })).toBeVisible();
   await expect(page.getByRole("status")).toContainText("Skill 已停用");
 
   await expectResponsiveShell(page);
 });
 
 test("trajectory search and Growth approval remain operable across control navigation", async ({ page }) => {
-  const thread = { id: "thread-1", title: "骑行成长计划", version: 2, active_turn_id: "turn-1", next_event_seq: 3, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T01:00:00Z", turns: [{ id: "turn-1", status: "COMPLETED" }] };
+  const thread = { id: "thread-1", title: "骑行成长计划", version: 2, active_turn_id: "turn-1", next_event_seq: 5, created_at: "2026-08-28T00:00:00Z", updated_at: "2026-08-28T01:00:00Z", turns: [{ id: "turn-1", status: "COMPLETED" }] };
   await mockShell(page, [thread]);
   await page.route("**/api/threads/thread-1", route => fulfillJson(route, thread));
   await page.route("**/api/threads/thread-1/messages", route => fulfillJson(route, { messages: [] }));
   await page.route("**/api/threads/thread-1/events?**", route => fulfillJson(route, { events: [
     { schema_version: 1, event_id: "event-1", seq: 1, thread_id: thread.id, turn_id: "turn-1", type: "ask.requested", occurred_at: "2026-08-28T00:00:01Z", actor: "runtime", data: { ask_id: "ask-1", questions: [{ id: "goal", header: "目标", question: "你的目标是什么？", options: [{ label: "建立习惯", description: "稳定训练" }], multi_select: false, allow_free_text: true }] } },
-    { schema_version: 1, event_id: "event-2", seq: 2, thread_id: thread.id, turn_id: "turn-1", type: "turn.completed", occurred_at: "2026-08-28T00:00:02Z", actor: "runtime", data: {} },
+    { schema_version: 1, event_id: "event-2", seq: 2, thread_id: thread.id, turn_id: "turn-1", type: "message.completed", occurred_at: "2026-08-28T00:00:02Z", actor: "runtime", data: {} },
+    { schema_version: 1, event_id: "event-3", seq: 3, thread_id: thread.id, turn_id: "turn-1", type: "message.delta", occurred_at: "2026-08-28T00:00:03Z", actor: "model", data: { delta: "partial" } },
+    { schema_version: 1, event_id: "event-4", seq: 4, thread_id: thread.id, turn_id: "turn-1", type: "turn.metrics.updated", occurred_at: "2026-08-28T00:00:04Z", actor: "worker", data: { queue_wait_ms: 320, context_ms: 40, model_ttft_ms: 1234, stream_ms: 2100, total_ms: 3694 } },
   ] }));
   await page.route("**/api/threads/thread-1/events/stream?**", route => route.fulfill({ status: 200, contentType: "text/event-stream", body: "" }));
   await page.route("**/api/threads/thread-1/expert-runs/latest", route => fulfillJson(route, { detail: "not found" }, 404));
@@ -252,6 +242,7 @@ test("trajectory search and Growth approval remain operable across control navig
   const candidate = () => ({
     id: "candidate-1", kind: "prompt", title: "减少无效追问", summary: "只在关键信息缺失时询问。",
     status: candidateStatus, version: candidateVersion, risk_level: "medium", evidence_count: 8, record_origin: "observed",
+    approval_eligible: true,
     reason: "多个长期目标出现了重复追问。", proposed_content: { prompts: "research-scope-bounded" },
     evaluation: { status: "COMPLETED", deterministic_pass: true, regressions: [], metrics: { passed: 12, total: 12, baseline_correct: 8, candidate_correct: 10, quality_delta: 0.2, safety_violations: 0 } },
     permission_diff: { added: [], removed: [], unchanged: ["conversation:read"] }, canary: null,
@@ -268,18 +259,25 @@ test("trajectory search and Growth approval remain operable across control navig
   });
 
   await page.goto("/threads/thread-1");
-  await page.getByRole("button", { name: "轨迹", exact: true }).click();
+  await page.getByRole("button", { name: "运行详情", exact: true }).click();
   await expect(page.getByRole("region", { name: "对话时间线" })).toBeVisible();
   await expect(page.getByText("问题已准备好")).toBeVisible();
-  await page.getByLabel("搜索轨迹").fill("本轮对话完成");
-  await expect(page.getByText("本轮对话完成")).toBeVisible();
+  await expect(page.getByText("0.32s")).toBeVisible();
+  await expect(page.getByText("1.23s")).toBeVisible();
+  await expect(page.getByText("回答正在实时生成")).toHaveCount(0);
+  await page.getByRole("button", { name: "调试" }).click();
+  await expect(page.getByText("回答正在实时生成")).toBeVisible();
+  await page.getByRole("button", { name: "摘要" }).click();
+  await page.getByLabel("搜索轨迹").fill("回答生成完成");
+  await expect(page.getByText("回答生成完成")).toBeVisible();
   await expect(page.getByText("问题已准备好")).toBeHidden();
 
-  await page.getByRole("button", { name: "成长", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Agent 正在怎样变得更好" })).toBeVisible();
+  await page.getByRole("link", { name: "回顾与改进", exact: true }).click();
+  await page.getByRole("radio", { name: "Agent 改进", exact: true }).check();
+  await expect(page.getByRole("heading", { name: "Agent 改进", exact: true })).toBeVisible();
   await expect(page.getByText("8 条证据")).toBeVisible();
   await page.getByRole("button", { name: "批准候选" }).click();
-  await expect(page.getByRole("status")).toContainText("操作已记录，候选状态已更新");
+  await expect(page.locator(".growth-notice")).toContainText("操作已记录，候选状态已更新");
   await expect(page.getByRole("button", { name: "开始 Canary" })).toBeVisible();
 
   await expectResponsiveShell(page);

@@ -15,7 +15,19 @@ def headers(app, key):
     }
 
 
-def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
+def test_evaluation_error_is_returned_without_name_error(tmp_path, monkeypatch):
+    from app.evolution import EvolutionGateError
+    runtime = build_runtime(tmp_path)
+    def fail(*args, **kwargs):
+        raise EvolutionGateError("candidate cannot be evaluated")
+    monkeypatch.setattr(runtime.evolution, "evaluate_builtin", fail)
+    app = create_app(runtime=runtime)
+    response = TestClient(app).post('/api/evolution/candidates/test/evaluate', headers=headers(app, 'error'), json={'expected_version':0})
+    assert response.status_code == 409
+    assert response.json()['detail'] == 'candidate cannot be evaluated'
+
+
+def test_evolution_http_rejects_legacy_smoke_release(tmp_path):
     runtime = build_runtime(tmp_path)
     runtime.evolution.behavior_runner = lambda manifest, case: (
         "safe_refusal" if "密钥" in case["input"] else "helpful"
@@ -49,48 +61,17 @@ def test_evolution_http_closes_the_controlled_release_loop(tmp_path):
         json={"expected_version":item["version"]},
     ).json()
     current = client.get(f"/api/evolution/candidates/{item['id']}", headers={"host":"127.0.0.1:8000"}).json()
+    assert current["approval_eligible"] is False
+    assert current["approval_block_code"] == "RELEASE_EVIDENCE_REQUIRED"
     approved = client.post(
         f"/api/evolution/candidates/{item['id']}/approve", headers=headers(app, "approve"),
         json={"expected_version":current["version"]},
     )
-    assert approved.status_code == 200
-
-    current = client.get(f"/api/evolution/candidates/{item['id']}", headers={"host":"127.0.0.1:8000"}).json()
-    deployment = client.post(
-        f"/api/evolution/candidates/{item['id']}/start-canary", headers=headers(app, "canary"),
-        json={"expected_version":current["version"]},
-    )
-    assert deployment.status_code == 200
-    deployment_id = deployment.json()["id"]
-    challenger_count = 0
-    champion_count = 0
-    for index in range(600):
-        thread = client.post("/api/threads", headers=headers(app, f"thread-{index}"), json={"title":f"sample-{index}"}).json()
-        run = client.post(
-            f"/api/threads/{thread['id']}/expert-runs", headers=headers(app, f"run-{index}"),
-            json={"objective":f"sample-{index}", "idempotency_key":f"sample-run-{index}"},
-        ).json()
-        runtime.evolution.finish_run_exposure(run["id"], success=True, safety_pass=True)
-        with runtime.db.connection() as connection:
-            exposure = connection.execute("SELECT cohort FROM canary_exposures WHERE run_id=?", (run["id"],)).fetchone()
-        challenger_count += exposure["cohort"] == "challenger"
-        champion_count += exposure["cohort"] == "champion"
-        if challenger_count >= 20 and champion_count >= 20: break
-    assert challenger_count >= 20 and champion_count >= 20
-    with runtime.db.transaction() as connection:
-        connection.execute(
-            "UPDATE canary_exposures SET success=1,safety_pass=1 WHERE deployment_id=?",
-            (deployment_id,),
-        )
-
-    current = client.get(f"/api/evolution/candidates/{item['id']}", headers={"host":"127.0.0.1:8000"}).json()
-    promoted = client.post(
-        f"/api/evolution/candidates/{item['id']}/promote", headers=headers(app, "promote"),
-        json={"expected_version":current["version"]},
-    )
-    assert promoted.status_code == 200 and promoted.json()["status"] == "PROMOTED"
-    assert runtime.behavior.active("stable").id == target.id
-    assert client.get("/api/evolution/history", headers={"host":"127.0.0.1:8000"}).json()["events"]
+    assert approved.status_code == 409
+    assert "smoke tests" in approved.json()["detail"]
+    assert runtime.behavior.active("stable").id == base.id
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM canary_deployments").fetchone()[0] == 0
 
 
 def test_evolution_http_rejects_missing_idempotency_and_insufficient_evidence(tmp_path):

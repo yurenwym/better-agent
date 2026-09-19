@@ -64,6 +64,23 @@ def test_research_job_api_returns_missing_requirements(tmp_path) -> None:
     assert payload["failure_details"] == {"missing_requirements": ["投递渠道"]}
 
 
+def test_research_job_api_exposes_partial_traceability(tmp_path) -> None:
+    http, runtime = client(tmp_path)
+    csrf = http.get("/api/bootstrap").json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
+    thread = http.post("/api/threads", headers=headers, json={}).json()
+    job = runtime.research.create_manual(thread["id"], "research", "partial-api", ("web",))
+    runtime.research.claim_next("worker", 30)
+    matrix = ({"requirement": "A", "supported": True},)
+    runtime.research.complete_partial(job.id, "worker", "partial", "# partial", 1, 1, matrix, ("B",))
+
+    payload = http.get(f"/api/research/jobs/{job.id}").json()
+    assert payload["status"] == "PARTIAL"
+    assert payload["missing_requirements"] == ["B"]
+    assert payload["traceability"] == [{"requirement": "A", "supported": True}]
+    assert http.get(f"/api/research/jobs/{job.id}/report").status_code == 200
+
+
 def test_research_job_delete_requires_terminal_state_and_removes_it(tmp_path) -> None:
     http, runtime = client(tmp_path)
     csrf = http.get("/api/bootstrap").json()["csrf_token"]

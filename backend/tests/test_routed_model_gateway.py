@@ -27,7 +27,7 @@ def _configured_control_plane(tmp_path, monkeypatch, *, context_windows=None):
             "model_name": name,
             "credential_env_ref": env,
             "capabilities": capabilities,
-            "context_window": context_windows.get(name, 8192),
+            "context_window": context_windows.get(name, 16384),
             "max_output_tokens": 1024,
             "timeout_seconds": 5,
             "max_attempts": 1,
@@ -75,6 +75,63 @@ async def test_routes_roles_from_the_pinned_runtime_bundle(tmp_path, monkeypatch
         )]
     assert snapshots[0]["profile_sequence"] == [versions["planner"], versions["fallback"]]
     assert snapshots[0]["runtime_bundle_id"] == bundle.id
+
+
+@pytest.mark.asyncio
+async def test_conversation_intent_classification_and_answer_use_separate_invocations(
+    tmp_path, monkeypatch,
+) -> None:
+    from app.live_model import LiveConversationModel
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
+    from app.model_gateway import ModelResponse, Timing, UsageBuckets
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    purposes = []
+
+    async def execute(_profile, request, **kwargs):
+        purposes.append(request.purpose)
+        if request.purpose == "classify_research_request":
+            message = '{"start_research":false,"topic":"制定一个骑行计划"}'
+        else:
+            message = '{"v":1,"policy":"answer","content_shape":"text","reason_code":"done"}\n请先告诉我你的骑行基础。'
+            kwargs["on_text_delta"](message)
+        return ModelResponse(
+            message, [], "stop", UsageBuckets(1, 0, 0, 1, 0), Timing(0, 0, 1), 1,
+        )
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    token = gateway.set_call_context(ModelCallContext(
+        "conversation",
+        "route_and_respond",
+        runtime_bundle_id=bundle.id,
+        invocation_id="conversation:turn-cycling",
+    ))
+    try:
+        response = await LiveConversationModel(gateway).route_and_respond(
+            content="请调查骑行训练方案是否适合新手",
+            history=[],
+            skill_names=[],
+            on_text_delta=lambda _chunk: None,
+            on_text_reset=lambda: None,
+            cancel_event=None,
+        )
+    finally:
+        gateway.reset_call_context(token)
+
+    assert "骑行基础" in response.message
+    assert purposes == ["classify_research_request", "route_and_respond"]
+    with db.connection() as connection:
+        invocations = connection.execute(
+            "SELECT id,purpose,status FROM model_invocations ORDER BY created_at,id"
+        ).fetchall()
+    assert [tuple(row) for row in invocations] == [
+        (
+            "conversation:turn-cycling:classify_research_request",
+            "classify_research_request",
+            "SUCCEEDED",
+        ),
+        ("conversation:turn-cycling", "route_and_respond", "SUCCEEDED"),
+    ]
 
 
 @pytest.mark.asyncio

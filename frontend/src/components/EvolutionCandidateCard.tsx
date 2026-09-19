@@ -68,6 +68,7 @@ function rollbackReason(candidate: EvolutionCandidate): string {
 
 export default function EvolutionCandidateCard({ candidate, busy = false, onAction }: Props) {
   const evaluationPassed = candidate.evaluation?.deterministic_pass === true && candidate.evaluation.regressions.length === 0;
+  const approvalEligible = evaluationPassed && candidate.approval_eligible === true;
   const evaluation = candidate.evaluation;
   const behaviorEvaluationUnavailable = evaluation?.regressions.includes("behavior_evaluation_configured") === true;
   const hasBehaviorMetrics = evaluation != null && [evaluation.baseline_correct, evaluation.candidate_correct, evaluation.quality_delta, evaluation.safety_violations].every(value => typeof value === "number");
@@ -82,7 +83,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
     {candidate.record_origin === "demo" && <p className="evolution-demo-note">这是一条演示数据，用于验证进化流程，不代表 Agent 从真实任务中自动学习的结果。</p>}
     <div className="evolution-facts">
       <div><span>证据</span><strong>{candidate.evidence_count} 条证据</strong></div>
-      <div><span>独立评测</span><strong>{behaviorEvaluationUnavailable ? "模型评测未配置" : candidate.evaluation ? (evaluationPassed ? "评测已通过" : "评测未通过") : "尚未评测"}</strong></div>
+      <div><span>独立评测</span><strong>{behaviorEvaluationUnavailable ? "模型评测未配置" : candidate.evaluation ? (evaluationPassed ? (candidate.status==="EVALUATED"&&!approvalEligible?"冒烟通过，待发布评测":"评测已通过") : "评测未通过") : "尚未评测"}</strong></div>
       <div><span>权限变化</span><strong>{candidate.permission_diff.added.length ? `新增权限 ${candidate.permission_diff.added.length} 项` : "没有新增权限"}</strong></div>
       <div><span>风险</span><strong>{candidate.risk_level === "high" ? "高" : candidate.risk_level === "medium" ? "中" : "低"}</strong></div>
     </div>
@@ -90,7 +91,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
       <section><span className="evolution-step">01</span><div><h4>发现的问题</h4><p>{candidateProblem(candidate)}</p><small>来自 {candidate.evidence_count} 条独立经验，单次异常不会触发进化。</small></div></section>
       <section><span className="evolution-step">02</span><div><h4>准备怎样改变</h4>{changes.length ? <dl className="evolution-change-list">{changes.map(([name,value])=><div key={name}><dt>{changeLabels[name] ?? name}</dt><dd>{changeValue(value)}</dd></div>)}</dl> : <p>{candidate.summary}</p>}</div></section>
       <section><span className="evolution-step">03</span><div><h4>验证结果</h4><p className={evaluationPassed ? "evolution-pass" : ""}>{evaluationProgress}</p><small>{candidate.permission_diff.added.length ? `涉及 ${candidate.permission_diff.added.length} 项新增权限，需谨慎确认。` : "没有新增权限，核心安全边界保持不变。"}</small></div></section>
-      <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{behaviorEvaluationUnavailable ? "请先配置评测模型，然后重新评测。评测通过前不能批准候选。" : statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
+      <section className="evolution-current-step"><span className="evolution-step">04</span><div><h4>现在进行到哪</h4><p>{behaviorEvaluationUnavailable ? "请先配置评测模型，然后重新评测。评测通过前不能批准候选。" : candidate.status==="EVALUATED"&&!approvalEligible?"尚未达到发布条件。":statusNext[candidate.status] ?? "等待系统更新候选状态。"}</p>{canaryProgress&&<strong>{canaryProgress}</strong>}</div></section>
     </div>
     {candidate.status === "ROLLED_BACK" && candidate.rollback && <div className={`evolution-rollback ${candidate.rollback.kind === "safety_auto" ? "is-automatic" : ""}`} role="status">
       <div><strong>{rollbackTitle(candidate)}</strong><span>{rollbackReason(candidate)}</span></div>
@@ -111,7 +112,7 @@ export default function EvolutionCandidateCard({ candidate, busy = false, onActi
     {candidate.evaluation?.regressions.length && !behaviorEvaluationUnavailable ? <div className="evolution-warning"><strong>未通过项目</strong><span>{candidate.evaluation.regressions.map(item => ({real_baseline_bound:"基线与候选使用了不同评测样本",real_evaluation_pass:"真实行为评测未通过",real_safety_pass:"安全评测未通过"}[item] ?? item)).join("；")}</span></div> : null}
     <footer className="evolution-actions">
       {candidate.status === "READY_FOR_EVAL" && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>开始评测</button>}
-      {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{!evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>重新评测</button>}{evaluationPassed && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
+      {["EVALUATED", "PENDING_APPROVAL"].includes(candidate.status) && <><button className="button button-quiet" disabled={busy} type="button" onClick={() => onAction("reject")}>拒绝候选</button>{!approvalEligible && <><p role="status">{candidate.approval_block_reason||"发布资格尚未核实，请重新评测。"}</p>{!evaluationPassed&&<button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("evaluate")}>重新评测</button>}</>}{approvalEligible && <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("approve")}>批准候选</button>}</>}
       {candidate.status === "APPROVED" && (candidate.kind === "prompt" ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("canary")}>开始 Canary</button> : <span className="canary-gate-note">该类型尚未配置在线运行适配器</span>)}
       {candidate.status === "CANARY" && <><button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚 Canary</button>{candidate.canary?.promotable ? <button className="button button-primary" disabled={busy} type="button" onClick={() => onAction("promote")}>正式启用</button> : <span className="canary-gate-note">{canaryMissing}{(candidate.canary?.safety_failures ?? 0) > 0 ? " · 存在安全失败，已禁止晋升" : ""}</span>}</>}
       {candidate.status === "PROMOTED" && <button className="button button-danger" disabled={busy} type="button" onClick={() => onAction("rollback")}>回滚版本</button>}

@@ -1,23 +1,23 @@
-# Execution reflection
+# 执行复盘
 
-## Purpose
+## 目的
 
-Review the completed Run and propose evidence-backed preference or habit candidates for user confirmation.
+复盘已完成的 Run，提出有证据支撑的偏好或习惯候选，交由用户确认。
 
-## Input
+## 输入
 
-- Goal and approved PlanVersion.
-- Structured events and tool summaries.
-- Confirmed memory context.
+- 目标与已批准的 PlanVersion。
+- 结构化事件与工具摘要。
+- 已确认的记忆上下文。
 
-## Output
+## 输出
 
-Return zero or more candidates with `kind` (`preference` or `habit`), `content`, `scope`, `confidence`, and evidence event IDs. A candidate is not a confirmed fact and must never be written directly to long-term memory.
+返回零个或多个候选，每个候选包含 `kind`（`preference` 或 `habit`）、`content`、`scope`、`confidence` 以及证据事件 ID。候选不是已确认的事实，绝不能直接写入长期记忆。
 
-## Tool policy
+## 工具策略
 
-Reflection is read-only. It may inspect the event summaries supplied by Runtime but cannot call WRITE tools, alter the plan, change state, or edit Markdown.
+复盘是只读的。它可以查看 Runtime 提供的事件摘要，但不能调用 WRITE 工具、修改计划、改变状态或编辑 Markdown。
 
-## Stop conditions
+## 停止条件
 
-Return no candidate when there is no explicit or repeated evidence. Never copy credentials, hidden reasoning, arbitrary user text, or unsupported conclusions into a candidate.
+没有明确或反复出现的证据时，不返回任何候选。绝不能把凭据、隐藏推理、任意用户文本或没有支撑的结论复制进候选。

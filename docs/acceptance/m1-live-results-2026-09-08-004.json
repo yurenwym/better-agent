@@ -1,0 +1,84 @@
+{
+  "batch_id": "M1-LIVE-20260908-004",
+  "status": "FAILED",
+  "started_at": 1788872503.3332,
+  "limits": {
+    "model_attempts": 21,
+    "model_microusd": 530000,
+    "embedding_requests": 6,
+    "embedding_input": 12288,
+    "seconds": 1500
+  },
+  "rounds": [],
+  "failure": {
+    "type": "AcceptanceFailure",
+    "message": "Episode promoted unconfirmed 90 minutes to a decision"
+  },
+  "finished_at": 1788872544.878656,
+  "elapsed_seconds": 41.545459,
+  "model_network_attempts": [
+    {
+      "ordinal": 1,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788872512.827605,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 889,
+      "reasoning_tokens": null,
+      "latency_seconds": 8.820794
+    },
+    {
+      "ordinal": 2,
+      "round": "1",
+      "role": "conversation",
+      "purpose": "route_and_respond",
+      "status": "succeeded",
+      "started_at": 1788872522.1592824,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 475,
+      "reasoning_tokens": null,
+      "latency_seconds": 5.069261
+    },
+    {
+      "ordinal": 3,
+      "round": "1",
+      "role": "reflector",
+      "purpose": "summarize_episode",
+      "status": "succeeded",
+      "started_at": 1788872527.3957949,
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "cache_write_tokens": null,
+      "output_tokens": 2204,
+      "reasoning_tokens": null,
+      "latency_seconds": 17.425812
+    }
+  ],
+  "embedding_network_requests": [
+    {
+      "ordinal": 1,
+      "round": "1",
+      "input_upper_bound": 36,
+      "status": "succeeded",
+      "started_at": 1788872510.4901388,
+      "provider_prompt_tokens": 9,
+      "provider_total_tokens": 9
+    },
+    {
+      "ordinal": 2,
+      "round": "1",
+      "input_upper_bound": 351,
+      "status": "succeeded",
+      "started_at": 1788872521.8312988,
+      "provider_prompt_tokens": 73,
+      "provider_total_tokens": 73
+    }
+  ],
+  "embedding_input_upper_bound": 387
+}

@@ -1,0 +1,1294 @@
+{
+  "batch_id": "M4-LIVE-20260909-003",
+  "status": "PASSED",
+  "network_started": true,
+  "storage": "current_better_agent_with_batch_scoped_cleanup",
+  "source_manifest": {
+    "files": {
+      "alembic/versions/20260909_0004_research_partial_status.py": "60fbdf152bd578d115c484f239ea237a08f0f798af39ece967ec2bb750a42832",
+      "app/costs.py": "d4f2c2bfcb53b16efceabfa484c9a3bed56272f6ed98dc2ff19c6482399739cb",
+      "app/db.py": "49891bb6e33cc3068c31ba4b0736e4e423b74df40d5fe8f7d704250fe94b1be5",
+      "app/model_control.py": "29b5012911ab94a6b5c46a92d39976e3cabc216eddc559bb0e931e8c9896cc25",
+      "app/research/__init__.py": "37590eb3d1185a913975e1f9b107d189f9df1d939860298006da86a0986ca951",
+      "app/research/citations.py": "bebb3deef33ebd88119f9a7329e129f94748f60cf9a8d43b53f4406d3f5c36b9",
+      "app/research/engine.py": "23c722419eae067f63e0e601c58d1a94657e7e5fbf5b50a5f0608ccc617cd36c",
+      "app/research/live.py": "d5fd74f56ba2e4172b37fd1c076b9bf7d74efd52bc1389cf2e25c2252c478cba",
+      "app/research/models.py": "2890af2bc55b934804ff8293c739c8b1ff3a5abdfd55be41bea455447ca3746d",
+      "app/research/retriever.py": "104f54a008f2910af3f40d46f73ff020409aea64f57531e23de210c3945e6792",
+      "app/research/scheduler.py": "f7b582e384b196ea738170d6cf27c63b07a719d417a98b08af3b062695b19e61",
+      "app/research/service.py": "aa6f534d703318a97ffd3fa36050b0df7c8b41715a29de11696dd5a5957f958c",
+      "app/research/tavily.py": "d2d910033d93b2c3578dacd7d46d75ee07f193ff355c1ce63a8a030132322ef0",
+      "app/research/web.py": "4261ea27dbaa0c71360efc0177a2087e54c0c5d6d36fcd02ae5daeb17ad92a48",
+      "app/research/worker.py": "4cd944adf7eb2d11b8efb8351540f275ede65c4239c08f41582351247799d218",
+      "scripts/m4_live_acceptance.py": "1e7bc34a4f23062fd4241c8fe0f6268d05654f595dbb6ec5f668fd69eec15380"
+    },
+    "digest": "a21c79f4d708741579c46987f848e24332af3e8a225e346c4149c83934b2a153"
+  },
+  "case_digest": "e7b337f2487b9bf07f05dc5b1b1a028390aec4a3c7084e772f101016e1a107cc",
+  "cases": [
+    {
+      "id": "python-asyncio-v1",
+      "topic": "仅依据给定的 Python 官方文档研究 asyncio，必须分别说明：TaskGroup 内某任务首次发生非 CancelledError 异常后其余任务如何处理；asyncio.timeout 如何处理取消并在何处转换为 TimeoutError。",
+      "hosts": [
+        "docs.python.org"
+      ],
+      "urls": [
+        "https://docs.python.org/3/library/asyncio-task.html",
+        "https://docs.python.org/3/library/asyncio-exceptions.html"
+      ]
+    },
+    {
+      "id": "postgres-explain-v1",
+      "topic": "仅依据给定的 PostgreSQL 官方文档研究 EXPLAIN，必须分别说明：EXPLAIN ANALYZE 是否实际执行语句以及由此产生的副作用边界；BUFFERS 选项报告什么，以及启用 ANALYZE 时它的默认行为。",
+      "hosts": [
+        "www.postgresql.org"
+      ],
+      "urls": [
+        "https://www.postgresql.org/docs/current/sql-explain.html",
+        "https://www.postgresql.org/docs/current/using-explain.html"
+      ]
+    },
+    {
+      "id": "git-undo-v1",
+      "topic": "仅依据给定的 Git 官方文档比较撤销方式，必须分别说明：git revert 如何通过新提交逆转既有提交；git reset 对 HEAD、索引和工作区的作用边界。",
+      "hosts": [
+        "git-scm.com"
+      ],
+      "urls": [
+        "https://git-scm.com/docs/git-revert",
+        "https://git-scm.com/docs/git-reset"
+      ]
+    }
+  ],
+  "limits": {
+    "rounds": 3,
+    "model_attempts_per_round": 10,
+    "model_attempts": 30,
+    "source_requests": 12,
+    "max_seconds": 1800,
+    "fallback_models": 0,
+    "network_retries": 0,
+    "structured_output_retries": 0,
+    "worst_attempt_microusd": 25232,
+    "worst_batch_microusd": 756960
+  },
+  "price_snapshot": {
+    "source": "M3-LIVE-20260909-022 frozen DeepSeek profile rates",
+    "uncached_input_rate": 440000,
+    "cache_read_rate": 14000,
+    "cache_write_rate": 0,
+    "output_rate": 1320000,
+    "reasoning_rate": 0
+  },
+  "stop_policy": "first failure stops the batch; no automatic rerun",
+  "profile": {
+    "provider": "deepseek",
+    "model": "deepseek-v4-flash",
+    "base_url": "https://api.deepseek.com",
+    "context_window": 32768,
+    "max_output_tokens": 8192
+  },
+  "database": {
+    "name": "better_agent",
+    "mode": "current_runtime"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "case_id": "python-asyncio-v1",
+      "owner": "m4-live-20260909-003-round-1-dbd810d6",
+      "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+      "audit": {
+        "status": "PASSED",
+        "job_status": "COMPLETED",
+        "runtime_bundle_id": "bundle_cac858107ce16f6a9b3e5043",
+        "source_versions": [
+          {
+            "url": "https://docs.python.org/3/library/asyncio-task.html",
+            "content_hash": "aa6b689e7f850130f5061c26de4a502e8ff9227ec1360a562a6bd2028fabe2a2",
+            "retrieved_at": "2026-09-09T14:33:15.954067+00:00"
+          },
+          {
+            "url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+            "content_hash": "9d425ec8d01da8dfaa3f478664f8805fd30292afe8fa7b94a530d4fd3c47fffe",
+            "retrieved_at": "2026-09-09T14:33:16.325400+00:00"
+          }
+        ],
+        "evidence_count": 14,
+        "traceability": [
+          {
+            "requirement": "TaskGroup 中首个非 CancelledError 异常后其余任务的取消与等待行为",
+            "conclusion": "当 TaskGroup 中任一任务抛出非 CancelledError 异常时，其余任务会被取消，且 TaskGroup 会等待所有任务完成后再聚合异常并抛出。",
+            "evidence_ids": [
+              "evidence_80c21328297d4b2da19afb2676222aeb",
+              "evidence_5461bdf19d8c45d5b4c234870dae9403",
+              "evidence_271725de5aa14fd58baa890cb9ee553c",
+              "evidence_0447509ed56b4ca7a3f47b22a7df1582"
+            ],
+            "source_ids": [
+              "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17"
+            ],
+            "citation_source_ids": [
+              "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "content_hash": "aa6b689e7f850130f5061c26de4a502e8ff9227ec1360a562a6bd2028fabe2a2",
+                "retrieved_at": "2026-09-09T14:33:15.954067+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_80c21328297d4b2da19afb2676222aeb",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 9704,
+                "char_end": 10231,
+                "exact_quote_hash": "e033d976294fbc4d2bcafbb9436ace005f618c1b4cccc4e2a025dedde46490dd"
+              },
+              {
+                "evidence_id": "evidence_5461bdf19d8c45d5b4c234870dae9403",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 10233,
+                "char_end": 10477,
+                "exact_quote_hash": "612989f30a2bd099dc5a952853432d4b5c4cb29f4ff362bfe5cc373ed0e63362"
+              },
+              {
+                "evidence_id": "evidence_271725de5aa14fd58baa890cb9ee553c",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 9704,
+                "char_end": 9865,
+                "exact_quote_hash": "db06ae5b71b113eebc2f6589996d836bc2f348cb495f330a8e849a317ee2a39b"
+              },
+              {
+                "evidence_id": "evidence_0447509ed56b4ca7a3f47b22a7df1582",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 15366,
+                "char_end": 15612,
+                "exact_quote_hash": "2389755c7a781a279bc54fa2c43cd452f0830e141fc2c0adc0d6213b443230f5"
+              }
+            ],
+            "supported": true
+          },
+          {
+            "requirement": "asyncio.timeout 的取消处理及 TimeoutError 转换位置",
+            "conclusion": "asyncio.timeout() 上下文管理器在超时后取消当前任务，并将内部产生的 CancelledError 转换为 TimeoutError，该转换发生在上下文管理器内部，因此 TimeoutError 只能在上下文管理器外部捕获。",
+            "evidence_ids": [
+              "evidence_80c21328297d4b2da19afb2676222aeb",
+              "evidence_5461bdf19d8c45d5b4c234870dae9403",
+              "evidence_0447509ed56b4ca7a3f47b22a7df1582",
+              "evidence_258ba71b3d51498197d62d7e607aa4ab",
+              "evidence_271725de5aa14fd58baa890cb9ee553c",
+              "evidence_2d475ae3c3cf4f91a688ba542b07c4f4",
+              "evidence_5de09e9c5c6441188c07605304780033",
+              "evidence_66ff112ab5924e40a8467eee5a73aff1",
+              "evidence_67ba2d522a9344bda700a8bdce8f29e3",
+              "evidence_9112a5ffbf5240c8aaf4c939ae787295",
+              "evidence_a122b092a44c4a45a090aa9da95fe194",
+              "evidence_b7166dcd020849cf9914d525401959f0"
+            ],
+            "source_ids": [
+              "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+              "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f"
+            ],
+            "citation_source_ids": [
+              "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+              "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "content_hash": "aa6b689e7f850130f5061c26de4a502e8ff9227ec1360a562a6bd2028fabe2a2",
+                "retrieved_at": "2026-09-09T14:33:15.954067+00:00"
+              },
+              {
+                "source_id": "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f",
+                "content_hash": "9d425ec8d01da8dfaa3f478664f8805fd30292afe8fa7b94a530d4fd3c47fffe",
+                "retrieved_at": "2026-09-09T14:33:16.325400+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_80c21328297d4b2da19afb2676222aeb",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 9704,
+                "char_end": 10231,
+                "exact_quote_hash": "e033d976294fbc4d2bcafbb9436ace005f618c1b4cccc4e2a025dedde46490dd"
+              },
+              {
+                "evidence_id": "evidence_5461bdf19d8c45d5b4c234870dae9403",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 10233,
+                "char_end": 10477,
+                "exact_quote_hash": "612989f30a2bd099dc5a952853432d4b5c4cb29f4ff362bfe5cc373ed0e63362"
+              },
+              {
+                "evidence_id": "evidence_0447509ed56b4ca7a3f47b22a7df1582",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 15366,
+                "char_end": 15612,
+                "exact_quote_hash": "2389755c7a781a279bc54fa2c43cd452f0830e141fc2c0adc0d6213b443230f5"
+              },
+              {
+                "evidence_id": "evidence_258ba71b3d51498197d62d7e607aa4ab",
+                "source_id": "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f",
+                "char_start": 453,
+                "char_end": 523,
+                "exact_quote_hash": "3f22c729085a20a94a1951c6341361c6627e331638c8c0fa3e3d3edc155d36b5"
+              },
+              {
+                "evidence_id": "evidence_271725de5aa14fd58baa890cb9ee553c",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 9704,
+                "char_end": 9865,
+                "exact_quote_hash": "db06ae5b71b113eebc2f6589996d836bc2f348cb495f330a8e849a317ee2a39b"
+              },
+              {
+                "evidence_id": "evidence_2d475ae3c3cf4f91a688ba542b07c4f4",
+                "source_id": "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f",
+                "char_start": 325,
+                "char_end": 451,
+                "exact_quote_hash": "fed6bb640eae6eaff608b0dd7ab7708319c01ec30a2b9bc282d4f1efb70aea9f"
+              },
+              {
+                "evidence_id": "evidence_5de09e9c5c6441188c07605304780033",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 7893,
+                "char_end": 8111,
+                "exact_quote_hash": "a48b942ff304c6abbd9232ad46438c8ca30664015834a87f2531c0cffe443f6e"
+              },
+              {
+                "evidence_id": "evidence_66ff112ab5924e40a8467eee5a73aff1",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 20862,
+                "char_end": 21046,
+                "exact_quote_hash": "ee72f2b187630a3d9ea892402b54d9a685a3dd2654c1230bf1935f37deb9c716"
+              },
+              {
+                "evidence_id": "evidence_67ba2d522a9344bda700a8bdce8f29e3",
+                "source_id": "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f",
+                "char_start": 525,
+                "char_end": 592,
+                "exact_quote_hash": "b8aeae58b0214c7f75e89d7032879d50b802cfca36dab5878689bb3c87163c54"
+              },
+              {
+                "evidence_id": "evidence_9112a5ffbf5240c8aaf4c939ae787295",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 24038,
+                "char_end": 24115,
+                "exact_quote_hash": "66a4657729784b8cee0e7d4dd00bffb77a07d2b9a55cd901f2ea21e1f959c9fc"
+              },
+              {
+                "evidence_id": "evidence_a122b092a44c4a45a090aa9da95fe194",
+                "source_id": "source_b53a4ea086dd6adef27115f9d9cb34c370af24f55ec273830c728bc642f2ac5f",
+                "char_start": 594,
+                "char_end": 685,
+                "exact_quote_hash": "7889ceabe06c2de0510ef74f7aafef9a17824d5740dbdda6160bb2d23bdb9319"
+              },
+              {
+                "evidence_id": "evidence_b7166dcd020849cf9914d525401959f0",
+                "source_id": "source_e54b523c4eb38dfc37947d8936088b8958664ce286c8d957d105087e16e50b17",
+                "char_start": 20616,
+                "char_end": 20854,
+                "exact_quote_hash": "286e21ffb740f53703e5764ee9ba39e33faf2736df8a64e0433afca4ee020bff"
+              }
+            ],
+            "supported": true
+          }
+        ],
+        "semantic_checks": [
+          true,
+          true
+        ],
+        "report_digest": "8450f00afea697b13e865a42846b5548d987851ce51636047756f9a09753cab7"
+      },
+      "cost": {
+        "attempt_count": 8,
+        "charged_microusd": 201856,
+        "all_priced": true,
+        "attempts": [
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-a2d01c7b3b61",
+            "purpose": "research_structured_step"
+          }
+        ]
+      }
+    },
+    {
+      "round": 2,
+      "case_id": "postgres-explain-v1",
+      "owner": "m4-live-20260909-003-round-2-70ca2245",
+      "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+      "audit": {
+        "status": "PASSED",
+        "job_status": "COMPLETED",
+        "runtime_bundle_id": "bundle_dae5b3d3e405059ce6486361",
+        "source_versions": [
+          {
+            "url": "https://www.postgresql.org/docs/current/sql-explain.html",
+            "content_hash": "f2336902802db4c3c98010b4881b12efbc2dfd55761c37b60fc195d40fa7d179",
+            "retrieved_at": "2026-09-09T14:33:39.672585+00:00"
+          },
+          {
+            "url": "https://www.postgresql.org/docs/current/using-explain.html",
+            "content_hash": "66ca7fc9a0611ab7a8dda5b38823a0fe7779ae11e42f6784849786b600f68cef",
+            "retrieved_at": "2026-09-09T14:33:40.467137+00:00"
+          }
+        ],
+        "evidence_count": 14,
+        "traceability": [
+          {
+            "requirement": "EXPLAIN ANALYZE 是否实际执行语句及副作用边界",
+            "conclusion": "EXPLAIN ANALYZE 会实际执行语句，因此所有副作用（如数据修改）都会发生，但查询输出会被丢弃；为避免影响数据，可将其包裹在事务中并回滚。",
+            "evidence_ids": [
+              "evidence_7c17a08b19e04dd1983c6d6113440426",
+              "evidence_eb01b5fea7d64b0688c0f58076d00510",
+              "evidence_35777b5f3c1e40d8a0065af4f56cc73f",
+              "evidence_4215216a3c884dbc97fc9fde09988dec",
+              "evidence_555d7a45dbf34f289e9bf42861e2bf25",
+              "evidence_727444cce75d4047bee707399c9daa43",
+              "evidence_80e932d52247449b8232004116ef49c4",
+              "evidence_83235438d4b84d119f171642010cdc8c",
+              "evidence_8d1289ea6f624d66994936ee62b55ffb",
+              "evidence_93511c5f6fe94456b577aa0f90d150a7",
+              "evidence_f6d81fcafebe4da0bb2f55f5bf4d073d",
+              "evidence_fd150d8c07494fa0922a1e048c2d51ba"
+            ],
+            "source_ids": [
+              "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+              "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06"
+            ],
+            "citation_source_ids": [
+              "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+              "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "content_hash": "66ca7fc9a0611ab7a8dda5b38823a0fe7779ae11e42f6784849786b600f68cef",
+                "retrieved_at": "2026-09-09T14:33:40.467137+00:00"
+              },
+              {
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "content_hash": "f2336902802db4c3c98010b4881b12efbc2dfd55761c37b60fc195d40fa7d179",
+                "retrieved_at": "2026-09-09T14:33:39.672585+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_7c17a08b19e04dd1983c6d6113440426",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 23600,
+                "char_end": 23803,
+                "exact_quote_hash": "783a7c9b5fa76e4d9f902ddc130dfadacdaaddf067a87e0d13dc00102177ced6"
+              },
+              {
+                "evidence_id": "evidence_eb01b5fea7d64b0688c0f58076d00510",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 33639,
+                "char_end": 34052,
+                "exact_quote_hash": "2ed3cd82c20465cea09b72c2cacfb953ffeb1af66db92fbae3b777da2de53292"
+              },
+              {
+                "evidence_id": "evidence_35777b5f3c1e40d8a0065af4f56cc73f",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 4843,
+                "char_end": 4910,
+                "exact_quote_hash": "ba0c5a17a32e24b735f663cd80a7efb89888095767e0ff9c738c2d027c61d1a1"
+              },
+              {
+                "evidence_id": "evidence_4215216a3c884dbc97fc9fde09988dec",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 2061,
+                "char_end": 2187,
+                "exact_quote_hash": "ff784ccb08e105d0ef266adda5ac74ed7a64fc60ec06a8e38f858fe50bded449"
+              },
+              {
+                "evidence_id": "evidence_555d7a45dbf34f289e9bf42861e2bf25",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 6839,
+                "char_end": 6982,
+                "exact_quote_hash": "6b39d57e7784852aca63c15f20e9b9e1fb280c2bf20e35aaab301f0437d78940"
+              },
+              {
+                "evidence_id": "evidence_727444cce75d4047bee707399c9daa43",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 34951,
+                "char_end": 35161,
+                "exact_quote_hash": "7d6abb25efd0c8bbc15e930496a95b998196b020eed24b0eb2b424ad37e5edf5"
+              },
+              {
+                "evidence_id": "evidence_80e932d52247449b8232004116ef49c4",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 23501,
+                "char_end": 23599,
+                "exact_quote_hash": "aaf8799dc81c6e0d1101c2142b9423d44c9b9fb49338864180c101ca8321f0a5"
+              },
+              {
+                "evidence_id": "evidence_83235438d4b84d119f171642010cdc8c",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 1609,
+                "char_end": 1691,
+                "exact_quote_hash": "72e9aaab413ea633ab67cbb95330eca0f34485ee9034668083aea7d3eb5d79ce"
+              },
+              {
+                "evidence_id": "evidence_8d1289ea6f624d66994936ee62b55ffb",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 19809,
+                "char_end": 19875,
+                "exact_quote_hash": "042cdcd336ca2ae1d0a7fddfd60f07b1b5ac73cc164f6add14564a6b3433b2d0"
+              },
+              {
+                "evidence_id": "evidence_93511c5f6fe94456b577aa0f90d150a7",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 2364,
+                "char_end": 2401,
+                "exact_quote_hash": "1ae5eb8c5a02fa55d58b54a47d43f2e29e93ccf5d24ec7c6b83acd439a511491"
+              },
+              {
+                "evidence_id": "evidence_f6d81fcafebe4da0bb2f55f5bf4d073d",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 33937,
+                "char_end": 33994,
+                "exact_quote_hash": "8a10043dcee7f9a311aeb3c7e2da4508c29d1535656ee75c2e68db231a230c1e"
+              },
+              {
+                "evidence_id": "evidence_fd150d8c07494fa0922a1e048c2d51ba",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 2188,
+                "char_end": 2362,
+                "exact_quote_hash": "1de9d7a80aabd4e7163ffdd2bd747d5015faad636d4c82c12bd65b869fd0c8db"
+              }
+            ],
+            "supported": true
+          },
+          {
+            "requirement": "BUFFERS 选项报告内容及启用 ANALYZE 时的默认行为",
+            "conclusion": "BUFFERS 选项报告查询规划和执行期间 I/O 操作的缓冲区计数（命中、读取、弄脏、写入），且 ANALYZE 选项会隐式启用 BUFFERS，但可显式禁用。",
+            "evidence_ids": [
+              "evidence_eb01b5fea7d64b0688c0f58076d00510",
+              "evidence_f6d81fcafebe4da0bb2f55f5bf4d073d",
+              "evidence_35777b5f3c1e40d8a0065af4f56cc73f"
+            ],
+            "source_ids": [
+              "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+              "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06"
+            ],
+            "citation_source_ids": [
+              "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+              "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "content_hash": "66ca7fc9a0611ab7a8dda5b38823a0fe7779ae11e42f6784849786b600f68cef",
+                "retrieved_at": "2026-09-09T14:33:40.467137+00:00"
+              },
+              {
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "content_hash": "f2336902802db4c3c98010b4881b12efbc2dfd55761c37b60fc195d40fa7d179",
+                "retrieved_at": "2026-09-09T14:33:39.672585+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_eb01b5fea7d64b0688c0f58076d00510",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 33639,
+                "char_end": 34052,
+                "exact_quote_hash": "2ed3cd82c20465cea09b72c2cacfb953ffeb1af66db92fbae3b777da2de53292"
+              },
+              {
+                "evidence_id": "evidence_f6d81fcafebe4da0bb2f55f5bf4d073d",
+                "source_id": "source_395218de0bf9b660eefeb28d73359772be62a56d1f769e9223a2763d064678de",
+                "char_start": 33937,
+                "char_end": 33994,
+                "exact_quote_hash": "8a10043dcee7f9a311aeb3c7e2da4508c29d1535656ee75c2e68db231a230c1e"
+              },
+              {
+                "evidence_id": "evidence_35777b5f3c1e40d8a0065af4f56cc73f",
+                "source_id": "source_5e7b01701336304771ad2110fd4f8dc7346a78148f205e0dd70740b9b09a5d06",
+                "char_start": 4843,
+                "char_end": 4910,
+                "exact_quote_hash": "ba0c5a17a32e24b735f663cd80a7efb89888095767e0ff9c738c2d027c61d1a1"
+              }
+            ],
+            "supported": true
+          }
+        ],
+        "semantic_checks": [
+          true,
+          true
+        ],
+        "report_digest": "ef713bee9aa227362d467a915348bd41151180ac27b4a996af1f04036a0a4241"
+      },
+      "cost": {
+        "attempt_count": 8,
+        "charged_microusd": 201856,
+        "all_priced": true,
+        "attempts": [
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-102cd7a45944",
+            "purpose": "research_structured_step"
+          }
+        ]
+      }
+    },
+    {
+      "round": 3,
+      "case_id": "git-undo-v1",
+      "owner": "m4-live-20260909-003-round-3-029b1ba4",
+      "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+      "audit": {
+        "status": "PASSED",
+        "job_status": "COMPLETED",
+        "runtime_bundle_id": "bundle_98e85dfd7b58fec0ba447702",
+        "source_versions": [
+          {
+            "url": "https://git-scm.com/docs/git-revert",
+            "content_hash": "6e77b2a98b536f3f941cfcbcf5032000234daa1708126350e4576a50538c4839",
+            "retrieved_at": "2026-09-09T14:34:02.036240+00:00"
+          },
+          {
+            "url": "https://git-scm.com/docs/git-reset",
+            "content_hash": "971f4024bb82e7e6fbd21b91c486ed3c99103f0c2dfa6d14c08e63783ff0076e",
+            "retrieved_at": "2026-09-09T14:34:02.160449+00:00"
+          }
+        ],
+        "evidence_count": 23,
+        "traceability": [
+          {
+            "requirement": "git revert：新提交逆转既有提交的机制",
+            "conclusion": "git revert 通过创建新提交来逆转既有提交引入的更改，要求工作区干净，且不会丢弃未提交的更改。",
+            "evidence_ids": [
+              "evidence_620eb091d34845b69bc7849503275508",
+              "evidence_e4c751483ebe44ec9c53add87dc9bfaf",
+              "evidence_542829c8f3aa4f7e90593914af11f00d",
+              "evidence_8d94b90e67f54c8aaaca03c2388da36b",
+              "evidence_bfc8501815ba4362958837aa14dd03f4",
+              "evidence_da7d211199de496490cc55b75349488f",
+              "evidence_f0fe23281a5e4483a39b95be215895f2",
+              "evidence_9f9ef3958f2d45c89561a98d47a90843",
+              "evidence_d98341852ccd4791a3cbc2ccf176343b"
+            ],
+            "source_ids": [
+              "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4"
+            ],
+            "citation_source_ids": [
+              "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "content_hash": "6e77b2a98b536f3f941cfcbcf5032000234daa1708126350e4576a50538c4839",
+                "retrieved_at": "2026-09-09T14:34:02.036240+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_620eb091d34845b69bc7849503275508",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2339,
+                "char_end": 2560,
+                "exact_quote_hash": "5373fb0e72b512f7bf31eb12b60fc6e74b6074ecb0995cf4edbab85cf6d65029"
+              },
+              {
+                "evidence_id": "evidence_e4c751483ebe44ec9c53add87dc9bfaf",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2562,
+                "char_end": 3061,
+                "exact_quote_hash": "ed8fa56fcadcf2dc4b73cd323dcc4bb9f780c8110bc3da66864622e69051ae03"
+              },
+              {
+                "evidence_id": "evidence_542829c8f3aa4f7e90593914af11f00d",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7026,
+                "char_end": 7043,
+                "exact_quote_hash": "52f5d0890233c0ea584a594b62e59ae98a2fea968bfcc93008e9405724aee882"
+              },
+              {
+                "evidence_id": "evidence_8d94b90e67f54c8aaaca03c2388da36b",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7045,
+                "char_end": 7158,
+                "exact_quote_hash": "5d2d568dbddd606a4e92aa71acd7c9d03d6547baa26ab6cace616f4880cf26d7"
+              },
+              {
+                "evidence_id": "evidence_bfc8501815ba4362958837aa14dd03f4",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7160,
+                "char_end": 7192,
+                "exact_quote_hash": "67e17e8f720315912daa6e9bcb91ebe80e5dc2cdbdfb1b8b87c12e8d3283d529"
+              },
+              {
+                "evidence_id": "evidence_da7d211199de496490cc55b75349488f",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7194,
+                "char_end": 7436,
+                "exact_quote_hash": "a1c3075ee58a5a0e79ab4898bfad48c6090fccf4a8be7ac8936d1928fc28b034"
+              },
+              {
+                "evidence_id": "evidence_f0fe23281a5e4483a39b95be215895f2",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2562,
+                "char_end": 2686,
+                "exact_quote_hash": "610f839b33a6f15052b748bc71ce56c340cc42722631628f91958cfa8805af5f"
+              },
+              {
+                "evidence_id": "evidence_9f9ef3958f2d45c89561a98d47a90843",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2339,
+                "char_end": 2475,
+                "exact_quote_hash": "390f9da5f7424dea62b326a0db5aa20d16a71db721b11446f7069fc8a0a1ba84"
+              },
+              {
+                "evidence_id": "evidence_d98341852ccd4791a3cbc2ccf176343b",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2476,
+                "char_end": 2560,
+                "exact_quote_hash": "e1a81b778792a59800df63e508520e217f75039a99a2b8a241d565aa58cdf8ae"
+              }
+            ],
+            "supported": true
+          },
+          {
+            "requirement": "git reset：HEAD、索引与工作区的作用边界",
+            "conclusion": "git reset 用于改变 HEAD 指向，可配合不同模式影响索引和工作区，从而撤销提交、合并等操作，但需注意其与 revert 和 restore 的区别。",
+            "evidence_ids": [
+              "evidence_3030ee3f866a41cfbbb286c811dda9a0",
+              "evidence_620eb091d34845b69bc7849503275508",
+              "evidence_da7d211199de496490cc55b75349488f",
+              "evidence_e4c751483ebe44ec9c53add87dc9bfaf",
+              "evidence_542829c8f3aa4f7e90593914af11f00d",
+              "evidence_bfc8501815ba4362958837aa14dd03f4",
+              "evidence_0ff3f469d3854d868a1ffc007b38a801",
+              "evidence_57214bce19bb48e19f5bafb362a08b65",
+              "evidence_8d94b90e67f54c8aaaca03c2388da36b",
+              "evidence_9f9ef3958f2d45c89561a98d47a90843",
+              "evidence_d98341852ccd4791a3cbc2ccf176343b",
+              "evidence_f0fe23281a5e4483a39b95be215895f2"
+            ],
+            "source_ids": [
+              "source_a4a569f3515f0a55821559346b80c721b2eab5a217f64977e4ea4ec65945cf77",
+              "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4"
+            ],
+            "citation_source_ids": [
+              "source_a4a569f3515f0a55821559346b80c721b2eab5a217f64977e4ea4ec65945cf77",
+              "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4"
+            ],
+            "source_versions": [
+              {
+                "source_id": "source_a4a569f3515f0a55821559346b80c721b2eab5a217f64977e4ea4ec65945cf77",
+                "content_hash": "971f4024bb82e7e6fbd21b91c486ed3c99103f0c2dfa6d14c08e63783ff0076e",
+                "retrieved_at": "2026-09-09T14:34:02.160449+00:00"
+              },
+              {
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "content_hash": "6e77b2a98b536f3f941cfcbcf5032000234daa1708126350e4576a50538c4839",
+                "retrieved_at": "2026-09-09T14:34:02.036240+00:00"
+              }
+            ],
+            "evidence_locations": [
+              {
+                "evidence_id": "evidence_3030ee3f866a41cfbbb286c811dda9a0",
+                "source_id": "source_a4a569f3515f0a55821559346b80c721b2eab5a217f64977e4ea4ec65945cf77",
+                "char_start": 2585,
+                "char_end": 2749,
+                "exact_quote_hash": "f10774950dca2b51255a94ca8110e417476a88b92aaaee46d7254e758d3025ab"
+              },
+              {
+                "evidence_id": "evidence_620eb091d34845b69bc7849503275508",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2339,
+                "char_end": 2560,
+                "exact_quote_hash": "5373fb0e72b512f7bf31eb12b60fc6e74b6074ecb0995cf4edbab85cf6d65029"
+              },
+              {
+                "evidence_id": "evidence_da7d211199de496490cc55b75349488f",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7194,
+                "char_end": 7436,
+                "exact_quote_hash": "a1c3075ee58a5a0e79ab4898bfad48c6090fccf4a8be7ac8936d1928fc28b034"
+              },
+              {
+                "evidence_id": "evidence_e4c751483ebe44ec9c53add87dc9bfaf",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2562,
+                "char_end": 3061,
+                "exact_quote_hash": "ed8fa56fcadcf2dc4b73cd323dcc4bb9f780c8110bc3da66864622e69051ae03"
+              },
+              {
+                "evidence_id": "evidence_542829c8f3aa4f7e90593914af11f00d",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7026,
+                "char_end": 7043,
+                "exact_quote_hash": "52f5d0890233c0ea584a594b62e59ae98a2fea968bfcc93008e9405724aee882"
+              },
+              {
+                "evidence_id": "evidence_bfc8501815ba4362958837aa14dd03f4",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7160,
+                "char_end": 7192,
+                "exact_quote_hash": "67e17e8f720315912daa6e9bcb91ebe80e5dc2cdbdfb1b8b87c12e8d3283d529"
+              },
+              {
+                "evidence_id": "evidence_0ff3f469d3854d868a1ffc007b38a801",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2687,
+                "char_end": 2824,
+                "exact_quote_hash": "f4234af6cf408540997fe7ded739871645b1ecfbf25c5554e756fdcac5dc212b"
+              },
+              {
+                "evidence_id": "evidence_57214bce19bb48e19f5bafb362a08b65",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 3063,
+                "char_end": 3152,
+                "exact_quote_hash": "8732fb0224d427900779f9979751f7e050595b34cfbcf96badbcb3653ab3c886"
+              },
+              {
+                "evidence_id": "evidence_8d94b90e67f54c8aaaca03c2388da36b",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 7045,
+                "char_end": 7158,
+                "exact_quote_hash": "5d2d568dbddd606a4e92aa71acd7c9d03d6547baa26ab6cace616f4880cf26d7"
+              },
+              {
+                "evidence_id": "evidence_9f9ef3958f2d45c89561a98d47a90843",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2339,
+                "char_end": 2475,
+                "exact_quote_hash": "390f9da5f7424dea62b326a0db5aa20d16a71db721b11446f7069fc8a0a1ba84"
+              },
+              {
+                "evidence_id": "evidence_d98341852ccd4791a3cbc2ccf176343b",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2476,
+                "char_end": 2560,
+                "exact_quote_hash": "e1a81b778792a59800df63e508520e217f75039a99a2b8a241d565aa58cdf8ae"
+              },
+              {
+                "evidence_id": "evidence_f0fe23281a5e4483a39b95be215895f2",
+                "source_id": "source_c2ddbf249ef557d80a497c8e74f2bc48c85ffbb8e41991bb268f39fc52355ba4",
+                "char_start": 2562,
+                "char_end": 2686,
+                "exact_quote_hash": "610f839b33a6f15052b748bc71ce56c340cc42722631628f91958cfa8805af5f"
+              }
+            ],
+            "supported": true
+          }
+        ],
+        "semantic_checks": [
+          true,
+          true
+        ],
+        "report_digest": "3845fb35a5daebcb8ff605f64674a7e1100418c51ec7c93048971531c81fa682"
+      },
+      "cost": {
+        "attempt_count": 8,
+        "charged_microusd": 201856,
+        "all_priced": true,
+        "attempts": [
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "write_research_section"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          },
+          {
+            "status": "SUCCEEDED",
+            "error_kind": null,
+            "cost_status": "ESTIMATED_PARTIAL",
+            "cost_microusd": 25232,
+            "price_snapshot_id": "M4-LIVE-20260909-003-price-556b9fd7dc58",
+            "purpose": "research_structured_step"
+          }
+        ]
+      }
+    }
+  ],
+  "stage_complete": true,
+  "cost_evidence": {
+    "attempt_count": 24,
+    "charged_microusd": 605568,
+    "all_priced": true
+  },
+  "cleanup": {
+    "test_rows_removed": 504,
+    "stable_bundle_unchanged": true
+  },
+  "elapsed_seconds": 72.77694,
+  "model_network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "95dab3e15f8dd0f1a730be0bd04f4278a67c939b8458fc632b78a1c551c7b76d",
+      "output_digest": "c169fee845ba5a006c3bd1a91390e810f6da949c11b60cf904bb453406f0885a",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "5a1b3c8cf8dbf66761c413e7b35de5b317477051d058cd2ff52c335dd7532495",
+      "output_digest": "6f519b10f7eeb7da0acf1f6def6abc909485d352e8258a7ee843d167feb921bc",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "7684b13dba6faa808c022bd932cce58e3d54825d637dad35660482032c5ae4e8",
+      "output_digest": "1bf0de8da8e72ab7a4acb6aa9f5d6f1f6cd6616b6e462541e1b0eb72ebd73cc4",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "8eb553621d483dd0307e33191b1560e392e255857c3bc46855ae5fdaa6760aad",
+      "output_digest": "780d59d9632fdbbcf78c307568d06403c690e2ce6cf3ec7376720ca1b8cc49b0",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 5,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "cc7c573cadc1ec600497b83c6a5f0120a40904156afd28967f2d6da5adde7116",
+      "output_digest": "b03aed8292d8883a54fd13f9eeff4b3f2389806d10c61b1b9d13320d026aafba",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 6,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "40bf1f68907df2147007656fba984b56216ba75ce53b1126a0613c16fe1721a3",
+      "output_digest": "1550f819192e24b2c1243910c780406228b1ddf72b776e7de9140214be774aaf",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 7,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "18ede5216c063a55b95dfb290749b5cb5236609a1bd13aa64d2bbf3fdb238fae",
+      "output_digest": "573cd164ddfed32888383ff74cb5a7d9dd2f6ad9d00b0f855bfb97902f1aff5c",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 8,
+      "round": 1,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "ec4f0330590efa409fe06571ca7c4f31cef3a66c081b587032cbc73ffbdc7e86",
+      "output_digest": "243a0c176cb496fc9720c862fa41300077b9f40e07d0cc0be3be195e88a4ace0",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 9,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "01932818789efcc7d3b8f36663c595d51ed62366a09948eedcf0118760ec3610",
+      "output_digest": "3d6ffb3c3082764af939d3449641c085f1f9a8e5097427f95ba075953727b51d",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 10,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "0eb14f1b5a5ff6c1b46be6f09946c5c089f0e46dde113fc6adf19517c9257a1b",
+      "output_digest": "5748a5d2b6d9b59d1f1cbb6aec6c90bea1c5f016925b633c7fdd5319cc4c4d1e",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 11,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "e32b9b9b58d6dba335490698a8c1768e2b2e5a2fa128553c639fad443a0e22c6",
+      "output_digest": "81adad9d21f315286de70b9ed744b41d9c751ae52670ae7dce9bb638f9e4244b",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 12,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "ab70cf0a46fe64d1f963f5c36c13b88971ab02def89dff2849940fb55adebf4c",
+      "output_digest": "48acba88f1c94eb927d62e6392d8bd14387c7f5a0cc1c356e51575678a30b571",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 13,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "4b86ac2b01256f637060f0489d3a771e63356cb8a371555e5315b5188a6b11d9",
+      "output_digest": "725ff8845f7ef93479578c8a8d3a4ca1e3e7bcd6727a09108458e6a0a6ebbd5f",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 14,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "7bcc324f0ad4b7fb0aeb557ef425419b38f8127177f3636bcf40b23f79da0d9d",
+      "output_digest": "7b630560aff34b9807da464dc10b8567d0f0860c25b0b91c1ecd984e244bf467",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 15,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "4733458b39d55e7d8d7f36d7e420b4bc66b93151cc255ccb52a8b4d6cd3bb9c3",
+      "output_digest": "d37323577df40964ab5510447afe2ab6db3807856989aa9b20988dffcc8a25f2",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 16,
+      "round": 2,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "1d8ab2d792c2f66222efc20a4388f8705cae2cf586adf3c4761d87bd9786f6ec",
+      "output_digest": "243a0c176cb496fc9720c862fa41300077b9f40e07d0cc0be3be195e88a4ace0",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 17,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "4c44b1a87c99c794f8a5282716fe3f28d6144b306dac60c51ede8033fc48f93f",
+      "output_digest": "2fe067b5f62ba8fff2f0019cb77bfd986ae9331680e8abafb6b245a890766085",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 18,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "fb75aaae9782e8096e69821e59a0f098fbf7d805ec30dca7ada86dc5033adc69",
+      "output_digest": "0f27a3e2634ac346bc936206dab39154da52cd58bf1b00355152e891b182ddbe",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 19,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "b5b3ca5dfcf6194a7d4c6ee554445a451f6c2285697d0af508a4aea85ba4c39d",
+      "output_digest": "050f87a67a1e28474382e73819e70e6069375069c7a06f2c8d58c41c6677a4c7",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 20,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "93f6a4a4c62250fa1eb569e60ec17860aab75edfcaa669b9b2113a39471d86d7",
+      "output_digest": "47e010993cd22e8d9e536b0f2192eef9a1877cfe5b0edd82f93a4059e83789cd",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 21,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "49cd91d381a8f4aa21481524bf5805c04412147b62f9f49d40dd625b553880e2",
+      "output_digest": "92283144fc532614606ac85dab0b9f8488f91ebd597920cee150f0941f438a49",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 22,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "write_research_section",
+      "status": "succeeded",
+      "request_digest": "33adba849ab60f48abc97ff6f6429c2df504af0ec54028f1cbb8e85dbad0a82c",
+      "output_digest": "4a84a097330f0d4443e2bc6b9bf8cc2830378fdf273307407edebd49bcdc6234",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 23,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "af1a03332a7f4cfcbbc3a2cafece408176c4bf8db8718f3e01690f5922b63e3e",
+      "output_digest": "a1ffb0732deb9131cb811bd23f7f88ffbe0b4d77b0ed3e29ba61c8bebefcdc19",
+      "finish_reason": "stop"
+    },
+    {
+      "ordinal": 24,
+      "round": 3,
+      "role": "researcher",
+      "purpose": "research_structured_step",
+      "status": "succeeded",
+      "request_digest": "0be84c683362a52ff509473c3fdd600269dbc79ad1c9af0a651f6c59325e9a72",
+      "output_digest": "243a0c176cb496fc9720c862fa41300077b9f40e07d0cc0be3be195e88a4ace0",
+      "finish_reason": "stop"
+    }
+  ],
+  "source_network_requests": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "url": "https://docs.python.org/3/library/asyncio-task.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://docs.python.org/3/library/asyncio-task.html",
+      "content_hash": "aa6b689e7f850130f5061c26de4a502e8ff9227ec1360a562a6bd2028fabe2a2",
+      "bytes": 177075
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://docs.python.org/3/library/asyncio-exceptions.html",
+      "content_hash": "9d425ec8d01da8dfaa3f478664f8805fd30292afe8fa7b94a530d4fd3c47fffe",
+      "bytes": 22090
+    },
+    {
+      "ordinal": 3,
+      "round": 2,
+      "url": "https://www.postgresql.org/docs/current/sql-explain.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://www.postgresql.org/docs/current/sql-explain.html",
+      "content_hash": "f2336902802db4c3c98010b4881b12efbc2dfd55761c37b60fc195d40fa7d179",
+      "bytes": 34940
+    },
+    {
+      "ordinal": 4,
+      "round": 2,
+      "url": "https://www.postgresql.org/docs/current/using-explain.html",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://www.postgresql.org/docs/current/using-explain.html",
+      "content_hash": "66ca7fc9a0611ab7a8dda5b38823a0fe7779ae11e42f6784849786b600f68cef",
+      "bytes": 70097
+    },
+    {
+      "ordinal": 5,
+      "round": 3,
+      "url": "https://git-scm.com/docs/git-revert",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://git-scm.com/docs/git-revert",
+      "content_hash": "6e77b2a98b536f3f941cfcbcf5032000234daa1708126350e4576a50538c4839",
+      "bytes": 48630
+    },
+    {
+      "ordinal": 6,
+      "round": 3,
+      "url": "https://git-scm.com/docs/git-reset",
+      "status": "succeeded",
+      "http_status": 200,
+      "final_url": "https://git-scm.com/docs/git-reset",
+      "content_hash": "971f4024bb82e7e6fbd21b91c486ed3c99103f0c2dfa6d14c08e63783ff0076e",
+      "bytes": 77330
+    }
+  ]
+}

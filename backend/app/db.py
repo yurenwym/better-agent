@@ -1,10 +1,137 @@
 from __future__ import annotations
 
 import hashlib
+import re
 import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Iterator
+
+
+POSTGRES_SCHEMA_HEAD = "20260918_0019"
+POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
+
+
+def _postgres_schema_is_current(version: str | None, extensions: set[str]) -> bool:
+    return version == POSTGRES_SCHEMA_HEAD and POSTGRES_REQUIRED_EXTENSIONS <= extensions
+
+
+def _is_postgres_url(value: str | Path) -> bool:
+    return str(value).startswith(("postgresql://", "postgres://"))
+
+
+def _postgres_sql(sql: str) -> str:
+    """Translate qmark binds without touching quoted SQL text or comments."""
+    result: list[str] = []
+    index = 0
+    quote: str | None = None
+    dollar_quote: str | None = None
+    while index < len(sql):
+        char = sql[index]
+        following = sql[index + 1] if index + 1 < len(sql) else ""
+        if dollar_quote:
+            if sql.startswith(dollar_quote, index):
+                result.append(dollar_quote)
+                index += len(dollar_quote)
+                dollar_quote = None
+                continue
+            result.append(char)
+        elif quote:
+            result.append(char)
+            if char == quote:
+                if following == quote:
+                    result.append(following)
+                    index += 1
+                else:
+                    quote = None
+        elif char == "$":
+            match = re.match(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$", sql[index:])
+            if match:
+                dollar_quote = match.group(0)
+                result.append(dollar_quote)
+                index += len(dollar_quote)
+                continue
+            result.append(char)
+        elif char in {"'", '"'}:
+            quote = char
+            result.append(char)
+        elif char == "-" and following == "-":
+            end = sql.find("\n", index)
+            if end < 0:
+                result.append(sql[index:])
+                break
+            result.append(sql[index:end])
+            index = end - 1
+        elif char == "/" and following == "*":
+            end = sql.find("*/", index + 2)
+            if end < 0:
+                result.append(sql[index:])
+                break
+            result.append(sql[index : end + 2])
+            index = end + 1
+        elif char == "?":
+            previous_nonspace = next(
+                (candidate for candidate in reversed(result) if candidate and not candidate[-1].isspace()),
+                "",
+            )
+            remaining = sql[index + 1:].lstrip()
+            json_operator = following in {"|", "&"} or (
+                remaining.startswith(("'", '"'))
+                and previous_nonspace
+                and previous_nonspace[-1] not in "=<>!,( ["
+            )
+            if json_operator:
+                result.append(char)
+            else:
+                result.append("%s")
+                if following and (following.isalnum() or following == "_"):
+                    result.append(" ")
+        else:
+            result.append(char)
+        index += 1
+    converted = "".join(result)
+    if converted.lstrip().upper().startswith("INSERT OR IGNORE INTO "):
+        converted = converted.replace("INSERT OR IGNORE INTO ", "INSERT INTO ", 1)
+        converted = converted.rstrip().rstrip(";") + " ON CONFLICT DO NOTHING"
+    return converted
+
+
+class _CompatRow(tuple):
+    def __new__(cls, values: tuple[Any, ...], names: tuple[str, ...]):
+        instance = super().__new__(cls, values)
+        instance._names = names
+        instance._positions = {name: offset for offset, name in enumerate(names)}
+        return instance
+
+    def __getitem__(self, key):
+        if isinstance(key, str):
+            key = self._positions[key]
+        return super().__getitem__(key)
+
+    def keys(self) -> list[str]:
+        return list(self._names)
+
+
+def _compat_row_factory(cursor):
+    names = tuple(column.name for column in (cursor.description or ()))
+    return lambda values: _CompatRow(values, names)
+
+
+def _postgres_cursor_factory():
+    import psycopg
+
+    class CompatCursor(psycopg.Cursor):
+        def execute(self, query, params=None, *, prepare=None, binary=None):
+            if isinstance(query, str):
+                query = _postgres_sql(query)
+            return super().execute(query, params, prepare=prepare, binary=binary)
+
+        def executemany(self, query, params_seq, *, returning=False):
+            if isinstance(query, str):
+                query = _postgres_sql(query)
+            return super().executemany(query, params_seq, returning=returning)
+
+    return CompatCursor
 
 
 SCHEMA = """
@@ -395,8 +522,8 @@ CREATE TABLE IF NOT EXISTS research_jobs (
  schedule_id TEXT, retry_of_job_id TEXT REFERENCES research_jobs(id),
  trigger_kind TEXT NOT NULL CHECK(trigger_kind IN ('manual','scheduled','retry','run_now')), occurrence_key TEXT NOT NULL UNIQUE,
  topic TEXT NOT NULL CHECK(length(topic) BETWEEN 1 AND 2000), source_scopes_json TEXT NOT NULL DEFAULT '["web"]',
- status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','COMPLETED','FAILED','CANCELLED')),
- phase TEXT NOT NULL CHECK(phase IN ('queued','planning','retrieving','distilling','reflecting','curating','writing','summarizing','finalizing','completed','failed','cancelled')),
+ status TEXT NOT NULL CHECK(status IN ('QUEUED','RUNNING','COMPLETED','PARTIAL','FAILED','CANCELLED')),
+ phase TEXT NOT NULL CHECK(phase IN ('queued','planning','retrieving','distilling','reflecting','curating','writing','summarizing','finalizing','completed','partial','failed','cancelled')),
  available_at TEXT NOT NULL, lease_owner TEXT, lease_until TEXT, attempts INTEGER NOT NULL DEFAULT 0, max_attempts INTEGER NOT NULL DEFAULT 2,
  cancel_requested_at TEXT, started_at TEXT, finished_at TEXT, last_error_json TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
 );
@@ -1087,17 +1214,383 @@ MIGRATIONS = (
     CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_audit_owner_key
       ON memory_audit_events(owner_id,idempotency_key);
     """),
+    (21, r"""
+    ALTER TABLE memory_entries ADD COLUMN evidence_state TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED'
+      CHECK(evidence_state IN ('VERIFIED','LEGACY_UNVERIFIED','INVALID'));
+    ALTER TABLE memory_proposals ADD COLUMN request_digest TEXT NOT NULL DEFAULT '';
+    ALTER TABLE memory_proposals ADD COLUMN decision_request_digest TEXT;
+    ALTER TABLE memory_proposals ADD COLUMN evidence_state TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED'
+      CHECK(evidence_state IN ('VERIFIED','LEGACY_UNVERIFIED','INVALID'));
+    ALTER TABLE memory_proposals ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE memory_proposals ADD COLUMN accepted_content TEXT;
+    ALTER TABLE memory_audit_events ADD COLUMN request_digest TEXT NOT NULL DEFAULT '';
+    CREATE TABLE memory_evidence_links (
+      id TEXT PRIMARY KEY,
+      aggregate_type TEXT NOT NULL CHECK(aggregate_type IN ('proposal','revision')),
+      aggregate_id TEXT NOT NULL,
+      source_type TEXT NOT NULL CHECK(source_type IN ('thread_message','thread_event','run_event')),
+      source_id TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(aggregate_type,aggregate_id,source_type,source_id)
+    );
+    CREATE INDEX idx_memory_evidence_aggregate
+      ON memory_evidence_links(aggregate_type,aggregate_id,created_at,id);
+    UPDATE memory_proposals
+      SET status='SUPERSEDED', evidence_state='LEGACY_UNVERIFIED', version=version+1
+      WHERE status='PENDING';
+    CREATE UNIQUE INDEX uq_memory_pending_add_fingerprint
+      ON memory_proposals(owner_id,scope_type,scope_id,fingerprint)
+      WHERE operation='ADD' AND status='PENDING';
+    """),
+    (22, r"""
+    ALTER TABLE memory_episodes ADD COLUMN version INTEGER NOT NULL DEFAULT 0;
+    """),
+    (23, r"""
+    CREATE TABLE turn_metrics (
+      turn_id TEXT PRIMARY KEY REFERENCES turns(id),
+      queue_wait_ms INTEGER,
+      context_ms INTEGER,
+      model_ttft_ms INTEGER,
+      stream_ms INTEGER,
+      answer_wait_ms INTEGER,
+      total_ms INTEGER,
+      model_attempt_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_turn_jobs_claim ON turn_jobs(status,lease_until,started_at);
+    CREATE INDEX idx_turns_thread_status ON turns(thread_id,status,id);
+    """),
+    (24, r"""
+    ALTER TABLE turn_jobs ADD COLUMN thread_id TEXT;
+    ALTER TABLE turn_jobs ADD COLUMN lease_epoch INTEGER NOT NULL DEFAULT 0;
+    UPDATE turn_jobs SET thread_id=(SELECT thread_id FROM turns WHERE turns.id=turn_jobs.turn_id)
+      WHERE thread_id IS NULL;
+    CREATE UNIQUE INDEX uq_turn_jobs_one_running_per_thread
+      ON turn_jobs(thread_id) WHERE status='RUNNING';
+    """),
+    (25, r"""
+    ALTER TABLE agent_runs ADD COLUMN root_budget_id TEXT;
+    ALTER TABLE research_jobs ADD COLUMN root_budget_id TEXT;
+    ALTER TABLE evaluation_runs ADD COLUMN root_budget_id TEXT;
+    ALTER TABLE turns ADD COLUMN root_budget_id TEXT;
+    """),
+    (26, r"""
+    ALTER TABLE runs ADD COLUMN root_budget_id TEXT;
+    ALTER TABLE memory_archive_jobs ADD COLUMN runtime_bundle_id TEXT;
+    ALTER TABLE memory_archive_jobs ADD COLUMN root_budget_id TEXT;
+    """),
+    (27, r"""
+    ALTER TABLE evolution_experiences ADD COLUMN root_task_id TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_experiences ADD COLUMN target_role TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_experiences ADD COLUMN provenance TEXT NOT NULL DEFAULT 'production';
+    ALTER TABLE evolution_experiences ADD COLUMN source_version TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_experiences ADD COLUMN source_state TEXT NOT NULL DEFAULT 'ACTIVE';
+    ALTER TABLE evolution_experiences ADD COLUMN runtime_bundle_known INTEGER NOT NULL DEFAULT 1;
+    ALTER TABLE evolution_candidates ADD COLUMN contract_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE evolution_candidates ADD COLUMN release_contract_version TEXT NOT NULL DEFAULT '';
+    ALTER TABLE evolution_observer_offsets ADD COLUMN last_success_row_id INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE evolution_observer_offsets ADD COLUMN last_error TEXT;
+    ALTER TABLE evolution_observer_offsets ADD COLUMN last_error_at TEXT;
+    ALTER TABLE canary_deployments ADD COLUMN target_role TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_deployments ADD COLUMN target_purpose TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_deployments ADD COLUMN budget_microusd INTEGER;
+    ALTER TABLE canary_deployments ADD COLUMN deadline_at TEXT;
+    ALTER TABLE canary_deployments ADD COLUMN release_contract_version TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_exposures ADD COLUMN target_role TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_exposures ADD COLUMN target_purpose TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_exposures ADD COLUMN prompt_hit INTEGER;
+    CREATE INDEX idx_evolution_experience_root ON evolution_experiences(owner_id,root_task_id,created_at);
+    CREATE INDEX idx_evolution_experience_source_state ON evolution_experiences(owner_id,source_state,created_at);
+    CREATE TABLE evolution_content_authorizations (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, subject_id TEXT NOT NULL,
+      source_scope_json TEXT NOT NULL, purpose TEXT NOT NULL,
+      expires_at TEXT NOT NULL, revoked_at TEXT, created_at TEXT NOT NULL,
+      request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE
+    );
+    CREATE TABLE evolution_generation_batches (
+      id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, problem_fingerprint TEXT NOT NULL,
+      experience_ids_json TEXT NOT NULL, base_bundle_id TEXT NOT NULL REFERENCES runtime_bundles(id),
+      target_role TEXT NOT NULL, allowed_path TEXT NOT NULL, generation_config_digest TEXT NOT NULL,
+      root_budget_id TEXT NOT NULL, max_calls INTEGER NOT NULL CHECK(max_calls > 0),
+      budget_microusd INTEGER NOT NULL CHECK(budget_microusd > 0), deadline_at TEXT NOT NULL,
+      content_authorization_id TEXT REFERENCES evolution_content_authorizations(id),
+      status TEXT NOT NULL CHECK(status IN ('APPROVED','REQUESTING','COMPLETED','STOPPED','UNKNOWN')),
+      calls_started INTEGER NOT NULL DEFAULT 0, candidate_id TEXT REFERENCES evolution_candidates(id),
+      error_json TEXT, request_digest TEXT NOT NULL, idempotency_key TEXT NOT NULL UNIQUE,
+      created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+      UNIQUE(owner_id,problem_fingerprint,base_bundle_id,generation_config_digest)
+    );
+    CREATE INDEX idx_evolution_generation_status ON evolution_generation_batches(owner_id,status,created_at);
+    CREATE TRIGGER evolution_candidate_contract_frozen BEFORE UPDATE OF contract_json,release_contract_version ON evolution_candidates
+    BEGIN SELECT RAISE(ABORT,'evolution candidate contract is frozen'); END;
+    """),
+    (28, r"""
+    ALTER TABLE model_invocations ADD COLUMN system_prompt_digest TEXT NOT NULL DEFAULT '';
+    ALTER TABLE canary_deployments ADD COLUMN stable_version INTEGER;
+    ALTER TABLE canary_deployments ADD COLUMN stop_reason TEXT;
+    ALTER TABLE canary_deployments ADD COLUMN max_calls INTEGER;
+    ALTER TABLE canary_exposures ADD COLUMN prompt_digest TEXT;
+    CREATE TABLE evolution_release_suites (digest TEXT PRIMARY KEY, owner_id TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at TEXT NOT NULL);
+    CREATE TABLE canary_attempt_reservations (attempt_id TEXT PRIMARY KEY, deployment_id TEXT NOT NULL REFERENCES canary_deployments(id), amount_microusd INTEGER NOT NULL CHECK(amount_microusd >= 0), created_at TEXT NOT NULL);
+    CREATE TRIGGER evolution_release_suites_frozen BEFORE UPDATE ON evolution_release_suites BEGIN SELECT RAISE(ABORT,'release suite is frozen'); END;
+    CREATE TRIGGER canary_attempt_reservations_frozen BEFORE UPDATE ON canary_attempt_reservations BEGIN SELECT RAISE(ABORT,'canary reservation is frozen'); END;
+    """),
 )
+
+
+from .learning_schema import STATEMENTS as LEARNING_SCHEMA_STATEMENTS
+
+MIGRATIONS = (*MIGRATIONS, (29, ";\n".join(LEARNING_SCHEMA_STATEMENTS) + ";"))
+from .learning_assets import STATEMENTS as LEARNING_ASSET_STATEMENTS
+MIGRATIONS = (*MIGRATIONS, (30, ";\n".join(LEARNING_ASSET_STATEMENTS) + ";"))
+MIGRATIONS = (*MIGRATIONS, (31, """
+    CREATE TABLE evolution_release_suites_owner (
+      digest TEXT NOT NULL, owner_id TEXT NOT NULL, metadata_json TEXT NOT NULL,
+      created_at TEXT NOT NULL, PRIMARY KEY(owner_id,digest)
+    );
+    INSERT INTO evolution_release_suites_owner SELECT * FROM evolution_release_suites;
+    DROP TABLE evolution_release_suites;
+    ALTER TABLE evolution_release_suites_owner RENAME TO evolution_release_suites;
+    CREATE TRIGGER evolution_release_suites_frozen BEFORE UPDATE ON evolution_release_suites
+      BEGIN SELECT RAISE(ABORT,'release suite is frozen'); END;
+"""))
+MIGRATIONS = (*MIGRATIONS, (32, "-- Rebuild skill_versions without globally unique package_digest; preserve IDs and immutable triggers."))
+MIGRATIONS = (*MIGRATIONS, (33, """
+    ALTER TABLE model_price_snapshots ADD COLUMN source_url TEXT NOT NULL DEFAULT 'legacy:unspecified';
+"""))
+MIGRATIONS = (*MIGRATIONS, (34, """
+    ALTER TABLE goal_programs ADD COLUMN schedule_constraints_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE goal_actions ADD COLUMN progress_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE goal_action_feedback ADD COLUMN details_json TEXT NOT NULL DEFAULT '{}';
+    ALTER TABLE goal_daily_reviews ADD COLUMN evidence_stale INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE goal_daily_reviews ADD COLUMN revision INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE goal_daily_reviews ADD COLUMN history_json TEXT NOT NULL DEFAULT '[]';
+    ALTER TABLE goal_review_action_snapshots ADD COLUMN feedback_json TEXT NOT NULL DEFAULT '{}';
+"""))
+
+
+MIGRATIONS = (*MIGRATIONS, (35, """
+    ALTER TABLE goal_daily_reviews ADD COLUMN adjustment_status TEXT NOT NULL DEFAULT 'NOT_NEEDED';
+    ALTER TABLE goal_daily_reviews ADD COLUMN adjustment_error_code TEXT;
+    ALTER TABLE goal_daily_reviews ADD COLUMN adjustment_attempts INTEGER NOT NULL DEFAULT 0;
+    UPDATE goal_daily_reviews SET adjustment_status='COMPLETED' WHERE proposal_id IS NOT NULL;
+"""))
+
+
+# R1 budget contract. ``validation_tier`` stays NULL for legacy versions, which
+# keep the historical C - O - margin formula. A tier-A version must carry an
+# evidenced ``admitted_context_limit`` and ``counter_evidence_version``; the
+# repository default window is not capacity evidence.
+MIGRATIONS = (*MIGRATIONS, (36, """
+    DROP TRIGGER model_profile_versions_frozen;
+    ALTER TABLE model_profile_versions ADD COLUMN admitted_context_limit INTEGER;
+    ALTER TABLE model_profile_versions ADD COLUMN soft_context_limit INTEGER;
+    ALTER TABLE model_profile_versions ADD COLUMN context_window_verified INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE model_profile_versions ADD COLUMN validation_tier TEXT;
+    ALTER TABLE model_profile_versions ADD COLUMN counter_id TEXT NOT NULL DEFAULT 'utf8-upper-bound';
+    ALTER TABLE model_profile_versions ADD COLUMN counter_version TEXT NOT NULL DEFAULT 'utf8-upper-bound-v1';
+    ALTER TABLE model_profile_versions ADD COLUMN counter_evidence_version TEXT;
+    ALTER TABLE model_profile_versions ADD COLUMN capacity_evidence TEXT;
+    ALTER TABLE model_profile_versions ADD COLUMN protocol_budget_json TEXT NOT NULL DEFAULT '{}';
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    WHEN OLD.profile_id<>NEW.profile_id OR OLD.version<>NEW.version OR OLD.provider_protocol<>NEW.provider_protocol OR
+         OLD.provider_name<>NEW.provider_name OR OLD.base_url<>NEW.base_url OR OLD.model_name<>NEW.model_name OR
+         OLD.credential_env_ref<>NEW.credential_env_ref OR OLD.capabilities_json<>NEW.capabilities_json OR
+         OLD.context_window<>NEW.context_window OR OLD.max_output_tokens<>NEW.max_output_tokens OR
+         OLD.timeout_seconds<>NEW.timeout_seconds OR OLD.max_attempts<>NEW.max_attempts OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at OR
+         COALESCE(OLD.admitted_context_limit,-1)<>COALESCE(NEW.admitted_context_limit,-1) OR
+         COALESCE(OLD.soft_context_limit,-1)<>COALESCE(NEW.soft_context_limit,-1) OR
+         OLD.context_window_verified<>NEW.context_window_verified OR
+         COALESCE(OLD.validation_tier,'')<>COALESCE(NEW.validation_tier,'') OR
+         OLD.counter_id<>NEW.counter_id OR OLD.counter_version<>NEW.counter_version OR
+         COALESCE(OLD.counter_evidence_version,'')<>COALESCE(NEW.counter_evidence_version,'') OR
+         COALESCE(OLD.capacity_evidence,'')<>COALESCE(NEW.capacity_evidence,'') OR
+         OLD.protocol_budget_json<>NEW.protocol_budget_json
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+"""))
+
+MIGRATIONS = (*MIGRATIONS, (37, """
+    -- Invocation-scoped events. ``record_event`` used to drop every event
+    -- unless the call happened to carry a thread/turn or run/goal id, so a
+    -- capacity rejection or a skipped fallback on a context without those ids
+    -- left no trace. These records must survive on the invocation alone.
+    CREATE TABLE model_invocation_events (
+      id TEXT PRIMARY KEY,
+      invocation_id TEXT NOT NULL REFERENCES model_invocations(id),
+      event_type TEXT NOT NULL,
+      data_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_model_invocation_events_invocation
+      ON model_invocation_events(invocation_id, created_at);
+"""))
+
+MIGRATIONS = (*MIGRATIONS, (38, """
+    -- The R1 selection policy belongs on the immutable profile version. Without
+    -- these columns ``hot_window`` could only ever see its defaults, so the
+    -- "policy comes from the versioned profile" claim was not actually true.
+    DROP TRIGGER model_profile_versions_frozen;
+    ALTER TABLE model_profile_versions ADD COLUMN history_min_turns INTEGER;
+    ALTER TABLE model_profile_versions ADD COLUMN compact_ratio REAL;
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    WHEN OLD.profile_id<>NEW.profile_id OR OLD.version<>NEW.version OR OLD.provider_protocol<>NEW.provider_protocol OR
+         OLD.provider_name<>NEW.provider_name OR OLD.base_url<>NEW.base_url OR OLD.model_name<>NEW.model_name OR
+         OLD.credential_env_ref<>NEW.credential_env_ref OR OLD.capabilities_json<>NEW.capabilities_json OR
+         OLD.context_window<>NEW.context_window OR OLD.max_output_tokens<>NEW.max_output_tokens OR
+         OLD.timeout_seconds<>NEW.timeout_seconds OR OLD.max_attempts<>NEW.max_attempts OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at OR
+         COALESCE(OLD.admitted_context_limit,-1)<>COALESCE(NEW.admitted_context_limit,-1) OR
+         COALESCE(OLD.soft_context_limit,-1)<>COALESCE(NEW.soft_context_limit,-1) OR
+         OLD.context_window_verified<>NEW.context_window_verified OR
+         COALESCE(OLD.validation_tier,'')<>COALESCE(NEW.validation_tier,'') OR
+         OLD.counter_id<>NEW.counter_id OR OLD.counter_version<>NEW.counter_version OR
+         COALESCE(OLD.counter_evidence_version,'')<>COALESCE(NEW.counter_evidence_version,'') OR
+         COALESCE(OLD.capacity_evidence,'')<>COALESCE(NEW.capacity_evidence,'') OR
+         OLD.protocol_budget_json<>NEW.protocol_budget_json OR
+         COALESCE(OLD.history_min_turns,-1)<>COALESCE(NEW.history_min_turns,-1) OR
+         COALESCE(OLD.compact_ratio,-1.0)<>COALESCE(NEW.compact_ratio,-1.0)
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+"""))
+
+MIGRATIONS = (*MIGRATIONS, (39, """
+    -- R2-01: a tool result read must be scope-checked. ``call_id`` is already a
+    -- stable identifier, but the owning scope could only be reached by joining
+    -- through turns -> threads. Persisting it directly makes the check cheap and
+    -- keeps a paged read from having to trust the caller's thread argument.
+    ALTER TABLE turn_asks ADD COLUMN owner_id TEXT;
+    UPDATE turn_asks SET owner_id = (
+      SELECT t.owner_id FROM turns tt JOIN threads t ON t.id = tt.thread_id WHERE tt.id = turn_asks.turn_id
+    ) WHERE owner_id IS NULL;
+    CREATE INDEX idx_turn_asks_owner ON turn_asks(owner_id, call_id);
+"""))
+
+MIGRATIONS = (*MIGRATIONS, (40, """
+    -- R2-02: the recent-window ceiling ``R`` is versioned profile policy, for
+    -- the same reason ``history_min_turns`` and ``compact_ratio`` are. A policy
+    -- value that cannot survive a round trip through the database is a default
+    -- with extra steps, and ``hot_window`` would silently ignore a profile that
+    -- declared a non-default ceiling.
+    DROP TRIGGER model_profile_versions_frozen;
+    ALTER TABLE model_profile_versions ADD COLUMN recent_window_bytes INTEGER;
+    ALTER TABLE model_profile_versions ADD COLUMN recent_window_ratio REAL;
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    WHEN OLD.profile_id<>NEW.profile_id OR OLD.version<>NEW.version OR OLD.provider_protocol<>NEW.provider_protocol OR
+         OLD.provider_name<>NEW.provider_name OR OLD.base_url<>NEW.base_url OR OLD.model_name<>NEW.model_name OR
+         OLD.credential_env_ref<>NEW.credential_env_ref OR OLD.capabilities_json<>NEW.capabilities_json OR
+         OLD.context_window<>NEW.context_window OR OLD.max_output_tokens<>NEW.max_output_tokens OR
+         OLD.timeout_seconds<>NEW.timeout_seconds OR OLD.max_attempts<>NEW.max_attempts OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at OR
+         COALESCE(OLD.admitted_context_limit,-1)<>COALESCE(NEW.admitted_context_limit,-1) OR
+         COALESCE(OLD.soft_context_limit,-1)<>COALESCE(NEW.soft_context_limit,-1) OR
+         OLD.context_window_verified<>NEW.context_window_verified OR
+         COALESCE(OLD.validation_tier,'')<>COALESCE(NEW.validation_tier,'') OR
+         OLD.counter_id<>NEW.counter_id OR OLD.counter_version<>NEW.counter_version OR
+         COALESCE(OLD.counter_evidence_version,'')<>COALESCE(NEW.counter_evidence_version,'') OR
+         COALESCE(OLD.capacity_evidence,'')<>COALESCE(NEW.capacity_evidence,'') OR
+         OLD.protocol_budget_json<>NEW.protocol_budget_json OR
+         COALESCE(OLD.history_min_turns,-1)<>COALESCE(NEW.history_min_turns,-1) OR
+         COALESCE(OLD.compact_ratio,-1.0)<>COALESCE(NEW.compact_ratio,-1.0) OR
+         COALESCE(OLD.recent_window_bytes,-1)<>COALESCE(NEW.recent_window_bytes,-1) OR
+         COALESCE(OLD.recent_window_ratio,-1.0)<>COALESCE(NEW.recent_window_ratio,-1.0)
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+"""))
+
+MIGRATIONS = (*MIGRATIONS, (41, """
+    -- R2-03: the static early-archival line is versioned profile policy for the
+    -- same reason R2-02's ceiling is. Without these columns a profile that
+    -- declared a non-default trigger would be silently ignored and the selector
+    -- would fall back to the 30%/20% defaults.
+    DROP TRIGGER model_profile_versions_frozen;
+    ALTER TABLE model_profile_versions ADD COLUMN archive_trigger_ratio REAL;
+    ALTER TABLE model_profile_versions ADD COLUMN archive_reserve_ratio REAL;
+    ALTER TABLE model_profile_versions ADD COLUMN archive_prefix_reserve INTEGER;
+    CREATE TRIGGER model_profile_versions_frozen BEFORE UPDATE ON model_profile_versions
+    WHEN OLD.profile_id<>NEW.profile_id OR OLD.version<>NEW.version OR OLD.provider_protocol<>NEW.provider_protocol OR
+         OLD.provider_name<>NEW.provider_name OR OLD.base_url<>NEW.base_url OR OLD.model_name<>NEW.model_name OR
+         OLD.credential_env_ref<>NEW.credential_env_ref OR OLD.capabilities_json<>NEW.capabilities_json OR
+         OLD.context_window<>NEW.context_window OR OLD.max_output_tokens<>NEW.max_output_tokens OR
+         OLD.timeout_seconds<>NEW.timeout_seconds OR OLD.max_attempts<>NEW.max_attempts OR
+         OLD.config_digest<>NEW.config_digest OR OLD.created_at<>NEW.created_at OR
+         COALESCE(OLD.admitted_context_limit,-1)<>COALESCE(NEW.admitted_context_limit,-1) OR
+         COALESCE(OLD.soft_context_limit,-1)<>COALESCE(NEW.soft_context_limit,-1) OR
+         OLD.context_window_verified<>NEW.context_window_verified OR
+         COALESCE(OLD.validation_tier,'')<>COALESCE(NEW.validation_tier,'') OR
+         OLD.counter_id<>NEW.counter_id OR OLD.counter_version<>NEW.counter_version OR
+         COALESCE(OLD.counter_evidence_version,'')<>COALESCE(NEW.counter_evidence_version,'') OR
+         COALESCE(OLD.capacity_evidence,'')<>COALESCE(NEW.capacity_evidence,'') OR
+         OLD.protocol_budget_json<>NEW.protocol_budget_json OR
+         COALESCE(OLD.history_min_turns,-1)<>COALESCE(NEW.history_min_turns,-1) OR
+         COALESCE(OLD.compact_ratio,-1.0)<>COALESCE(NEW.compact_ratio,-1.0) OR
+         COALESCE(OLD.recent_window_bytes,-1)<>COALESCE(NEW.recent_window_bytes,-1) OR
+         COALESCE(OLD.recent_window_ratio,-1.0)<>COALESCE(NEW.recent_window_ratio,-1.0) OR
+         COALESCE(OLD.archive_trigger_ratio,-1.0)<>COALESCE(NEW.archive_trigger_ratio,-1.0) OR
+         COALESCE(OLD.archive_reserve_ratio,-1.0)<>COALESCE(NEW.archive_reserve_ratio,-1.0) OR
+         COALESCE(OLD.archive_prefix_reserve,-1)<>COALESCE(NEW.archive_prefix_reserve,-1)
+    BEGIN SELECT RAISE(ABORT,'model profile version is frozen'); END;
+    -- "明确每个 Job 的来源范围和预算版本". The source scope is already pinned by
+    -- start/end sequence plus source_hash; the budget version was not recorded,
+    -- so a job could not be audited against the policy that created it.
+    ALTER TABLE memory_archive_jobs ADD COLUMN budget_policy_version TEXT;
+    ALTER TABLE memory_archive_jobs ADD COLUMN budget_profile_version_id TEXT;
+"""))
 
 
 class Database:
     def __init__(self, path: str | Path, workspace: str | Path | None = None) -> None:
+        self.backend = "postgresql" if _is_postgres_url(path) else "sqlite"
+        self.database_url = str(path) if self.backend == "postgresql" else None
+        self._pool = None
+        if self.backend == "postgresql":
+            if workspace is None:
+                raise ValueError("workspace is required for PostgreSQL databases")
+            self.workspace = Path(workspace)
+            self.workspace.mkdir(parents=True, exist_ok=True)
+            self.path = self.workspace.parent / "agent.db"
+            self._initialize_postgres_pool()
+            self._validate_postgres_schema()
+            return
         self.path = Path(path)
         if str(path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
         self.workspace = Path(workspace) if workspace else self.path.parent / "workspace"
         self.workspace.mkdir(parents=True, exist_ok=True)
         self._initialize()
+
+    def _initialize_postgres_pool(self) -> None:
+        from psycopg_pool import ConnectionPool
+
+        self._pool = ConnectionPool(
+            self.database_url,
+            min_size=1,
+            max_size=16,
+            kwargs={
+                "autocommit": True,
+                "cursor_factory": _postgres_cursor_factory(),
+                "row_factory": _compat_row_factory,
+            },
+            open=True,
+        )
+
+    def _validate_postgres_schema(self) -> None:
+        with self._pool.connection() as connection:
+            row = connection.execute(
+                "SELECT version_num FROM alembic_version LIMIT 1"
+            ).fetchone()
+            extensions = {
+                item["extname"]
+                for item in connection.execute(
+                    "SELECT extname FROM pg_extension WHERE extname IN ('vector','pg_trgm')"
+                ).fetchall()
+            }
+        version = row["version_num"] if row is not None else None
+        if not _postgres_schema_is_current(version, extensions):
+            raise RuntimeError("PostgreSQL schema is not migrated; run alembic upgrade head")
+
+    def close(self) -> None:
+        if self._pool is not None:
+            self._pool.close()
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(
@@ -1157,6 +1650,16 @@ class Database:
                         self._recover_migration_19(connection)
                     elif version == 20:
                         self._recover_migration_20(connection)
+                    elif version == 21:
+                        self._recover_migration_21(connection)
+                    elif version == 22:
+                        self._recover_migration_22(connection)
+                    elif version == 23:
+                        self._recover_migration_23(connection)
+                    elif version == 26:
+                        self._recover_migration_26(connection)
+                    elif version == 32:
+                        self._recover_migration_32(connection)
                     else:
                         connection.executescript(sql)
                     connection.execute(
@@ -1288,6 +1791,10 @@ class Database:
 
     @contextmanager
     def connection(self) -> Iterator[sqlite3.Connection]:
+        if self.backend == "postgresql":
+            with self._pool.connection() as connection:
+                yield connection
+            return
         connection = self._connect()
         try:
             yield connection
@@ -1296,6 +1803,11 @@ class Database:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        if self.backend == "postgresql":
+            with self._pool.connection() as connection:
+                with connection.transaction():
+                    yield connection
+            return
         connection = self._connect()
         try:
             connection.execute("BEGIN IMMEDIATE")
@@ -1306,6 +1818,32 @@ class Database:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _recover_migration_32(connection: sqlite3.Connection) -> None:
+        schema = connection.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='skill_versions'").fetchone()[0]
+        if "UNIQUE(package_digest)" not in schema:
+            return
+        triggers = [row[0] for row in connection.execute("SELECT sql FROM sqlite_master WHERE type='trigger' AND tbl_name='skill_versions'")]
+        schema = schema.replace("CREATE TABLE skill_versions", "CREATE TABLE skill_versions_owner", 1).replace(", UNIQUE(package_digest)", "")
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys=OFF")
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(schema)
+            connection.execute("INSERT INTO skill_versions_owner SELECT * FROM skill_versions")
+            connection.execute("DROP TABLE skill_versions")
+            connection.execute("ALTER TABLE skill_versions_owner RENAME TO skill_versions")
+            for trigger in triggers:
+                connection.execute(trigger)
+            if connection.execute("PRAGMA foreign_key_check").fetchone() is not None:
+                raise RuntimeError("skill ownership migration violated a reference")
+            connection.commit()
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys=ON")
 
     @staticmethod
     def _recover_migration_13(connection: sqlite3.Connection) -> None:
@@ -1342,6 +1880,27 @@ class Database:
         columns = {row["name"] for row in connection.execute("PRAGMA table_info(skill_bindings)")}
         if "grant_snapshots_json" not in columns:
             connection.execute("ALTER TABLE skill_bindings ADD COLUMN grant_snapshots_json TEXT NOT NULL DEFAULT '{}'")
+
+    @staticmethod
+    def _recover_migration_23(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS turn_metrics ("
+            "turn_id TEXT PRIMARY KEY REFERENCES turns(id),queue_wait_ms INTEGER,context_ms INTEGER,"
+            "model_ttft_ms INTEGER,stream_ms INTEGER,answer_wait_ms INTEGER,total_ms INTEGER,"
+            "model_attempt_count INTEGER NOT NULL DEFAULT 0,created_at TEXT NOT NULL,updated_at TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_turn_jobs_claim ON turn_jobs(status,lease_until,started_at)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_turns_thread_status ON turns(thread_id,status,id)"
+        )
+
+    @staticmethod
+    def _recover_migration_26(connection: sqlite3.Connection) -> None:
+        Database._add_column(connection, "runs", "root_budget_id TEXT")
+        Database._add_column(connection, "memory_archive_jobs", "runtime_bundle_id TEXT")
+        Database._add_column(connection, "memory_archive_jobs", "root_budget_id TEXT")
 
     @staticmethod
     def _recover_migration_17(connection: sqlite3.Connection) -> None:
@@ -1485,6 +2044,39 @@ class Database:
         connection.execute("CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_audit_owner_key ON memory_audit_events(owner_id,idempotency_key)")
 
     @staticmethod
+    def _recover_migration_21(connection: sqlite3.Connection) -> None:
+        Database._add_column(connection, "memory_entries", "evidence_state TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED' CHECK(evidence_state IN ('VERIFIED','LEGACY_UNVERIFIED','INVALID'))")
+        Database._add_column(connection, "memory_proposals", "request_digest TEXT NOT NULL DEFAULT ''")
+        Database._add_column(connection, "memory_proposals", "decision_request_digest TEXT")
+        Database._add_column(connection, "memory_proposals", "evidence_state TEXT NOT NULL DEFAULT 'LEGACY_UNVERIFIED' CHECK(evidence_state IN ('VERIFIED','LEGACY_UNVERIFIED','INVALID'))")
+        Database._add_column(connection, "memory_proposals", "version INTEGER NOT NULL DEFAULT 0")
+        Database._add_column(connection, "memory_proposals", "accepted_content TEXT")
+        Database._add_column(connection, "memory_audit_events", "request_digest TEXT NOT NULL DEFAULT ''")
+        connection.executescript(r"""
+        CREATE TABLE IF NOT EXISTS memory_evidence_links (
+          id TEXT PRIMARY KEY,
+          aggregate_type TEXT NOT NULL CHECK(aggregate_type IN ('proposal','revision')),
+          aggregate_id TEXT NOT NULL,
+          source_type TEXT NOT NULL CHECK(source_type IN ('thread_message','thread_event','run_event')),
+          source_id TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          UNIQUE(aggregate_type,aggregate_id,source_type,source_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_memory_evidence_aggregate
+          ON memory_evidence_links(aggregate_type,aggregate_id,created_at,id);
+        UPDATE memory_proposals
+          SET status='SUPERSEDED', evidence_state='LEGACY_UNVERIFIED', version=version+1
+          WHERE status='PENDING';
+        CREATE UNIQUE INDEX IF NOT EXISTS uq_memory_pending_add_fingerprint
+          ON memory_proposals(owner_id,scope_type,scope_id,fingerprint)
+          WHERE operation='ADD' AND status='PENDING';
+        """)
+
+    @staticmethod
+    def _recover_migration_22(connection: sqlite3.Connection) -> None:
+        Database._add_column(connection, "memory_episodes", "version INTEGER NOT NULL DEFAULT 0")
+
+    @staticmethod
     def _add_column(connection: sqlite3.Connection, table: str, definition: str) -> None:
         name = definition.split()[0]
         columns = {row["name"] for row in connection.execute(f"PRAGMA table_info({table})")}
@@ -1493,6 +2085,10 @@ class Database:
 
     @contextmanager
     def durable_transaction(self) -> Iterator[sqlite3.Connection]:
+        if self.backend == "postgresql":
+            with self.transaction() as connection:
+                yield connection
+            return
         connection = self._connect()
         try:
             connection.execute("PRAGMA synchronous = FULL")

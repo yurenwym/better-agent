@@ -23,7 +23,9 @@ class GrowthProfileService:
                 (owner_id, owner_id),
             ).fetchall()
             action_counts = connection.execute(
-                "SELECT SUM(a.status='COMPLETED') completed,SUM(a.status='SKIPPED') skipped,SUM(a.status='DEFERRED') deferred "
+                "SELECT SUM(CASE WHEN a.status='COMPLETED' THEN 1 ELSE 0 END) completed,"
+                "SUM(CASE WHEN a.status='SKIPPED' THEN 1 ELSE 0 END) skipped,"
+                "SUM(CASE WHEN a.status='DEFERRED' THEN 1 ELSE 0 END) deferred "
                 "FROM goal_actions a JOIN goal_programs p ON p.id=a.program_id WHERE p.owner_id=? AND p.deleted_at IS NULL",
                 (owner_id,),
             ).fetchone()

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -11,7 +12,7 @@ from ..events import ThreadEventStore
 from .models import Evidence, ResearchPlan, Source
 
 
-TERMINAL = {"COMPLETED", "FAILED", "CANCELLED"}
+TERMINAL = {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}
 
 
 class ResearchConflict(ValueError): pass
@@ -42,6 +43,8 @@ class ResearchJob:
     assistant_message_id: str | None = None
     failure_reason_code: str | None = None
     failure_details: dict[str, Any] | None = None
+    traceability: tuple[dict[str, Any], ...] = ()
+    missing_requirements: tuple[str, ...] = ()
 
 
 class ResearchService:
@@ -51,35 +54,44 @@ class ResearchService:
         self.engine = engine
         self.notifications = None
 
-    def create_manual(self, thread_id: str, topic: str, client_request_id: str, source_scopes: tuple[str, ...]) -> ResearchJob:
+    def create_manual(
+        self, thread_id: str, topic: str, client_request_id: str,
+        source_scopes: tuple[str, ...], root_budget_id: str | None = None,
+        runtime_bundle_id: str | None = None,
+    ) -> ResearchJob:
         key = f"manual:{thread_id}:{client_request_id}"
         with self.db.connection() as connection:
             row = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (key,)).fetchone()
         if row: return self.get(row["id"])
-        return self._create_anchor_job(thread_id, topic, source_scopes, "manual", key, f"research:{client_request_id}")
+        return self._create_anchor_job(
+            thread_id, topic, source_scopes, "manual", key, f"research:{client_request_id}",
+            root_budget_id=root_budget_id, runtime_bundle_id=runtime_bundle_id,
+        )
 
-    def create_from_turn(self, turn_id: str, topic: str, source_scopes: tuple[str, ...]) -> ResearchJob:
-        with self.db.connection() as connection:
+    def create_from_turn(
+        self, turn_id: str, topic: str, source_scopes: tuple[str, ...], *, connection=None,
+    ) -> ResearchJob:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             turn = connection.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
             if not turn: raise KeyError(turn_id)
             prior = connection.execute("SELECT id FROM research_jobs WHERE source_turn_id=?", (turn_id,)).fetchone()
-            if prior: return self.get(prior["id"])
-        now = _now(); job_id = f"research_{uuid.uuid4().hex}"; message_id = f"message_{uuid.uuid4().hex}"
-        with self.db.transaction() as connection:
+            if prior: return self._job(prior["id"], connection)
+            now = _now(); job_id = f"research_{uuid.uuid4().hex}"; message_id = f"message_{uuid.uuid4().hex}"
             next_seq = int(connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (turn["thread_id"],)).fetchone()[0])
-            connection.execute("INSERT INTO research_jobs(id,thread_id,source_turn_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at) VALUES (?,?,?,'manual',?, ?,?,'QUEUED','queued',?,?,?)", (job_id, turn["thread_id"], turn_id, f"manual:{turn_id}", topic, json.dumps(source_scopes), now, now, now))
+            connection.execute("INSERT INTO research_jobs(id,thread_id,source_turn_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at,root_budget_id) VALUES (?,?,?,'manual',?, ?,?,'QUEUED','queued',?,?,?,?)", (job_id, turn["thread_id"], turn_id, f"manual:{turn_id}", topic, json.dumps(source_scopes), now, now, now, turn["root_budget_id"]))
             connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,research_job_id,created_at) VALUES (?,?,?,'assistant','','streaming',1,0,?,'standard',?,?)", (message_id, turn["thread_id"], turn_id, next_seq, job_id, now))
             connection.execute("INSERT INTO research_reports(job_id,assistant_message_id,created_at,updated_at) VALUES (?,?,?,?)", (job_id, message_id, now, now))
             connection.execute("UPDATE turns SET status='COMPLETED',policy='start_research',content_shape='research',reason_code='explicit_deep_research',version=version+1,updated_at=? WHERE id=?", (now, turn_id))
             connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn_id))
             self.events.append(turn["thread_id"], turn_id, "research.queued", "research_worker", {"job_id": job_id, "trigger_kind": "manual"}, connection=connection, occurred_at=now)
             self.events.append(turn["thread_id"], turn_id, "message.started", "research_worker", {"message_id": message_id, "generation": 1, "presentation": "standard", "research_job_id": job_id}, connection=connection, occurred_at=now)
-        return self.get(job_id)
+            return self._job(job_id, connection)
 
     def _create_anchor_job(
         self, thread_id: str, topic: str, source_scopes: tuple[str, ...], trigger_kind: str,
         occurrence_key: str, client_turn_id: str, *, schedule_id: str | None = None,
-        retry_of_job_id: str | None = None,
+        retry_of_job_id: str | None = None, root_budget_id: str | None = None,
+        runtime_bundle_id: str | None = None,
     ) -> ResearchJob:
         topic = topic.strip()
         if not topic or len(topic) > 2000: raise ValueError("research topic must be 1-2000 characters")
@@ -90,15 +102,42 @@ class ResearchService:
         with self.db.transaction() as connection:
             existing = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (occurrence_key,)).fetchone()
             if existing: return self._job(existing["id"], connection)
-            thread = connection.execute("SELECT active_turn_id FROM threads WHERE id=? AND deleted_at IS NULL", (thread_id,)).fetchone()
+            thread = connection.execute(
+                "SELECT active_turn_id,owner_id FROM threads WHERE id=? AND deleted_at IS NULL", (thread_id,),
+            ).fetchone()
             if not thread: raise KeyError(thread_id)
             if thread["active_turn_id"]:
                 active = connection.execute("SELECT status FROM turns WHERE id=?", (thread["active_turn_id"],)).fetchone()
                 if active and active["status"] not in TERMINAL: raise ResearchConflict("thread has an active turn")
+            if self.db.backend == "postgresql":
+                from ..costs import CostService
+                costs = CostService(self.db)
+                if root_budget_id is None:
+                    root_budget_id = costs.create_default_root_budget(
+                        thread["owner_id"], "research", job_id, connection=connection,
+                    )["id"]
+                elif connection.execute(
+                    "SELECT 1 FROM task_budget_roots WHERE id=? AND owner_id=?",
+                    (root_budget_id, thread["owner_id"]),
+                ).fetchone() is None:
+                    raise ResearchConflict("research root budget is missing or belongs to another owner")
+            if runtime_bundle_id is None:
+                active_bundle = connection.execute(
+                    "SELECT bundle_id FROM runtime_channels WHERE name='stable'",
+                ).fetchone()
+                runtime_bundle_id = active_bundle["bundle_id"] if active_bundle else None
+            if runtime_bundle_id is not None and connection.execute(
+                "SELECT 1 FROM runtime_bundles WHERE id=?", (runtime_bundle_id,),
+            ).fetchone() is None:
+                raise ResearchConflict("research runtime bundle does not exist")
             connection.execute(
-                "INSERT INTO turns(id,thread_id,client_turn_id,status,policy,content_shape,reason_code,version,created_at,updated_at) "
-                "VALUES (?,?,?,'COMPLETED','start_research','research',?,1,?,?)",
-                (turn_id, thread_id, client_turn_id, "scheduled_research" if trigger_kind == "scheduled" else "explicit_deep_research", now, now),
+                "INSERT INTO turns(id,thread_id,client_turn_id,status,policy,content_shape,reason_code,version,runtime_bundle_id,root_budget_id,created_at,updated_at) "
+                "VALUES (?,?,?,'COMPLETED','start_research','research',?,1,?,?,?,?)",
+                (
+                    turn_id, thread_id, client_turn_id,
+                    "scheduled_research" if trigger_kind == "scheduled" else "explicit_deep_research",
+                    runtime_bundle_id, root_budget_id, now, now,
+                ),
             )
             next_seq = int(connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)).fetchone()[0])
             connection.execute(
@@ -107,9 +146,9 @@ class ResearchService:
                 (user_id, thread_id, turn_id, topic, len(topic), next_seq, now, now),
             )
             connection.execute(
-                "INSERT INTO research_jobs(id,thread_id,source_turn_id,schedule_id,retry_of_job_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,'QUEUED','queued',?,?,?)",
-                (job_id, thread_id, turn_id, schedule_id, retry_of_job_id, trigger_kind, occurrence_key, topic, json.dumps(scopes), now, now, now),
+                "INSERT INTO research_jobs(id,thread_id,source_turn_id,schedule_id,retry_of_job_id,trigger_kind,occurrence_key,topic,source_scopes_json,status,phase,available_at,created_at,updated_at,root_budget_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,'QUEUED','queued',?,?,?,?)",
+                (job_id, thread_id, turn_id, schedule_id, retry_of_job_id, trigger_kind, occurrence_key, topic, json.dumps(scopes), now, now, now, root_budget_id),
             )
             connection.execute(
                 "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,research_job_id,created_at) "
@@ -160,6 +199,35 @@ class ResearchService:
             self.events.append(row["thread_id"], row["source_turn_id"], "research.started", "research_worker", {"job_id": row["id"], "attempt": attempt}, connection=connection, occurred_at=now)
             return self._job(row["id"], connection)
 
+    def claim(self, job_id: str, owner: str, lease_seconds: int) -> ResearchJob | None:
+        """Claim one known queued job without consuming another owner's queue item."""
+        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
+        with self.db.transaction() as connection:
+            row = connection.execute(
+                "SELECT * FROM research_jobs WHERE id=? AND status='QUEUED' "
+                "AND attempts<max_attempts AND available_at<=?", (job_id, now),
+            ).fetchone()
+            if row is None:
+                return None
+            attempt = int(row["attempts"]) + 1
+            updated = connection.execute(
+                "UPDATE research_jobs SET status='RUNNING',phase='planning',lease_owner=?,lease_until=?,"
+                "attempts=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=? AND status='QUEUED'",
+                (owner, until, attempt, now, now, job_id),
+            )
+            if updated.rowcount != 1:
+                return None
+            connection.execute(
+                "INSERT INTO research_job_attempts(id,job_id,attempt,lease_owner,status,started_at) "
+                "VALUES (?,?,?,?,'RUNNING',?)",
+                (f"research_attempt_{uuid.uuid4().hex}", job_id, attempt, owner, now),
+            )
+            self.events.append(
+                row["thread_id"], row["source_turn_id"], "research.started", "research_worker",
+                {"job_id": job_id, "attempt": attempt}, connection=connection, occurred_at=now,
+            )
+            return self._job(job_id, connection)
+
     def renew(self, job_id: str, owner: str, lease_seconds: int) -> bool:
         now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
         with self.db.transaction() as connection:
@@ -209,20 +277,51 @@ class ResearchService:
             else: return
             self.events.append(row["thread_id"], row["source_turn_id"], kind, "research_worker", data, connection=connection, occurred_at=now)
 
-    def complete(self, job_id: str, owner: str, title: str, markdown: str, source_count: int, evidence_count: int) -> ResearchJob:
+    def complete(
+        self, job_id: str, owner: str, title: str, markdown: str,
+        source_count: int, evidence_count: int, traceability=(),
+    ) -> ResearchJob:
+        return self._complete_delivery(
+            job_id, owner, title, markdown, source_count, evidence_count,
+            "COMPLETED", "completed", traceability, (),
+        )
+
+    def complete_partial(
+        self, job_id: str, owner: str, title: str, markdown: str,
+        source_count: int, evidence_count: int, traceability, missing_requirements,
+    ) -> ResearchJob:
+        missing = tuple(str(item).strip()[:300] for item in missing_requirements if str(item).strip())[:12]
+        if not missing:
+            raise ValueError("partial research requires missing requirements")
+        return self._complete_delivery(
+            job_id, owner, title, markdown, source_count, evidence_count,
+            "PARTIAL", "partial", traceability, missing,
+        )
+
+    def _complete_delivery(
+        self, job_id: str, owner: str, title: str, markdown: str,
+        source_count: int, evidence_count: int, status: str, phase: str,
+        traceability, missing_requirements,
+    ) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
             row = self._owned(job_id, owner, connection)
             if row["cancel_requested_at"]:raise ResearchConflict("research was cancelled before completion")
             report = connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?", (job_id,)).fetchone()
             message_id = report["assistant_message_id"]
-            connection.execute("UPDATE research_reports SET title=?,markdown=?,partial_markdown=?,source_count=?,evidence_count=?,updated_at=?,completed_at=? WHERE job_id=?", (title, markdown, markdown, source_count, evidence_count, now, now, job_id))
+            summary = json.dumps({
+                "traceability": list(traceability),
+                "missing_requirements": list(missing_requirements),
+                "completion_status": status,
+            }, ensure_ascii=False)
+            connection.execute("UPDATE research_reports SET title=?,summary_json=?,markdown=?,partial_markdown=?,source_count=?,evidence_count=?,updated_at=?,completed_at=? WHERE job_id=?", (title, summary, markdown, markdown, source_count, evidence_count, now, now, job_id))
             connection.execute("UPDATE thread_messages SET content=?,content_length=?,status='ready',completed_at=? WHERE id=?", (markdown, len(markdown), now, message_id))
-            connection.execute("UPDATE research_jobs SET status='COMPLETED',phase='completed',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+            connection.execute("UPDATE research_jobs SET status=?,phase=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (status, phase, now, now, job_id))
             connection.execute("UPDATE research_job_attempts SET status='COMPLETED',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "message.snapshot", "research_worker", {"message_id": message_id, "generation": 1, "content": markdown, "offset": len(markdown)}, connection=connection, occurred_at=now)
-            self.events.append(row["thread_id"], row["source_turn_id"], "message.completed", "research_worker", {"message_id": message_id, "generation": 1, "finish_reason": "completed"}, connection=connection, occurred_at=now)
-            self.events.append(row["thread_id"], row["source_turn_id"], "research.completed", "research_worker", {"job_id": job_id, "report_url": f"/api/research/jobs/{job_id}/report", "message_id": message_id, "source_count": source_count}, connection=connection, occurred_at=now)
+            self.events.append(row["thread_id"], row["source_turn_id"], "message.completed", "research_worker", {"message_id": message_id, "generation": 1, "finish_reason": phase}, connection=connection, occurred_at=now)
+            event_type = "research.completed" if status == "COMPLETED" else "research.partial"
+            self.events.append(row["thread_id"], row["source_turn_id"], event_type, "research_worker", {"job_id": job_id, "report_url": f"/api/research/jobs/{job_id}/report", "message_id": message_id, "source_count": source_count, "missing_requirements": list(missing_requirements)}, connection=connection, occurred_at=now)
         return self.get(job_id)
 
     def fail(self, job_id: str, owner: str, reason: str, retryable: bool = False,
@@ -259,7 +358,9 @@ class ResearchService:
         cited={item for section in sections.values() for item in re.findall(r"\[\[source:([^\]]+)\]\]",section["markdown"])}
         sources={row["id"]:Source(row["id"],int(row["ordinal"]),row["kind"],row["canonical_url"],row["locator"],row["title"],row["content"],row["published_at"],row["retrieved_at"],float(row["quality_score"]),row["content_hash"],json.loads(row["metadata_json"] or "{}")) for row in source_rows}
         evidence=tuple(Evidence(row["id"],row["source_id"],row["text"],row["date_hint"],float(row["relevance"])) for row in evidence_rows)
-        if not cited or not cited<=set(sources) or not cited<={item.source_id for item in evidence}:return {},(),(),None
+        aliases={source_id.removeprefix("source_"):source_id for source_id in sources}
+        normalized_cited={aliases.get(item,item) for item in cited}
+        if not normalized_cited or not normalized_cited<=set(sources) or not normalized_cited<={item.source_id for item in evidence}:return {},(),(),None
         outline=json.loads(report["outline_json"] or "{}") if report else {}
         plan=ResearchPlan(str(outline.get("title") or report["title"]),tuple(outline.get("sections",())),tuple(outline.get("queries",()))) if outline.get("sections") else None
         return sections,tuple(sources.values()),evidence,plan
@@ -302,8 +403,21 @@ class ResearchService:
         old = self.get(job_id); key = f"retry:{job_id}:{client_key}"
         with self.db.connection() as connection:
             prior = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (key,)).fetchone()
+            source = connection.execute("SELECT root_budget_id FROM research_jobs WHERE id=?", (job_id,)).fetchone()
         if prior: return self.get(prior["id"])
-        return self._create_anchor_job(old.thread_id, topic or old.topic, old.source_scopes, "retry", key, f"research-retry:{client_key}", retry_of_job_id=job_id)
+        return self._create_anchor_job(
+            old.thread_id, topic or old.topic, old.source_scopes, "retry", key,
+            f"research-retry:{client_key}", retry_of_job_id=job_id,
+            root_budget_id=source["root_budget_id"] if source else None,
+            runtime_bundle_id=self._runtime_bundle_id(old.source_turn_id),
+        )
+
+    def _runtime_bundle_id(self, turn_id: str) -> str | None:
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT runtime_bundle_id FROM turns WHERE id=?", (turn_id,),
+            ).fetchone()
+        return row["runtime_bundle_id"] if row else None
 
     def delete(self, job_id: str) -> None:
         with self.db.transaction() as connection:
@@ -338,19 +452,20 @@ class ResearchService:
         if not row: raise PermissionError("research job lease lost")
         return row
 
-    @staticmethod
-    def _job(job_id: str, connection) -> ResearchJob:
+    def _job(self, job_id: str, connection) -> ResearchJob:
+        greatest = "GREATEST" if self.db.backend == "postgresql" else "MAX"
         row = connection.execute(
-            "SELECT j.*,r.title report_title,r.markdown report_markdown,"
-            "MAX(r.source_count,(SELECT COUNT(*) FROM research_sources s WHERE s.job_id=j.id)) source_count,"
-            "MAX(r.evidence_count,(SELECT COUNT(*) FROM research_evidence e WHERE e.job_id=j.id)) evidence_count,"
+            "SELECT j.*,r.title report_title,r.markdown report_markdown,r.summary_json,"
+            f"{greatest}(r.source_count,(SELECT COUNT(*) FROM research_sources s WHERE s.job_id=j.id)) source_count,"
+            f"{greatest}(r.evidence_count,(SELECT COUNT(*) FROM research_evidence e WHERE e.job_id=j.id)) evidence_count,"
             "r.assistant_message_id FROM research_jobs j LEFT JOIN research_reports r ON r.job_id=j.id WHERE j.id=?",
             (job_id,),
         ).fetchone()
         if not row: raise KeyError(job_id)
         error = json.loads(row["last_error_json"] or "{}")
+        summary = json.loads(row["summary_json"] or "{}")
         details = {key:value for key,value in error.items() if key != "reason_code"}
-        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"), details or None)
+        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"), details or None, tuple(summary.get("traceability", ())), tuple(summary.get("missing_requirements", ())))
 
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()

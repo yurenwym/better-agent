@@ -1,0 +1,1 @@
+{"connectors":[],"description":"Review the completed Run and propose evidence-backed preference or habit candidates for user confirmation.","entry_document":"SKILL.md","name":"reflection","phases":["reflector"],"requested_tools":["local_time","calculator","read_note"],"schema_version":1,"title":"Execution reflection","version":"1.0.4048579859"}

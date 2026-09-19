@@ -1,8 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { ArrowLeft, Activity, Plus } from "lucide-react";
+import { navigateTo, pagePaths, readRoute, todayPath } from "./navigation";
 import { deleteThread, getBootstrap, getLatestExpertRun, listThreads, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import ConfirmDialog from "./components/ConfirmDialog";
 import AppToast from "./components/AppToast";
+import { clearConversationDraft } from "./components/ConversationThread";
 import type { Bootstrap, Run, Thread } from "./types";
 import ChatPage from "./pages/ChatPage";
 import PlanPage from "./pages/PlanPage";
@@ -18,70 +21,81 @@ import UsagePage from "./pages/UsagePage";
 import EvaluationPage from "./pages/EvaluationPage";
 import SkillsPage from "./pages/SkillsPage";
 import type { AgentRun } from "./types";
+import { runStateLabels } from "./localization";
 import "./index.css";
+import "./workbench.css";
+import PlanningWorkspace from "./pages/PlanningWorkspace";
 
 const headings: Record<WorkspacePage, string> = {
-  workspace: "目标工作区",
-  chat: "目标对话",
-  today: "今天的行动",
+  workspace: "计划",
+  chat: "对话",
+  today: "计划",
   plan: "计划",
   trajectory: "运行轨迹",
   research: "深度研究",
   schedules: "定时研究",
   memory: "长期记忆",
-  growth: "受控成长",
-  models: "模型控制台",
-  usage: "用量与预算",
-  evaluation: "真实配对评测",
-  skills: "Skill 平台",
+  growth: "回顾与改进",
+  models: "模型",
+  usage: "用量",
+  evaluation: "评测",
+  skills: "技能",
 };
 
-const stateLabels: Record<string, string> = {
-  RECEIVED: "等待输入",
-  CLARIFYING: "需要澄清",
-  PLANNING: "生成计划中",
-  AWAITING_APPROVAL: "等待审批",
-  EXECUTING: "执行中",
-  AWAITING_OUTCOME: "等待结果",
-  REFLECTING: "复盘中",
-  COMPLETED: "已完成",
-  BLOCKED: "已阻塞",
-  FAILED: "运行失败",
-  CANCELLED: "已取消",
+interface PageShellLayout { wide: boolean; fluid: boolean; topbar: boolean; pageHeader: boolean; }
+// 单张 per-page 布局表：合并原 widePage/fluidPage/showTopbar/showPageHeader 四份名单，
+// 各页取值与原名单一致（渲染输出的类名组合逐字节不变）。
+const pageLayouts: Record<WorkspacePage, PageShellLayout> = {
+  chat: { wide: true, fluid: true, topbar: false, pageHeader: false },
+  workspace: { wide: true, fluid: false, topbar: true, pageHeader: false },
+  today: { wide: false, fluid: true, topbar: true, pageHeader: false },
+  plan: { wide: true, fluid: false, topbar: true, pageHeader: false },
+  trajectory: { wide: true, fluid: false, topbar: true, pageHeader: true },
+  research: { wide: true, fluid: true, topbar: true, pageHeader: false },
+  schedules: { wide: false, fluid: false, topbar: true, pageHeader: true },
+  memory: { wide: false, fluid: false, topbar: true, pageHeader: true },
+  growth: { wide: true, fluid: false, topbar: true, pageHeader: true },
+  models: { wide: true, fluid: false, topbar: true, pageHeader: false },
+  usage: { wide: true, fluid: false, topbar: true, pageHeader: false },
+  evaluation: { wide: true, fluid: false, topbar: true, pageHeader: false },
+  skills: { wide: true, fluid: false, topbar: true, pageHeader: false },
 };
 
-function pageFromPath(): WorkspacePage { const path=typeof window!=="undefined"?window.location.pathname:"/";if(path==="/plans"||/^\/plans\//.test(path))return "plan";if(path==="/workspace"||/^\/workspace\//.test(path))return "workspace";if(path==="/today")return "today";if(path==="/research")return "research";if(path==="/schedules")return "schedules";if(path==="/memory")return "memory";if(path==="/growth")return "growth";if(path==="/models")return "models";if(path==="/usage")return "usage";if(path==="/skills")return "skills";if(path==="/evaluations"||/^\/evaluations\//.test(path))return "evaluation";return "chat"; }
-function threadFromPath(): string|null { const match=typeof window!=="undefined"?window.location.pathname.match(/^\/threads\/([^/]+)$/):null;return match?.[1]??null; }
-function evaluationFromPath():string|null {const match=typeof window!=="undefined"?window.location.pathname.match(/^\/evaluations\/([^/]+)$/):null;return match?.[1]??null;}
 export default function App() {
-  const [page, setPage] = useState<WorkspacePage>(pageFromPath);
+  const [route, setRoute] = useState(readRoute);
+  const { page, threadId, planId, workspaceResourceId, evaluationId } = route;
+  const lastThreadId = useRef<string | null>(threadId);
+  const navigationRevision = useRef(0);
+  const currentRoute = useRef(route);
+  currentRoute.current = route;
+  const renderedRevision = navigationRevision.current;
   const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
+  const [bootstrapError, setBootstrapError] = useState(false);
   const [run, setRun] = useState<Run | null>(null);
   const [expertRun, setExpertRun] = useState<AgentRun | null>(null);
-  const [threadId, setThreadId] = useState<string | null>(threadFromPath);
   const [threads,setThreads]=useState<Thread[]>([]);
   const [threadToDelete,setThreadToDelete]=useState<Thread|null>(null);
   const [deletingThread,setDeletingThread]=useState(false);
   const [notice,setNotice]=useState<{message:string;tone:"success"|"error"}|null>(null);
-  const [planId, setPlanId] = useState<string | null>(() => {
-    const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/plans\/([^/]+)$/) : null;
-    return match?.[1] ?? null;
-  });
-  const [workspaceResourceId, setWorkspaceResourceId] = useState<string | null>(() => {
-    const match = typeof window !== "undefined" ? window.location.pathname.match(/^\/workspace\/([^/]+)$/) : null;
-    return match?.[1] ?? null;
-  });
-  const [evaluationId,setEvaluationId]=useState<string|null>(evaluationFromPath);
 
   useEffect(() => {
-    getBootstrap().then(setBootstrap).catch(() => undefined);
+    getBootstrap().then(setBootstrap).catch(() => setBootstrapError(true));
     listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);
-    const pop=()=>{setPage(pageFromPath());setThreadId(threadFromPath());setEvaluationId(evaluationFromPath());};window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
+    const pop=()=>{
+      const next=readRoute();
+      if(JSON.stringify(next)!==JSON.stringify(currentRoute.current)) {
+        navigationRevision.current++;
+        if(!next.threadId || next.threadId!==currentRoute.current.threadId) { setRun(null);setExpertRun(null); }
+      }
+      currentRoute.current=next;setRoute(next);
+    };window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
   }, []);
 
   useEffect(() => {
     let active = true;
+    if (threadId) lastThreadId.current = threadId;
     if (!threadId) { setExpertRun(null); return () => { active = false; }; }
+    setExpertRun(null);
     void getLatestExpertRun(threadId).then((latest) => { if (active) setExpertRun(latest); }).catch(() => undefined);
     return () => { active = false; };
   }, [threadId]);
@@ -91,8 +105,10 @@ export default function App() {
     setDeletingThread(true);
     try {
       await deleteThread(threadToDelete.id,csrfToken);
+      clearConversationDraft(threadToDelete.id);
       setThreads(items=>items.filter(item=>item.id!==threadToDelete.id));
-      if(threadId===threadToDelete.id){setRun(null);setExpertRun(null);setThreadId(null);setPlanId(null);setPage("chat");window.history.pushState({},"","/");}
+      if(lastThreadId.current===threadToDelete.id)lastThreadId.current=null;
+      if(threadId===threadToDelete.id){setRun(null);setExpertRun(null);navigateTo("/");}
       setThreadToDelete(null);
       setNotice({message:"会话已删除",tone:"success"});
     } catch {
@@ -105,57 +121,71 @@ export default function App() {
 
   const csrfToken = bootstrap?.csrf_token ?? "";
   const state = run?.state ?? "RECEIVED";
-  const widePage = page === "chat" || page === "workspace" || page === "trajectory" || page === "plan" || page === "research" || page === "growth" || page === "models" || page === "usage" || page === "evaluation" || page === "skills";
-  const fluidPage = page === "chat" || page === "research" || page === "today";
-  const showTopbar = page !== "chat";
-  const showPageHeader = !["chat","research","today","plan","models","usage","evaluation","skills"].includes(page);
+  const layout = ["workspace","today","plan"].includes(page) ? pageLayouts.workspace : pageLayouts[page];
+  const widePage = layout.wide;
+  const fluidPage = layout.fluid;
+  function navigate(next: WorkspacePage) {
+    if((next === "chat" || next === "trajectory") && threadId) {
+      const query=new URLSearchParams(window.location.search);
+      if(next==="trajectory")query.set("view","activity");else query.delete("view");
+      navigateTo(`/threads/${threadId}${query.size?`?${query}`:""}`);
+    }
+    else if(next === "chat") navigateTo(lastThreadId.current ? `/threads/${lastThreadId.current}` : "/");
+    else if(next === "trajectory") navigateTo("/trajectory");
+    else navigateTo(pagePaths[next]);
+  }
+  function openPlan(nextPlanId:string) {
+    navigateTo(`/plans/${nextPlanId}`);
+  }
+  const acceptRun=useCallback((next:Run)=>{if(renderedRevision===navigationRevision.current)setRun(next);},[renderedRevision]);
+  const acceptExpertRun=useCallback((next:AgentRun|null)=>{if(renderedRevision===navigationRevision.current)setExpertRun(next);},[renderedRevision]);
+  function followLink(event: MouseEvent<HTMLDivElement>) {
+    if(event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const anchor=(event.target as HTMLElement).closest<HTMLAnchorElement>("a[href]");
+    if(!anchor || anchor.target || anchor.hasAttribute("download")) return;
+    const url=new URL(anchor.href);
+    if(url.origin!==window.location.origin || url.hash || !/^\/(?:threads|workspace|plans|today|research|schedules|memory|growth|models|usage|evaluations|skills|trajectory)(?:\/|$)/.test(url.pathname) && url.pathname!=="/") return;
+    event.preventDefault();navigateTo(url.pathname+url.search);
+  }
 
   return (
-    <div className="workspace-app">
+    <div className="workspace-app workbench" onClick={followLink}>
       <WorkspaceSidebar
         activePage={page}
         activeThreadId={threadId}
         bootstrap={bootstrap}
         run={run}
         threads={threads}
-        onNavigate={(next)=>{setPage(next);const paths:Partial<Record<WorkspacePage,string>>={workspace:"/workspace",today:"/today",plan:"/plans",research:"/research",schedules:"/schedules",memory:"/memory",growth:"/growth",models:"/models",usage:"/usage",evaluation:"/evaluations",skills:"/skills"};if(next==="workspace")setWorkspaceResourceId(planId??threadId);if(paths[next])window.history.pushState({},"",next==="workspace"&&(planId??threadId)?`/workspace/${planId??threadId}`:paths[next]);}}
-        onNewConversation={() => { setRun(null); setExpertRun(null); setThreadId(null); setPlanId(null); window.history.pushState({}, "", "/"); setPage("chat"); }}
-        onSelectThread={(nextThreadId)=>{setRun(null);setThreadId(nextThreadId);setPlanId(null);window.history.pushState({},"",`/threads/${nextThreadId}`);setPage("chat");}}
+        onNavigate={navigate}
+        onNewConversation={() => { setRun(null); setExpertRun(null); lastThreadId.current=null; navigateTo("/"); }}
+        onSelectThread={(nextThreadId)=>{setRun(null);setExpertRun(null);navigateTo(`/threads/${nextThreadId}`);}}
         onDeleteThread={(deleteThreadId)=>setThreadToDelete(threads.find(item=>item.id===deleteThreadId)??null)}
-        onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current))}}
+        onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current)).catch(()=>setNotice({message:"真人对话模式设置失败，请稍后重试。",tone:"error"}))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
-        {showTopbar && (
+        {(
           <header className="workspace-topbar">
             <div className="workspace-title-lockup">
-              <span className="brand-kicker"><span className="brand-mark" aria-hidden="true" />LOCAL / SINGLE USER</span>
-              <h1>Better Agent</h1>
-              <p>一条可追溯、可暂停、可恢复的个人工作流。</p>
+              <h1>{page === "chat" && threadId ? threads.find(thread=>thread.id===threadId)?.title ?? "当前对话" : headings[page]}</h1>
             </div>
             <div className="topbar-meta">
-              <span className={`state-pill state-${state.toLowerCase()}`}>{stateLabels[state] ?? state}</span>
-              <span className="local-mark"><span aria-hidden="true" />127.0.0.1 · 本地运行</span>
+              {(page === "chat" || page === "trajectory") && run && <span className={`state-pill state-${state.toLowerCase()}`}>{runStateLabels[state] ?? state}</span>}
+              {bootstrapError && <span className="local-mark backend-offline">后端未连接，操作可能不可用</span>}
+              {page === "chat" && threadId && <button className="icon-button" title="运行详情" aria-label="运行详情" onClick={()=>navigate("trajectory")}><Activity size={18}/></button>}
+              {page === "trajectory" && <button className="button button-quiet" onClick={()=>navigate("chat")}><ArrowLeft size={16}/>返回对话</button>}
+              {page === "workspace" && <button className="button button-primary" onClick={()=>navigateTo("/")}><Plus size={16}/>新建计划</button>}
             </div>
           </header>
         )}
 
-        {showPageHeader && (
-          <div className={`workspace-page-header workspace-page-header-${page}${widePage ? " workspace-page-header-wide" : ""}`}>
-            <div><span className="eyebrow">V1 工作区</span><h2>{headings[page]}</h2></div>
-            {run && <div className="run-context"><span>当前任务</span><code title={run.id}>{run.id.slice(-8)}</code></div>}
-          </div>
-        )}
-
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} onThread={(nextThreadId)=>{setThreadId(nextThreadId);window.history.pushState({},"",`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads));}} onRun={setRun} onExpertRun={setExpertRun} onOpenTrajectory={() => setPage("trajectory")} onOpenPlan={(nextPlanId) => { if (nextPlanId) { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); } setPage("plan"); }} />}
-          {page === "workspace" && <GoalWorkspacePage resourceId={workspaceResourceId ?? planId ?? threadId} />}
-          {page === "today" && <TodayPage csrfToken={csrfToken} onHelp={(nextThreadId)=>{setThreadId(nextThreadId);setPage("chat");window.history.pushState({},"","/");}} />}
-          {page === "plan" && <PlanPage csrfToken={csrfToken} run={run} threadId={threadId} planId={planId} onRun={setRun} onSelectPlan={(nextPlanId) => { setPlanId(nextPlanId); window.history.pushState({}, "", `/plans/${nextPlanId}`); setPage("plan"); }} onDeleted={() => { setPlanId(null); setPage("plan"); window.history.pushState({}, "", "/plans"); }} />}
-          {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} expertRun={expertRun} csrfToken={csrfToken} onExpertRun={setExpertRun} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} sourceActionId={route.actionId} initialExpertRun={expertRun} onThread={(nextThreadId)=>{if(renderedRevision===navigationRevision.current)navigateTo(`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);}} onRun={acceptRun} onExpertRun={acceptExpertRun} onOpenTrajectory={() => navigate("trajectory")} onOpenPlan={(nextPlanId) => nextPlanId ? openPlan(nextPlanId) : navigate("plan")} />}
+          {["workspace","today","plan"].includes(page) && <PlanningWorkspace csrfToken={csrfToken} route={route}/>}
+          {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} expertRun={expertRun} csrfToken={csrfToken} onExpertRun={acceptExpertRun} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}
-          {page === "research" && <ResearchPage csrfToken={csrfToken} />}
+          {page === "research" && <ResearchPage csrfToken={csrfToken} jobId={route.jobId} onSelectJob={id=>navigateTo(id?`/research?${new URLSearchParams({job:id})}`:"/research")} onOpenSchedules={()=>navigate("schedules")} />}
           {page === "schedules" && <SchedulesPage csrfToken={csrfToken} />}
-          {page === "growth" && <GrowthPage csrfToken={csrfToken} />}
+          {page === "growth" && <GrowthPage csrfToken={csrfToken} view={route.growthView} onViewChange={view=>navigateTo(view==="agent"?"/growth?view=agent":"/growth")} />}
           {page === "models" && <ModelsPage csrfToken={csrfToken} />}
           {page === "usage" && <UsagePage csrfToken={csrfToken} />}
           {page === "evaluation" && <EvaluationPage evaluationId={evaluationId} csrfToken={csrfToken} />}

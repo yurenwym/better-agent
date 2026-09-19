@@ -100,6 +100,38 @@ def test_turn_submission_is_durable_and_idempotent_before_model_finishes(tmp_pat
     assert _count(runtime, "runs") == 0
 
 
+def test_thread_api_returns_nullable_then_terminal_turn_metrics(tmp_path) -> None:
+    from app.main import create_app
+
+    class AnswerModel:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            on_text_delta(
+                '{"v":1,"policy":"answer","content_shape":"general",'
+                '"reason_code":"content_only"}\nanswer'
+            )
+
+    runtime = make_runtime(tmp_path, AnswerModel())
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    thread = client.post("/api/threads", headers=_headers(app), json={}).json()
+    accepted = client.post(
+        f"/api/threads/{thread['id']}/turns", headers=_headers(app),
+        json={"client_turn_id": "metric-api", "content": "answer", "skill_names": []},
+    ).json()
+
+    pending = client.get(f"/api/threads/{thread['id']}", headers={"host": "127.0.0.1:8000"}).json()
+    assert pending["turns"][0]["metrics"]["queue_wait_ms"] is None
+    asyncio.run(runtime.turn_worker.run_once())
+    completed = client.get(f"/api/threads/{thread['id']}", headers={"host": "127.0.0.1:8000"}).json()
+    metrics = completed["turns"][0]["metrics"]
+
+    assert completed["turns"][0]["id"] == accepted["turn_id"]
+    assert metrics["queue_wait_ms"] >= 0
+    assert metrics["context_ms"] >= 0
+    assert metrics["model_ttft_ms"] >= 0
+    assert metrics["stream_ms"] >= 0
+
+
 def test_thread_list_preserves_multiple_conversations_and_owner_scope(tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
@@ -319,9 +351,10 @@ def test_thread_messages_events_and_cancel_routes_are_durable(tmp_path) -> None:
     assert cancelled.status_code == 200
     assert cancelled.json()["status"] == "CANCELLED"
     assert resumed.status_code == 200
-    assert [event["seq"] for event in resumed.json()["events"]] == [2, 3]
+    assert [event["seq"] for event in resumed.json()["events"]] == [2, 3, 4]
+    assert resumed.json()["events"][-1]["type"] == "turn.metrics.updated"
     assert [event["type"] for event in resumed.json()["events"]] == [
-        "turn.cancel_requested", "turn.cancelled"
+        "turn.cancel_requested", "turn.cancelled", "turn.metrics.updated"
     ]
 
 

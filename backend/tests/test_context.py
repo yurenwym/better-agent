@@ -21,7 +21,7 @@ def test_context_selects_only_confirmed_scope_memories_in_priority_order() -> No
         max_chars=10000,
     )
 
-    assert [memory.id for memory in result.memories] == ["project-1", "skill-1", "global-1"]
+    assert [memory.id for memory in result.memories] == ["global-1", "project-1", "skill-1"]
     assert "not allowed" not in result.text
     assert "wrong project" not in result.text
     assert result.blocks[0].name == "security"
@@ -84,4 +84,28 @@ def test_context_hard_cap_includes_protected_blocks() -> None:
     assert "current request" in result.text
     assert result.overflow is False
     assert result.cropped is True
+
+
+def test_context_drops_episode_before_memory_and_keeps_sources_atomic() -> None:
+    from app.context import ContextAssembler, MemoryForContext
+
+    result = ContextAssembler().assemble(
+        user_instruction="current request",
+        goal="goal",
+        plan="plan",
+        step="step",
+        skill="skill",
+        history=["recent history"],
+        tool_results=[],
+        memories=[
+            MemoryForContext("revision-1", "important preference " * 8, "global", "confirmed"),
+            MemoryForContext("episode-1", "lossy history " * 8, "global", "confirmed", source_type="episode"),
+        ],
+        project_id=None,
+        max_tokens=260,
+    )
+
+    assert "episode-1" not in [memory.id for memory in result.memories]
+    assert "lossy history" not in result.text
+    assert "current request" in result.text
 

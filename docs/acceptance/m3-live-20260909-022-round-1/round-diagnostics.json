@@ -1,0 +1,552 @@
+{
+  "batch_id": "M3-LIVE-20260909-022",
+  "round": 1,
+  "turns": [
+    {
+      "id": "turn_cdfde7dd6c1445879347cd55991ab8e8",
+      "status": "COMPLETED",
+      "policy": "start_expert",
+      "reason_code": "explicit_collaboration",
+      "runtime_bundle_id": "bundle_afe149af120296c03a4af975"
+    }
+  ],
+  "attempts": [
+    {
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-022-price-091ec7b3c2ba",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 292
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-022-price-091ec7b3c2ba",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 313
+    },
+    {
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-022-price-091ec7b3c2ba",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 339
+    },
+    {
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-022-price-091ec7b3c2ba",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 549
+    },
+    {
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "cost_status": "ESTIMATED_PARTIAL",
+      "cost_microusd": 25232,
+      "price_snapshot_id": "M3-LIVE-20260909-022-price-091ec7b3c2ba",
+      "uncached_input_tokens": null,
+      "cache_read_tokens": null,
+      "output_tokens": 1002
+    }
+  ],
+  "agent_runs": [
+    {
+      "id": "agent_run_39dbb7af92af403ebbc9f847b79cd8b3",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_ff5627597055495a874b528b997752d2"
+    },
+    {
+      "id": "agent_run_5aae939ea0e542b884209fa79daf62ae",
+      "status": "SUCCEEDED",
+      "coordinator_task_id": "agent_task_d61ef5ce5bda4b89bf36713ce968155d"
+    },
+    {
+      "id": "agent_run_5aa2b6153bdb47da91196ba10f7c8093",
+      "status": "FAILED",
+      "coordinator_task_id": "agent_task_e78fbdaa7b9a4c8db52d4ad47703fb5d"
+    },
+    {
+      "id": "agent_run_2ff3353e8b80488ea02c18b3c15f6764",
+      "status": "CANCELLED",
+      "coordinator_task_id": "agent_task_e0544f292c5e4c4fb25435278d20cb52"
+    }
+  ],
+  "agent_tasks": [
+    {
+      "id": "agent_task_ff5627597055495a874b528b997752d2",
+      "agent_run_id": "agent_run_39dbb7af92af403ebbc9f847b79cd8b3",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_90bde7cdce4d4d28be6ece09ec9d21b0"
+    },
+    {
+      "id": "agent_task_49c138f2c6b145cdbad61f1a7bce281e",
+      "agent_run_id": "agent_run_39dbb7af92af403ebbc9f847b79cd8b3",
+      "role": "researcher",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_f90223f9163a4ca5af0a72ea00c6ebcf"
+    },
+    {
+      "id": "agent_task_5ad5e59eb64340da881f0c31edbee43c",
+      "agent_run_id": "agent_run_39dbb7af92af403ebbc9f847b79cd8b3",
+      "role": "planner",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_bd95a09941c6456886925da3cfcf0a6c"
+    },
+    {
+      "id": "agent_task_616d85e85e3843df8d5f92f0bf5ddc00",
+      "agent_run_id": "agent_run_39dbb7af92af403ebbc9f847b79cd8b3",
+      "role": "critic",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_60addd249b2349bf82c74d3bef1a3892"
+    },
+    {
+      "id": "agent_task_d61ef5ce5bda4b89bf36713ce968155d",
+      "agent_run_id": "agent_run_5aae939ea0e542b884209fa79daf62ae",
+      "role": "coordinator",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": "agent_artifact_472c168e7e9e47f9b2b1736cd6f83b3c"
+    },
+    {
+      "id": "agent_task_7d354e95296b4f0c8bf2b641dac75794",
+      "agent_run_id": "agent_run_5aae939ea0e542b884209fa79daf62ae",
+      "role": "critic",
+      "status": "SUCCEEDED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": "agent_artifact_2cca0b6d63a843fe8ddc3b2c0fff7cb4"
+    },
+    {
+      "id": "agent_task_d78c657d853f490da5bb885a6ad2280d",
+      "agent_run_id": "agent_run_5aae939ea0e542b884209fa79daf62ae",
+      "role": "researcher",
+      "status": "FAILED",
+      "error_code": "MODEL_ERROR",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_e78fbdaa7b9a4c8db52d4ad47703fb5d",
+      "agent_run_id": "agent_run_5aa2b6153bdb47da91196ba10f7c8093",
+      "role": "coordinator",
+      "status": "FAILED",
+      "error_code": "ALL_EXPERTS_FAILED",
+      "attempts": 2,
+      "max_attempts": 3,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_2fae1fab90c74eb4bd238b642644f68f",
+      "agent_run_id": "agent_run_5aa2b6153bdb47da91196ba10f7c8093",
+      "role": "researcher",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_50b92e24141f4be7ac78b1e59914b9b6",
+      "agent_run_id": "agent_run_5aa2b6153bdb47da91196ba10f7c8093",
+      "role": "planner",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_63b95d76a7ba4eb3a90a43f5260779a9",
+      "agent_run_id": "agent_run_5aa2b6153bdb47da91196ba10f7c8093",
+      "role": "critic",
+      "status": "FAILED",
+      "error_code": "MODEL_NOT_CONFIGURED",
+      "attempts": 1,
+      "max_attempts": 2,
+      "result_artifact_id": null
+    },
+    {
+      "id": "agent_task_e0544f292c5e4c4fb25435278d20cb52",
+      "agent_run_id": "agent_run_2ff3353e8b80488ea02c18b3c15f6764",
+      "role": "coordinator",
+      "status": "CANCELLED",
+      "error_code": null,
+      "attempts": 1,
+      "max_attempts": 3,
+      "result_artifact_id": null
+    }
+  ],
+  "network_attempts": [
+    {
+      "ordinal": 1,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_researcher",
+      "status": "succeeded",
+      "prompt_digest": "e088259d8780c7a64befa3e9b2b807a81630f26ae47d68f1aaef4005b1ef6276",
+      "request_digest": "e41d2ae9d32a3657e8da8313d6b73b40d4ee3f253b86c772434b100a32dbe972",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "e91b7e4347a1b59184a43647804f8a051ae43e3096bdd16079f82b5e8fe9a9b3",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1072
+    },
+    {
+      "ordinal": 2,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_planner",
+      "status": "succeeded",
+      "prompt_digest": "a69ab731fd0251337ece82e92f9c94e6bf7954318e1ff08b900b1a8c8f15e0dc",
+      "request_digest": "f6a70599708fef5da89f726171bf77480a8f56b245dc5a5b59b175236cacb13f",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "a2b8d46543cbcb0ec09f72a3f032a910a80c57e3698b338ada00a36345c7be4d",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1038
+    },
+    {
+      "ordinal": 3,
+      "round": 1,
+      "role": "expert",
+      "purpose": "expert_critic",
+      "status": "succeeded",
+      "prompt_digest": "a24e6983322081fb006f7b3c3adee66a6feb2be6d38f0a66da411539d4cb51f0",
+      "request_digest": "8afc5145a6218cd262e4fa2d70ff310a2ca8d593877ded3688ec4bf9fbc003f4",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": {
+          "type": "json_object"
+        }
+      },
+      "output_digest": "566675ddabaad225ae6a408fcdf81dfd249de4d11a4ecd3bc152deaa04910a92",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1249
+    },
+    {
+      "ordinal": 4,
+      "round": 1,
+      "role": "coordinator",
+      "purpose": "synthesize_experts",
+      "status": "succeeded",
+      "prompt_digest": "f2ba6554c95fb4f65e54c78476eb8ae3f2dcfe03a1a732ec7ab400eae232ccc2",
+      "request_digest": "dc04d3b9aeeb5eeac07e5c6ca1eb0593637454ee01ab481ce07cecc3f36ffff6",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "f5bb7022e41620417218864b88650a0721489d8f90ccc4fd86ce40593bfda79e",
+      "finish_reason": "stop",
+      "visible_output_bytes": 1988
+    },
+    {
+      "ordinal": 5,
+      "round": 1,
+      "role": "expert",
+      "purpose": "single_agent_baseline",
+      "status": "succeeded",
+      "prompt_digest": "2ab2056fdc8a9c6fb5a0aed95df96c930efcfbc4334580dda6e0113285a3cc7b",
+      "request_digest": "b0d96212267fd435ce4b297588b488d189d818438e52eb82b42e792506412c8c",
+      "inference_policy": {
+        "thinking": false,
+        "response_format": null
+      },
+      "output_digest": "b0b51dd2e6bfe84e70546d97addf0d1514b451f4ab153f981f95cc2cd8d604a4",
+      "finish_reason": "stop",
+      "visible_output_bytes": 3508
+    }
+  ],
+  "role_audit": {
+    "checks": {
+      "exact_roles": true,
+      "distinct_outputs": true,
+      "complementary_content": true,
+      "researcher_focus": true,
+      "planner_focus": true,
+      "critic_focus": true,
+      "correct_c_arithmetic": true,
+      "budget_arithmetic_consistent": true,
+      "source_refs_valid": true,
+      "role_source_evidence": true
+    },
+    "pairwise_similarity": {
+      "researcher:planner": 0.463068,
+      "researcher:critic": 0.283765,
+      "planner:critic": 0.268775
+    },
+    "passed": true
+  },
+  "normalized_experts": [
+    {
+      "result": {
+        "findings": [
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S1"
+            ],
+            "text": "方案A（S1）步骤依次进行，30+80+20=130分钟，超120分钟预算10分钟，算术正确，结论成立。"
+          },
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S2"
+            ],
+            "text": "方案B（S2）总时长100分钟满足预算，但执行前须获批准且状态未知，因此“方案B满足预算”仅指时长，不能推出可执行；若批准未获，方案B不可行。"
+          },
+          {
+            "confidence": 0.95,
+            "source_refs": [
+              "S3",
+              "S4"
+            ],
+            "text": "方案C在S3（总90分钟）与S4（总130分钟）间矛盾，差异未核实；任何基于单一来源的预算结论均不成立。"
+          }
+        ],
+        "open_questions": [
+          "方案B的批准状态是否已满足？",
+          "S4与S3关于方案C执行时长的差异是否已核实？"
+        ],
+        "risks": [
+          "若将方案B的时长结论误读为可执行承诺，会忽略批准依赖未满足的失败模式。",
+          "若未核实S4与S3差异，方案C的预算结论可能被错误判定为满足或超支。"
+        ],
+        "summary": "复核发现：方案A总时长130分钟，超120分钟预算10分钟，结论成立；方案B总100分钟虽满足预算，但批准状态未知使“满足预算”结论不能成立为可执行；方案C存在S3与S4矛盾，两值均未核实，任何单一结论均不成立。"
+      },
+      "role": "critic"
+    },
+    {
+      "result": {
+        "findings": [
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S1"
+            ],
+            "text": "方案A（S1）：准备30+执行80+复核20=130分钟，步骤依次进行，超120分钟预算10分钟。"
+          },
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S2"
+            ],
+            "text": "方案B（S2）：准备20+执行60+复核20=100分钟，满足预算；但执行前须获批准，批准状态未知，可执行条件未满足。"
+          },
+          {
+            "confidence": 0.9,
+            "source_refs": [
+              "S3",
+              "S4"
+            ],
+            "text": "方案C：按S3为20+50+20=90分钟（满足预算）；按S4为20+90+20=130分钟（超预算）。两值均保留，差异未核实。"
+          }
+        ],
+        "open_questions": [
+          "方案B的负责人批准状态是否已满足？",
+          "方案C执行时长以S3的50分钟还是S4的90分钟为准？"
+        ],
+        "risks": [],
+        "summary": "统一为分钟：方案A总130分钟（30+80+20，S1），超120分钟预算；方案B总100分钟（20+60+20，S2），但执行前需负责人批准，批准状态未知，故不可执行条件未满足；方案C按S3总90分钟（20+50+20）满足预算，按S4总130分钟（20+90+20）超预算，两值并存。"
+      },
+      "role": "planner"
+    },
+    {
+      "result": {
+        "findings": [
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S1"
+            ],
+            "text": "方案A（S1）：准备30分钟、执行80分钟、复核20分钟，步骤依次进行，总时长130分钟。"
+          },
+          {
+            "confidence": 1.0,
+            "source_refs": [
+              "S2"
+            ],
+            "text": "方案B（S2）：准备20分钟、执行60分钟、复核20分钟，总时长100分钟；但执行前须获负责人批准，批准状态未知。"
+          },
+          {
+            "confidence": 0.9,
+            "source_refs": [
+              "S3",
+              "S4"
+            ],
+            "text": "方案C存在来源矛盾：S3称执行50分钟（总90分钟），S4称执行实际需90分钟（总130分钟），差异未核实。"
+          }
+        ],
+        "open_questions": [
+          "方案B的负责人批准状态是否已满足？",
+          "S4与S3关于方案C执行时长的差异是否已核实？"
+        ],
+        "risks": [],
+        "summary": "仅按给定材料核验：方案A（S1）总时长130分钟，方案B（S2）总时长100分钟但依赖未知的批准状态，方案C在S3中总时长90分钟，而S4称实际执行需90分钟（与S3的50分钟执行时长冲突）。三方案均未明确是否含休息或缓冲，120分钟预算是否满足取决于S4是否成立及批准状态。"
+      },
+      "role": "researcher"
+    }
+  ],
+  "coordinator_synthesis": {
+    "experts": [
+      {
+        "result": {
+          "findings": [
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S1"
+              ],
+              "text": "方案A（S1）步骤依次进行，30+80+20=130分钟，超120分钟预算10分钟，算术正确，结论成立。"
+            },
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S2"
+              ],
+              "text": "方案B（S2）总时长100分钟满足预算，但执行前须获批准且状态未知，因此“方案B满足预算”仅指时长，不能推出可执行；若批准未获，方案B不可行。"
+            },
+            {
+              "confidence": 0.95,
+              "source_refs": [
+                "S3",
+                "S4"
+              ],
+              "text": "方案C在S3（总90分钟）与S4（总130分钟）间矛盾，差异未核实；任何基于单一来源的预算结论均不成立。"
+            }
+          ],
+          "open_questions": [
+            "方案B的批准状态是否已满足？",
+            "S4与S3关于方案C执行时长的差异是否已核实？"
+          ],
+          "risks": [
+            "若将方案B的时长结论误读为可执行承诺，会忽略批准依赖未满足的失败模式。",
+            "若未核实S4与S3差异，方案C的预算结论可能被错误判定为满足或超支。"
+          ],
+          "summary": "复核发现：方案A总时长130分钟，超120分钟预算10分钟，结论成立；方案B总100分钟虽满足预算，但批准状态未知使“满足预算”结论不能成立为可执行；方案C存在S3与S4矛盾，两值均未核实，任何单一结论均不成立。"
+        },
+        "role": "critic"
+      },
+      {
+        "result": {
+          "findings": [
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S1"
+              ],
+              "text": "方案A（S1）：准备30+执行80+复核20=130分钟，步骤依次进行，超120分钟预算10分钟。"
+            },
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S2"
+              ],
+              "text": "方案B（S2）：准备20+执行60+复核20=100分钟，满足预算；但执行前须获批准，批准状态未知，可执行条件未满足。"
+            },
+            {
+              "confidence": 0.9,
+              "source_refs": [
+                "S3",
+                "S4"
+              ],
+              "text": "方案C：按S3为20+50+20=90分钟（满足预算）；按S4为20+90+20=130分钟（超预算）。两值均保留，差异未核实。"
+            }
+          ],
+          "open_questions": [
+            "方案B的负责人批准状态是否已满足？",
+            "方案C执行时长以S3的50分钟还是S4的90分钟为准？"
+          ],
+          "risks": [],
+          "summary": "统一为分钟：方案A总130分钟（30+80+20，S1），超120分钟预算；方案B总100分钟（20+60+20，S2），但执行前需负责人批准，批准状态未知，故不可执行条件未满足；方案C按S3总90分钟（20+50+20）满足预算，按S4总130分钟（20+90+20）超预算，两值并存。"
+        },
+        "role": "planner"
+      },
+      {
+        "result": {
+          "findings": [
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S1"
+              ],
+              "text": "方案A（S1）：准备30分钟、执行80分钟、复核20分钟，步骤依次进行，总时长130分钟。"
+            },
+            {
+              "confidence": 1.0,
+              "source_refs": [
+                "S2"
+              ],
+              "text": "方案B（S2）：准备20分钟、执行60分钟、复核20分钟，总时长100分钟；但执行前须获负责人批准，批准状态未知。"
+            },
+            {
+              "confidence": 0.9,
+              "source_refs": [
+                "S3",
+                "S4"
+              ],
+              "text": "方案C存在来源矛盾：S3称执行50分钟（总90分钟），S4称执行实际需90分钟（总130分钟），差异未核实。"
+            }
+          ],
+          "open_questions": [
+            "方案B的负责人批准状态是否已满足？",
+            "S4与S3关于方案C执行时长的差异是否已核实？"
+          ],
+          "risks": [],
+          "summary": "仅按给定材料核验：方案A（S1）总时长130分钟，方案B（S2）总时长100分钟但依赖未知的批准状态，方案C在S3中总时长90分钟，而S4称实际执行需90分钟（与S3的50分钟执行时长冲突）。三方案均未明确是否含休息或缓冲，120分钟预算是否满足取决于S4是否成立及批准状态。"
+        },
+        "role": "researcher"
+      }
+    ],
+    "failed_roles": [],
+    "incomplete": false,
+    "summary": "## 综合结论\n\n### 1. 方案A：超预算10分钟（结论一致，无分歧）\n\n方案A（S1）步骤依次进行，总时长 = 准备30 + 执行80 + 复核20 = **130分钟**，超出120分钟预算 **10分钟**（S1）。三位专家均确认此算术正确、结论成立（critic、planner、researcher均引用S1，置信度1.0）。\n\n### 2. 方案B：时长满足预算，但可执行性依赖未满足的批准条件\n\n方案B（S2）总时长 = 准备20 + 执行60 + 复核20 = **100分钟**，满足120分钟预算（S2）。但执行前须获负责人批准，**批准状态未知**（S2）。三位专家一致指出：**“满足预算”仅指时长，不能推出可执行**；若批准未获，方案B不可行（critic、planner、researcher均引用S2）。此依赖条件为未决问题。\n\n### 3. 方案C：来源矛盾，任何单一预算结论均不成立\n\n方案C存在来源间矛盾，三位专家均保留两值、未核实差异：\n\n- 按S3：执行50分钟，总时长 = 20+50+20 = **90分钟**（满足预算）（S3）\n- 按S4：执行实际需90分钟，总时长 = 20+90+20 = **130分钟**（超预算）（S4）\n\ncritic明确指出：**任何基于单一来源的预算结论均不成立**（S3、S4）；planner与researcher同样保留两值并存（S3、S4）。差异来源未核实。\n\n### 4. 未决问题（保留）\n\n- **方案B的批准状态是否已满足？**（S2；三位专家均提出）\n- **方案C执行时长以S3的50分钟还是S4的90分钟为准？**（S3、S4；三位专家均提出）\n\n### 5. 风险提示\n\n- 若将方案B的时长结论误读为可执行承诺，会忽略批准依赖未满足的失败模式（critic）。\n- 若未核实S4与S3差异，方案C的预算结论可能被错误判定为满足或超支（critic）。\n\n### 6. 说明\n\n本结论仅基于给定材料进行只读核验，**未执行任何方案**，未核实批准状态及S3/S4差异，未确认方案是否含休息或缓冲时间（researcher）。\n\n来源证据（由专家结构化产物确定性汇入）：\n- [S1] 方案A（S1）步骤依次进行，30+80+20=130分钟，超120分钟预算10分钟，算术正确，结论成立。\n- [S2] 方案B（S2）总时长100分钟满足预算，但执行前须获批准且状态未知，因此“方案B满足预算”仅指时长，不能推出可执行；若批准未获，方案B不可行。\n- [S3, S4] 方案C在S3（总90分钟）与S4（总130分钟）间矛盾，差异未核实；任何基于单一来源的预算结论均不成立。\n- [S1] 方案A（S1）：准备30+执行80+复核20=130分钟，步骤依次进行，超120分钟预算10分钟。\n- [S2] 方案B（S2）：准备20+执行60+复核20=100分钟，满足预算；但执行前须获批准，批准状态未知，可执行条件未满足。\n- [S3, S4] 方案C：按S3为20+50+20=90分钟（满足预算）；按S4为20+90+20=130分钟（超预算）。两值均保留，差异未核实。\n- [S1] 方案A（S1）：准备30分钟、执行80分钟、复核20分钟，步骤依次进行，总时长130分钟。\n- [S2] 方案B（S2）：准备20分钟、执行60分钟、复核20分钟，总时长100分钟；但执行前须获负责人批准，批准状态未知。\n- [S3, S4] 方案C存在来源矛盾：S3称执行50分钟（总90分钟），S4称执行实际需90分钟（总130分钟），差异未核实。"
+  }
+}

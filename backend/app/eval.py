@@ -114,7 +114,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "run":
         result = run_evaluation(args.suite, args.mode, llm_ap_path=args.llm_ap)
         print(json.dumps({"passed": result.report.passed, "failed": result.report.failed, "json": str(result.json_path), "markdown": str(result.markdown_path)}, ensure_ascii=False))
-        return 0 if args.mode == "live" or result.report.failed == 0 else 1
+        return 0 if result.report.failed == 0 else 1
     print(json.dumps(compare_reports(args.baseline, args.latest), ensure_ascii=False))
     return 0
 

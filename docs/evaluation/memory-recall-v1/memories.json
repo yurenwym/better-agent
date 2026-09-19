@@ -1,0 +1,222 @@
+[
+  {
+    "id": "r01",
+    "content": "Better 当前 PostgreSQL 检索需要 vector 和 pg_trgm 扩展。",
+    "origin": "repository",
+    "source": "backend/app/db.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r02",
+    "content": "Better 默认 embedding 模型是 Qwen/Qwen3-Embedding-4B，维度为 1024。",
+    "origin": "repository",
+    "source": "backend/app/embedding.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r03",
+    "content": "Better embedding 请求默认超时时间为 0.8 秒。",
+    "origin": "repository",
+    "source": "backend/app/embedding.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r04",
+    "content": "Better 长期记忆默认语义召回预算是 1500，实际按 UTF-8 字节保守计数。",
+    "origin": "repository",
+    "source": "backend/app/memory_v2.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r05",
+    "content": "Better 记忆向量候选最多 50 条，相似度最低阈值为 0.35。",
+    "origin": "repository",
+    "source": "backend/app/memory_v2.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r06",
+    "content": "Better 默认保留最近至少 5 个完整对话轮次。",
+    "origin": "repository",
+    "source": "backend/app/token_budget.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r07",
+    "content": "Better 同一次模型调用的记忆 pin 默认有效期为 900 秒。",
+    "origin": "repository",
+    "source": "backend/app/memory_v2.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r08",
+    "content": "Better 默认费用模式是 observe，只记账，不启用金额限制。",
+    "origin": "repository",
+    "source": "backend/app/config.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r09",
+    "content": "Better 普通对话的 episode_token_budget 设置为 0，会话归档摘要通过确定性续接注入。",
+    "origin": "repository",
+    "source": "backend/app/conversation.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "r10",
+    "content": "Better 精确标注的 DeepSeek 最大输出容量为 393216，上下文精确整数尚未核实。",
+    "origin": "repository",
+    "source": "backend/app/model_capacity.py",
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s01",
+    "content": "苍鹭项目唯一部署区域是 cn-north-7。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s02",
+    "content": "苍鹭项目回滚保留期为 17 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s03",
+    "content": "苍鹭项目只允许在每周二 03:20 执行数据库维护。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s04",
+    "content": "苍鹭项目的错误代号 HERON_E417 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s05",
+    "content": "苍鹭项目当前检索延迟目标是 230 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "s06",
+    "content": "演示用户的技术文档语言偏好为简体中文。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": null,
+    "kind": "preference",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d01",
+    "content": "黑鹭项目唯一部署区域是 eu-west-9。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "other-project",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d02",
+    "content": "苍鹭项目旧版检索延迟目标是 900 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "d03",
+    "content": "苍鹭项目归档的回滚保留期为 3 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "d04",
+    "content": "另一个用户的苍鹭项目唯一部署区域是 us-east-8。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "other-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d05",
+    "content": "向量绘图软件可以生成 50 种插画，不涉及检索。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d06",
+    "content": "租约车辆的归还时间为周二下午。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  }
+]

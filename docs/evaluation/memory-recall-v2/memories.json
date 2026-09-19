@@ -1,0 +1,1682 @@
+[
+  {
+    "id": "m01_0",
+    "content": "白桦服务 SVC01的正式环境唯一部署分区为 zone-60-d。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_1",
+    "content": "白桦服务 SVC01的外部查询超时上限为 722 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_2",
+    "content": "白桦服务 SVC01的回滚备份保留期为 37 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_3",
+    "content": "白桦服务 SVC01允许的每日数据库维护开始时间是 02:48。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_4",
+    "content": "白桦服务 SVC01的错误代号 ERR01933 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_5",
+    "content": "白桦服务 SVC01当前的检索延迟目标为 125 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m01_6",
+    "content": "白桦服务 SVC01旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m01_7",
+    "content": "白桦服务 SVC01已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m02_0",
+    "content": "云杉服务 SVC02的正式环境唯一部署分区为 zone-71-b。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_1",
+    "content": "云杉服务 SVC02的外部查询超时上限为 388 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_2",
+    "content": "云杉服务 SVC02的回滚备份保留期为 63 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_3",
+    "content": "云杉服务 SVC02允许的每日数据库维护开始时间是 03:25。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_4",
+    "content": "云杉服务 SVC02的错误代号 ERR02637 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_5",
+    "content": "云杉服务 SVC02当前的检索延迟目标为 272 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m02_6",
+    "content": "云杉服务 SVC02旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m02_7",
+    "content": "云杉服务 SVC02已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m03_0",
+    "content": "红枫服务 SVC03的正式环境唯一部署分区为 zone-49-b。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_1",
+    "content": "红枫服务 SVC03的外部查询超时上限为 824 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_2",
+    "content": "红枫服务 SVC03的回滚备份保留期为 19 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_3",
+    "content": "红枫服务 SVC03允许的每日数据库维护开始时间是 01:26。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_4",
+    "content": "红枫服务 SVC03的错误代号 ERR03455 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_5",
+    "content": "红枫服务 SVC03当前的检索延迟目标为 75 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m03_6",
+    "content": "红枫服务 SVC03旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m03_7",
+    "content": "红枫服务 SVC03已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m04_0",
+    "content": "银杏服务 SVC04的正式环境唯一部署分区为 zone-36-f。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_1",
+    "content": "银杏服务 SVC04的外部查询超时上限为 155 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_2",
+    "content": "银杏服务 SVC04的回滚备份保留期为 26 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_3",
+    "content": "银杏服务 SVC04允许的每日数据库维护开始时间是 01:13。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_4",
+    "content": "银杏服务 SVC04的错误代号 ERR04536 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_5",
+    "content": "银杏服务 SVC04当前的检索延迟目标为 228 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m04_6",
+    "content": "银杏服务 SVC04旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m04_7",
+    "content": "银杏服务 SVC04已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m05_0",
+    "content": "雪松服务 SVC05的正式环境唯一部署分区为 zone-28-d。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_1",
+    "content": "雪松服务 SVC05的外部查询超时上限为 599 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_2",
+    "content": "雪松服务 SVC05的回滚备份保留期为 11 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_3",
+    "content": "雪松服务 SVC05允许的每日数据库维护开始时间是 01:45。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_4",
+    "content": "雪松服务 SVC05的错误代号 ERR05903 表示事件序列断档。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_5",
+    "content": "雪松服务 SVC05当前的检索延迟目标为 184 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m05_6",
+    "content": "雪松服务 SVC05旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m05_7",
+    "content": "雪松服务 SVC05已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m06_0",
+    "content": "青竹服务 SVC06的正式环境唯一部署分区为 zone-82-a。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_1",
+    "content": "青竹服务 SVC06的外部查询超时上限为 848 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_2",
+    "content": "青竹服务 SVC06的回滚备份保留期为 30 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_3",
+    "content": "青竹服务 SVC06允许的每日数据库维护开始时间是 05:09。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_4",
+    "content": "青竹服务 SVC06的错误代号 ERR06279 表示缓存版本落后。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_5",
+    "content": "青竹服务 SVC06当前的检索延迟目标为 249 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m06_6",
+    "content": "青竹服务 SVC06旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m06_7",
+    "content": "青竹服务 SVC06已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m07_0",
+    "content": "海棠服务 SVC07的正式环境唯一部署分区为 zone-95-c。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_1",
+    "content": "海棠服务 SVC07的外部查询超时上限为 868 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_2",
+    "content": "海棠服务 SVC07的回滚备份保留期为 47 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_3",
+    "content": "海棠服务 SVC07允许的每日数据库维护开始时间是 05:12。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_4",
+    "content": "海棠服务 SVC07的错误代号 ERR07179 表示事件序列断档。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_5",
+    "content": "海棠服务 SVC07当前的检索延迟目标为 92 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m07_6",
+    "content": "海棠服务 SVC07旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m07_7",
+    "content": "海棠服务 SVC07已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m08_0",
+    "content": "紫藤服务 SVC08的正式环境唯一部署分区为 zone-74-b。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_1",
+    "content": "紫藤服务 SVC08的外部查询超时上限为 212 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_2",
+    "content": "紫藤服务 SVC08的回滚备份保留期为 40 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_3",
+    "content": "紫藤服务 SVC08允许的每日数据库维护开始时间是 05:43。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_4",
+    "content": "紫藤服务 SVC08的错误代号 ERR08599 表示缓存版本落后。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_5",
+    "content": "紫藤服务 SVC08当前的检索延迟目标为 85 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m08_6",
+    "content": "紫藤服务 SVC08旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m08_7",
+    "content": "紫藤服务 SVC08已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m09_0",
+    "content": "榆树服务 SVC09的正式环境唯一部署分区为 zone-20-d。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_1",
+    "content": "榆树服务 SVC09的外部查询超时上限为 327 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_2",
+    "content": "榆树服务 SVC09的回滚备份保留期为 36 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_3",
+    "content": "榆树服务 SVC09允许的每日数据库维护开始时间是 02:47。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_4",
+    "content": "榆树服务 SVC09的错误代号 ERR09143 表示快照校验失败。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_5",
+    "content": "榆树服务 SVC09当前的检索延迟目标为 283 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m09_6",
+    "content": "榆树服务 SVC09旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m09_7",
+    "content": "榆树服务 SVC09已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m10_0",
+    "content": "木棉服务 SVC10的正式环境唯一部署分区为 zone-12-a。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_1",
+    "content": "木棉服务 SVC10的外部查询超时上限为 420 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_2",
+    "content": "木棉服务 SVC10的回滚备份保留期为 19 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_3",
+    "content": "木棉服务 SVC10允许的每日数据库维护开始时间是 03:58。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_4",
+    "content": "木棉服务 SVC10的错误代号 ERR10222 表示缓存版本落后。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_5",
+    "content": "木棉服务 SVC10当前的检索延迟目标为 111 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m10_6",
+    "content": "木棉服务 SVC10旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m10_7",
+    "content": "木棉服务 SVC10已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m11_0",
+    "content": "冷杉服务 SVC11的正式环境唯一部署分区为 zone-60-d。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_1",
+    "content": "冷杉服务 SVC11的外部查询超时上限为 165 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_2",
+    "content": "冷杉服务 SVC11的回滚备份保留期为 24 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_3",
+    "content": "冷杉服务 SVC11允许的每日数据库维护开始时间是 05:25。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_4",
+    "content": "冷杉服务 SVC11的错误代号 ERR11281 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_5",
+    "content": "冷杉服务 SVC11当前的检索延迟目标为 205 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m11_6",
+    "content": "冷杉服务 SVC11旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m11_7",
+    "content": "冷杉服务 SVC11已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m12_0",
+    "content": "杜鹃服务 SVC12的正式环境唯一部署分区为 zone-18-b。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_1",
+    "content": "杜鹃服务 SVC12的外部查询超时上限为 652 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_2",
+    "content": "杜鹃服务 SVC12的回滚备份保留期为 45 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_3",
+    "content": "杜鹃服务 SVC12允许的每日数据库维护开始时间是 01:36。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_4",
+    "content": "杜鹃服务 SVC12的错误代号 ERR12769 表示快照校验失败。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_5",
+    "content": "杜鹃服务 SVC12当前的检索延迟目标为 137 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m12_6",
+    "content": "杜鹃服务 SVC12旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m12_7",
+    "content": "杜鹃服务 SVC12已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m13_0",
+    "content": "山茶服务 SVC13的正式环境唯一部署分区为 zone-33-a。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_1",
+    "content": "山茶服务 SVC13的外部查询超时上限为 796 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_2",
+    "content": "山茶服务 SVC13的回滚备份保留期为 66 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_3",
+    "content": "山茶服务 SVC13允许的每日数据库维护开始时间是 05:58。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_4",
+    "content": "山茶服务 SVC13的错误代号 ERR13642 表示事件序列断档。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_5",
+    "content": "山茶服务 SVC13当前的检索延迟目标为 123 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m13_6",
+    "content": "山茶服务 SVC13旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m13_7",
+    "content": "山茶服务 SVC13已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m14_0",
+    "content": "石楠服务 SVC14的正式环境唯一部署分区为 zone-22-d。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_1",
+    "content": "石楠服务 SVC14的外部查询超时上限为 503 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_2",
+    "content": "石楠服务 SVC14的回滚备份保留期为 57 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_3",
+    "content": "石楠服务 SVC14允许的每日数据库维护开始时间是 05:26。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_4",
+    "content": "石楠服务 SVC14的错误代号 ERR14641 表示索引租约过期。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_5",
+    "content": "石楠服务 SVC14当前的检索延迟目标为 171 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m14_6",
+    "content": "石楠服务 SVC14旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m14_7",
+    "content": "石楠服务 SVC14已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m15_0",
+    "content": "合欢服务 SVC15的正式环境唯一部署分区为 zone-40-f。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_1",
+    "content": "合欢服务 SVC15的外部查询超时上限为 541 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_2",
+    "content": "合欢服务 SVC15的回滚备份保留期为 56 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_3",
+    "content": "合欢服务 SVC15允许的每日数据库维护开始时间是 00:32。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_4",
+    "content": "合欢服务 SVC15的错误代号 ERR15117 表示事件序列断档。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_5",
+    "content": "合欢服务 SVC15当前的检索延迟目标为 229 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m15_6",
+    "content": "合欢服务 SVC15旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m15_7",
+    "content": "合欢服务 SVC15已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "m16_0",
+    "content": "梧桐服务 SVC16的正式环境唯一部署分区为 zone-42-a。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_1",
+    "content": "梧桐服务 SVC16的外部查询超时上限为 277 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_2",
+    "content": "梧桐服务 SVC16的回滚备份保留期为 59 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_3",
+    "content": "梧桐服务 SVC16允许的每日数据库维护开始时间是 00:59。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_4",
+    "content": "梧桐服务 SVC16的错误代号 ERR16392 表示缓存版本落后。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_5",
+    "content": "梧桐服务 SVC16当前的检索延迟目标为 215 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "m16_6",
+    "content": "梧桐服务 SVC16旧版检索延迟目标为 999 毫秒。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "EXPIRED"
+  },
+  {
+    "id": "m16_7",
+    "content": "梧桐服务 SVC16已归档的回滚备份保留期为 2 天。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ARCHIVED"
+  },
+  {
+    "id": "d00",
+    "content": "白桦服务 SVC01的预发布演练环境（不是正式环境）检索响应目标为 400 毫秒，回滚备份保留 70 天，部署分区 test-00。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "other-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d01",
+    "content": "云杉服务 SVC02的预发布演练环境（不是正式环境）检索响应目标为 401 毫秒，回滚备份保留 71 天，部署分区 test-01。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "other-project",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d02",
+    "content": "红枫服务 SVC03的预发布演练环境（不是正式环境）检索响应目标为 402 毫秒，回滚备份保留 72 天，部署分区 test-02。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d03",
+    "content": "银杏服务 SVC04的预发布演练环境（不是正式环境）检索响应目标为 403 毫秒，回滚备份保留 73 天，部署分区 test-03。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d04",
+    "content": "雪松服务 SVC05的预发布演练环境（不是正式环境）检索响应目标为 404 毫秒，回滚备份保留 74 天，部署分区 test-04。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d05",
+    "content": "青竹服务 SVC06的预发布演练环境（不是正式环境）检索响应目标为 405 毫秒，回滚备份保留 75 天，部署分区 test-05。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d06",
+    "content": "海棠服务 SVC07的预发布演练环境（不是正式环境）检索响应目标为 406 毫秒，回滚备份保留 76 天，部署分区 test-06。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d07",
+    "content": "紫藤服务 SVC08的预发布演练环境（不是正式环境）检索响应目标为 407 毫秒，回滚备份保留 77 天，部署分区 test-07。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d08",
+    "content": "榆树服务 SVC09的预发布演练环境（不是正式环境）检索响应目标为 408 毫秒，回滚备份保留 78 天，部署分区 test-08。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d09",
+    "content": "木棉服务 SVC10的预发布演练环境（不是正式环境）检索响应目标为 409 毫秒，回滚备份保留 79 天，部署分区 test-09。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d10",
+    "content": "冷杉服务 SVC11的预发布演练环境（不是正式环境）检索响应目标为 410 毫秒，回滚备份保留 80 天，部署分区 test-10。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "other-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d11",
+    "content": "杜鹃服务 SVC12的预发布演练环境（不是正式环境）检索响应目标为 411 毫秒，回滚备份保留 81 天，部署分区 test-11。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "other-project",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d12",
+    "content": "山茶服务 SVC13的预发布演练环境（不是正式环境）检索响应目标为 412 毫秒，回滚备份保留 82 天，部署分区 test-12。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d13",
+    "content": "石楠服务 SVC14的预发布演练环境（不是正式环境）检索响应目标为 413 毫秒，回滚备份保留 83 天，部署分区 test-13。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d14",
+    "content": "合欢服务 SVC15的预发布演练环境（不是正式环境）检索响应目标为 414 毫秒，回滚备份保留 84 天，部署分区 test-14。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d15",
+    "content": "梧桐服务 SVC16的预发布演练环境（不是正式环境）检索响应目标为 415 毫秒，回滚备份保留 85 天，部署分区 test-15。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d16",
+    "content": "白桦服务 SVC01的预发布演练环境（不是正式环境）检索响应目标为 416 毫秒，回滚备份保留 86 天，部署分区 test-16。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d17",
+    "content": "云杉服务 SVC02的预发布演练环境（不是正式环境）检索响应目标为 417 毫秒，回滚备份保留 87 天，部署分区 test-17。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d18",
+    "content": "红枫服务 SVC03的预发布演练环境（不是正式环境）检索响应目标为 418 毫秒，回滚备份保留 88 天，部署分区 test-18。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d19",
+    "content": "银杏服务 SVC04的预发布演练环境（不是正式环境）检索响应目标为 419 毫秒，回滚备份保留 89 天，部署分区 test-19。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d20",
+    "content": "雪松服务 SVC05的预发布演练环境（不是正式环境）检索响应目标为 420 毫秒，回滚备份保留 90 天，部署分区 test-20。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "other-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d21",
+    "content": "青竹服务 SVC06的预发布演练环境（不是正式环境）检索响应目标为 421 毫秒，回滚备份保留 91 天，部署分区 test-21。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "other-project",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d22",
+    "content": "海棠服务 SVC07的预发布演练环境（不是正式环境）检索响应目标为 422 毫秒，回滚备份保留 92 天，部署分区 test-22。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d23",
+    "content": "紫藤服务 SVC08的预发布演练环境（不是正式环境）检索响应目标为 423 毫秒，回滚备份保留 93 天，部署分区 test-23。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d24",
+    "content": "榆树服务 SVC09的预发布演练环境（不是正式环境）检索响应目标为 424 毫秒，回滚备份保留 94 天，部署分区 test-24。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d25",
+    "content": "木棉服务 SVC10的预发布演练环境（不是正式环境）检索响应目标为 425 毫秒，回滚备份保留 95 天，部署分区 test-25。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d26",
+    "content": "冷杉服务 SVC11的预发布演练环境（不是正式环境）检索响应目标为 426 毫秒，回滚备份保留 96 天，部署分区 test-26。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d27",
+    "content": "杜鹃服务 SVC12的预发布演练环境（不是正式环境）检索响应目标为 427 毫秒，回滚备份保留 97 天，部署分区 test-27。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d28",
+    "content": "山茶服务 SVC13的预发布演练环境（不是正式环境）检索响应目标为 428 毫秒，回滚备份保留 98 天，部署分区 test-28。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d29",
+    "content": "石楠服务 SVC14的预发布演练环境（不是正式环境）检索响应目标为 429 毫秒，回滚备份保留 99 天，部署分区 test-29。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d30",
+    "content": "合欢服务 SVC15的预发布演练环境（不是正式环境）检索响应目标为 430 毫秒，回滚备份保留 100 天，部署分区 test-30。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "other-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d31",
+    "content": "梧桐服务 SVC16的预发布演练环境（不是正式环境）检索响应目标为 431 毫秒，回滚备份保留 101 天，部署分区 test-31。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "other-project",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d32",
+    "content": "白桦服务 SVC01的预发布演练环境（不是正式环境）检索响应目标为 432 毫秒，回滚备份保留 102 天，部署分区 test-32。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d33",
+    "content": "云杉服务 SVC02的预发布演练环境（不是正式环境）检索响应目标为 433 毫秒，回滚备份保留 103 天，部署分区 test-33。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d34",
+    "content": "红枫服务 SVC03的预发布演练环境（不是正式环境）检索响应目标为 434 毫秒，回滚备份保留 104 天，部署分区 test-34。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d35",
+    "content": "银杏服务 SVC04的预发布演练环境（不是正式环境）检索响应目标为 435 毫秒，回滚备份保留 105 天，部署分区 test-35。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d36",
+    "content": "雪松服务 SVC05的预发布演练环境（不是正式环境）检索响应目标为 436 毫秒，回滚备份保留 106 天，部署分区 test-36。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d37",
+    "content": "青竹服务 SVC06的预发布演练环境（不是正式环境）检索响应目标为 437 毫秒，回滚备份保留 107 天，部署分区 test-37。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d38",
+    "content": "海棠服务 SVC07的预发布演练环境（不是正式环境）检索响应目标为 438 毫秒，回滚备份保留 108 天，部署分区 test-38。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  },
+  {
+    "id": "d39",
+    "content": "紫藤服务 SVC08的预发布演练环境（不是正式环境）检索响应目标为 439 毫秒，回滚备份保留 109 天，部署分区 test-39。演练专用参数不得用于回答正式环境配置。",
+    "origin": "synthetic",
+    "source": null,
+    "owner": "eval-user",
+    "project": "better-eval",
+    "kind": "fact",
+    "status": "ACTIVE"
+  }
+]

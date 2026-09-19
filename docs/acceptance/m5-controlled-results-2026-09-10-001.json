@@ -1,0 +1,75 @@
+{
+  "batch_id": "M5-CONTROLLED-20260910-001",
+  "provenance": "acceptance",
+  "scope": "controlled_real_model_and_shadow_canary",
+  "status": "FAILED",
+  "plan_digest": "ec56e3c150a5450aab8c959fdfefb5901e4720bb9a72f6294660fb4887635ddc",
+  "production_release_eligible": false,
+  "production_promoted": false,
+  "records": [],
+  "canary_records": [],
+  "probes": [],
+  "calls": [
+    {
+      "ordinal": 1,
+      "invocation_id": "m5-controlled-20260910-001:001",
+      "kind": "writer",
+      "run_id": "M5-CONTROLLED-20260910-001:controlled-000:bundle_be7462fbca5ea12034b6a996",
+      "bundle_id": "bundle_be7462fbca5ea12034b6a996",
+      "prompt_digest": "72d964dd0e2f35fe2449d93bd5c319dc596466717876128ae480aec5676538db",
+      "status": "REQUESTING"
+    }
+  ],
+  "initial_production_channels": [
+    {
+      "name": "stable",
+      "bundle_id": "bundle_8040b4cc18e6bf2282d15992",
+      "version": 36,
+      "updated_at": "2026-09-09 14:02:05.36465+00"
+    }
+  ],
+  "root_budget_id": "task_budget_2d9cf44507daf20db027205683be1853db184cfef7286ea38164544d5c5ce8e5",
+  "baseline_bundle_id": "bundle_be7462fbca5ea12034b6a996",
+  "candidate_bundle_id": "bundle_6caf9ce6675f96e0a9230500",
+  "profiles": {
+    "writer": {
+      "id": "model_profile_version_be4b00ad9f194ac9afa2cebfcb8db261",
+      "model_name": "deepseek-flash",
+      "provider_name": "deepseek",
+      "price_snapshot_id": "M5-CONTROLLED-20260910-001:writer:price"
+    },
+    "judge": {
+      "id": "model_profile_version_04251c8e3386428a9519056ab1fe6a3f",
+      "model_name": "deepseek-flash",
+      "provider_name": "deepseek",
+      "price_snapshot_id": "M5-CONTROLLED-20260910-001:judge:price"
+    }
+  },
+  "shadow_channel": "acceptance:m5-controlled-20260910-001",
+  "attempts_started": 1,
+  "elapsed_seconds": 1.425,
+  "error": {
+    "type": "RuntimeError",
+    "message": "actual prompt digest mismatch"
+  },
+  "cost_evidence": {
+    "attempt_count": 1,
+    "estimated_microusd": 25232,
+    "all_costs_known": true,
+    "attempts": [
+      {
+        "id": "m5-controlled-20260910-001:001_attempt_1",
+        "status": "SUCCEEDED",
+        "cost_microusd": 25232,
+        "cost_status": "ESTIMATED_PARTIAL",
+        "price_snapshot_id": "M5-CONTROLLED-20260910-001:writer:price",
+        "role": "researcher",
+        "purpose": "write_research_section",
+        "runtime_bundle_id": "bundle_be7462fbca5ea12034b6a996",
+        "system_prompt_digest": "bdbc5d39d59462a75e4bb8b5a5a2876f9ac95bcaf4f57e1c2af1844f8c3306f0"
+      }
+    ]
+  },
+  "production_channels_unchanged": true,
+  "finished_at": "2026-09-10T04:08:42.971044+00:00"
+}
