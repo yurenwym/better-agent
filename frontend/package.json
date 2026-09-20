@@ -10,12 +10,15 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@tanstack/react-query": "^5.103.1",
     "@vitejs/plugin-react": "latest",
     "lucide-react": "^1.45.0",
     "react": "latest",
     "react-dom": "latest",
+    "react-router-dom": "^7.18.4",
     "typescript": "latest",
-    "vite": "latest"
+    "vite": "latest",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
