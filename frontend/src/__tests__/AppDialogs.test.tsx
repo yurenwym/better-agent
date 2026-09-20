@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import App from "../App";
+import { renderApp } from "./renderApp";
 
 const api = vi.hoisted(() => ({
   deleteThread: vi.fn(),
@@ -23,7 +23,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.pushState({}, ""
 
 it("confirms conversation deletion in the app and reports failures without alert", async () => {
   api.deleteThread.mockRejectedValueOnce(new Error("busy"));
-  render(<App />);
+  renderApp();
 
   fireEvent.click(await screen.findByRole("button", { name: "删除会话：骑行计划" }));
   expect(screen.getByRole("dialog", { name: "删除会话？" })).toBeTruthy();
@@ -34,7 +34,7 @@ it("confirms conversation deletion in the app and reports failures without alert
 });
 
 it("confirms successful conversation deletion", async () => {
-  render(<App />);
+  renderApp();
 
   fireEvent.click(await screen.findByRole("button", { name: "删除会话：骑行计划" }));
   fireEvent.click(screen.getByRole("button", { name: "确认删除" }));

@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import App from "../App";
+import { renderApp } from "./renderApp";
 import StatsBar from "../components/StatsBar";
 import EventStream from "../components/EventStream";
 import ApprovalCard from "../components/ApprovalCard";
@@ -15,7 +15,7 @@ const LAZY = { timeout: 8000 };
 
 describe("personal agent workspace", () => {
   it("switches between the four core pages", async () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(await screen.findByText("控制台", undefined, LAZY));
     fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
@@ -27,7 +27,7 @@ describe("personal agent workspace", () => {
   });
 
   it("keeps the chat page focused on the conversation surface", async () => {
-    render(<App />);
+    renderApp();
 
     expect(screen.queryByRole("heading", { name: "Better Agent" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "目标对话" })).toBeNull();
@@ -36,7 +36,7 @@ describe("personal agent workspace", () => {
   });
 
   it("uses a wider shell for the trajectory workspace", async () => {
-    render(<App />);
+    renderApp();
 
     fireEvent.click(await screen.findByText("控制台"));
     fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
@@ -47,14 +47,14 @@ describe("personal agent workspace", () => {
   });
 
   it("gives the empty conversation more room on desktop", async () => {
-    render(<App />);
+    renderApp();
 
     await screen.findByRole("main");
     expect(document.querySelector(".chat-workspace-empty")?.className).toContain("chat-workspace-empty-wide");
   });
 
   it("gives the chat page the same wide shell as the trajectory page", () => {
-    render(<App />);
+    renderApp();
 
     const main = screen.getByRole("main");
     expect(main.className).toContain("workspace-main-viewport");
@@ -64,7 +64,7 @@ describe("personal agent workspace", () => {
 
   it("removes the redundant research page heading and uses the fluid shell", () => {
     window.history.pushState({}, "", "/research");
-    render(<App />);
+    renderApp();
 
     const main = screen.getByRole("main");
     expect(main.querySelector(".workspace-page-header-research")).toBeNull();
@@ -73,7 +73,7 @@ describe("personal agent workspace", () => {
 
   it("uses the same fluid master-detail shell for today", async () => {
     window.history.pushState({}, "", "/today");
-    render(<App />);
+    renderApp();
 
     const main = await screen.findByRole("main");
     expect(main.querySelector(".workspace-page-header-today")).toBeNull();
@@ -95,7 +95,7 @@ describe("personal agent workspace", () => {
 
   it("restores plan deep links when browser history changes",async()=>{
     window.history.pushState({},"","/plans/plan-first");
-    render(<App/>);
+    renderApp();
     window.history.pushState({},"","/plans/plan-second");
     window.dispatchEvent(new PopStateEvent("popstate"));
     expect(window.location.pathname).toBe("/plans/plan-second");
@@ -128,7 +128,7 @@ describe("personal agent workspace", () => {
   });
 
   it("exposes a labelled goal message form", () => {
-    render(<App />);
+    renderApp();
 
     expect(screen.getByLabelText("输入消息")).toBeTruthy();
     expect(screen.getByRole("button", { name: "发送" })).toBeTruthy();

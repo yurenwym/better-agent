@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState, lazy, Suspense, type MouseEvent } from "react";
 import { ArrowLeft, Activity, Plus } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { navigateTo, pagePaths, readRoute, todayPath } from "./navigation";
 import { router } from "./router";
-import { deleteThread, getBootstrap, getLatestExpertRun, listThreads, setHumanMode } from "./api";
+import { queryKeys, useBootstrapQuery, useThreadsQuery } from "./queries";
+import { deleteThread, getLatestExpertRun, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import ConfirmDialog from "./components/ConfirmDialog";
 import AppToast from "./components/AppToast";
@@ -79,18 +81,18 @@ export default function App() {
   const currentRoute = useRef(route);
   currentRoute.current = route;
   const renderedRevision = navigationRevision.current;
-  const [bootstrap, setBootstrap] = useState<Bootstrap | null>(null);
-  const [bootstrapError, setBootstrapError] = useState(false);
+  const queryClient = useQueryClient();
+  const bootstrapQuery = useBootstrapQuery();
+  const bootstrap = bootstrapQuery.data ?? null;
+  const bootstrapError = bootstrapQuery.isError;
+  const threads = useThreadsQuery().data?.threads ?? [];
   const [run, setRun] = useState<Run | null>(null);
   const [expertRun, setExpertRun] = useState<AgentRun | null>(null);
-  const [threads,setThreads]=useState<Thread[]>([]);
   const [threadToDelete,setThreadToDelete]=useState<Thread|null>(null);
   const [deletingThread,setDeletingThread]=useState(false);
   const [notice,setNotice]=useState<{message:string;tone:"success"|"error"}|null>(null);
 
   useEffect(() => {
-    getBootstrap().then(setBootstrap).catch(() => setBootstrapError(true));
-    listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);
     const pop=()=>{
       const next=readRoute();
       if(JSON.stringify(next)!==JSON.stringify(currentRoute.current)) {
@@ -120,7 +122,9 @@ export default function App() {
     try {
       await deleteThread(threadToDelete.id,csrfToken);
       clearConversationDraft(threadToDelete.id);
-      setThreads(items=>items.filter(item=>item.id!==threadToDelete.id));
+      // 服务端状态由 Query 缓存持有：删除后只更新缓存，不再维护一份组件内副本。
+      queryClient.setQueryData(queryKeys.threads, (current: { threads: Thread[] } | undefined) =>
+        current ? { threads: current.threads.filter(item=>item.id!==threadToDelete.id) } : current);
       if(lastThreadId.current===threadToDelete.id)lastThreadId.current=null;
       if(threadId===threadToDelete.id){setRun(null);setExpertRun(null);navigateTo("/");}
       setThreadToDelete(null);
@@ -174,7 +178,7 @@ export default function App() {
         onNewConversation={() => { setRun(null); setExpertRun(null); lastThreadId.current=null; navigateTo("/"); }}
         onSelectThread={(nextThreadId)=>{setRun(null);setExpertRun(null);navigateTo(`/threads/${nextThreadId}`);}}
         onDeleteThread={(deleteThreadId)=>setThreadToDelete(threads.find(item=>item.id===deleteThreadId)??null)}
-        onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>setBootstrap(current=>current?{...current,human_mode:result.human_mode}:current)).catch(()=>setNotice({message:"真人对话模式设置失败，请稍后重试。",tone:"error"}))}}
+        onHumanMode={(enabled)=>{void setHumanMode(enabled,csrfToken).then(result=>queryClient.setQueryData(queryKeys.bootstrap, (current: Bootstrap | null | undefined)=>current?{...current,human_mode:result.human_mode}:current)).catch(()=>setNotice({message:"真人对话模式设置失败，请稍后重试。",tone:"error"}))}}
       />
       <main className={`workspace-main${fluidPage ? " workspace-main-viewport" : ""}`} id="main-content">
         {(
@@ -194,7 +198,7 @@ export default function App() {
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
           <Suspense fallback={<PageLoading />}>
-          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} sourceActionId={route.actionId} initialExpertRun={expertRun} onThread={(nextThreadId)=>{if(renderedRevision===navigationRevision.current)navigateTo(`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);}} onRun={acceptRun} onExpertRun={acceptExpertRun} onOpenTrajectory={() => navigate("trajectory")} onOpenPlan={(nextPlanId) => nextPlanId ? openPlan(nextPlanId) : navigate("plan")} />}
+          {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} sourceActionId={route.actionId} initialExpertRun={expertRun} onThread={(nextThreadId)=>{if(renderedRevision===navigationRevision.current)navigateTo(`/threads/${nextThreadId}`);void queryClient.invalidateQueries({queryKey:queryKeys.threads});}} onRun={acceptRun} onExpertRun={acceptExpertRun} onOpenTrajectory={() => navigate("trajectory")} onOpenPlan={(nextPlanId) => nextPlanId ? openPlan(nextPlanId) : navigate("plan")} />}
           {["workspace","today","plan"].includes(page) && <PlanningWorkspace csrfToken={csrfToken} route={route}/>}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} expertRun={expertRun} csrfToken={csrfToken} onExpertRun={acceptExpertRun} />}
           {page === "memory" && <MemoryPage csrfToken={csrfToken} />}

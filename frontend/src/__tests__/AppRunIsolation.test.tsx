@@ -1,6 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import App from "../App";
+import { renderApp } from "./renderApp";
 import { navigateTo } from "../navigation";
 import type { Run } from "../types";
 
@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 async function renderWithRun() {
-  render(<App />);
+  renderApp();
   await screen.findByRole("heading", { name: "A 会话" });
   const oldCallbacks = probes.chat!;
   act(() => oldCallbacks.onRun(runA));

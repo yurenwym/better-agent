@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import App from "../App";
+import { renderApp } from "./renderApp";
 
 const api = vi.hoisted(() => ({
   deleteThread: vi.fn(),
@@ -26,7 +26,7 @@ afterEach(() => { cleanup(); vi.clearAllMocks(); window.history.pushState({}, ""
 
 it("reports human mode toggle failures through the error toast", async () => {
   api.setHumanMode.mockRejectedValueOnce(new Error("backend offline"));
-  render(<App />);
+  renderApp();
   await screen.findByText("模型已连接");
 
   fireEvent.click(screen.getByText("设置"));
@@ -38,7 +38,7 @@ it("reports human mode toggle failures through the error toast", async () => {
 
 it("keeps the human mode switch retryable after a failure", async () => {
   api.setHumanMode.mockRejectedValueOnce(new Error("backend offline"));
-  render(<App />);
+  renderApp();
   await screen.findByText("模型已连接");
 
   fireEvent.click(screen.getByText("设置"));
@@ -54,7 +54,7 @@ it("keeps the human mode switch retryable after a failure", async () => {
 
 it("shows a backend connection warning near the local mark when bootstrap fails", async () => {
   api.getBootstrap.mockRejectedValueOnce(new Error("backend down"));
-  render(<App />);
+  renderApp();
 
   fireEvent.click(screen.getByText("控制台"));
   fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
@@ -65,7 +65,7 @@ it("shows a backend connection warning near the local mark when bootstrap fails"
 
 it("keeps backend failures visible on the conversation shell too", async () => {
   api.getBootstrap.mockRejectedValueOnce(new Error("backend down"));
-  render(<App />);
+  renderApp();
 
   await screen.findByRole("region", { name: "当前目标对话" });
   expect(await screen.findByText("后端未连接，操作可能不可用")).toBeTruthy();

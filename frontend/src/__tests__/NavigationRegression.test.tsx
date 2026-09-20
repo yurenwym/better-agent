@@ -1,13 +1,16 @@
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import App from "../App";
+import { renderApp } from "./renderApp";
 import ConversationThread from "../components/ConversationThread";
 import { navigateTo, readRoute, todayPath } from "../navigation";
 
 afterEach(()=>{cleanup();window.history.replaceState({},"","/");});
 
+// 页面已改为 React.lazy 懒加载：全量并行跑测试时动态 import 可能超过默认 1s 超时。
+const LAZY = { timeout: 8000 };
+
 it("places the renamed plan module before today without changing its route",()=>{
-  render(<App/>);
+  renderApp();
   const links=within(screen.getByRole("navigation",{name:"工作区导航"})).getAllByRole("link");
   expect(links.map(link=>link.textContent)).toEqual(["对话","计划","研究"]);
   expect(links[1].getAttribute("href")).toBe("/workspace");
@@ -15,12 +18,12 @@ it("places the renamed plan module before today without changing its route",()=>
 
 it("updates the URL when leaving a plan for conversation and restores it after remount",async ()=>{
   window.history.replaceState({},"","/plans/plan-regression");
-  const view=render(<App/>);
+  const view=renderApp();
   fireEvent.click(screen.getByRole("link",{name:"对话"}));
   expect(window.location.pathname).toBe("/");
-  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
-  view.unmount();render(<App/>);
-  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
+  expect(await screen.findByLabelText("输入消息", undefined, LAZY)).toBeTruthy();
+  view.unmount();renderApp();
+  expect(await screen.findByLabelText("输入消息", undefined, LAZY)).toBeTruthy();
 });
 
 it("reads action, program, research and activity selection from URLs",()=>{
@@ -31,11 +34,11 @@ it("reads action, program, research and activity selection from URLs",()=>{
 });
 
 it("restores back/forward page selection through popstate",async ()=>{
-  render(<App/>);
+  renderApp();
   act(()=>navigateTo("/memory"));
-  expect(await screen.findByRole("heading",{name:"长期记忆"})).toBeTruthy();
+  expect(await screen.findByRole("heading",{name:"长期记忆"}, LAZY)).toBeTruthy();
   act(()=>{window.history.replaceState({},"","/");window.dispatchEvent(new PopStateEvent("popstate"));});
-  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
+  expect(await screen.findByLabelText("输入消息", undefined, LAZY)).toBeTruthy();
 });
 
 it("keeps drafts separate across conversations and component remounts",()=>{
