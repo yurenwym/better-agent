@@ -23,7 +23,7 @@ export interface GoalWorkspace {
   resource_id: string;
   thread_id: string;
   plan_document_id: string;
-  phase: "DISCOVERING" | "PLANNING" | "READY_TO_START" | "EXECUTING" | "REVIEWING" | "ADJUSTING" | "COMPLETED" | "PAUSED" | "CANCELLED";
+  phase: "DISCOVERING" | "PLANNING" | "DELIVERED" | "READY_TO_START" | "EXECUTING" | "REVIEWING" | "ADJUSTING" | "COMPLETED" | "PAUSED" | "CANCELLED";
   next_action: { kind: string; label: string; href: string; resource_id: string; reason: string } | null;
   sources: Array<{ kind: string; id: string; label: string }>;
   plan: { id: string; title: string; version: number; file_status: string };
@@ -118,6 +118,7 @@ export interface Run {
   version: number;
   budget: Record<string, unknown>;
   pending_approvals: string[];
+  approval_details?: Record<string, GoalActivationApproval>;
   skill_names?: string[];
   source_plan_document_id?: string | null;
   source_plan_document_version_id?: string | null;
@@ -149,6 +150,7 @@ export type TurnStatus =
   | "COMPLETED"
   | "AWAITING_INPUT"
   | "AWAITING_DIRECTION"
+  | "AWAITING_TOOL_APPROVAL"
   | "MATERIALIZING"
   | "FAILED"
   | "CANCELLED";
@@ -592,3 +594,43 @@ export interface MemoryProposal {
   created_at:string;
 }
 export interface MemoryEpisode {id:string;thread_id:string;project_id:string|null;start_message_seq:number;end_message_seq:number;summary:string;sensitivity:string;retrieval_policy:string;status:string;version:number;created_at:string;}
+
+export interface GoalActivationApproval {
+  snapshot_hash: string;
+  program_version?: number;
+  source_version_id?: string;
+  source_content_hash?: string;
+  preview?: {
+    objective_title?: string;
+    start_date?: string;
+    end_date?: string;
+    timezone?: string;
+    daily_minutes?: number;
+    structure?: { actions?: { title: string; scheduled_date: string; estimated_minutes: number }[] };
+  };
+}
+
+export type GoalToolName =
+  | "create_plan_draft"
+  | "activate_goal_plan"
+  | "query_goals"
+  | "get_today_tasks"
+  | "get_action_context"
+  | "get_plan"
+  | "record_action_feedback"
+  | "defer_action";
+
+export interface ChatToolCall {
+  id: string;
+  turn_id: string;
+  tool_name: GoalToolName | string;
+  params: Record<string, unknown>;
+  risk: "READ" | "WRITE";
+  status: "PENDING_APPROVAL" | "APPROVED" | "REJECTED" | "EXECUTED" | "FAILED" | "CANCELLED";
+  approval_id: string | null;
+  binding: { goal_activation?: GoalActivationApproval } & Record<string, unknown>;
+  error_code: string | null;
+  continuation_turn_id: string | null;
+  created_at: string;
+  acted_at: string | null;
+}

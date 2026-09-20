@@ -1,30 +1,40 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useRef, useState, lazy, Suspense, type MouseEvent } from "react";
 import { ArrowLeft, Activity, Plus } from "lucide-react";
 import { navigateTo, pagePaths, readRoute, todayPath } from "./navigation";
+import { router } from "./router";
 import { deleteThread, getBootstrap, getLatestExpertRun, listThreads, setHumanMode } from "./api";
 import WorkspaceSidebar, { type WorkspacePage } from "./components/WorkspaceSidebar";
 import ConfirmDialog from "./components/ConfirmDialog";
 import AppToast from "./components/AppToast";
 import { clearConversationDraft } from "./components/ConversationThread";
 import type { Bootstrap, Run, Thread } from "./types";
-import ChatPage from "./pages/ChatPage";
-import PlanPage from "./pages/PlanPage";
-import TrajectoryPage from "./pages/TrajectoryPage";
-import MemoryPage from "./pages/MemoryPage";
-import ResearchPage from "./pages/ResearchPage";
-import SchedulesPage from "./pages/SchedulesPage";
-import TodayPage from "./pages/TodayPage";
-import GrowthPage from "./pages/GrowthPage";
-import GoalWorkspacePage from "./pages/GoalWorkspacePage";
-import ModelsPage from "./pages/ModelsPage";
-import UsagePage from "./pages/UsagePage";
-import EvaluationPage from "./pages/EvaluationPage";
-import SkillsPage from "./pages/SkillsPage";
 import type { AgentRun } from "./types";
 import { runStateLabels } from "./localization";
 import "./index.css";
 import "./workbench.css";
-import PlanningWorkspace from "./pages/PlanningWorkspace";
+
+const ChatPage = lazy(() => import("./pages/ChatPage"));
+const PlanPage = lazy(() => import("./pages/PlanPage"));
+const TrajectoryPage = lazy(() => import("./pages/TrajectoryPage"));
+const MemoryPage = lazy(() => import("./pages/MemoryPage"));
+const ResearchPage = lazy(() => import("./pages/ResearchPage"));
+const SchedulesPage = lazy(() => import("./pages/SchedulesPage"));
+const TodayPage = lazy(() => import("./pages/TodayPage"));
+const GrowthPage = lazy(() => import("./pages/GrowthPage"));
+const GoalWorkspacePage = lazy(() => import("./pages/GoalWorkspacePage"));
+const ModelsPage = lazy(() => import("./pages/ModelsPage"));
+const UsagePage = lazy(() => import("./pages/UsagePage"));
+const EvaluationPage = lazy(() => import("./pages/EvaluationPage"));
+const SkillsPage = lazy(() => import("./pages/SkillsPage"));
+const PlanningWorkspace = lazy(() => import("./pages/PlanningWorkspace"));
+
+function PageLoading() {
+  return (
+    <div className="workspace-page-loading" role="status" aria-live="polite">
+      <span>加载中…</span>
+    </div>
+  );
+}
 
 const headings: Record<WorkspacePage, string> = {
   workspace: "计划",
@@ -88,7 +98,11 @@ export default function App() {
         if(!next.threadId || next.threadId!==currentRoute.current.threadId) { setRun(null);setExpertRun(null); }
       }
       currentRoute.current=next;setRoute(next);
-    };window.addEventListener("popstate",pop);return()=>window.removeEventListener("popstate",pop);
+    };
+    // 同时订阅 React Router 导航与浏览器 popstate，覆盖 navigateTo(router.navigate) 与前进/后退两种来源。
+    const unsubscribe = router.subscribe(() => pop());
+    window.addEventListener("popstate",pop);
+    return()=>{ unsubscribe(); window.removeEventListener("popstate",pop); };
   }, []);
 
   useEffect(() => {
@@ -179,6 +193,7 @@ export default function App() {
         )}
 
         <div className={`workspace-page workspace-page-${page}${widePage ? " workspace-page-wide" : ""}${fluidPage ? " workspace-page-fluid" : ""}`}>
+          <Suspense fallback={<PageLoading />}>
           {page === "chat" && <ChatPage csrfToken={csrfToken} run={run} threadId={threadId} sourceActionId={route.actionId} initialExpertRun={expertRun} onThread={(nextThreadId)=>{if(renderedRevision===navigationRevision.current)navigateTo(`/threads/${nextThreadId}`);void listThreads().then(result=>setThreads(result.threads)).catch(()=>undefined);}} onRun={acceptRun} onExpertRun={acceptExpertRun} onOpenTrajectory={() => navigate("trajectory")} onOpenPlan={(nextPlanId) => nextPlanId ? openPlan(nextPlanId) : navigate("plan")} />}
           {["workspace","today","plan"].includes(page) && <PlanningWorkspace csrfToken={csrfToken} route={route}/>}
           {page === "trajectory" && <TrajectoryPage run={run} threadId={threadId} expertRun={expertRun} csrfToken={csrfToken} onExpertRun={acceptExpertRun} />}
@@ -190,6 +205,7 @@ export default function App() {
           {page === "usage" && <UsagePage csrfToken={csrfToken} />}
           {page === "evaluation" && <EvaluationPage evaluationId={evaluationId} csrfToken={csrfToken} />}
           {page === "skills" && <SkillsPage csrfToken={csrfToken} />}
+          </Suspense>
         </div>
       </main>
       <ConfirmDialog open={Boolean(threadToDelete)} title="删除会话？" description={`确定删除“${threadToDelete?.title??""}”吗？已保存的计划、研究和目标不会被删除。`} busy={deletingThread} onCancel={()=>setThreadToDelete(null)} onConfirm={()=>void confirmThreadDelete()} />

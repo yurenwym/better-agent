@@ -268,7 +268,7 @@ export function useThreadTelemetry(
           if (event.type === "execution.materialized" && typeof event.data.run_id === "string") {
             onMaterialized?.(event.data.run_id);
           }
-          if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_input", "turn.awaiting_direction", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "ask.requested", "ask.answered", "ask.cancelled", "execution.materialized"].includes(event.type)) {
+          if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_input", "turn.awaiting_direction", "turn.awaiting_tool_approval", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "ask.requested", "ask.answered", "ask.cancelled", "chat_tool.approval_requested", "chat_tool.approved", "chat_tool.rejected", "chat_tool.cancelled", "chat_tool.resumed", "execution.materialized"].includes(event.type)) {
             void getThread(id).then((next) => { if (active) setThread(next); }).catch(() => undefined);
           }
         });

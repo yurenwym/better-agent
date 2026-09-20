@@ -682,7 +682,7 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                     <span><i className="status-dot status-ready" aria-hidden="true" />计划已保存</span>
                     {linkedProgram && <span className={executionStatusClass(linkedProgram)}><i className="status-dot" aria-hidden="true" />{executionStatusLabel(linkedProgram)}</span>}
                   </div>
-                  <p className="plan-hero-action-copy">{linkedProgram ? executionStatusDescription(linkedProgram) : "生成执行预览后，确认的行动才会进入今日行动。"}</p>
+                  <p className="plan-hero-action-copy">{linkedProgram ? executionStatusDescription(linkedProgram) : "计划已保存，可直接查看、编辑或交付使用；需要跟进执行时再开启执行管理（可选），激活后行动才会进入今日行动。"}</p>
                   {linkedProgram ? (
                     <>
                       {linkedProgram.status === "DRAFT" && linkedProgram.compile_status === "READY" && (
@@ -698,14 +698,21 @@ export default function PlanPage({ csrfToken, run, threadId = null, planId = nul
                       {linkedProgram.status !== "DRAFT" && <a className="button button-primary plan-hero-primary-action" href={executionHref} onClick={event => { if (onOpenToday && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onOpenToday(linkedProgram.id); } }}>查看执行<ArrowUpRight size={16} aria-hidden="true" /></a>}
                     </>
                   ) : (
-                    <button className="button button-primary plan-hero-primary-action" disabled={busy} type="button" aria-expanded={showExecution} aria-controls="plan-execution-settings" onClick={openExecution}>
-                      {busy ? "正在处理…" : "开始执行"}
-                    </button>
+                    <div className="button-row">
+                      <button className="button button-primary plan-hero-primary-action" disabled={busy} type="button" onClick={() => setEditing(true)}>
+                        编辑计划
+                      </button>
+                      <button className="button button-secondary" disabled={busy} type="button" aria-expanded={showExecution} aria-controls="plan-execution-settings" onClick={openExecution}>
+                        {busy ? "正在处理…" : "开启执行管理"}
+                      </button>
+                    </div>
                   )}
                   <div className="plan-hero-utilities">
-                    <button className="button button-quiet" disabled={busy} type="button" onClick={() => setEditing(true)}>
-                      编辑计划
-                    </button>
+                    {linkedProgram && (
+                      <button className="button button-quiet" disabled={busy} type="button" onClick={() => setEditing(true)}>
+                        编辑计划
+                      </button>
+                    )}
                     <button className="button button-quiet button-quiet-danger" disabled={busy} type="button" onClick={() => setDeleteOpen(true)}>
                       删除计划
                     </button>

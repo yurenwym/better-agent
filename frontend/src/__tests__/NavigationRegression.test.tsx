@@ -13,14 +13,14 @@ it("places the renamed plan module before today without changing its route",()=>
   expect(links[1].getAttribute("href")).toBe("/workspace");
 });
 
-it("updates the URL when leaving a plan for conversation and restores it after remount",()=>{
+it("updates the URL when leaving a plan for conversation and restores it after remount",async ()=>{
   window.history.replaceState({},"","/plans/plan-regression");
   const view=render(<App/>);
   fireEvent.click(screen.getByRole("link",{name:"对话"}));
   expect(window.location.pathname).toBe("/");
-  expect(screen.getByLabelText("输入消息")).toBeTruthy();
+  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
   view.unmount();render(<App/>);
-  expect(screen.getByLabelText("输入消息")).toBeTruthy();
+  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
 });
 
 it("reads action, program, research and activity selection from URLs",()=>{
@@ -30,12 +30,12 @@ it("reads action, program, research and activity selection from URLs",()=>{
   expect(todayPath("p/2","a&2")).toBe("/today?program=p%2F2&action=a%262");
 });
 
-it("restores back/forward page selection through popstate",()=>{
+it("restores back/forward page selection through popstate",async ()=>{
   render(<App/>);
   act(()=>navigateTo("/memory"));
-  expect(screen.getByRole("heading",{name:"长期记忆"})).toBeTruthy();
+  expect(await screen.findByRole("heading",{name:"长期记忆"})).toBeTruthy();
   act(()=>{window.history.replaceState({},"","/");window.dispatchEvent(new PopStateEvent("popstate"));});
-  expect(screen.getByLabelText("输入消息")).toBeTruthy();
+  expect(await screen.findByLabelText("输入消息")).toBeTruthy();
 });
 
 it("keeps drafts separate across conversations and component remounts",()=>{

@@ -1,3 +1,7 @@
+/* 页面懒加载的 Suspense 占位，对齐 workbench 设计令牌的留白与字号 */
+.workspace-page-loading { display: grid; place-items: center; min-height: 40vh; color: var(--color-muted, #5f6368); font-size: 14px; }
+
+
 /* UI/UX Pro Max: DeepSeek-inspired local conversation workspace */
 @import "./tokens.css";
 
@@ -300,6 +304,13 @@ input:focus-visible, textarea:focus-visible, select:focus-visible { border-color
 .approval-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; border: 1px solid color-mix(in srgb, var(--color-warning) 40%, var(--color-line)); border-radius: var(--radius-md); background: var(--color-warning-soft); padding: 17px; }
 .approval-card > div:first-child { display: grid; gap: 6px; min-width: 0; }
 .approval-card p { font-size: 13px; }
+.approval-content { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; border: 1px solid var(--color-line); border-radius: var(--radius-sm); background: var(--color-surface); padding: 10px 12px; font-family: var(--font-mono); font-size: 12px; }
+.approval-facts { display: grid; gap: 4px; margin: 0; }
+.approval-facts > div { display: flex; gap: 10px; font-size: 13px; }
+.approval-facts dt { flex: 0 0 64px; color: var(--color-muted); }
+.approval-facts dd { margin: 0; overflow-wrap: anywhere; }
+.approval-schedule { margin: 0; padding-left: 20px; font-size: 13px; }
+.approval-loading { color: var(--color-muted); font-size: 13px; }
 .risk-label { color: var(--color-warning); }
 .approval-reference { color: var(--color-muted); font-size: 11px; }
 

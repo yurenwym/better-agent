@@ -133,10 +133,10 @@ describe("PlanPage document editor", () => {
     api.previewGoalProgram.mockResolvedValue({ id: "program-1", status: "DRAFT", version: 1, structure: { assumptions: [], actions: [] } });
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "开始执行" }));
-    expect(screen.getByRole("button", {name:"开始执行"}).getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(await screen.findByRole("button", { name: "开启执行管理" }));
+    expect(screen.getByRole("button", {name:"开启执行管理"}).getAttribute("aria-expanded")).toBe("true");
     await waitFor(() => expect(window.document.activeElement).toBe(screen.getByRole("region", {name:"执行设置"})));
-    fireEvent.click(screen.getByRole("button", { name: "开始执行" }));
+    fireEvent.click(screen.getByRole("button", { name: "开启执行管理" }));
     expect(screen.getByLabelText("执行开始日期")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("执行开始日期"), { target: { value: "2026-09-01" } });
     fireEvent.change(screen.getByLabelText("执行结束日期"), { target: { value: "2026-09-02" } });
@@ -173,7 +173,7 @@ describe("PlanPage document editor", () => {
     render(<PlanPage csrfToken="csrf" planId="plan-1" run={null} onRun={vi.fn()} />);
 
     expect(await screen.findByText("执行已暂停")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "开始执行" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "开启执行管理" })).toBeNull();
   });
 
   it("restores a linked ready draft and allows activation after refresh", async () => {

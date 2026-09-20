@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import App from "../App";
 import StatsBar from "../components/StatsBar";
@@ -9,42 +9,47 @@ import type { Thread } from "../types";
 
 afterEach(() => { cleanup(); window.history.pushState({}, "", "/"); });
 
+// 页面已改为 React.lazy 懒加载：全量并行跑测试时动态 import 可能超过默认 1s 超时，
+// 因此所有等待懒加载页面的断言统一使用更长的超时。
+const LAZY = { timeout: 8000 };
+
 describe("personal agent workspace", () => {
-  it("switches between the four core pages", () => {
+  it("switches between the four core pages", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByText("控制台"));
+    fireEvent.click(await screen.findByText("控制台", undefined, LAZY));
     fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
-    expect(screen.getAllByRole("heading", { name: "运行轨迹" }).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("heading", { name: "运行轨迹" }, LAZY)).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("link", { name: "计划" }));
-    expect(screen.getByRole("navigation", { name: "计划视图" })).toBeTruthy();
+    expect(await screen.findByRole("navigation", { name: "计划视图" }, LAZY)).toBeTruthy();
     fireEvent.click(screen.getByRole("link", { name: "记忆" }));
-    expect(screen.getAllByRole("heading", { name: "长期记忆" }).length).toBeGreaterThan(0);
+    expect((await screen.findAllByRole("heading", { name: "长期记忆" }, LAZY)).length).toBeGreaterThan(0);
   });
 
-  it("keeps the chat page focused on the conversation surface", () => {
+  it("keeps the chat page focused on the conversation surface", async () => {
     render(<App />);
 
     expect(screen.queryByRole("heading", { name: "Better Agent" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "目标对话" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "开始一段新的工作" })).toBeNull();
-    expect(screen.getByRole("region", { name: "当前目标对话" })).toBeTruthy();
+    expect(await screen.findByRole("region", { name: "当前目标对话" })).toBeTruthy();
   });
 
-  it("uses a wider shell for the trajectory workspace", () => {
+  it("uses a wider shell for the trajectory workspace", async () => {
     render(<App />);
 
-    fireEvent.click(screen.getByText("控制台"));
+    fireEvent.click(await screen.findByText("控制台"));
     fireEvent.click(screen.getByRole("link", { name: "运行轨迹" }));
 
-    const main = screen.getByRole("main");
+    const main = await screen.findByRole("main");
     expect(main.querySelector(".workspace-topbar h1")?.textContent).toBe("运行轨迹");
     expect(main.querySelector(".workspace-page")?.className).toContain("workspace-page-trajectory");
   });
 
-  it("gives the empty conversation more room on desktop", () => {
+  it("gives the empty conversation more room on desktop", async () => {
     render(<App />);
 
+    await screen.findByRole("main");
     expect(document.querySelector(".chat-workspace-empty")?.className).toContain("chat-workspace-empty-wide");
   });
 
@@ -66,15 +71,15 @@ describe("personal agent workspace", () => {
     expect(main.querySelector(".workspace-page-research")?.className).toContain("workspace-page-fluid");
   });
 
-  it("uses the same fluid master-detail shell for today", () => {
+  it("uses the same fluid master-detail shell for today", async () => {
     window.history.pushState({}, "", "/today");
     render(<App />);
 
-    const main = screen.getByRole("main");
+    const main = await screen.findByRole("main");
     expect(main.querySelector(".workspace-page-header-today")).toBeNull();
     expect(main.querySelector(".workspace-page-today")?.className).toContain("workspace-page-wide");
     expect(main.querySelector(".workspace-page-today")?.className).not.toContain("workspace-page-fluid");
-    expect(main.querySelector(".today-load-state")).toBeTruthy();
+    await waitFor(() => expect(main.querySelector(".today-load-state")).toBeTruthy(), LAZY);
     const goalNav=screen.getByRole("navigation",{name:"工作区导航"});
     expect(goalNav.querySelector('[aria-current="page"]')?.textContent).toBe("计划");
   });

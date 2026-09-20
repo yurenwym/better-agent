@@ -2,6 +2,7 @@ import type {
   AskAnswer,
   PendingAsk,
   Bootstrap,
+  ChatToolCall,
   EventRecord,
   GoalResponse,
   MessageRecord,
@@ -545,6 +546,27 @@ export async function selectDirection(
     headers: mutationHeaders(csrfToken),
     body: JSON.stringify(payload),
   }));
+}
+
+export async function getTurnToolCall(turnId: string, fetcher: Fetcher = fetch): Promise<ChatToolCall | null> {
+  const response = await fetcher(`/api/turns/${turnId}/tool-call`);
+  if (response.status === 404) return null;
+  const result = await json<{ tool_call: ChatToolCall }>(response);
+  return result.tool_call;
+}
+
+export async function decideTurnToolCall(
+  turnId: string,
+  payload: { action: "approve" | "reject"; expected_version: number; idempotency_key: string },
+  csrfToken: string,
+  fetcher: Fetcher = fetch,
+): Promise<Turn> {
+  const response = await fetcher(`/api/turns/${turnId}/tool-call/decision`, {
+    method: "POST",
+    headers: mutationHeaders(csrfToken),
+    body: JSON.stringify(payload),
+  });
+  return (await json<{ turn: Turn }>(response)).turn;
 }
 
 export async function createGoal(

@@ -4,6 +4,7 @@ import { navigateTo, todayPath } from "../navigation";
 import ApprovalCard from "../components/ApprovalCard";
 import ArchiveStatus from "../components/ArchiveStatus";
 import ActivityRail from "../components/ActivityRail";
+import ChatToolApprovalCard from "../components/ChatToolApprovalCard";
 import ConversationThread, { clearConversationDraft, moveConversationDraft } from "../components/ConversationThread";
 import {
   addBudget,
@@ -14,9 +15,11 @@ import {
   continueOutcome,
   createGoal,
   createThread,
+  decideTurnToolCall,
   getPlans,
   getRun,
   getSkills,
+  getTurnToolCall,
   grantApproval,
   rejectApproval,
   resumeRun,
@@ -37,7 +40,7 @@ import {
 import ExpertRunCard from "../components/ExpertRunCard";
 import { useRunTelemetry } from "../hooks/useRunTelemetry";
 import { useThreadTelemetry } from "../hooks/useThreadTelemetry";
-import type { AgentArtifact, AgentRun, AgentTask, AskAnswer, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup, MessageRecord } from "../types";
+import type { AgentArtifact, AgentRun, AgentTask, AskAnswer, ChatToolCall, GoalAction, ResearchJob, Run, SkillDefinition, ThreadEvent, TodayProgramGroup, MessageRecord } from "../types";
 
 interface ChatPageProps {
   embedded?:boolean;
@@ -132,6 +135,10 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
   const [expertArtifacts, setExpertArtifacts] = useState<AgentArtifact[]>([]);
   const [expertBusy, setExpertBusy] = useState(false);
   const [activeView, setActiveView] = useState<"conversation" | "trajectory">("conversation");
+  const [toolCall, setToolCall] = useState<ChatToolCall | null>(null);
+  const [toolCallBusy, setToolCallBusy] = useState(false);
+  const [toolCallError, setToolCallError] = useState("");
+  const toolDecisionKeys = useRef(new Map<string, string>());
   const previousThreadId = useRef(threadId);
   const conversationId = threadId ?? localThreadId;
   const currentConversation = useRef(conversationId);
@@ -143,6 +150,22 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
     void getRun(runId).then(onRun).catch(() => undefined);
   }, [onRun]);
   const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized);
+  const toolApprovalTurn = threadTelemetry.activeTurn?.status === "AWAITING_TOOL_APPROVAL" ? threadTelemetry.activeTurn : null;
+  const toolApprovalTurnId = toolApprovalTurn?.id ?? null;
+  const toolApprovalVersion = toolApprovalTurn?.version ?? 0;
+
+  useEffect(() => {
+    let active = true;
+    setToolCallError("");
+    if (!toolApprovalTurnId) {
+      setToolCall(null);
+      return () => { active = false; };
+    }
+    void getTurnToolCall(toolApprovalTurnId)
+      .then((call) => { if (active) setToolCall(call); })
+      .catch(() => { if (active) setToolCall(null); });
+    return () => { active = false; };
+  }, [toolApprovalTurnId, toolApprovalVersion]);
 
   useEffect(() => {
     let active = true;
@@ -368,6 +391,46 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
     await cancelCurrentTurn(turn.id);
   }
 
+  async function refreshToolCall() {
+    if (!toolApprovalTurn) return;
+    setToolCallError("");
+    try {
+      setToolCall(await getTurnToolCall(toolApprovalTurn.id));
+    } catch (caught) {
+      setToolCallError(caught instanceof Error ? caught.message : "刷新失败，请稍后重试");
+    }
+  }
+
+  async function decidePendingToolCall(action: "approve" | "reject") {
+    const turn = toolApprovalTurn;
+    if (!turn || toolCallBusy) return;
+    // Reuse one idempotency key per turn and action so repeated clicks and
+    // retries after a network error replay the same decision instead of
+    // creating a second continuation.
+    const identity = `${turn.id}:${action}`;
+    const key = toolDecisionKeys.current.get(identity) ?? clientTurnId();
+    toolDecisionKeys.current.set(identity, key);
+    setToolCallBusy(true);
+    setToolCallError("");
+    try {
+      await decideTurnToolCall(turn.id, {
+        action,
+        expected_version: turn.version,
+        idempotency_key: key,
+      }, csrfToken);
+      toolDecisionKeys.current.delete(identity);
+      setToolCall(null);
+    } catch (caught) {
+      setToolCallError(caught instanceof Error ? caught.message : "确认失败，请刷新后重试");
+      try {
+        const refreshed = await getTurnToolCall(turn.id);
+        if (mounted.current) setToolCall(refreshed);
+      } catch { /* keep the current card for a manual refresh */ }
+    } finally {
+      setToolCallBusy(false);
+    }
+  }
+
   async function cancelCurrentRun(runId: string): Promise<Run> {
     setCancelBusy(true);
     try {
@@ -422,7 +485,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
   } : undefined;
   const activeTurn = threadTelemetry.activeTurn;
   const threadBusy = Boolean(activeTurn && turnBusyStates.has(activeTurn.status));
-  const threadCanCancel = Boolean(conversationId && activeTurn && (threadBusy || threadTelemetry.pendingAsk));
+  const threadCanCancel = Boolean(conversationId && activeTurn && (threadBusy || threadTelemetry.pendingAsk || toolApprovalTurn));
   const runCanCancel = Boolean(run && !["COMPLETED", "CANCELLED", "FAILED"].includes(run.state) && !threadCanCancel);
   const [localMessages, setLocalMessages] = useState<MessageRecord[]>([]);
   const serverMessages = conversationId
@@ -509,9 +572,25 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
             onOpenTrajectory={onOpenTrajectory}
           /> : null}
           decision={decision}
+          composerDisabled={Boolean(toolApprovalTurn)}
           onSubmit={submitConversation}
         />
         </div>
+        {toolApprovalTurn && (
+          <section className="approval-stack" aria-label="待确认操作">
+            <div className="section-heading"><span className="eyebrow">操作确认</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，确认后才会产生副作用。</p></div>
+            {toolCall
+              ? <ChatToolApprovalCard
+                toolCall={toolCall}
+                busy={toolCallBusy}
+                error={toolCallError}
+                onApprove={() => void decidePendingToolCall("approve")}
+                onReject={() => void decidePendingToolCall("reject")}
+                onRefresh={() => void refreshToolCall()}
+              />
+              : <p className="approval-loading" role="status">{toolCallError || "正在读取待确认操作…"}</p>}
+          </section>
+        )}
         {run && run.pending_approvals.length > 0 && (
           <section className="approval-stack" aria-label="待审批操作">
             <div className="section-heading"><span className="eyebrow">安全审批</span><h3>需要你的决定</h3><p>写入类操作会在这里暂停，批准后才会产生副作用。</p></div>
@@ -519,6 +598,7 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
               <ApprovalCard
                 key={approvalId}
                 approvalId={approvalId}
+                details={run.approval_details?.[approvalId]}
                 onGrant={async () => onRun(await grantApproval(approvalId, csrfToken))}
                 onReject={async () => onRun(await rejectApproval(approvalId, csrfToken))}
               />

@@ -57,7 +57,7 @@ it("clears the old run when starting a new goal and rejects late run and thread 
   const oldCallbacks = await renderWithRun();
   fireEvent.click(screen.getByRole("link", { name: "计划" }));
   expect(window.location.pathname).toBe("/workspace");
-  expect(screen.getByRole("navigation", {name:"计划视图"})).toBeTruthy();
+  expect(await screen.findByRole("navigation", {name:"计划视图"}, { timeout: 8000 })).toBeTruthy();
   act(() => oldCallbacks.onRun({ ...runA, id: "late-run-a" }));
   fireEvent.click(screen.getByRole("button", { name: "新建计划" }));
   expect(window.location.pathname).toBe("/");
@@ -110,7 +110,7 @@ it("preserves the same thread run and action origin across activity and back to 
   expect(new URLSearchParams(window.location.search).get("view")).toBe("activity");
   expect(new URLSearchParams(window.location.search).get("action")).toBe("action-a");
   expect(new URLSearchParams(window.location.search).get("from")).toBe("today");
-  expect(screen.getByTestId("trajectory-run").textContent).toBe("run-a");
+  expect((await screen.findByTestId("trajectory-run", undefined, { timeout: 8000 })).textContent).toBe("run-a");
 
   fireEvent.click(screen.getByRole("button", { name: "返回对话" }));
   await waitFor(() => expect(screen.getByTestId("chat-run").textContent).toBe("run-a"));
