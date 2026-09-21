@@ -1,0 +1,51 @@
+{
+  "method": "Diagnostic only: decode first JSON object from malformed probe outputs; preserve strict primary metrics and all trailing text in originals. No new model calls.",
+  "recovered_ids": [
+    "F07",
+    "T03",
+    "T06"
+  ],
+  "metrics": {
+    "n": 42,
+    "exact_correct": 35,
+    "exact_accuracy": 0.8333333333333334,
+    "fields": {
+      "tracking": 0.8571428571428571,
+      "review": 0.9285714285714286,
+      "document": 1.0
+    },
+    "daily": {
+      "tp": 8,
+      "fp": 2,
+      "fn": 0,
+      "precision": 0.8,
+      "recall": 1.0
+    },
+    "errors": 0,
+    "review_confusion": {
+      "clarify -> daily": 1,
+      "clarify -> clarify": 1,
+      "stop -> stop": 4,
+      "daily -> daily": 8,
+      "none -> none": 18,
+      "none -> daily": 1,
+      "once -> once": 5,
+      "weekly -> weekly": 3,
+      "none -> stop": 1
+    },
+    "failed_ids": [
+      "B01",
+      "B03",
+      "B06",
+      "B08",
+      "L06",
+      "T03",
+      "T08"
+    ]
+  },
+  "label_caveats": {
+    "B08": "Gold enable conflicts with none meaning unchanged tracking: existing weekly service remains enabled while frequency changes. Keep frozen score, flag disputed tracking label.",
+    "B06": "Single-target gold scopes to new camping request; prompt contains two targets and flat schema cannot represent both separately.",
+    "L06": "Probe enable definition says sustained service; exclusion of reminders is insufficiently explicit. Not pure model error."
+  }
+}

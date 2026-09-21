@@ -39,6 +39,30 @@ DEFAULT_COUNTER_ID = "utf8-upper-bound"
 COUNTER_MODE_ESTIMATE = "estimate"
 COUNTER_MODE_VERIFIED = "verified"
 
+DEEPSEEK_ESTIMATE_COUNTER_ID = "deepseek-text-estimate"
+
+
+class HeuristicTextEstimateTokenCounter:
+    """Heuristic token estimate for the official DeepSeek text/tool API.
+
+    ``estimated_tokens(text) = ceil(len(text.encode("utf-8")) / 4)``.
+
+    This is a *heuristic estimate*, not a verified upper bound: real tokenizers
+    can produce more tokens than this for some inputs (for example CJK text and
+    long digit runs). It is only selected for profiles whose capacity record
+    names it, and its mode is always ``estimate``.
+    """
+
+    version = "deepseek-text-estimate-v1"
+
+    def count_text(self, value: str) -> int:
+        return math.ceil(len(value.encode("utf-8")) / 4)
+
+    def count_payload(self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None) -> int:
+        payload = {"messages": messages, "tools": tools or []}
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        return self.count_text(encoded)
+
 
 @dataclass(frozen=True)
 class CounterSelection:
@@ -89,6 +113,17 @@ def register_token_counter(
     _COUNTER_ADAPTERS[counter_id] = (counter, mode, applicability)
 
 
+register_token_counter(
+    DEEPSEEK_ESTIMATE_COUNTER_ID,
+    HeuristicTextEstimateTokenCounter(),
+    mode=COUNTER_MODE_ESTIMATE,
+    applicability=(
+        "Heuristic 4-bytes-per-token estimate for official DeepSeek text and "
+        "tool requests; may undercount, not a verified upper bound"
+    ),
+)
+
+
 def counter_for_profile(profile: Any) -> CounterSelection:
     """Select the counter a profile's counter_id resolves to.
 
@@ -118,6 +153,16 @@ def counter_for_profile(profile: Any) -> CounterSelection:
         f"counter {requested!r} has no verified adapter; using the conservative UTF-8 upper bound",
         evidence_version,
     )
+
+
+def counter_for_fields(counter_id: str | None, counter_evidence_version: str | None = None) -> CounterSelection:
+    """Select a counter from persisted fields instead of a full profile object."""
+    from types import SimpleNamespace
+
+    return counter_for_profile(SimpleNamespace(
+        counter_id=counter_id,
+        counter_evidence_version=counter_evidence_version,
+    ))
 
 
 @dataclass(frozen=True)
@@ -525,6 +570,12 @@ class HotWindow:
     capacity_status: str | None = None
     capacity_source: str | None = None
     working_window_mode: str | None = None
+    # The exact counter instance and output reserve that produced every number
+    # above, so the measure loops, the selector and the wire gate share one
+    # ruler instead of re-resolving (or silently falling back to) a default.
+    counter: TokenCounter | None = None
+    counter_mode: str | None = None
+    reserved_output: int = 0
 
     def packing_limit(self, message_count: int = 0, tool_count: int = 0) -> int:
         """The selector's budget for a request of this size."""
@@ -596,6 +647,8 @@ class HotWindow:
             "archive_policy_version": self.archive_policy_version,
             "profile_version_id": self.profile_version_id,
             "counter_id": self.counter_id,
+            "counter_mode": self.counter_mode,
+            "reserved_output": self.reserved_output,
             "model_context_limit": self.model_context_limit,
             "capacity_status": self.capacity_status,
             "capacity_source": self.capacity_source,
@@ -615,15 +668,18 @@ def tool_result_budget(budget: EffectiveInputBudget) -> int:
 
 
 def hot_window(profile: Any, *, counter: TokenCounter | None = None) -> HotWindow:
+    selection = counter_for_profile(profile)
+    if counter is None:
+        counter = selection.counter
     budget = effective_input_budget(profile, counter=counter)
     ratio = recent_window_ratio(profile)
     ceiling = recent_window_ceiling(profile)
     policy = static_archive_policy(profile)
     return HotWindow(
         input_limit=budget.input_limit,
-        envelope_units=envelope_overhead(profile),
-        per_message_units=per_message_overhead(profile),
-        per_tool_units=per_tool_overhead(profile),
+        envelope_units=envelope_overhead(profile, counter=counter),
+        per_message_units=per_message_overhead(profile, counter=counter),
+        per_tool_units=per_tool_overhead(profile, counter=counter),
         min_turns=history_min_turns(profile),
         compact_target=compact_target(budget, ratio=compact_ratio(profile)),
         recent_window_bytes=recent_window_budget(
@@ -645,6 +701,9 @@ def hot_window(profile: Any, *, counter: TokenCounter | None = None) -> HotWindo
         archive_policy_version=policy.version,
         profile_version_id=getattr(profile, "registered_profile_version_id", None),
         counter_id=budget.counter_id,
+        counter=counter,
+        counter_mode=selection.mode,
+        reserved_output=budget.reserved_output,
         model_context_limit=getattr(profile, "model_context_limit", None),
         capacity_status=getattr(profile, "capacity_status", None),
         capacity_source=getattr(profile, "capacity_source", None),
@@ -1116,7 +1175,7 @@ def packing_limit(
     *,
     message_count: int = 0,
     tool_count: int = 0,
-    counter: TokenCounter = DEFAULT_TOKEN_COUNTER,
+    counter: TokenCounter | None = None,
 ) -> int:
     """``H`` minus the adapter overhead: the budget the selector may fill.
 
@@ -1125,7 +1184,9 @@ def packing_limit(
     difference makes them agree, so a request the selector packed to the limit
     is a request the gate accepts.
     """
-    budget = effective_input_budget(profile)
+    if counter is None:
+        counter = counter_for_profile(profile).counter
+    budget = effective_input_budget(profile, counter=counter)
     return max(
         budget.input_limit
         - envelope_overhead(

@@ -133,6 +133,17 @@ class PlanDocumentService:
         self.projector = projector or PlanFileProjector(data_root)
         self.events = events
 
+    @staticmethod
+    def operation_version_id(thread_id: str, operation_key: str) -> str:
+        # A stable primary key persists the operation-to-version binding in
+        # the same transaction as the document and write intent.
+        return "planv_op_" + hashlib.sha256(json.dumps([thread_id, operation_key]).encode()).hexdigest()
+
+    @staticmethod
+    def _check_operation_version(row, title: str, target_hash: str) -> None:
+        if row["title"] != title or row["content_hash"] != target_hash:
+            raise PlanDocumentConflict("operation key reused with different content")
+
     def path_for(self, document_id: str) -> Path:
         return self.projector.path_for(document_id)
 
@@ -217,12 +228,31 @@ class PlanDocumentService:
         expected_file_hash: str | None = None,
         change_summary: str = "",
         owner_check: Callable[[], None] | None = None,
+        create_only: bool = False,
+        operation_key: str | None = None,
     ) -> PlanDocumentVersion:
+        if owner_check is not None and operation_key is not None:
+            owner_check()
         title = validate_title(title)
         markdown_content = normalize_markdown(markdown_content)
         from .plan_calendar_check import validate_plan_calendar
         validate_plan_calendar(markdown_content)
         target_hash = content_hash(markdown_content)
+        operation_version_id = self.operation_version_id(thread_id, operation_key) if operation_key else None
+        if operation_version_id:
+            with self.db.connection() as connection:
+                prior = connection.execute("SELECT * FROM plan_document_versions WHERE id=?", (operation_version_id,)).fetchone()
+            if prior is not None:
+                self._check_operation_version(prior, title, target_hash)
+                document = self.get_document(prior["plan_document_id"])
+                if document.thread_id != thread_id:
+                    raise PlanDocumentConflict("operation binding changed")
+                if prior["status"] != "committed":
+                    self.recover_pending_intents()
+                recovered = self.get_version(operation_version_id)
+                if recovered.status != "committed":
+                    raise PlanDocumentConflict("operation requires document recovery")
+                return recovered
         if source_turn_id:
             with self.db.connection() as connection:
                 existing = connection.execute(
@@ -242,6 +272,15 @@ class PlanDocumentService:
                     return recovered
                 raise PlanDocumentConflict("existing plan document revision is not committed")
         with self.db.durable_transaction() as connection:
+            if create_only and self.db.backend == "postgresql":
+                connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", (f"plan-create:{thread_id}",))
+            if operation_version_id:
+                prior = connection.execute("SELECT * FROM plan_document_versions WHERE id=?", (operation_version_id,)).fetchone()
+                if prior is not None:
+                    self._check_operation_version(prior, title, target_hash)
+                    if prior["status"] == "committed":
+                        return _version_from_row(prior)
+                    raise PlanDocumentConflict("operation requires document recovery")
             if source_turn_id:
                 existing = connection.execute(
                     "SELECT * FROM plan_document_versions WHERE source_turn_id = ?",
@@ -255,6 +294,12 @@ class PlanDocumentService:
                 "SELECT * FROM plan_documents WHERE thread_id = ?", (thread_id,)
             ).fetchone()
             now = _now()
+            if create_only and document is not None:
+                # Create-only is enforced inside the same transaction that
+                # would insert, so two concurrent drafts cannot both pass an
+                # earlier existence check. A deleted document also blocks:
+                # create-only never resurrects deleted content.
+                raise PlanDocumentConflict("PLAN_ALREADY_EXISTS")
             if document is None:
                 document_id = f"plan_{uuid.uuid4().hex}"
                 connection.execute(
@@ -287,7 +332,7 @@ class PlanDocumentService:
                 "SELECT COALESCE(MAX(version), 0) FROM plan_document_versions WHERE plan_document_id = ?",
                 (document["id"],),
             ).fetchone()[0] + 1
-            version_id = f"planv_{uuid.uuid4().hex}"
+            version_id = operation_version_id or f"planv_{uuid.uuid4().hex}"
             intent_id = f"intent_{uuid.uuid4().hex}"
             connection.execute(
                 "INSERT INTO plan_document_versions("

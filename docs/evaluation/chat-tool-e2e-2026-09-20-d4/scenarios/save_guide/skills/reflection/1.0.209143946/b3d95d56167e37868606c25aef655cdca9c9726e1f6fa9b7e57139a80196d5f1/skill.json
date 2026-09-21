@@ -1,0 +1,1 @@
+{"connectors":[],"description":"复盘已完成的 Run，提出有证据支撑的偏好或习惯候选，交由用户确认。","entry_document":"SKILL.md","name":"reflection","phases":["reflector"],"requested_tools":["local_time","calculator","read_note"],"schema_version":1,"title":"执行复盘","version":"1.0.209143946"}

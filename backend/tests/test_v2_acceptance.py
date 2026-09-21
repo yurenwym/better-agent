@@ -83,8 +83,19 @@ async def test_read_only_question_uses_current_plan_without_creating_a_revision(
 
 
 @pytest.mark.asyncio
-async def test_explicit_plan_modification_creates_a_complete_next_revision(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ConversationModel([_answer("# Travel plan\n\n## Day 3\nUpdated transport\n", title="Travel plan")]))
+async def test_explicit_plan_modification_becomes_an_approval_gated_tool_call(tmp_path) -> None:
+    """D4 convergence: a legacy artifact update is suspended as a modify call."""
+    runtime = make_runtime(tmp_path, ConversationModel([
+        _answer("# Travel plan\n\n## Day 3\nUpdated transport\n", title="Travel plan"),
+        _answer("已按确认更新计划文档。"),
+    ]))
+    from app.goal_tools import register_goal_tools
+
+    register_goal_tools(
+        runtime.tools,
+        goal_programs=runtime.goal_programs,
+        plan_documents=runtime.plan_documents,
+    )
     thread = runtime.conversation.create_thread("Plan")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -98,12 +109,26 @@ async def test_explicit_plan_modification_creates_a_complete_next_revision(tmp_p
 
     await runtime.turn_worker.run_once()
 
-    document = runtime.plan_documents.get_by_thread(thread.id)
-    current = runtime.plan_documents.current_version(document.id)
+    waiting = runtime.conversation.turn(accepted.turn_id)
+    assert waiting.status == "AWAITING_TOOL_APPROVAL"
+    pending = runtime.conversation.pending_tool_call(accepted.turn_id)
+    assert pending.tool_name == "modify_plan_document"
+    assert pending.params["document_id"] == first.plan_document_id
+    assert pending.params["expected_version_id"] == first.id
+    assert runtime.plan_documents.current_version(first.plan_document_id).version == 1
+    # The visible answer is still delivered while the write waits for approval.
+    assert runtime.conversation.messages(thread.id)[-1].content.strip() == "# Travel plan\n\n## Day 3\nUpdated transport"
+
+    continuation = runtime.conversation.decide_tool_call(
+        accepted.turn_id, "approve", waiting.version, "modify-1-decision"
+    )
+    assert await runtime.turn_worker.run_once() is True
+
+    assert runtime.conversation.turn(continuation.id).status == "COMPLETED"
+    current = runtime.plan_documents.current_version(first.plan_document_id)
     assert current.version == 2
     assert current.base_version_id == first.id
-    assert current.markdown_content == "# Travel plan\n\n## Day 3\nUpdated transport\n"
-    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+    assert "Updated transport" in current.markdown_content
 
 
 @pytest.mark.asyncio

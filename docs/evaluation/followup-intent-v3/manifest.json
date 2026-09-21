@@ -1,0 +1,15 @@
+{
+  "contract": "followup-intent-contract-v3.0",
+  "hashes": {
+    "docs/evaluation/followup-intent-v3/cases.json": "a76dab7ea4c1d0c2e5b0b359ff574b9e702f8ddbbfcc48008a93a6d287914d1a",
+    "docs/superpowers/plans/2026-09-20-d4-write-contract-and-v3-labels.md": "8543d1f1dae7fc53a4c170b8e70e33db1c89ea5af633752dd08010e2c90e4cb4",
+    "backend/scripts/followup_intent_v3.py": "6eb811d55215a1546965bbe79cd31abb82a4ba1924b513ca1a6fea55f435bc44",
+    "backend/tests/test_followup_intent_v3.py": "839242c33eb7ba6df53bcbb24c6ba980ea5a417649db182bcf439cc567a3e797"
+  },
+  "prompt_hash": "6651d3afe64963cf58aa0407fd8d3d960d874aabf376f3f99abb3639200c89c5",
+  "frozen_at": "2026-09-20T11:31:36.563677+00:00",
+  "counts": {
+    "dev": 30,
+    "holdout": 30
+  }
+}

@@ -1162,3 +1162,25 @@ ALTER TABLE "memory_archive_signals" ADD CONSTRAINT "fk_memory_archive_signals_t
 ALTER TABLE "memory_archive_signals" ADD CONSTRAINT "fk_memory_archive_signals_turn_id_1" FOREIGN KEY ("turn_id") REFERENCES "turns" ("id") ON DELETE CASCADE;
 
 ALTER TABLE "turn_metrics" ADD CONSTRAINT "fk_turn_metrics_turn_id_0" FOREIGN KEY ("turn_id") REFERENCES "turns" ("id");
+
+CREATE TABLE IF NOT EXISTS turn_tool_calls (
+    id TEXT PRIMARY KEY,
+    turn_id TEXT NOT NULL,
+    thread_id TEXT NOT NULL,
+    tool_name TEXT NOT NULL,
+    params_json TEXT NOT NULL,
+    params_hash TEXT NOT NULL,
+    risk TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+    approval_id TEXT,
+    binding_json TEXT NOT NULL DEFAULT '{}',
+    result_json TEXT,
+    error_code TEXT,
+    continuation_turn_id TEXT,
+    decision_idempotency_key TEXT UNIQUE,
+    created_at TEXT NOT NULL,
+    acted_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_turn ON turn_tool_calls(turn_id, status);
+CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_continuation ON turn_tool_calls(continuation_turn_id);

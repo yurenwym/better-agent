@@ -1,0 +1,85 @@
+{
+  "checked_at": "2026-09-20T14:05:41.312380+00:00",
+  "thread_id": "thread_b1103c0b8955422f83835dfd5910c089",
+  "provider_calls": [
+    {
+      "purpose": "classify_existing_plan_save",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "model_name": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "count": 16
+    },
+    {
+      "purpose": "generate_clarification",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "model_name": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "count": 1
+    },
+    {
+      "purpose": "judge_canary_safety",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "model_name": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "count": 16
+    },
+    {
+      "purpose": "route_and_respond",
+      "status": "SUCCEEDED",
+      "error_kind": null,
+      "model_name": "deepseek-flash",
+      "base_url": "https://api.deepseek.com",
+      "count": 17
+    }
+  ],
+  "ask_and_overflow_events": [
+    {
+      "type": "ask.answered",
+      "count": 1
+    },
+    {
+      "type": "ask.requested",
+      "count": 1
+    }
+  ],
+  "readiness": {
+    "status": "READY",
+    "cost_mode": "observe",
+    "ready": true,
+    "network_verified": false,
+    "required_roles": [
+      "conversation",
+      "ask"
+    ],
+    "profile_version_ids": [
+      "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+      "model_profile_version_1b8e8b38e8c049d5bf4f77582779cd89"
+    ],
+    "prices": {
+      "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee": {
+        "snapshot_id": "model_price_e431f703da982f8ef4392df7cf5f2048",
+        "effective_at": "2026-09-11T00:00:00+00:00",
+        "source_url": "https://api-docs.deepseek.com/quick_start/pricing/"
+      }
+    },
+    "budget": {
+      "ROOT_TASK_MAX_ATTEMPTS": 30,
+      "ROOT_TASK_DEADLINE_MINUTES": 30
+    },
+    "errors": [],
+    "warnings": [
+      {
+        "code": "MODEL_PRICE_MISSING",
+        "message": "当前模型版本没有已生效的价格快照",
+        "retryable": false,
+        "profile_version_id": "model_profile_version_1b8e8b38e8c049d5bf4f77582779cd89",
+        "model": "Qwen/Qwen3.5-122B-A10B"
+      }
+    ]
+  },
+  "service_pid": 21276,
+  "note": "Read-only follow-up after results.json; includes asynchronous safety judge completion."
+}

@@ -44,8 +44,11 @@ class ModelAdminService:
         self.owner_id = owner_id
         self.verifier = verifier or self._verify_live
 
-    def create_profile(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def create_profile(self, payload: dict[str, Any], *, validate_capacity: bool = True) -> dict[str, Any]:
         name = _text(payload, "name")
+        if validate_capacity:
+            payload = _resolved_capacity_payload(payload)
+            _validate_capacity_contract(payload)
         with self.db.transaction() as connection:
             prior = connection.execute(
                 "SELECT id FROM model_profiles WHERE owner_id=? AND name=?", (self.owner_id, name)
@@ -60,7 +63,10 @@ class ModelAdminService:
             self._insert_version(connection, profile_id, payload, 1)
         return self.get_profile(profile_id)
 
-    def add_version(self, profile_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+    def add_version(self, profile_id: str, payload: dict[str, Any], *, validate_capacity: bool = True) -> dict[str, Any]:
+        if validate_capacity:
+            payload = _resolved_capacity_payload(payload)
+            _validate_capacity_contract(payload)
         with self.db.transaction() as connection:
             profile = connection.execute(
                 "SELECT * FROM model_profiles WHERE id=? AND owner_id=?", (profile_id, self.owner_id)
@@ -98,6 +104,8 @@ class ModelAdminService:
         }
 
     def version(self, version_id: str) -> dict[str, Any]:
+        from .model_capacity import loads_capacity_record
+
         with self.db.connection() as connection:
             row = connection.execute(
                 "SELECT v.*,p.name AS profile_name FROM model_profile_versions v JOIN model_profiles p ON p.id=v.profile_id "
@@ -105,6 +113,7 @@ class ModelAdminService:
             ).fetchone()
         if row is None:
             raise KeyError(version_id)
+        capacity_record = loads_capacity_record(row["capacity_evidence"]) or {}
         return {
             "id": row["id"], "profile_id": row["profile_id"], "profile_name": row["profile_name"],
             "version": row["version"], "provider_protocol": row["provider_protocol"],
@@ -115,6 +124,32 @@ class ModelAdminService:
             "max_attempts": row["max_attempts"], "config_digest": row["config_digest"], "status": row["status"],
             "verified_at": row["verified_at"], "verification_status": row["verification_status"],
             "verification_error_kind": row["verification_error_kind"], "created_at": row["created_at"],
+            # Capacity and counter contract. These fields decide the working
+            # window and the counting ruler, so they must survive the
+            # register -> store -> reload -> route round trip.
+            "admitted_context_limit": row["admitted_context_limit"],
+            "soft_context_limit": row["soft_context_limit"],
+            "context_window_verified": bool(row["context_window_verified"]),
+            "validation_tier": row["validation_tier"],
+            "counter_id": row["counter_id"],
+            "counter_version": row["counter_version"],
+            "counter_evidence_version": row["counter_evidence_version"],
+            "capacity_evidence": row["capacity_evidence"],
+            "capacity": capacity_record,
+            "working_window_mode": capacity_record.get("mode"),
+            "model_context_limit": capacity_record.get("model_context_limit"),
+            "model_max_output_limit": capacity_record.get("model_max_output_limit"),
+            "capacity_status": capacity_record.get("status"),
+            "capacity_source": capacity_record.get("source"),
+            "counter_mode": capacity_record.get("counter_mode"),
+            "protocol_budget": json.loads(row["protocol_budget_json"] or "{}"),
+            "history_min_turns": row["history_min_turns"],
+            "compact_ratio": row["compact_ratio"],
+            "recent_window_bytes": row["recent_window_bytes"],
+            "recent_window_ratio": row["recent_window_ratio"],
+            "archive_trigger_ratio": row["archive_trigger_ratio"],
+            "archive_reserve_ratio": row["archive_reserve_ratio"],
+            "archive_prefix_reserve": row["archive_prefix_reserve"],
         }
 
     async def verify(self, version_id: str) -> dict[str, Any]:
@@ -168,10 +203,20 @@ class ModelAdminService:
         configured = {
             item.strip() for item in os.getenv(capabilities_env, "").split(",") if item.strip()
         }
+        if not configured:
+            # Provider presets declare their verified capabilities; without this
+            # fallback a saved DeepSeek preset would register with no capabilities,
+            # drop the conversation/ask routes and leave the runtime NOT_READY.
+            configured = set(getattr(profile, "declared_capabilities", ()) or ())
         unknown = configured - MODEL_CAPABILITIES
         if unknown:
             raise ModelAdminError(f"unknown {capabilities_env}: {', '.join(sorted(unknown))}")
         capabilities = {name: name == "text" or name in configured for name in MODEL_CAPABILITIES}
+        from .model_capacity import capacity_record_for_profile
+
+        protocol_budget = getattr(profile, "protocol_budget", None)
+        if protocol_budget is not None and hasattr(protocol_budget, "public_view"):
+            protocol_budget = protocol_budget.public_view()
         payload = {
             "provider_protocol": profile.provider_protocol, "provider_name": profile.provider_name,
             "base_url": profile.base_url, "model_name": profile.model,
@@ -179,15 +224,26 @@ class ModelAdminService:
             "context_window": max(int(profile.context_window), 1),
             "max_output_tokens": max(int(profile.max_output_tokens), 1),
             "timeout_seconds": profile.timeout_seconds, "max_attempts": profile.max_attempts,
+            # Capacity and counter contract: without these the reloaded profile
+            # loses its window provenance and counting strategy.
+            "validation_tier": getattr(profile, "validation_tier", None),
+            "admitted_context_limit": getattr(profile, "admitted_context_limit", None),
+            "soft_context_limit": getattr(profile, "soft_context_limit", None),
+            "context_window_verified": bool(getattr(profile, "context_window_verified", False)),
+            "counter_id": getattr(profile, "counter_id", None),
+            "counter_version": getattr(profile, "counter_version", None),
+            "counter_evidence_version": getattr(profile, "counter_evidence_version", None),
+            "capacity_evidence": capacity_record_for_profile(profile),
+            "protocol_budget": protocol_budget,
+            "history_min_turns": getattr(profile, "history_min_turns", None),
+            "compact_ratio": getattr(profile, "compact_ratio", None),
+            "recent_window_bytes": getattr(profile, "recent_window_bytes", None),
+            "recent_window_ratio": getattr(profile, "recent_window_ratio", None),
+            "archive_trigger_ratio": getattr(profile, "archive_trigger_ratio", None),
+            "archive_reserve_ratio": getattr(profile, "archive_reserve_ratio", None),
+            "archive_prefix_reserve": getattr(profile, "archive_prefix_reserve", None),
         }
-        config = {
-            "provider_protocol": payload["provider_protocol"], "provider_name": payload["provider_name"],
-            "base_url": payload["base_url"].rstrip("/"), "model_name": payload["model_name"],
-            "credential_env_ref": payload["credential_env_ref"], "capabilities": capabilities,
-            "context_window": payload["context_window"], "max_output_tokens": payload["max_output_tokens"],
-            "timeout_seconds": float(payload["timeout_seconds"]), "max_attempts": payload["max_attempts"],
-        }
-        digest = _digest(config)
+        digest = _digest(_version_config(payload))
         with self.db.connection() as connection:
             row = connection.execute(
                 "SELECT v.id FROM model_profile_versions v JOIN model_profiles p ON p.id=v.profile_id "
@@ -201,10 +257,10 @@ class ModelAdminService:
                     "SELECT id FROM model_profiles WHERE owner_id=? AND name=?", (self.owner_id, base_name)
                 ).fetchone()
             if existing is None:
-                created = self.create_profile({"name": base_name, **payload})
+                created = self.create_profile({"name": base_name, **payload}, validate_capacity=False)
                 version_id = created["versions"][0]["id"]
             else:
-                version_id = self.add_version(existing["id"], payload)["id"]
+                version_id = self.add_version(existing["id"], payload, validate_capacity=False)["id"]
         else:
             version_id = row["id"]
         return replace(profile, registered_profile_version_id=version_id)
@@ -237,29 +293,32 @@ class ModelAdminService:
         return {"id": row["id"], "name": row["name"], "version": row["version"], "roles": json.loads(row["roles_json"]), "policy_digest": row["policy_digest"], "created_at": row["created_at"]}
 
     def _insert_version(self, connection, profile_id: str, payload: dict[str, Any], version: int) -> str:
-        protocol = _text(payload, "provider_protocol")
-        if protocol not in PROTOCOLS:
-            raise ModelAdminError("unsupported provider protocol")
-        capabilities = payload.get("capabilities")
-        if not isinstance(capabilities, dict) or any(not isinstance(k, str) or not isinstance(v, bool) for k, v in capabilities.items()):
-            raise ModelAdminError("capabilities must be a boolean object")
-        config = {
-            "provider_protocol": protocol, "provider_name": _text(payload, "provider_name"),
-            "base_url": _text(payload, "base_url").rstrip("/"), "model_name": _text(payload, "model_name"),
-            "credential_env_ref": _text(payload, "credential_env_ref"), "capabilities": capabilities,
-            "context_window": _positive_int(payload, "context_window"), "max_output_tokens": _positive_int(payload, "max_output_tokens"),
-            "timeout_seconds": float(payload.get("timeout_seconds", 60)), "max_attempts": _positive_int(payload, "max_attempts"),
-        }
+        config = _version_config(payload)
         if config["timeout_seconds"] <= 0 or not config["credential_env_ref"].replace("_", "A").isalnum():
             raise ModelAdminError("invalid model configuration")
         digest, version_id = _digest(config), f"model_profile_version_{uuid.uuid4().hex}"
+        capacity_evidence = config["capacity_evidence"]
+        if capacity_evidence is not None and not isinstance(capacity_evidence, str):
+            capacity_evidence = _json(capacity_evidence)
         connection.execute(
             "INSERT INTO model_profile_versions(id,profile_id,version,provider_protocol,provider_name,base_url,model_name,"
-            "credential_env_ref,capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (version_id, profile_id, version, protocol, config["provider_name"], config["base_url"], config["model_name"],
-             config["credential_env_ref"], _json(capabilities), config["context_window"], config["max_output_tokens"],
-             config["timeout_seconds"], config["max_attempts"], digest, _now()),
+            "credential_env_ref,capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at,"
+            "validation_tier,admitted_context_limit,soft_context_limit,context_window_verified,counter_id,counter_version,"
+            "counter_evidence_version,capacity_evidence,protocol_budget_json,history_min_turns,compact_ratio,"
+            "recent_window_bytes,recent_window_ratio,archive_trigger_ratio,archive_reserve_ratio,archive_prefix_reserve) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                version_id, profile_id, version, config["provider_protocol"], config["provider_name"],
+                config["base_url"], config["model_name"], config["credential_env_ref"],
+                _json(config["capabilities"]), config["context_window"], config["max_output_tokens"],
+                config["timeout_seconds"], config["max_attempts"], digest, _now(),
+                config["validation_tier"], config["admitted_context_limit"], config["soft_context_limit"],
+                1 if config["context_window_verified"] else 0, config["counter_id"], config["counter_version"],
+                config["counter_evidence_version"], capacity_evidence,
+                _json(config["protocol_budget"]), config["history_min_turns"], config["compact_ratio"],
+                config["recent_window_bytes"], config["recent_window_ratio"], config["archive_trigger_ratio"],
+                config["archive_reserve_ratio"], config["archive_prefix_reserve"],
+            ),
         )
         return version_id
 
@@ -297,6 +356,199 @@ def _text(payload: dict[str, Any], key: str) -> str:
     if not isinstance(value, str) or not value.strip():
         raise ModelAdminError(f"{key} is required")
     return value.strip()
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ModelAdminError("capacity integers must be integers")
+    return value
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ModelAdminError("capacity ratios must be numbers")
+    return float(value)
+
+
+def _resolved_capacity_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """Resolve the capacity contract server-side when a working-window mode is set.
+
+    A client may choose *manual* or *auto*, but it can never promote a window
+    with its own evidence: auto is resolved from the server catalog, and manual
+    only supplies the smaller cap. The resolved record is persisted, so the
+    reloaded profile cannot disagree with the catalog it was resolved against.
+    """
+    from . import model_capacity as capacity_module
+    from .model_capacity import CapacityContractError, dumps_capacity_record, resolve_working_window
+
+    mode = payload.get("working_window_mode")
+    if mode is None:
+        return payload
+    base_url = _text(payload, "base_url")
+    protocol = _text(payload, "provider_protocol")
+    model_name = _text(payload, "model_name")
+    max_output = _positive_int(payload, "max_output_tokens")
+    admitted = payload.get("admitted_context_limit")
+    soft = payload.get("soft_context_limit")
+    try:
+        if mode == "manual":
+            context_window = _positive_int(payload, "context_window")
+            resolution = resolve_working_window(
+                base_url=base_url, protocol=protocol, model_id=model_name, mode="manual",
+                explicit_context_window=context_window,
+                admitted_context_limit=admitted, soft_context_limit=soft,
+                max_output_tokens=max_output, entries=capacity_module.CATALOG,
+            )
+        elif mode == "auto":
+            resolution = resolve_working_window(
+                base_url=base_url, protocol=protocol, model_id=model_name, mode="auto",
+                admitted_context_limit=admitted, soft_context_limit=soft,
+                max_output_tokens=max_output, entries=capacity_module.CATALOG,
+            )
+            if resolution.effective_context_limit is None or resolution.status != "verified":
+                raise ModelAdminError(
+                    "auto working window requires verified capacity evidence "
+                    "resolved from the server catalog"
+                )
+        else:
+            raise ModelAdminError("unsupported working window mode")
+    except CapacityContractError as exc:
+        raise ModelAdminError(str(exc)) from exc
+    record = resolution.capacity_record()
+    resolved = dict(payload)
+    resolved.update({
+        "context_window": int(resolution.effective_context_limit),
+        "soft_context_limit": resolution.soft_context_limit,
+        "admitted_context_limit": resolution.admitted_context_limit,
+        "context_window_verified": resolution.status == "verified",
+        "counter_id": resolution.counter_id,
+        "counter_version": resolution.counter_version,
+        "capacity_evidence": dumps_capacity_record(record),
+    })
+    return resolved
+
+
+def _validate_capacity_contract(payload: dict[str, Any]) -> None:
+    """Reject a public profile write whose capacity contract is not evidenced.
+
+    ``ensure_profile`` bypasses this: the environment loader already resolved
+    its window (including the legacy conservative fallback) before registering.
+    """
+    from .model_capacity import (
+        CAPACITY_STATUS_MANUAL,
+        CAPACITY_STATUS_OFFICIAL_DEFAULT,
+        CAPACITY_STATUS_VERIFIED,
+        loads_capacity_record,
+    )
+
+    record = loads_capacity_record(payload.get("capacity_evidence"))
+    if record is None:
+        return
+    status = record.get("status")
+    if status not in {
+        CAPACITY_STATUS_VERIFIED, CAPACITY_STATUS_MANUAL, CAPACITY_STATUS_OFFICIAL_DEFAULT,
+    }:
+        raise ModelAdminError(
+            "capacity evidence must be verified capacity evidence; "
+            "unverified capacity cannot be registered through the public API"
+        )
+    model_output = record.get("model_max_output_limit")
+    max_output = payload.get("max_output_tokens")
+    if isinstance(model_output, int) and isinstance(max_output, int) and max_output > model_output:
+        raise ModelAdminError(
+            f"max_output_tokens {max_output} exceeds the model output limit {model_output}"
+        )
+    model_context = record.get("model_context_limit")
+    context_window = payload.get("context_window")
+    if (
+        record.get("mode") == "manual"
+        and isinstance(model_context, int)
+        and isinstance(context_window, int)
+        and context_window > model_context
+    ):
+        raise ModelAdminError(
+            f"manual context window {context_window} exceeds the verified model capacity {model_context}"
+        )
+
+
+def _version_config(payload: dict[str, Any]) -> dict[str, Any]:
+    """The frozen fields of one profile version, including the capacity contract.
+
+    The digest is computed over this dict, so a counter or capacity change
+    creates a new immutable version instead of reusing an old one.
+    """
+    protocol = _text(payload, "provider_protocol")
+    if protocol not in PROTOCOLS:
+        raise ModelAdminError("unsupported provider protocol")
+    capabilities = payload.get("capabilities")
+    if not isinstance(capabilities, dict) or any(not isinstance(k, str) or not isinstance(v, bool) for k, v in capabilities.items()):
+        raise ModelAdminError("capabilities must be a boolean object")
+    protocol_budget = payload.get("protocol_budget")
+    if protocol_budget is None:
+        protocol_budget = {}
+    if not isinstance(protocol_budget, dict):
+        raise ModelAdminError("protocol_budget must be an object")
+    config = {
+        "provider_protocol": protocol, "provider_name": _text(payload, "provider_name"),
+        "base_url": _text(payload, "base_url").rstrip("/"), "model_name": _text(payload, "model_name"),
+        "credential_env_ref": _text(payload, "credential_env_ref"), "capabilities": capabilities,
+        "context_window": _positive_int(payload, "context_window"), "max_output_tokens": _positive_int(payload, "max_output_tokens"),
+        "timeout_seconds": float(payload.get("timeout_seconds", 60)), "max_attempts": _positive_int(payload, "max_attempts"),
+        "validation_tier": payload.get("validation_tier"),
+        "admitted_context_limit": _optional_int(payload.get("admitted_context_limit")),
+        "soft_context_limit": _optional_int(payload.get("soft_context_limit")),
+        "context_window_verified": bool(payload.get("context_window_verified", False)),
+        "counter_id": str(payload.get("counter_id") or "utf8-upper-bound"),
+        "counter_version": str(payload.get("counter_version") or "utf8-upper-bound-v1"),
+        "counter_evidence_version": payload.get("counter_evidence_version"),
+        "capacity_evidence": payload.get("capacity_evidence"),
+        "protocol_budget": protocol_budget,
+        "history_min_turns": _optional_int(payload.get("history_min_turns")),
+        "compact_ratio": _optional_float(payload.get("compact_ratio")),
+        "recent_window_bytes": _optional_int(payload.get("recent_window_bytes")),
+        "recent_window_ratio": _optional_float(payload.get("recent_window_ratio")),
+        "archive_trigger_ratio": _optional_float(payload.get("archive_trigger_ratio")),
+        "archive_reserve_ratio": _optional_float(payload.get("archive_reserve_ratio")),
+        "archive_prefix_reserve": _optional_int(payload.get("archive_prefix_reserve")),
+    }
+    _validate_budget_config(config)
+    return config
+
+
+def _validate_budget_config(config: dict[str, Any]) -> None:
+    """Validate the frozen budget before either public or internal registration."""
+    from types import SimpleNamespace
+    from .token_budget import ProtocolBudget, effective_input_budget
+
+    tier = config["validation_tier"]
+    if tier == "A":
+        admitted = config["admitted_context_limit"]
+        if admitted is None or admitted <= 0:
+            raise ModelAdminError("validation_tier A requires admitted_context_limit")
+        evidence = config["counter_evidence_version"]
+        if not isinstance(evidence, str) or not evidence.strip():
+            raise ModelAdminError("validation_tier A requires counter_evidence_version")
+        if not config["protocol_budget"]:
+            raise ModelAdminError("validation_tier A requires protocol_budget")
+        if not str(config["protocol_budget"].get("evidence") or "").strip():
+            raise ModelAdminError("protocol_budget requires recorded evidence")
+    soft = config["soft_context_limit"]
+    if soft is not None and soft != config["context_window"]:
+        raise ModelAdminError("context_window and soft_context_limit disagree")
+    protocol = dict(config["protocol_budget"])
+    protocol.pop("declared", None)  # Derived by ProtocolBudget, never trusted from callers.
+    try:
+        if protocol:
+            budget = ProtocolBudget(**protocol)
+            config["protocol_budget"] = budget.public_view()
+        if tier is not None:
+            effective_input_budget(SimpleNamespace(**config))
+    except (ValueError, TypeError) as exc:
+        raise ModelAdminError(str(exc)) from exc
 
 
 def _positive_int(payload: dict[str, Any], key: str) -> int:

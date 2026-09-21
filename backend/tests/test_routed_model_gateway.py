@@ -3,6 +3,63 @@ import json
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_chat_tool_roundtrips_have_distinct_ledger_identities(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    from app.live_model import LiveConversationModel
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
+    from app.model_gateway import ModelResponse, Timing, UsageBuckets
+    from app.tools import ToolResult
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, context_windows={"chat": 65536})
+    requests = []
+
+    async def execute(_profile, request, **kwargs):
+        requests.append(request)
+        if len(requests) <= 2:
+            return ModelResponse("", [{"id": f"provider-{len(requests)}", "function": {
+                "name": "mcp__time__get_current_time", "arguments": '{"timezone":"UTC"}',
+            }}], "tool_calls", UsageBuckets(1, 0, 0, 1, 0), Timing(0, 0, 1), 1)
+        message = '{"v":1,"policy":"answer","content_shape":"text","reason_code":"done"}\n时间查询完成。'
+        kwargs["on_text_delta"](message)
+        return ModelResponse(message, [], "stop", UsageBuckets(1, 0, 0, 1, 0), Timing(0, 0, 1), 1)
+
+    class Runner:
+        names = {"mcp__time__get_current_time"}
+
+        def schemas(self):
+            return [{"type": "function", "function": {"name": next(iter(self.names)),
+                    "parameters": {"type": "object", "properties": {"timezone": {"type": "string"}}}}}]
+
+        async def execute(self, **kwargs):
+            return SimpleNamespace(pending=False, call_id=kwargs["provider_call_id"],
+                                   result=ToolResult(True, "UTC current time"))
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    token = gateway.set_call_context(ModelCallContext(
+        "conversation", "route_and_respond", runtime_bundle_id=bundle.id,
+        invocation_id="conversation:tool-loop", idempotency_key="conversation:tool-loop",
+    ))
+    try:
+        response = await LiveConversationModel(gateway).route_and_respond(
+            content="请用工具查询 UTC 当前时间。", history=[], skill_names=[],
+            on_text_delta=lambda _: None, on_text_reset=lambda: None, cancel_event=None,
+            tool_loop=Runner(),
+        )
+    finally:
+        gateway.reset_call_context(token)
+    assert "查询完成" in response.message
+    assert [r.purpose for r in requests] == [
+        "route_and_respond", "route_and_respond_tool_1", "route_and_respond_tool_2",
+    ]
+    with db.connection() as c:
+        rows = c.execute("SELECT id,idempotency_key,status FROM model_invocations ORDER BY created_at,id").fetchall()
+    assert len(rows) == 3
+    assert len({r["id"] for r in rows}) == len({r["idempotency_key"] for r in rows}) == 3
+    assert all(r["status"] == "SUCCEEDED" for r in rows)
+    assert sum(m.get("role") == "tool" for m in requests[-1].messages) == 2
+
+
 def _configured_control_plane(tmp_path, monkeypatch, *, context_windows=None):
     from app.behavior import BehaviorBundleService
     from app.db import Database
@@ -293,6 +350,7 @@ async def test_routed_budget_block_is_explainable_and_happens_before_transport(t
     from app.model_gateway import GatewayError, ModelRequest
 
     db, bundle, versions = _configured_control_plane(tmp_path, monkeypatch)
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     costs = CostService(db)
     costs.register_price(versions["planner"], PriceSnapshot("planner-price", 1_000_000,0,0,1_000_000,0))
     costs.set_budget("local-user", "DAILY", costs.today_period(), 0)

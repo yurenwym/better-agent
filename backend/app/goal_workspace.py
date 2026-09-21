@@ -77,7 +77,12 @@ class GoalWorkspaceService:
 
     def _phase(self, plan, program: dict[str, Any] | None, review: dict[str, Any] | None):
         if program is None:
-            return "PLANNING", self._action("preview_program", "生成执行预览", f"/plans/{plan.id}", plan.id, "计划已保存，下一步是生成可执行的行动安排。")
+            # A saved document is a complete delivery on its own. Execution
+            # management is an optional next step, not a pending task.
+            return "DELIVERED", self._action(
+                "open_plan", "查看或修改计划", f"/plans/{plan.id}", plan.id,
+                "计划已保存，可直接查看、编辑或交付使用；需要跟进执行时再选择开启执行管理。",
+            )
         status = program["status"]
         if status == "DRAFT":
             if program.get("compile_status") == "READY":

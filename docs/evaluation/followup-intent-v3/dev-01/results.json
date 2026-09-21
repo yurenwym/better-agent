@@ -1,0 +1,850 @@
+{
+  "status": "completed",
+  "split": "dev",
+  "manifest": {
+    "contract": "followup-intent-contract-v3.0",
+    "hashes": {
+      "docs/evaluation/followup-intent-v3/cases.json": "a76dab7ea4c1d0c2e5b0b359ff574b9e702f8ddbbfcc48008a93a6d287914d1a",
+      "docs/superpowers/plans/2026-09-20-d4-write-contract-and-v3-labels.md": "8543d1f1dae7fc53a4c170b8e70e33db1c89ea5af633752dd08010e2c90e4cb4",
+      "backend/scripts/followup_intent_v3.py": "6eb811d55215a1546965bbe79cd31abb82a4ba1924b513ca1a6fea55f435bc44",
+      "backend/tests/test_followup_intent_v3.py": "839242c33eb7ba6df53bcbb24c6ba980ea5a417649db182bcf439cc567a3e797"
+    },
+    "prompt_hash": "6651d3afe64963cf58aa0407fd8d3d960d874aabf376f3f99abb3639200c89c5",
+    "frozen_at": "2026-09-20T11:31:36.563677+00:00",
+    "counts": {
+      "dev": 30,
+      "holdout": 30
+    }
+  },
+  "started_at": "2026-09-20T11:31:51.515974+00:00",
+  "model": "deepseek-flash",
+  "provider": "deepseek",
+  "rows": [
+    {
+      "id": "D01",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 2184,
+        "cache_read_tokens": 0,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "trip",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "丽江自由行期间每晚20点主动核对开销并复盘超支原因，属于每日主动复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D02",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 264,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "gym",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每晚主动分析训练疲劳与恢复，且明确不需要另建进度记录"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D03",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 257,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 51,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "exam",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "要求每天晚上主动发起复盘，分析当天错题共同原因"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D04",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 260,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 65,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "launch",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "连续十个工作日、每个工作日收工主动回顾阻塞和改进点，属于按日重复且由助手主动发起的复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D05",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 263,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 57,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "food",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天晚饭后主动分析当天饮食搭配并给次日建议，明确不另设提醒"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D06",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "art",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天夜里主动总结绘画练习，指出进步和不足，属于每日主动复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D07",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 300,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 93,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "run",
+            "tracking": "none",
+            "review": "stop",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "取消 run 的每日复盘"
+          },
+          {
+            "target": "vocabulary",
+            "tracking": "enable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "开始持续记录词汇掌握进度，明确不做复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D08",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 306,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 97,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "swim",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "swim 的每周总结保持原样，无变更"
+          },
+          {
+            "target": "outing",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "直接回答郊游建议，不保存"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D09",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 295,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 87,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "medicine",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "recurring",
+            "document": "none",
+            "reason": "设置每天饭后服药提醒"
+          },
+          {
+            "target": "reading",
+            "tracking": "disable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "停止记录阅读进度"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D10",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 311,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 104,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "plan_a",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "modify",
+            "reason": "把已有 plan_a 文档标题改成短一点"
+          },
+          {
+            "target": "new_trip",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "create",
+            "reason": "为 new_trip 新建并保存一份旅行文档，不要跟踪"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D11",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 295,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 74,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "unresolved",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户要求改为每周由助手主动复盘，但未指明是钢琴还是跑步，目标不明"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D12",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 247,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 62,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "coding",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "clarify",
+            "reminder": "none",
+            "document": "none",
+            "reason": "要求 coding 目标每天复盘一次，频率明确为每日，但未说明由助手主动发起还是用户发起"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D13",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 134,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 61,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "visit",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "clarify",
+            "document": "none",
+            "reason": "用户想提醒去体检，但一次提醒与每周提醒未决定，提醒方式不明确"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D14",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 137,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 56,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "notes",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "clarify",
+            "reason": "用户尚未决定是否保存为文档，要求先澄清选择再处理"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D15",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 136,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 72,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "beach",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户要求生成四天海边度假的逐小时内容，明确只给内容、自行安排，不涉及跟踪、复盘、提醒或保存文档"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D16",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 134,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "review_meeting",
+            "tracking": "none",
+            "review": "once",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户要求复盘今天这一次会议并分析跑题原因，属于一次性回顾分析"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D17",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "language",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每周末用户发学习记录后复盘，明确不主动找我，属用户发起型每周复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D18",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 258,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 67,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "hike",
+            "tracking": "none",
+            "review": "event_recurring",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每次徒步结束用户发路线记录后再分析行程，属事件触发的重复复盘，由用户提交后开展"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D19",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 260,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 61,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "finances",
+            "tracking": "disable",
+            "review": "other_recurring",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每月最后一天主动复盘本月支出规律；不记录日常任务，即不启用跟踪"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D20",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "career",
+            "tracking": "enable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "将求职准备纳入执行管理并持续记录完成情况，明确不开启提醒或复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D21",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 73,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "strength",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "记录今天完成三组卧推的一次进展反馈，不涉及持续服务配置变更"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D22",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 253,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 50,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "passport",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "once",
+            "document": "none",
+            "reason": "下周一早上只提醒一次领取护照"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D23",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 253,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 52,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "therapy",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "stop",
+            "document": "none",
+            "reason": "取消 therapy 的周二提醒，已有每周复盘保持不变"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D24",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "math",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "将每日主动复盘改为每周由你主动复盘，进度管理维持原样"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D25",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 62,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "diary",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "create",
+            "reason": "新建并保存 diary 自我复盘模板，由用户自己每天填写，明确不要助手发起复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D26",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 139,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 59,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "camp",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "modify",
+            "reason": "删除已保存 camp 文档中的模板原话并保存，明确不是服务请求"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D27",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 137,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 69,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "sales",
+            "tracking": "none",
+            "review": "clarify",
+            "review_initiation": "clarify",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户要求建立复盘服务，但频率（按天/按周/事件后）未决定，要求先询问；发起方式也未明确"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D28",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 255,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 52,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "garden",
+            "tracking": "disable",
+            "review": "stop",
+            "review_initiation": "not_applicable",
+            "reminder": "stop",
+            "document": "none",
+            "reason": "停止 garden 的所有跟进服务，其他对象不动"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D29",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 137,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 57,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "chat_plan",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "压缩聊天中的学习建议为三条，明确不要保存到计划页"
+          }
+        ]
+      }
+    },
+    {
+      "id": "D30",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 258,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "sleep",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天用户报告后分析一次，明确不要主动联系，即用户发起"
+          }
+        ]
+      }
+    }
+  ],
+  "cost_usd": null,
+  "config": {
+    "temperature": 0,
+    "thinking": false,
+    "max_tokens": 1600,
+    "max_attempts": 1,
+    "network_retries": 0
+  },
+  "candidate_hashes": {
+    "backend/app/live_model.py": "ea280275afe7e1be447f117521c6a181625c4de87d94a4d1db8354f5a5d98757",
+    "backend/app/chat_tools.py": "ba148f0ac0189f67d45177ce13408848695487c751792140322f65eae0e7760b",
+    "backend/app/conversation.py": "a916916008602f243d324bf137930680fc327db387f35655fe843f1ba9c5ec0d"
+  },
+  "limitations": [
+    "Standalone classification probe, not production behavior or business E2E.",
+    "Holdout authored by developer, not independent human adjudication.",
+    "Billing rate unverified; cost unknown."
+  ],
+  "metrics": {
+    "n": 30,
+    "target_count": 34,
+    "exact_correct": 29,
+    "exact_accuracy": 0.9666666666666667,
+    "target_set_accuracy": 1.0,
+    "fields": {
+      "tracking": 0.9705882352941176,
+      "review": 1.0,
+      "review_initiation": 1.0,
+      "reminder": 1.0,
+      "document": 1.0
+    },
+    "daily": {
+      "tp": 8,
+      "fp": 0,
+      "fn": 0,
+      "extra_target_fp": 0,
+      "negative_target_fp": 0,
+      "non_daily_targets": 26,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "errors": 0,
+    "hallucinated_targets": 0,
+    "cross_target_witnesses": 0,
+    "proactive_escalations": 0,
+    "confusion": {
+      "daily -> daily": 8,
+      "stop -> stop": 2,
+      "none -> none": 17,
+      "weekly -> weekly": 3,
+      "once -> once": 1,
+      "event_recurring -> event_recurring": 1,
+      "other_recurring -> other_recurring": 1,
+      "clarify -> clarify": 1
+    },
+    "failed_ids": [
+      "D19"
+    ],
+    "probe_threshold_passed": true,
+    "behavior_acceptance": "not_evaluated"
+  },
+  "completed_at": "2026-09-20T11:33:39.741735+00:00",
+  "usage": {
+    "uncached_input_tokens": 9033,
+    "cache_read_tokens": 56576,
+    "cache_write_tokens": 0,
+    "output_tokens": 1941,
+    "reasoning_tokens": 0
+  },
+  "usage_missing_rows": 0
+}

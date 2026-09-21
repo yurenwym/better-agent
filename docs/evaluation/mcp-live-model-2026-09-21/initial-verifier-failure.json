@@ -1,0 +1,1357 @@
+{
+  "status": "failed",
+  "mode": "real provider + real stdio MCP; isolated SQLite production worker",
+  "model": "deepseek-flash",
+  "provider_endpoint": "https://api.deepseek.com",
+  "sdk_version": "1.29.0",
+  "rounds": [
+    {
+      "index": 1,
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "prompt": "请通过 time 服务实际查询 Asia/Shanghai 的当前时间，回答具体时间和时区。不要凭记忆猜测。",
+      "status": "COMPLETED",
+      "answer": "\nAsia/Shanghai 当前时间（由 time 服务实际查询返回）：\n\n- **日期时间**：2026-09-21 10:21:07\n- **时区**：Asia/Shanghai（UTC+08:00）\n- **星期**：星期一\n- **夏令时**：否（该时区不实行夏令时）\n\n换算参考：同一时刻的 UTC 时间为 2026-09-21 02:21:07。",
+      "tool_records": [
+        {
+          "id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+          "tool_name": "mcp__time__get_current_time",
+          "status": "EXECUTED",
+          "result": {
+            "ok": true,
+            "summary": "{\n  \"timezone\": \"Asia/Shanghai\",\n  \"datetime\": \"2026-09-21T10:21:07+08:00\",\n  \"day_of_week\": \"Monday\",\n  \"is_dst\": false\n}",
+            "data": {
+              "text": "{\n  \"timezone\": \"Asia/Shanghai\",\n  \"datetime\": \"2026-09-21T10:21:07+08:00\",\n  \"day_of_week\": \"Monday\",\n  \"is_dst\": false\n}"
+            },
+            "artifact_ref": null,
+            "error": null,
+            "meta": {
+              "source": "mcp",
+              "server_id": "time",
+              "remote_name": "get_current_time",
+              "definition_digest": "a29d68370862210c39a80747bcd188257b4cc2379701af33e12b2090680684e3"
+            }
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [],
+          "tool_calls": [
+            {
+              "index": 0,
+              "function": {
+                "arguments": "{\"timezone\": \"Asia/Shanghai\"}",
+                "name": "mcp__time__get_current_time"
+              },
+              "id": "call_00_jEOiRLIMMjROaurJpZ0A6957"
+            }
+          ],
+          "usage": {
+            "uncached_input_tokens": 1773,
+            "cache_read_tokens": 1536,
+            "cache_write_tokens": 0,
+            "output_tokens": 47,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 3309,
+          "attempts": 1,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "8d73227ca3a37d939963cc3102a709d6e1295d98d292ed5d7a8db8b8ae44b948"
+            }
+          ],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 157,
+            "cache_read_tokens": 3328,
+            "cache_write_tokens": 0,
+            "output_tokens": 119,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 3485,
+          "attempts": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "checks": {
+        "completed_answer": true,
+        "real_model_selected_expected_tool": true,
+        "remote_execution_succeeded": true,
+        "tool_result_returned_to_model": false,
+        "provider_usage_recorded": true,
+        "expected_answer_content": true
+      }
+    },
+    {
+      "index": 2,
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "prompt": "请通过 time 服务将上海上午09:30换算到 America/New_York，调用 convert_time 后依据结果回答。",
+      "status": "COMPLETED",
+      "answer": "换算结果（由 time 服务的 convert_time 实际返回）：\n\n- **源时间**：Asia/Shanghai 2026-09-21（星期一）09:30，UTC+08:00，无夏令时\n- **目标时间**：America/New_York 2026-09-20（星期日）21:30，UTC−04:00，**处于夏令时**\n- **时差**：−12.0 小时\n\n也就是说，上海上午 9:30 对应纽约**前一天晚上 21:30**（因为纽约此时在夏令时，时差为 12 小时；若纽约处于冬令时，时差会变成 13 小时，对应时间会再早一小时）。",
+      "tool_records": [
+        {
+          "id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+          "tool_name": "mcp__time__convert_time",
+          "status": "EXECUTED",
+          "result": {
+            "ok": true,
+            "summary": "{\n  \"source\": {\n    \"timezone\": \"Asia/Shanghai\",\n    \"datetime\": \"2026-09-21T09:30:00+08:00\",\n    \"day_of_week\": \"Monday\",\n    \"is_dst\": false\n  },\n  \"target\": {\n    \"timezone\": \"America/New_York\",\n    \"datetime\": \"2026-09-20T21:30:00-04:00\",\n    \"day_of_week\": \"Sunday\",\n    \"is_dst\": true\n  },\n  \"time_difference\": \"-12.0h\"\n}",
+            "data": {
+              "text": "{\n  \"source\": {\n    \"timezone\": \"Asia/Shanghai\",\n    \"datetime\": \"2026-09-21T09:30:00+08:00\",\n    \"day_of_week\": \"Monday\",\n    \"is_dst\": false\n  },\n  \"target\": {\n    \"timezone\": \"America/New_York\",\n    \"datetime\": \"2026-09-20T21:30:00-04:00\",\n    \"day_of_week\": \"Sunday\",\n    \"is_dst\": true\n  },\n  \"time_difference\": \"-12.0h\"\n}"
+            },
+            "artifact_ref": null,
+            "error": null,
+            "meta": {
+              "source": "mcp",
+              "server_id": "time",
+              "remote_name": "convert_time",
+              "definition_digest": "0e444c2d729e03a40e1fda7f7d6679ee60f761010836d00881a75c108b72dd57"
+            }
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "purpose": "classify_existing_plan_save",
+          "offered_tools": [],
+          "tool_observations": [],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 177,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 9,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 177,
+          "attempts": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            }
+          ],
+          "tool_calls": [
+            {
+              "index": 0,
+              "function": {
+                "arguments": "{\"source_timezone\": \"Asia/Shanghai\", \"time\": \"09:30\", \"target_timezone\": \"America/New_York\"}",
+                "name": "mcp__time__convert_time"
+              },
+              "id": "call_00_aDB8mMkXECZ5QvTwdE1I3921"
+            }
+          ],
+          "usage": {
+            "uncached_input_tokens": 2105,
+            "cache_read_tokens": 1536,
+            "cache_write_tokens": 0,
+            "output_tokens": 87,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 3641,
+          "attempts": 1,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "7eeaa2f449170084a2f16cdaf9c9f79edf0976b2652cd3bbd3752ad5eb076e59"
+            }
+          ],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 444,
+            "cache_read_tokens": 3584,
+            "cache_write_tokens": 0,
+            "output_tokens": 154,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4028,
+          "attempts": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "checks": {
+        "completed_answer": true,
+        "real_model_selected_expected_tool": true,
+        "remote_execution_succeeded": true,
+        "tool_result_returned_to_model": false,
+        "provider_usage_recorded": true,
+        "expected_answer_content": true
+      }
+    },
+    {
+      "index": 3,
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "prompt": "请调用 check 服务的 sum_numbers 计算 [173, 281, 547]，必须根据远端工具结果回答总和。",
+      "status": "COMPLETED",
+      "answer": "计算结果（由 check 服务的 sum_numbers 实际返回）：\n\n- **输入**：173、281、547\n- **个数**：3\n- **总和**：**1001**\n\n验算：173 + 281 = 454，454 + 547 = 1001，与工具返回结果一致。",
+      "tool_records": [
+        {
+          "id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+          "tool_name": "mcp__check__sum_numbers",
+          "status": "EXECUTED",
+          "result": {
+            "ok": true,
+            "summary": "1001",
+            "data": {
+              "text": "1001",
+              "structured": {
+                "total": 1001,
+                "count": 3
+              }
+            },
+            "artifact_ref": null,
+            "error": null,
+            "meta": {
+              "source": "mcp",
+              "server_id": "check",
+              "remote_name": "sum_numbers",
+              "definition_digest": "ad95d052f1ef5a53ea253747b3ccc6ed7dc8ae29df3c3e4c12fcd2b747a0f5d2"
+            }
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "purpose": "classify_existing_plan_save",
+          "offered_tools": [],
+          "tool_observations": [],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 175,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 9,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 175,
+          "attempts": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            }
+          ],
+          "tool_calls": [
+            {
+              "index": 0,
+              "function": {
+                "arguments": "{\"values\": [173, 281, 547]}",
+                "name": "mcp__check__sum_numbers"
+              },
+              "id": "call_00_GCqLLQzlU9aVfBdRrEXb1381"
+            }
+          ],
+          "usage": {
+            "uncached_input_tokens": 2716,
+            "cache_read_tokens": 1536,
+            "cache_write_tokens": 0,
+            "output_tokens": 50,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4252,
+          "attempts": 1,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            },
+            {
+              "tool_call_id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+              "content_sha256": "4257e7941771cfdf1273e02819454499408ba5797aba927d61e56f37e121d26b"
+            }
+          ],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 244,
+            "cache_read_tokens": 4096,
+            "cache_write_tokens": 0,
+            "output_tokens": 65,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4340,
+          "attempts": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "checks": {
+        "completed_answer": true,
+        "real_model_selected_expected_tool": true,
+        "remote_execution_succeeded": true,
+        "tool_result_returned_to_model": false,
+        "provider_usage_recorded": true,
+        "expected_answer_content": true
+      }
+    },
+    {
+      "index": 4,
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "prompt": "请调用 check 服务的 echo 回显这段文本：mcp-live-ef88f337cc134446。随后完整输出远端返回的文本。",
+      "status": "COMPLETED",
+      "answer": "echo 工具调用完成，远端返回的完整文本为：\n\n```\necho:mcp-live-ef88f337cc134446\n```\n\n说明：远端在回显内容前加了 `echo:` 前缀，因此返回文本是 `echo:mcp-live-ef88f337cc134446`，而非原样输出。",
+      "tool_records": [
+        {
+          "id": "chat-tool-44bec1acc7db45ea9fce5442e82c3c66",
+          "tool_name": "mcp__check__echo",
+          "status": "EXECUTED",
+          "result": {
+            "ok": true,
+            "summary": "echo:mcp-live-ef88f337cc134446",
+            "data": {
+              "text": "echo:mcp-live-ef88f337cc134446"
+            },
+            "artifact_ref": null,
+            "error": null,
+            "meta": {
+              "source": "mcp",
+              "server_id": "check",
+              "remote_name": "echo",
+              "definition_digest": "88647186e3511ddc4c9f0fde6a392bd1575f8b5c31967410d75cd0918f76096f"
+            }
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "purpose": "classify_existing_plan_save",
+          "offered_tools": [],
+          "tool_observations": [],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 182,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 9,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 182,
+          "attempts": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            },
+            {
+              "tool_call_id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+              "content_sha256": "90d23f985d2331f6c3db940296ef58022c7cf325fd5d2c28b7da8cc4295da791"
+            }
+          ],
+          "tool_calls": [
+            {
+              "index": 0,
+              "function": {
+                "arguments": "{\"text\": \"mcp-live-ef88f337cc134446\"}",
+                "name": "mcp__check__echo"
+              },
+              "id": "call_00_Ck39a704lIcHNtTlFNtN9597"
+            }
+          ],
+          "usage": {
+            "uncached_input_tokens": 2923,
+            "cache_read_tokens": 1536,
+            "cache_write_tokens": 0,
+            "output_tokens": 52,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4459,
+          "attempts": 1,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            },
+            {
+              "tool_call_id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+              "content_sha256": "90d23f985d2331f6c3db940296ef58022c7cf325fd5d2c28b7da8cc4295da791"
+            },
+            {
+              "tool_call_id": "chat-tool-44bec1acc7db45ea9fce5442e82c3c66",
+              "content_sha256": "522e8e175725b28fce51892e0f6bfae27e56fd1146021df77aa8d0530132f80a"
+            }
+          ],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 203,
+            "cache_read_tokens": 4352,
+            "cache_write_tokens": 0,
+            "output_tokens": 69,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4555,
+          "attempts": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "checks": {
+        "completed_answer": true,
+        "real_model_selected_expected_tool": true,
+        "remote_execution_succeeded": true,
+        "tool_result_returned_to_model": false,
+        "provider_usage_recorded": true,
+        "expected_answer_content": true
+      }
+    },
+    {
+      "index": 5,
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "prompt": "请再次通过 time 服务查询 UTC 当前时间，并明确这是新查询的结果。",
+      "status": "COMPLETED",
+      "answer": "这是一次**新的** time 服务查询（不是复用之前的结果），返回如下：\n\n- **时区**：UTC\n- **日期时间**：2026-09-21 02:21:47（UTC+00:00）\n- **星期**：星期一\n- **夏令时**：否\n\n与本次会话中第一次查询（Asia/Shanghai 10:21:07，对应 UTC 02:21:07）相比，UTC 时间前进了约 40 秒，符合两次调用之间的实际间隔，说明这是独立的新查询结果。",
+      "tool_records": [
+        {
+          "id": "chat-tool-f7b1661e14024fb884db8202f94fb605",
+          "tool_name": "mcp__time__get_current_time",
+          "status": "EXECUTED",
+          "result": {
+            "ok": true,
+            "summary": "{\n  \"timezone\": \"UTC\",\n  \"datetime\": \"2026-09-21T02:21:47+00:00\",\n  \"day_of_week\": \"Monday\",\n  \"is_dst\": false\n}",
+            "data": {
+              "text": "{\n  \"timezone\": \"UTC\",\n  \"datetime\": \"2026-09-21T02:21:47+00:00\",\n  \"day_of_week\": \"Monday\",\n  \"is_dst\": false\n}"
+            },
+            "artifact_ref": null,
+            "error": null,
+            "meta": {
+              "source": "mcp",
+              "server_id": "time",
+              "remote_name": "get_current_time",
+              "definition_digest": "a29d68370862210c39a80747bcd188257b4cc2379701af33e12b2090680684e3"
+            }
+          }
+        }
+      ],
+      "model_calls": [
+        {
+          "purpose": "classify_existing_plan_save",
+          "offered_tools": [],
+          "tool_observations": [],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 168,
+            "cache_read_tokens": 0,
+            "cache_write_tokens": 0,
+            "output_tokens": 9,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 168,
+          "attempts": 1,
+          "finish_reason": "stop"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            },
+            {
+              "tool_call_id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+              "content_sha256": "90d23f985d2331f6c3db940296ef58022c7cf325fd5d2c28b7da8cc4295da791"
+            },
+            {
+              "tool_call_id": "chat-tool-44bec1acc7db45ea9fce5442e82c3c66",
+              "content_sha256": "b6f120b0852dccc8ace1a0ea105b29331338178d23fe472f64a864d4c1655397"
+            }
+          ],
+          "tool_calls": [
+            {
+              "index": 0,
+              "function": {
+                "arguments": "{\"timezone\": \"UTC\"}",
+                "name": "mcp__time__get_current_time"
+              },
+              "id": "call_00_Dgb4jBJRUKbdfwYRexMO5899"
+            }
+          ],
+          "usage": {
+            "uncached_input_tokens": 3128,
+            "cache_read_tokens": 1536,
+            "cache_write_tokens": 0,
+            "output_tokens": 44,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4664,
+          "attempts": 1,
+          "finish_reason": "tool_calls"
+        },
+        {
+          "purpose": "route_and_respond",
+          "offered_tools": [
+            "ask_user",
+            "review_check_in",
+            "mcp__time__get_current_time",
+            "mcp__time__convert_time",
+            "mcp__check__echo",
+            "mcp__check__sum_numbers"
+          ],
+          "tool_observations": [
+            {
+              "tool_call_id": "chat-tool-1a17c9e09e824cd980a74fb7bb795c11",
+              "content_sha256": "280613826ae1f595085bf5aea1497f6ab63297d539a05d0fd7b9f390a9d288a6"
+            },
+            {
+              "tool_call_id": "chat-tool-d9d23713bc434568a8bf3227141e7ca5",
+              "content_sha256": "4fed3ff2ece048aab6dcc07c2545fa76022a8731f7152a3b2aa4ab732b940240"
+            },
+            {
+              "tool_call_id": "chat-tool-1cbdc27797bb4ae4a9a0f0c5e18a3e8f",
+              "content_sha256": "90d23f985d2331f6c3db940296ef58022c7cf325fd5d2c28b7da8cc4295da791"
+            },
+            {
+              "tool_call_id": "chat-tool-44bec1acc7db45ea9fce5442e82c3c66",
+              "content_sha256": "b6f120b0852dccc8ace1a0ea105b29331338178d23fe472f64a864d4c1655397"
+            },
+            {
+              "tool_call_id": "chat-tool-f7b1661e14024fb884db8202f94fb605",
+              "content_sha256": "a66eb05d13875c972f7bc795d3b2fc4c47a134c073fb1192ae9de0e7cdd800be"
+            }
+          ],
+          "tool_calls": [],
+          "usage": {
+            "uncached_input_tokens": 223,
+            "cache_read_tokens": 4608,
+            "cache_write_tokens": 0,
+            "output_tokens": 120,
+            "reasoning_tokens": 0
+          },
+          "actual_input_tokens": 4831,
+          "attempts": 1,
+          "finish_reason": "stop"
+        }
+      ],
+      "checks": {
+        "completed_answer": true,
+        "real_model_selected_expected_tool": true,
+        "remote_execution_succeeded": true,
+        "tool_result_returned_to_model": false,
+        "provider_usage_recorded": true,
+        "expected_answer_content": true
+      }
+    }
+  ],
+  "errors": [
+    {
+      "round": 1,
+      "failed_checks": [
+        "tool_result_returned_to_model"
+      ]
+    },
+    {
+      "round": 2,
+      "failed_checks": [
+        "tool_result_returned_to_model"
+      ]
+    },
+    {
+      "round": 3,
+      "failed_checks": [
+        "tool_result_returned_to_model"
+      ]
+    },
+    {
+      "round": 4,
+      "failed_checks": [
+        "tool_result_returned_to_model"
+      ]
+    },
+    {
+      "round": 5,
+      "failed_checks": [
+        "tool_result_returned_to_model"
+      ]
+    }
+  ],
+  "discovery": {
+    "time": {
+      "server_id": "time",
+      "registered": 2,
+      "whitelisted": true,
+      "rejected": {},
+      "cache_scope": "private",
+      "pages": 1,
+      "protocol_version": "2025-11-25"
+    },
+    "check": {
+      "server_id": "check",
+      "registered": 2,
+      "whitelisted": true,
+      "rejected": {
+        "big_result": "not in the local enabled_tools whitelist",
+        "picture": "not in the local enabled_tools whitelist",
+        "broken": "not in the local enabled_tools whitelist",
+        "slow": "not in the local enabled_tools whitelist",
+        "flip_description": "not in the local enabled_tools whitelist",
+        "drop_tool": "not in the local enabled_tools whitelist",
+        "read_repo_file": "not in the local enabled_tools whitelist",
+        "change_definition": "not in the local enabled_tools whitelist"
+      },
+      "cache_scope": "private",
+      "pages": 1,
+      "protocol_version": "2025-11-25"
+    }
+  },
+  "thread_id": "thread_cfc32b1068754f19ae4f7e7d0ec4d17a",
+  "mcp_metrics": {
+    "discovery_requests": 17,
+    "discovery_pages": 17,
+    "cache_hits": 0,
+    "cache_misses": 17,
+    "catalog_refreshes": 17,
+    "catalog_invalidations": 0,
+    "cursor_restarts": 0,
+    "connects": 2,
+    "reconnects": 0,
+    "call_requests": 5,
+    "call_failures": 0
+  },
+  "protocol_versions": {
+    "time": "2025-11-25",
+    "check": "2025-11-25"
+  },
+  "mcp_events": [
+    {
+      "type": "mcp.server.connected",
+      "data": {
+        "server_id": "time",
+        "protocol_version": "2025-11-25",
+        "server_info": {
+          "name": "mcp-time",
+          "version": "1.29.0"
+        },
+        "config_version": "71b85f9b617b5ebfaf8b5cc91ee851e7"
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.server.connected",
+      "data": {
+        "server_id": "check",
+        "protocol_version": "2025-11-25",
+        "server_info": {
+          "name": "better-mcp-test-server",
+          "version": "1.29.0"
+        },
+        "config_version": "40f1b7ef028723f4621e483bf085fd32"
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "check",
+        "auth_scope": "local-user",
+        "tools": 10,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.catalog.refreshed",
+      "data": {
+        "server_id": "time",
+        "auth_scope": "local-user",
+        "tools": 2,
+        "pages": 1,
+        "cache_scope": "private",
+        "ttl_seconds": [
+          null
+        ]
+      }
+    },
+    {
+      "type": "mcp.server.closed",
+      "data": {
+        "server_id": "time"
+      }
+    },
+    {
+      "type": "mcp.server.closed",
+      "data": {
+        "server_id": "check"
+      }
+    }
+  ],
+  "thread_events": [
+    {
+      "type": "turn.accepted",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"client_turn_id\":\"a36eb98f40534187aad86082cfe1260a\",\"message_id\":\"message_f5df3f749916493e86632266f94ea18d\",\"skill_names\":[]}"
+    },
+    {
+      "type": "turn.started",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"attempt\":1,\"queue_wait_ms\":12}"
+    },
+    {
+      "type": "turn.policy_decided",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"artifact\":null,\"content_shape\":\"answer\",\"policy\":\"answer\",\"reason_code\":\"time_query\"}"
+    },
+    {
+      "type": "message.started",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"presentation\":\"standard\"}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"\\n\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":0}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"Asia/Shang\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":1}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"hai 当前时间\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":11}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"（由 time\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":19}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\" 服务实际\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":26}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"查询返回\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":31}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"）：\\n\\n-\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":35}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\" **日期时间\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":40}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"**：202\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":47}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"6-09\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":53}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"-21 \",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":57}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"10:21\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":61}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\":07\\n\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":66}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"- **时\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":70}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"区**\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":75}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"：Asia\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":78}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"/Shanghai\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":83}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"（UTC+\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":92}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"08:00）\\n\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":97}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"- **星期\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":104}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"**：星期一\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":110}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"\\n- **夏令\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":116}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"时**：\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":123}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"否（该\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":127}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"时区不实行\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":130}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"夏令时）\\n\\n换算\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":135}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"参考：同一时刻\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":143}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"的 UTC 时间为\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":150}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\" 202\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":159}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"6-09\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":163}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"-21 \",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":167}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\"02:21\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":171}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"delta\":\":07。\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\",\"offset\":176}"
+    },
+    {
+      "type": "message.completed",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"content_length\":180,\"finish_reason\":\"stop\",\"generation\":1,\"message_id\":\"message_5d40a2fb098845b29f90a64a54a67df0\"}"
+    },
+    {
+      "type": "turn.completed",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{}"
+    },
+    {
+      "type": "turn.metrics.updated",
+      "turn_id": "turn_d305db9e1d4e4cad8239e3ba65205d1f",
+      "data_json": "{\"answer_wait_ms\":6223,\"context_ms\":90,\"model_attempt_count\":0,\"model_ttft_ms\":6098,\"queue_wait_ms\":12,\"stream_ms\":1053,\"total_ms\":7276}"
+    },
+    {
+      "type": "turn.accepted",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"client_turn_id\":\"b10cc728c3ec44b8a5ec83285480c0d1\",\"message_id\":\"message_2675197ffaa14eb4adec2f72d1267fee\",\"skill_names\":[]}"
+    },
+    {
+      "type": "turn.started",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"attempt\":1,\"queue_wait_ms\":12}"
+    },
+    {
+      "type": "turn.policy_decided",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"artifact\":null,\"content_shape\":\"text\",\"policy\":\"answer\",\"reason_code\":\"protocol_fallback\"}"
+    },
+    {
+      "type": "message.started",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"generation\":1,\"message_id\":\"message_a489928438d14177a3b2a1a817ff7eae\",\"presentation\":\"standard\"}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"delta\":\"换算结果（由 time 服务的 convert_time 实际返回）：\\n\\n- **源时间**：Asia/Shanghai 2026-09-21（星期一）09:30，UTC+08:00，无夏令时\\n- **目标时间**：America/New_York 2026-09-20（星期日）21:30，UTC−04:00，**处于夏令时**\\n- **时差**：−12.0 小时\\n\\n也就是说，上海上午 9:30 对应纽约**前一天晚上 21:30**（因为纽约此时在夏令时，时差为 12 小时；若纽约处于冬令时，时差会变成 13 小时，对应时间会再早一小时）。\",\"generation\":1,\"message_id\":\"message_a489928438d14177a3b2a1a817ff7eae\",\"offset\":0}"
+    },
+    {
+      "type": "message.completed",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"content_length\":274,\"finish_reason\":\"stop\",\"generation\":1,\"message_id\":\"message_a489928438d14177a3b2a1a817ff7eae\"}"
+    },
+    {
+      "type": "turn.completed",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{}"
+    },
+    {
+      "type": "turn.metrics.updated",
+      "turn_id": "turn_0f06ed8fa7f94ab89648cb4f8e711830",
+      "data_json": "{\"answer_wait_ms\":9798,\"context_ms\":3164,\"model_attempt_count\":0,\"model_ttft_ms\":6596,\"queue_wait_ms\":12,\"stream_ms\":37,\"total_ms\":9835}"
+    },
+    {
+      "type": "turn.accepted",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"client_turn_id\":\"9bfb25f1bba64f0ba714086d99482c60\",\"message_id\":\"message_59664ab0e4ec447fa82359aefaaf9c3b\",\"skill_names\":[]}"
+    },
+    {
+      "type": "turn.started",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"attempt\":1,\"queue_wait_ms\":12}"
+    },
+    {
+      "type": "turn.policy_decided",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"artifact\":null,\"content_shape\":\"text\",\"policy\":\"answer\",\"reason_code\":\"protocol_fallback\"}"
+    },
+    {
+      "type": "message.started",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"generation\":1,\"message_id\":\"message_44dfc189c25e40e7bc7de6dc09c1b531\",\"presentation\":\"standard\"}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"delta\":\"计算结果（由 check 服务的 sum_numbers 实际返回）：\\n\\n- **输入**：173、281、547\\n- **个数**：3\\n- **总和**：**1001**\\n\\n验算：173 + 281 = 454，454 + 547 = 1001，与工具返回结果一致。\",\"generation\":1,\"message_id\":\"message_44dfc189c25e40e7bc7de6dc09c1b531\",\"offset\":0}"
+    },
+    {
+      "type": "message.completed",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"content_length\":134,\"finish_reason\":\"stop\",\"generation\":1,\"message_id\":\"message_44dfc189c25e40e7bc7de6dc09c1b531\"}"
+    },
+    {
+      "type": "turn.completed",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{}"
+    },
+    {
+      "type": "turn.metrics.updated",
+      "turn_id": "turn_ccd3038c25954ea19a9119678ff93e65",
+      "data_json": "{\"answer_wait_ms\":9861,\"context_ms\":2839,\"model_attempt_count\":0,\"model_ttft_ms\":6981,\"queue_wait_ms\":12,\"stream_ms\":41,\"total_ms\":9902}"
+    },
+    {
+      "type": "turn.accepted",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"client_turn_id\":\"f60d5c774ac14ca799f7b0a55c116f59\",\"message_id\":\"message_b55e2c6457da406ca814f73e35e55773\",\"skill_names\":[]}"
+    },
+    {
+      "type": "turn.started",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"attempt\":1,\"queue_wait_ms\":13}"
+    },
+    {
+      "type": "turn.policy_decided",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"artifact\":null,\"content_shape\":\"text\",\"policy\":\"answer\",\"reason_code\":\"protocol_fallback\"}"
+    },
+    {
+      "type": "message.started",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"generation\":1,\"message_id\":\"message_349952593a244cbda0b97bb3c59a911e\",\"presentation\":\"standard\"}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"delta\":\"echo 工具调用完成，远端返回的完整文本为：\\n\\n```\\necho:mcp-live-ef88f337cc134446\\n```\\n\\n说明：远端在回显内容前加了 `echo:` 前缀，因此返回文本是 `echo:mcp-live-ef88f337cc134446`，而非原样输出。\",\"generation\":1,\"message_id\":\"message_349952593a244cbda0b97bb3c59a911e\",\"offset\":0}"
+    },
+    {
+      "type": "message.completed",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"content_length\":138,\"finish_reason\":\"stop\",\"generation\":1,\"message_id\":\"message_349952593a244cbda0b97bb3c59a911e\"}"
+    },
+    {
+      "type": "turn.completed",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{}"
+    },
+    {
+      "type": "turn.metrics.updated",
+      "turn_id": "turn_06c14c055d1e4c598f810e855a87eeaa",
+      "data_json": "{\"answer_wait_ms\":9529,\"context_ms\":2768,\"model_attempt_count\":0,\"model_ttft_ms\":6719,\"queue_wait_ms\":13,\"stream_ms\":38,\"total_ms\":9567}"
+    },
+    {
+      "type": "turn.accepted",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"client_turn_id\":\"adee76f90d5745339283d1a797f94a67\",\"message_id\":\"message_b4080b2423d94e1184f9999bf70fb74a\",\"skill_names\":[]}"
+    },
+    {
+      "type": "turn.started",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"attempt\":1,\"queue_wait_ms\":12}"
+    },
+    {
+      "type": "turn.policy_decided",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"artifact\":null,\"content_shape\":\"text\",\"policy\":\"answer\",\"reason_code\":\"protocol_fallback\"}"
+    },
+    {
+      "type": "message.started",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"generation\":1,\"message_id\":\"message_d7e66dc436ef4cb79e736eee4f6934ed\",\"presentation\":\"standard\"}"
+    },
+    {
+      "type": "message.delta",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"delta\":\"这是一次**新的** time 服务查询（不是复用之前的结果），返回如下：\\n\\n- **时区**：UTC\\n- **日期时间**：2026-09-21 02:21:47（UTC+00:00）\\n- **星期**：星期一\\n- **夏令时**：否\\n\\n与本次会话中第一次查询（Asia/Shanghai 10:21:07，对应 UTC 02:21:07）相比，UTC 时间前进了约 40 秒，符合两次调用之间的实际间隔，说明这是独立的新查询结果。\",\"generation\":1,\"message_id\":\"message_d7e66dc436ef4cb79e736eee4f6934ed\",\"offset\":0}"
+    },
+    {
+      "type": "message.completed",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"content_length\":217,\"finish_reason\":\"stop\",\"generation\":1,\"message_id\":\"message_d7e66dc436ef4cb79e736eee4f6934ed\"}"
+    },
+    {
+      "type": "turn.completed",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{}"
+    },
+    {
+      "type": "turn.metrics.updated",
+      "turn_id": "turn_d2fae691a3fc4237a8659527d11302eb",
+      "data_json": "{\"answer_wait_ms\":9962,\"context_ms\":3125,\"model_attempt_count\":0,\"model_ttft_ms\":6793,\"queue_wait_ms\":12,\"stream_ms\":39,\"total_ms\":10001}"
+    }
+  ],
+  "finished_at": "2026-09-21T02:21:51.731128+00:00"
+}

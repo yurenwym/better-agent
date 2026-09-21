@@ -1,0 +1,273 @@
+[
+  {
+    "id": "X01",
+    "domain": "旅游",
+    "input": "帮我做一份杭州三日旅游攻略，住西湖附近，预算两千元。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "纯生成内容，不保存、不跟踪。"
+  },
+  {
+    "id": "X02",
+    "domain": "旅游",
+    "input": "先说清楚，这份攻略只要内容，不要保存，也不要跟踪执行。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "明确否定保存与跟踪。"
+  },
+  {
+    "id": "X03",
+    "domain": "旅游",
+    "input": "把这份攻略保存到计划页面。",
+    "history": [
+      { "role": "assistant", "content": "# 云南三日攻略\n第一天昆明市区；第二天大理古城；第三天洱海。预算每人3000元。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "save" },
+    "rationale": "明确保存已有攻略，不涉及跟踪。"
+  },
+  {
+    "id": "X04",
+    "domain": "健身",
+    "input": "把这份计划保存下来，然后帮我管理执行进度，每天记录完成情况。",
+    "history": [
+      { "role": "assistant", "content": "# 四周力量计划\n周一深蹲，周三卧推，周五硬拉。" }
+    ],
+    "expected": { "tracking": "enable", "review": "none", "document": "save" },
+    "rationale": "保存与执行管理同时请求，未要求复盘。"
+  },
+  {
+    "id": "X05",
+    "domain": "学习",
+    "input": "开启执行管理，我自己看今日任务，不要复盘也不要提醒。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "none", "document": "answer" },
+    "rationale": "执行管理属于持续服务，但明确排除复盘与提醒。"
+  },
+  {
+    "id": "X06",
+    "domain": "旅游",
+    "input": "把计划里第二天的行程改轻松一点。",
+    "history": [
+      { "role": "assistant", "content": "# 云南三日攻略\n第二天：上午苍山，下午洱海骑行，晚上古城。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "modify" },
+    "rationale": "修改已有计划内容。"
+  },
+  {
+    "id": "X07",
+    "domain": "旅游",
+    "input": "改完以后顺手存到计划页面。",
+    "history": [
+      { "role": "assistant", "content": "# 成都两日攻略\n第一天宽窄巷子；第二天大熊猫基地。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "modify" },
+    "rationale": "修改并保存，按修改处理。"
+  },
+  {
+    "id": "X08",
+    "domain": "生活",
+    "input": "只交付内容，不要创建目标。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "明确不创建执行目标。"
+  },
+  {
+    "id": "X09",
+    "domain": "旅游",
+    "input": "明天早上七点提醒我抢门票，就这一次。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "单次提醒不等于跟踪或复盘。"
+  },
+  {
+    "id": "X10",
+    "domain": "生活",
+    "input": "每天中午提醒我吃药，不用问我有没有吃。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "周期提醒仍只是提醒，不代表跟踪或复盘。"
+  },
+  {
+    "id": "X11",
+    "domain": "生活",
+    "input": "每天提醒我喝水，并记录我当天有没有完成。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "none", "document": "answer" },
+    "rationale": "提醒加记录完成情况，构成跟踪但不复盘。"
+  },
+  {
+    "id": "X12",
+    "domain": "健身",
+    "input": "今天这次训练帮我复盘一下。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "once", "document": "answer" },
+    "rationale": "单次复盘。"
+  },
+  {
+    "id": "X13",
+    "domain": "健身",
+    "input": "以后每次跑完步帮我复盘一次。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "once", "document": "answer" },
+    "rationale": "事件触发的持续单次复盘；标签存在歧义，冻结后不修改。"
+  },
+  {
+    "id": "X14",
+    "domain": "学习",
+    "input": "接下来两周每天睡前帮我总结今天的学习情况。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "daily", "document": "answer" },
+    "rationale": "明确的每日复盘请求。"
+  },
+  {
+    "id": "X15",
+    "domain": "工作",
+    "input": "每周日晚上汇总一下本周进展就行。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "weekly", "document": "answer" },
+    "rationale": "每周复盘。"
+  },
+  {
+    "id": "X16",
+    "domain": "工作",
+    "input": "把之前的每日复盘取消，改成每周一次。",
+    "history": [{ "role": "user", "content": "已开启每日项目复盘。" }],
+    "expected": { "tracking": "enable", "review": "weekly", "document": "answer" },
+    "rationale": "频率改口，目标仍是周期复盘。"
+  },
+  {
+    "id": "X17",
+    "domain": "生活",
+    "input": "不要再每天提醒我打卡了，进度记录留着。",
+    "history": [{ "role": "user", "content": "已开启打卡提醒和进度记录。" }],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "只取消提醒，保留已有进度记录，不构成本次跟踪变更。"
+  },
+  {
+    "id": "X18",
+    "domain": "学习",
+    "input": "停止每日复盘和进度跟踪。",
+    "history": [{ "role": "user", "content": "已开启每日学习复盘和进度跟踪。" }],
+    "expected": { "tracking": "disable", "review": "stop", "document": "answer" },
+    "rationale": "明确取消周期服务。"
+  },
+  {
+    "id": "X19",
+    "domain": "边界",
+    "input": "模板里那句“每天自动复盘”是别人的话，不要照做。",
+    "history": [{ "role": "assistant", "content": "# 学习模板\n每天两小时，晚上自动复盘。" }],
+    "expected": { "tracking": "none", "review": "none", "document": "modify" },
+    "rationale": "要求修改文档内容，不应据此开启周期服务。"
+  },
+  {
+    "id": "X20",
+    "domain": "跨目标",
+    "input": "健身目标继续每天复盘；另外做一份周末露营清单，这份只交付内容。",
+    "history": [{ "role": "user", "content": "健身目标已开启每日复盘。" }],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "标签只针对本次露营清单，不传播健身偏好。"
+  },
+  {
+    "id": "X21",
+    "domain": "边界",
+    "input": "按之前说好的继续。",
+    "history": [{ "role": "user", "content": "已开启每日复盘，每天记录进度。" }],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "维持已有服务，本次没有新增或取消。"
+  },
+  {
+    "id": "X22",
+    "domain": "边界",
+    "input": "你直接帮我每天做决定吧。",
+    "history": [],
+    "expected": { "tracking": "clarify", "review": "clarify", "document": "answer" },
+    "rationale": "模糊委托，不能推导出每日复盘或持续跟踪。"
+  },
+  {
+    "id": "X23",
+    "domain": "学习",
+    "input": "把模板里“每日复盘”的示例删掉，别替我开启。",
+    "history": [{ "role": "assistant", "content": "# 学习方案\n示例：每日复盘 10 分钟。" }],
+    "expected": { "tracking": "none", "review": "none", "document": "modify" },
+    "rationale": "文档修改，不授权周期服务。"
+  },
+  {
+    "id": "X24",
+    "domain": "旅游",
+    "input": "再保存一次这份攻略。",
+    "history": [
+      { "role": "assistant", "content": "# 桂林攻略\n第一天象鼻山；第二天漓江。" },
+      { "role": "user", "content": "已经保存过了。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "save" },
+    "rationale": "意图仍是保存，实际冲突由系统处理并如实说明。"
+  },
+  {
+    "id": "X25",
+    "domain": "边界",
+    "input": "别保存，我只是先问问。",
+    "history": [],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "明确禁止保存。"
+  },
+  {
+    "id": "X26",
+    "domain": "健身",
+    "input": "开启执行管理，但激活前让我先确认具体安排。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "none", "document": "answer" },
+    "rationale": "执行管理加上确认要求，仍不是复盘。"
+  },
+  {
+    "id": "X27",
+    "domain": "学习",
+    "input": "帮我管理这份计划的执行，每天记录完成情况，不要主动问我。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "none", "document": "answer" },
+    "rationale": "跟踪但明确不要提醒或复盘。"
+  },
+  {
+    "id": "X28",
+    "domain": "边界",
+    "input": "不要激活，只要文档。",
+    "history": [
+      { "role": "assistant", "content": "# 阅读计划\n每周一本书，共四周。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "不得执行文档修改之外的副作用。"
+  },
+  {
+    "id": "X29",
+    "domain": "工作",
+    "input": "保存后每天提醒我执行，并且每天帮我复盘一次。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "daily", "document": "save" },
+    "rationale": "保存、周期提醒与每日复盘并存。"
+  },
+  {
+    "id": "X30",
+    "domain": "旅游",
+    "input": "这趟旅程不用每天总结了，我想记录就去记录。",
+    "history": [{ "role": "user", "content": "已开启每日行程总结。" }],
+    "expected": { "tracking": "none", "review": "stop", "document": "answer" },
+    "rationale": "取消周期复盘，保留自主记录。"
+  },
+  {
+    "id": "X31",
+    "domain": "学习",
+    "input": "帮我每天复盘学习效果，但不用保存计划。",
+    "history": [],
+    "expected": { "tracking": "enable", "review": "daily", "document": "answer" },
+    "rationale": "每日复盘并明确不保存。"
+  },
+  {
+    "id": "X32",
+    "domain": "生活",
+    "input": "计划保存好就不用管了，不用跟踪。",
+    "history": [
+      { "role": "assistant", "content": "# 每周采购清单\n周一蔬菜，周四水果。" }
+    ],
+    "expected": { "tracking": "none", "review": "none", "document": "answer" },
+    "rationale": "明确不跟踪，不触发保存以外的操作。"
+  }
+]

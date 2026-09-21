@@ -697,8 +697,9 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "name": call.name},
                     )
-                    tool_result = self.tools.execute(
-                        call, run_id=run_id, skill_tools=skill_tools, authorization=authorization,
+                    tool_result = await self.tools.execute_async(
+                        call, context=self._tool_execution_context(run, call),
+                        skill_tools=skill_tools, authorization=authorization,
                     )
                     self.events.append(
                         run_id,
@@ -742,10 +743,15 @@ class AgentRuntime:
                     ])
                 return outcome
             except ToolRejected as exc:
+                reason = (
+                    "TOOL_INVALID_ARGUMENT"
+                    if str(exc).startswith("invalid arguments")
+                    else "TOOL_AUTHORIZATION_DENIED"
+                )
                 return self._block(
                     run_id,
-                    "TOOL_AUTHORIZATION_DENIED",
-                    reason_message("TOOL_AUTHORIZATION_DENIED"),
+                    reason,
+                    reason_message(reason),
                     self.get_run(run_id).budget,
                     "run.blocked",
                 )
@@ -1549,12 +1555,48 @@ class AgentRuntime:
         event = self._cancel_events.get(run_id)
         return bool(event and event.is_set()) or self.get_run(run_id).state == AgentState.CANCELLED
 
+    def _tool_execution_context(self, run: RunSnapshot, call: ToolCall):
+        """Trusted tool identity resolved from the durable run/thread binding.
+
+        Never built from model parameters. When the binding cannot be resolved
+        the owner is left empty so goal tools fail closed instead of falling
+        back to a default owner.
+        """
+        from .tools import ToolExecutionContext
+
+        owner_id = ""
+        thread_id = None
+        project_id = None
+        if run.source_turn_id:
+            with self.db.connection() as connection:
+                scope = connection.execute(
+                    "SELECT th.id thread_id,th.owner_id,th.project_id FROM turns t "
+                    "JOIN threads th ON th.id=t.thread_id WHERE t.id=? AND th.deleted_at IS NULL",
+                    (run.source_turn_id,),
+                ).fetchone()
+            if scope is not None:
+                owner_id = scope["owner_id"]
+                thread_id = scope["thread_id"]
+                project_id = scope["project_id"]
+        return ToolExecutionContext(
+            owner_id=owner_id, run_id=run.id, tool_call_id=call.id,
+            thread_id=thread_id, project_id=project_id,
+            root_budget_id=getattr(run, "root_budget_id", None),
+            runtime_bundle_id=run.runtime_bundle_id,
+        )
+
     @staticmethod
     def _skill_tools_for(skill_name: str) -> set[str]:
+        goal_read_tools = {"query_goals", "get_today_tasks", "get_action_context", "get_plan"}
         if skill_name in {"goal-planning", "planning", "reflection"}:
-            return {"local_time", "calculator", "read_note"}
+            return {"local_time", "calculator", "read_note", *goal_read_tools}
         if skill_name == "react":
-            return {"local_time", "calculator", "read_note", "write_note", "trusted_connector"}
+            return {
+                "local_time", "calculator", "read_note", "write_note", "trusted_connector",
+                *goal_read_tools,
+                "create_plan_draft", "modify_plan_document", "activate_goal_plan",
+                "record_action_feedback", "defer_action",
+            }
         return set()
 
     def _skill_tools_for_run(self, run: RunSnapshot, phase_name: str) -> set[str]:
@@ -1577,18 +1619,83 @@ class AgentRuntime:
             return allowed & selected_tools if tool_bound else allowed
         return allowed
 
-    def _tool_authorization(self, run: RunSnapshot, phase_name: str, call: ToolCall) -> dict[str, str] | None:
-        if not run.skill_names:
-            return None
-        allowed = self._skill_tools_for(phase_name)
+    def _mcp_tool_names(self) -> set[str]:
+        """Model-visible names of the MCP tools currently registered.
+
+        Read from the registry rather than the discovery cache so a server that
+        is unavailable, or whose catalogue was just invalidated, contributes no
+        names instead of stale ones.
+        """
+        return {
+            spec.name for spec in self.tools.specs()
+            if spec.source == "mcp" and spec.server_id
+        }
+
+    def conversation_tool_allowance(self, turn_id: str, skill_names) -> set[str]:
+        """Tool names a plain-chat turn may call, after Skill intersection.
+
+        Mirrors ``_skill_tools_for_run`` for the conversation binding scope so a
+        bound Skill never gains tools it was not granted, and a disabled or
+        missing binding fails closed.
+        """
+        from .chat_tools import GOAL_TOOL_NAMES
+
+        allowed = set(GOAL_TOOL_NAMES)
+        # MCP tools are added only when their server is configured *and* their
+        # definitions are currently registered. The catalogue, the model-visible
+        # schema set and the execution authorization stay three separate things:
+        # a tool being discovered never by itself grants the right to call it.
+        allowed |= self._mcp_tool_names()
+        if not skill_names:
+            return allowed
+        try:
+            binding = self.skill_platform.binding("RUN", turn_id)
+        except KeyError:
+            return set()
         global_tools = {item["function"]["name"] for item in self.tools.describe()}
-        connector_version_id = call.params.get("connector_version_id") if call.name == "trusted_connector" else None
-        return self.skill_platform.tool_authorization(
-            "RUN", run.id, call.name, connector_version_id=connector_version_id,
-            global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
-            phase_name="executor" if phase_name == "react" else phase_name,
-            routing_policy_digest=str(run.budget.get("routing_policy_digest", "direct")),
-        )
+        selected_tools: set[str] = set()
+        tool_bound = False
+        for version_id in binding["version_ids"]:
+            if self.skill_platform.version(version_id)["kind"] == "instruction_only":
+                continue
+            tool_bound = True
+            selected_tools |= self.skill_platform.effective_tools(
+                version_id, global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+                phase_name="executor", grant_snapshot=binding["grant_snapshots"].get(version_id),
+            )
+        return allowed & selected_tools if tool_bound else allowed
+
+    def _tool_authorization(self, run: RunSnapshot, phase_name: str, call: ToolCall) -> dict[str, Any] | None:
+        authorization = {}
+        if run.skill_names:
+            allowed = self._skill_tools_for(phase_name)
+            global_tools = {item["function"]["name"] for item in self.tools.describe()}
+            connector_version_id = call.params.get("connector_version_id") if call.name == "trusted_connector" else None
+            authorization = self.skill_platform.tool_authorization(
+                "RUN", run.id, call.name, connector_version_id=connector_version_id,
+                global_tools=global_tools, role_tools=allowed, phase_tools=allowed,
+                phase_name="executor" if phase_name == "react" else phase_name,
+                routing_policy_digest=str(run.budget.get("routing_policy_digest", "direct")),
+            ) or {}
+        if call.name == "activate_goal_plan" and call.params.get("mode") == "activate":
+            from .goal_tools import activation_approval_binding
+            try:
+                authorization.update(activation_approval_binding(
+                    self.goal_programs, self.plan_documents, call.params,
+                    self._tool_execution_context(run, call),
+                ))
+            except (KeyError, ValueError) as exc:
+                raise ToolRejected("execution preview unavailable") from exc
+        return authorization or None
+
+    def approval_details(self, run_id: str) -> dict[str, Any]:
+        with self.db.connection() as connection:
+            rows = connection.execute(
+                "SELECT id,binding_json FROM approvals WHERE run_id=? AND status='pending'", (run_id,),
+            ).fetchall()
+        return {row["id"]: (json.loads(row["binding_json"] or "{}").get("goal_activation"))
+                for row in rows if json.loads(row["binding_json"] or "{}").get("goal_activation")}
+
 
 
 def _model_result_payload(kind: str, result: Any) -> dict[str, Any]:

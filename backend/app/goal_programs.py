@@ -18,9 +18,22 @@ OWNER_ID = "local-user"
 
 
 class GoalProgramConflict(ValueError):
-    def __init__(self, message: str, current: dict[str, Any] | None = None) -> None:
+    """A business conflict with a stable, machine-readable reason code.
+
+    ``code`` is what tool adapters map to their public error codes; the message
+    stays user/operator readable and may change without breaking callers.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        current: dict[str, Any] | None = None,
+        *,
+        code: str = "GOAL_PROGRAM_CONFLICT",
+    ) -> None:
         super().__init__(message)
         self.current = current
+        self.code = code
 
 
 class GoalProgramNotFound(KeyError):
@@ -64,6 +77,9 @@ class GoalProgramService:
         self, plan_document_id: str, *, start_date: str, timezone_name: str,
         daily_minutes: int, requested_end_date: str | None, idempotency_key: str,
         owner_id: str = OWNER_ID, constraints: dict[str, Any] | None = None,
+        expected_source_version_id: str | None = None,
+        root_budget_id: str | None = None,
+        runtime_bundle_id: str | None = None,
     ) -> dict[str, Any]:
         start, end, defaulted = _program_dates(start_date, requested_end_date)
         _timezone(timezone_name)
@@ -75,7 +91,8 @@ class GoalProgramService:
             raise ValueError("daily_minutes must be between 5 and 1440")
         request = {"plan_document_id": plan_document_id, "start_date": start.isoformat(), "end_date": end.isoformat(),
                    "timezone": timezone_name, "daily_minutes": daily_minutes, "requested_end_date": requested_end_date,
-                   "schedule_constraints": constraints, "calendar": calendar}
+                   "schedule_constraints": constraints, "calendar": calendar,
+                   "expected_source_version_id": expected_source_version_id}
         request_hash = _hash(request)
         cached = self._receipt(owner_id, idempotency_key, request_hash)
         if cached is not None:
@@ -112,7 +129,15 @@ class GoalProgramService:
                 else:
                     raise GoalProgramNotFound(plan_document_id)
             elif source["status"] != "committed":
-                raise GoalProgramConflict("source plan version is not committed")
+                raise GoalProgramConflict("source plan version is not committed", code="VERSION_CONFLICT")
+            # Compare the expected source version inside the same transaction
+            # that read it, so a user reviewing v1 cannot have the compile bind
+            # a v2 that landed in between.
+            if source is not None and expected_source_version_id is not None and source["version_id"] != expected_source_version_id:
+                raise GoalProgramConflict(
+                    "source plan version changed since the user reviewed it",
+                    code="VERSION_CONFLICT",
+                )
             if existing is not None:
                 program_id = pending_program_id
             else:
@@ -134,7 +159,8 @@ class GoalProgramService:
             return await self._wait_for_preview(owner_id,idempotency_key,request_hash)
         compile_request = {**request, "owner_id": owner_id, "source_thread_id": source["thread_id"],
                            "source_plan_document_version_id": source["version_id"], "source_plan_content_hash": source["content_hash"],
-                           "defaulted_end_date": defaulted}
+                           "defaulted_end_date": defaulted, "root_budget_id": root_budget_id,
+                           "runtime_bundle_id": runtime_bundle_id}
         try:
             structure = await self._compile(program_id, source["markdown_content"], compile_request)
             structure = validate_program_structure(structure, start.isoformat(), end.isoformat(), daily_minutes, constraints=constraints)
@@ -248,7 +274,11 @@ class GoalProgramService:
 
     async def _compile(self, program_id: str, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
         try:
-            context = self._model_context(program_id, "planner", "compile_goal_program")
+            context = self._model_context(
+                program_id, "planner", "compile_goal_program",
+                root_budget_id=request.get("root_budget_id"),
+                runtime_bundle_id=request.get("runtime_bundle_id"),
+            )
             memory_constraint = None
             if getattr(self, "learning", None) is not None:
                 with self.db.connection() as connection:
@@ -320,9 +350,66 @@ class GoalProgramService:
         except asyncio.TimeoutError as exc:
             raise GoalCompilationError("COMPILE_TIMEOUT", "goal compilation timed out", temporary=True) from exc
 
-    def activate(self, program_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
+    def activate(self, program_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID,
+                 expected_snapshot_hash: str | None = None) -> dict[str, Any]:
+        def activate_checked(connection, row):
+            if expected_snapshot_hash is not None:
+                current = self._program_json(connection, program_id, owner_id)
+                if self.activation_snapshot_hash(current) != expected_snapshot_hash:
+                    raise GoalProgramConflict("execution preview changed", code="VERSION_CONFLICT")
+            self._activate(connection, row, expected_version)
         return self._command(program_id, owner_id, "activate", idempotency_key, {"expected_version": expected_version},
-                             lambda connection, row: self._activate(connection, row, expected_version))
+                             activate_checked)
+
+    @staticmethod
+    def activation_snapshot_hash(program: dict[str, Any]) -> str:
+        keys = ("id", "version", "current_program_version_id", "source_plan_document_version_id",
+                "source_plan_content_hash", "structure", "start_date", "end_date", "timezone", "daily_minutes", "schedule_constraints")
+        return _hash({key: program.get(key) for key in keys})
+
+    def activation_receipt(self, program_id: str, *, expected_version: int, idempotency_key: str,
+                           owner_id: str) -> dict[str, Any] | None:
+        return self._receipt(owner_id, idempotency_key, _hash({"expected_version": expected_version}),
+                             identity=("program", program_id, "activate"))
+
+    # Preview generation is not user consent. Runtime approval binds this
+    # displayed snapshot; activate verifies its hash inside the transaction.
+    PREVIEW_SNAPSHOT_EVENT = "goal_tool.preview_generated"
+
+    def record_preview_snapshot(
+        self, program_id: str, snapshot_hash: str, *,
+        source_version_id: str, source_content_hash: str, owner_id: str = OWNER_ID,
+    ) -> None:
+        with self.db.transaction() as connection:
+            row = self._program_row(connection, program_id, owner_id)
+            program = self._program_json(connection, program_id, owner_id)
+            self._event(connection, program_id, None, self.PREVIEW_SNAPSHOT_EVENT, "runtime", {
+                "snapshot_hash": snapshot_hash,
+                "program_version": int(row["version"]),
+                "source_version_id": source_version_id,
+                "source_content_hash": source_content_hash,
+                "preview": {key: program.get(key) for key in (
+                    "objective_title", "start_date", "end_date", "timezone", "daily_minutes", "structure")},
+            })
+
+    def preview_snapshot(self, program_id: str, owner_id: str = OWNER_ID) -> dict[str, Any] | None:
+        with self.db.connection() as connection:
+            self._program_row(connection, program_id, owner_id)
+            event = connection.execute(
+                "SELECT data_json,occurred_at FROM goal_program_events WHERE program_id=? AND type=? ORDER BY seq DESC LIMIT 1",
+                (program_id, self.PREVIEW_SNAPSHOT_EVENT),
+            ).fetchone()
+        if event is None:
+            return None
+        data = json.loads(event["data_json"])
+        return {
+            "snapshot_hash": data.get("snapshot_hash"),
+            "program_version": data.get("program_version"),
+            "source_version_id": data.get("source_version_id"),
+            "source_content_hash": data.get("source_content_hash"),
+            "occurred_at": event["occurred_at"],
+            "preview": data.get("preview"),
+        }
 
     def get(self, program_id: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
         with self.db.connection() as connection:
@@ -337,6 +424,73 @@ class GoalProgramService:
         with self.db.connection() as connection:
             rows = connection.execute("SELECT id FROM goal_programs WHERE owner_id=? " + ("" if include_deleted else "AND deleted_at IS NULL ") + "ORDER BY updated_at DESC,id", (owner_id,)).fetchall()
             return [self._program_json(connection, row["id"], owner_id) for row in rows]
+
+    def list_summaries(
+        self, owner_id: str = OWNER_ID, *, offset: int = 0, limit: int = 10,
+        include_deleted: bool = False,
+        project_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Lightweight, pageable goal list for tool consumption.
+
+        Unlike :meth:`list` this does not expand every program's structure and
+        actions; progress is aggregated for the page's programs only.
+        """
+        if isinstance(offset, bool) or not isinstance(offset, int) or offset < 0:
+            raise ValueError("offset must be a non-negative integer")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 20:
+            raise ValueError("limit must be between 1 and 20")
+        with self.db.connection() as connection:
+            clause = "" if include_deleted else "AND deleted_at IS NULL "
+            scope_params = ()
+            if project_id is not None:
+                clause += "AND source_thread_id IN (SELECT id FROM threads WHERE project_id=? AND owner_id=? AND deleted_at IS NULL) "
+                scope_params = (project_id, owner_id)
+            rows = connection.execute(
+                "SELECT * FROM goal_programs WHERE owner_id=? " + clause
+                + "ORDER BY updated_at DESC,id LIMIT ? OFFSET ?",
+                (owner_id, *scope_params, limit + 1, offset),
+            ).fetchall()
+            has_more = len(rows) > limit
+            page = rows[:limit]
+            ids = [row["id"] for row in page]
+            progress: dict[str, dict[str, Any]] = {}
+            if ids:
+                placeholders = ",".join("?" for _ in ids)
+                aggregates = connection.execute(
+                    f"SELECT program_id,status,required FROM goal_actions WHERE program_id IN ({placeholders})",
+                    tuple(ids),
+                ).fetchall()
+                grouped: dict[str, list[Any]] = {}
+                for item in aggregates:
+                    grouped.setdefault(item["program_id"], []).append(item)
+                for program_id, items in grouped.items():
+                    eligible = [item for item in items if item["status"] not in {"DEFERRED", "CANCELLED"}]
+                    required = [item for item in eligible if item["required"]]
+                    completed = sum(1 for item in required if item["status"] == "COMPLETED")
+                    progress[program_id] = {
+                        "required_completed": completed,
+                        "required_total": len(required),
+                        "completion_rate": completed / len(required) if required else 1.0,
+                        "completion_ready": completed == len(required),
+                        "optional_completed": sum(1 for item in eligible if not item["required"] and item["status"] == "COMPLETED"),
+                    }
+            items = [
+                {
+                    **self._program_summary(row),
+                    "compile_status": row["compile_status"],
+                    "progress": progress.get(row["id"], {
+                        "required_completed": 0, "required_total": 0, "completion_rate": 1.0,
+                        "completion_ready": True, "optional_completed": 0,
+                    }),
+                }
+                for row in page
+            ]
+        next_offset = offset + limit
+        return {
+            "items": items,
+            "has_more": has_more,
+            "next_offset": next_offset if has_more else None,
+        }
 
     def today(self, owner_id: str = OWNER_ID, explicit_date: str | None = None) -> dict[str, Any]:
         if explicit_date is not None:
@@ -557,9 +711,9 @@ class GoalProgramService:
             if cached is not None: return cached
             action, program = self._owned_action(connection, action_id, owner_id, lock=True)
             if action["version"] != expected_version:
-                raise GoalProgramConflict("action version conflict", self._action_json(action))
+                raise GoalProgramConflict("action version conflict", self._action_json(action), code="VERSION_CONFLICT")
             if program["status"] != "ACTIVE" or action["status"] in {"CANCELLED", "DEFERRED"}:
-                raise GoalProgramConflict("only active actions can be corrected")
+                raise GoalProgramConflict("only active actions can be corrected", code="ACTION_NOT_ELIGIBLE")
             response = self._write_feedback(connection, action, program, payload, idempotency_key)
             if payload.get("kind") != "partial":
                 connection.execute("UPDATE goal_actions SET version=version+1,updated_at=? WHERE id=?", (_now(), action_id))
@@ -595,7 +749,7 @@ class GoalProgramService:
             raise ValueError("cannot set and clear the same field")
         details.update(actual_date=actual_date, cleared_fields=cleared)
         if kind == "partial" and (program["status"] != "ACTIVE" or action["status"] != "SCHEDULED"):
-            raise GoalProgramConflict("only pending actions can record partial progress")
+            raise GoalProgramConflict("only pending actions can record partial progress", code="ACTION_NOT_ELIGIBLE")
         feedback_id = f"feedback_{uuid.uuid4().hex}"
         connection.execute("INSERT INTO goal_action_feedback(id,owner_id,action_id,kind,actual_minutes,difficulty,reason_code,note,sensitivity,idempotency_key,created_at,details_json) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                            (feedback_id, program["owner_id"], action["id"], kind, actual, difficulty, payload.get("reason_code"), note, payload.get("sensitivity", "normal"), key, _now(), _json(details)))
@@ -687,7 +841,7 @@ class GoalProgramService:
 
     def _activate(self, connection, row, expected_version: int) -> None:
         if row["version"] != expected_version or row["status"] != "DRAFT" or row["compile_status"] != "READY" or not row["current_program_version_id"]:
-            raise GoalProgramConflict("program cannot be activated", self._program_json(connection, row["id"], row["owner_id"]))
+            raise GoalProgramConflict("program cannot be activated", self._program_json(connection, row["id"], row["owner_id"]), code="ACTION_NOT_ELIGIBLE")
         self._assert_source(connection, row["id"], row["owner_id"])
         structure = self._structure(connection, row["current_program_version_id"])
         validate_program_structure(structure, row["start_date"], row["end_date"], row["daily_minutes"], constraints=json.loads(row["schedule_constraints_json"]))
@@ -696,17 +850,17 @@ class GoalProgramService:
             connection.execute("INSERT INTO goal_actions(id,program_id,program_version_id,logical_key,scheduled_date,position,title,description,estimated_minutes,completion_criteria,required,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,'SCHEDULED',?,?)",
                                (f"action_{uuid.uuid4().hex}", row["id"], row["current_program_version_id"], item["logical_key"], item["scheduled_date"], item["position"], item["title"], item["description"], item["estimated_minutes"], item["completion_criteria"], int(item["required"]), now, now))
         changed = connection.execute("UPDATE goal_programs SET status='ACTIVE',version=version+1,updated_at=? WHERE id=? AND version=? AND status='DRAFT'", (now,row["id"],expected_version)).rowcount
-        if changed != 1: raise GoalProgramConflict("program version conflict", self._program_json(connection,row["id"],row["owner_id"]))
+        if changed != 1: raise GoalProgramConflict("program version conflict", self._program_json(connection,row["id"],row["owner_id"]), code="VERSION_CONFLICT")
         self._event(connection,row["id"],None,"program.activated","user",{"action_count":len(structure["actions"])})
 
     def _finish_action(self, connection, action, program, expected_version: int, status: str) -> dict[str, Any]:
         if program["status"] != "ACTIVE" or action["status"] != "SCHEDULED" or action["version"] != expected_version:
-            raise GoalProgramConflict("action cannot transition", self._action_json(action))
+            raise GoalProgramConflict("action cannot transition", self._action_json(action), code="ACTION_NOT_ELIGIBLE")
         was_ready = self._progress(connection, program["id"])["completion_ready"]
         field = "completed_at" if status == "COMPLETED" else "skipped_at"
         now = _now()
         changed = connection.execute(f"UPDATE goal_actions SET status=?,version=version+1,{field}=?,updated_at=? WHERE id=? AND version=? AND status='SCHEDULED'", (status,now,now,action["id"],expected_version)).rowcount
-        if changed != 1: raise GoalProgramConflict("action version conflict", self._action_json(action))
+        if changed != 1: raise GoalProgramConflict("action version conflict", self._action_json(action), code="VERSION_CONFLICT")
         self._event(connection,program["id"],action["id"],f"action.{status.lower()}","user",{})
         progress = self._progress(connection, program["id"])
         if progress["completion_ready"] and not was_ready:
@@ -719,7 +873,7 @@ class GoalProgramService:
         target = date.fromisoformat(scheduled_date)
         if not date.fromisoformat(program["start_date"]) <= target <= date.fromisoformat(program["end_date"]): raise ValueError("scheduled_date is outside the program")
         if program["status"] != "ACTIVE" or action["status"] != "SCHEDULED" or action["version"] != expected_version:
-            raise GoalProgramConflict("action cannot be deferred", self._action_json(action))
+            raise GoalProgramConflict("action cannot be deferred", self._action_json(action), code="ACTION_NOT_ELIGIBLE" if program["status"] != "ACTIVE" or action["status"] != "SCHEDULED" else "VERSION_CONFLICT")
         if target <= date.fromisoformat(action["scheduled_date"]):
             raise ValueError("延期日期必须晚于原定日期")
         calendar = calendar_days(program["start_date"], program["end_date"], json.loads(program["schedule_constraints_json"]))
@@ -731,10 +885,13 @@ class GoalProgramService:
             (program["id"], scheduled_date),
         ).fetchone()
         if workload["count"] >= 6 or workload["minutes"] + action["estimated_minutes"] > program["daily_minutes"]:
-            raise GoalProgramConflict("所选日期的行动已超出每日预算，请选择其他日期或先调整计划")
+            raise GoalProgramConflict(
+                "所选日期的行动已超出每日预算，请选择其他日期或先调整计划",
+                code="DAILY_CAPACITY_EXCEEDED",
+            )
         now = _now()
         changed=connection.execute("UPDATE goal_actions SET status='DEFERRED',version=version+1,deferred_at=?,updated_at=? WHERE id=? AND version=? AND status='SCHEDULED'",(now,now,action["id"],expected_version)).rowcount
-        if changed != 1: raise GoalProgramConflict("action version conflict", self._action_json(action))
+        if changed != 1: raise GoalProgramConflict("action version conflict", self._action_json(action), code="VERSION_CONFLICT")
         position=int(connection.execute("SELECT COALESCE(MAX(position),0)+1 FROM goal_actions WHERE program_id=? AND scheduled_date=?",(program["id"],scheduled_date)).fetchone()[0])
         replacement_id=f"action_{uuid.uuid4().hex}"
         prior_progress=json.loads(action["progress_json"])
@@ -849,7 +1006,11 @@ class GoalProgramService:
         if row is None:raise GoalProgramNotFound(program_id)
         return row
 
-    def _model_context(self, program_id: str, role: str, purpose: str, *, operation_id: str | None = None, root_budget_id: str | None = None):
+    def _model_context(
+        self, program_id: str, role: str, purpose: str, *,
+        operation_id: str | None = None, root_budget_id: str | None = None,
+        runtime_bundle_id: str | None = None,
+    ):
         from .model_control import ModelCallContext
 
         with self.db.connection() as connection:
@@ -868,7 +1029,7 @@ class GoalProgramService:
             root_budget_id=root["id"]
         return ModelCallContext(
             role=role, purpose=purpose, owner_id=row["owner_id"], thread_id=row["source_thread_id"], turn_id=row["source_turn_id"],
-            runtime_bundle_id=row["runtime_bundle_id"],
+            runtime_bundle_id=runtime_bundle_id if runtime_bundle_id is not None else row["runtime_bundle_id"],
             root_budget_id=root_budget_id,
         )
 
@@ -892,7 +1053,7 @@ class GoalProgramService:
 
     def _assert_source(self, connection, program_id, owner_id):
         row=connection.execute("SELECT p.*,v.markdown_content,v.status source_status,v.content_hash current_source_hash,d.current_version_id,t.owner_id thread_owner FROM goal_programs p JOIN plan_documents d ON d.id=p.source_plan_document_id JOIN plan_document_versions v ON v.id=p.source_plan_document_version_id JOIN threads t ON t.id=p.source_thread_id WHERE p.id=? AND p.owner_id=? AND d.thread_id=p.source_thread_id AND v.plan_document_id=d.id",(program_id,owner_id)).fetchone()
-        if row is None or row["thread_owner"]!=owner_id or row["source_status"]!="committed" or row["current_source_hash"]!=row["source_plan_content_hash"]: raise GoalProgramConflict("source plan snapshot is invalid")
+        if row is None or row["thread_owner"]!=owner_id or row["source_status"]!="committed" or row["current_source_hash"]!=row["source_plan_content_hash"]: raise GoalProgramConflict("source plan snapshot is invalid", code="VERSION_CONFLICT")
         return row
 
     def _structure(self, connection, version_id):

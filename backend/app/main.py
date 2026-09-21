@@ -122,9 +122,18 @@ def create_app(config: AppConfig | None = None, runtime=None, static_dir: str | 
             await archive_worker.start()
         if embedding_worker is not None:
             await embedding_worker.start()
+        mcp_sync = getattr(runtime, "mcp_sync", None)
+        if mcp_sync is not None and mcp_sync.adapters:
+            # Register the configured MCP catalogues once. A server that cannot
+            # be reached is reported and skipped; it must not stop the process
+            # and it must not stop plain chat.
+            report = await mcp_sync.sync_all("startup")
+            app.state.mcp_report = report
         try:
             yield
         finally:
+            if mcp_sync is not None:
+                await mcp_sync.close()
             if scheduler is not None:
                 await scheduler.stop()
             if evaluation_worker is not None:

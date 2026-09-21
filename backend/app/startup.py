@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 
-from .config import load_llm_ap, load_model_price, load_model_profile_from_env, load_model_profile_from_environment
+from .config import goal_tools_enabled, load_llm_ap, load_model_price, load_model_profile_from_env, load_model_profile_from_environment
 from .db import Database
 from .domain import ApprovalService, CheckpointStore, PlanVersionService
 from .events import EventStore
@@ -64,6 +64,11 @@ def _has_valid_model_routing(db: Database, bundle) -> bool:
         if policy is None or policy["policy_digest"] != digest:
             return False
         roles = json.loads(policy["roles_json"])
+        # The runtime cannot serve conversations without these routes. A policy
+        # that only covers expert/text roles must not keep an old bundle active
+        # while /api/model-readiness reports MODEL_ROUTE_MISSING.
+        if not {"conversation", "ask"}.issubset(roles):
+            return False
         version_ids = {
             version_id
             for route in roles.values()
@@ -172,6 +177,16 @@ def build_runtime(
         model=model,
         conversation_model=conversation_model,
     )
+    # MCP is built here but not connected: connecting is I/O and belongs to the
+    # application lifespan, so a slow or dead optional server delays the first
+    # chat turn at most, never process startup. With no server configured the
+    # SDK is never imported.
+    from .mcp_client import load_manager_from_env
+    from .mcp_tools import McpToolRegistrySync
+
+    mcp_manager = load_manager_from_env()
+    runtime.mcp_manager = mcp_manager
+    runtime.mcp_sync = McpToolRegistrySync(mcp_manager, tools, mcp_manager.configs())
     # Keep the selected adapter explicit for API preflight checks.  The
     # ConversationService also owns this object as ``route_model``, but the
     # runtime-level reference makes the configured/unconfigured distinction
@@ -206,6 +221,17 @@ def build_runtime(
         from .learning_extraction import ConstraintExtractor
         runtime.learning.constraint_extractor = ConstraintExtractor(gateway)
     runtime.goal_programs.learning = runtime.learning
+    # Goal business tools are registered only after their services exist, then
+    # the model's tool schema snapshot is refreshed so the new run can see them.
+    if goal_tools_enabled():
+        from .goal_tools import register_goal_tools
+        register_goal_tools(
+            tools,
+            goal_programs=runtime.goal_programs,
+            plan_documents=runtime.plan_documents,
+        )
+        if hasattr(model, "tool_schemas"):
+            model.tool_schemas = tools.describe()
     if conversation_model is not None:
         conversation_model.memory_store = runtime.memory_store
     runtime.settings = settings

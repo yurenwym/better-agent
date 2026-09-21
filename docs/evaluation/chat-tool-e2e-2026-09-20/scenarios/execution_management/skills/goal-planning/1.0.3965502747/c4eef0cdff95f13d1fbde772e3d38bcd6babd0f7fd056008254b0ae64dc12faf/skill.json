@@ -1,0 +1,1 @@
+{"connectors":[],"description":"把一个本地用户目标拆成一份简短、有序的原子步骤清单，供执行前审阅和批准。","entry_document":"SKILL.md","name":"goal-planning","phases":["ask","planner","executor"],"requested_tools":["local_time","calculator","read_note"],"schema_version":1,"title":"目标规划","version":"1.0.3965502747"}

@@ -15,6 +15,15 @@ def monetary_limits_enabled() -> bool:
     return os.getenv("BETTER_AGENT_COST_MODE", "observe").lower() == "enforce"
 
 
+def goal_tools_enabled() -> bool:
+    """Goal business tools are exposed to new runs unless explicitly disabled.
+
+    Disabling does not undo business writes that already happened, and pending
+    approvals/reconciliation calls keep their existing tool records.
+    """
+    return os.getenv("GOAL_TOOLS_ENABLED", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def load_user_model_environment() -> tuple[str, ...]:
     """Import Windows user settings at launch, not inside tests or model calls."""
     if os.name != "nt":

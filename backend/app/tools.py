@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import ast
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
+import inspect
 import json
 import os
 import tempfile
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from enum import StrEnum
 from pathlib import Path, PurePath
@@ -62,6 +64,52 @@ Handler = Callable[[dict[str, Any]], ToolResult]
 
 
 @dataclass(frozen=True)
+class ToolExecutionContext:
+    """Trusted server-side identity for one tool invocation.
+
+    Built from the durable run/approval records by the Runtime, never from
+    model-supplied parameters. Business handlers read ``owner_id`` from here so
+    two owners running concurrently can never share an identity through a
+    global or ambient variable.
+    """
+
+    owner_id: str
+    run_id: str
+    tool_call_id: str
+    thread_id: str | None = None
+    project_id: str | None = None
+    # Budget/bundle identity of the originating run, so a tool-triggered model
+    # compile can share the run's root budget instead of creating an unrelated
+    # goal_operation budget.
+    root_budget_id: str | None = None
+    runtime_bundle_id: str | None = None
+    authorization: dict[str, Any] | None = None
+
+    def public_view(self) -> dict[str, Any]:
+        return {
+            "owner_id": self.owner_id,
+            "run_id": self.run_id,
+            "tool_call_id": self.tool_call_id,
+            "thread_id": self.thread_id,
+            "project_id": self.project_id,
+            "root_budget_id": self.root_budget_id,
+            "runtime_bundle_id": self.runtime_bundle_id,
+        }
+
+
+ContextHandler = Callable[[dict[str, Any], ToolExecutionContext], ToolResult]
+Validator = Callable[[dict[str, Any]], None]
+
+# Parameters a model must never supply: identity and idempotency are injected by
+# the harness. A tool whose params carry any of these is rejected before
+# approval or execution.
+IDENTITY_PARAMETER_NAMES = frozenset({
+    "owner_id", "run_id", "tool_call_id", "thread_id", "project_id",
+    "idempotency_key", "operation_key",
+})
+
+
+@dataclass(frozen=True)
 class ToolSpec:
     name: str
     description: str
@@ -70,6 +118,25 @@ class ToolSpec:
     handler: Handler
     timeout_seconds: float = 30
     path_fields: tuple[str, ...] = ()
+    # A context-aware handler replaces ``handler`` when present; it receives the
+    # trusted execution context. The Runtime awaits it through
+    # ``ToolRegistry.execute_async``.
+    context_handler: ContextHandler | None = None
+    # Pre-approval/pre-execution argument validation. Must raise ToolRejected
+    # for invalid input so the model never sees an unvalidated call reach an
+    # approval record.
+    validator: Validator | None = None
+    # Context tools reject harness-owned parameter names outright.
+    reject_identity_params: bool = False
+    # Read-only reconciliation: return only a proven committed business result.
+    recover_result: ContextHandler | None = None
+    # Provenance. Native tools leave these at their defaults; an MCP tool must
+    # be locatable by source, stable server identity, remote name and the
+    # digest of the definition the model was actually shown.
+    source: str = "native"
+    server_id: str | None = None
+    remote_name: str | None = None
+    definition_digest: str | None = None
 
 
 class ToolRegistry:
@@ -90,6 +157,17 @@ class ToolRegistry:
             raise ValueError(f"duplicate tool: {spec.name}")
         self._tools[spec.name] = spec
 
+    def unregister(self, name: str) -> None:
+        """Remove one tool.
+
+        Only the catalogue refresh path uses this, and it swaps a whole source's
+        tool set in one pass so no caller ever observes a half-updated registry.
+        """
+        self._tools.pop(name, None)
+
+    def specs(self) -> tuple[ToolSpec, ...]:
+        return tuple(self._tools.values())
+
     def describe(self) -> list[dict[str, Any]]:
         return [
             {
@@ -102,6 +180,15 @@ class ToolRegistry:
             }
             for spec in self._tools.values()
         ]
+
+    def spec(self, name: str) -> ToolSpec:
+        spec = self._tools.get(name)
+        if spec is None:
+            raise ToolRejected("unknown tool")
+        return spec
+
+    def risk_of(self, name: str, params: dict[str, Any]) -> ToolRisk:
+        return self._risk(self.spec(name), ToolCall(id="", name=name, params=params))
 
     def execute(
         self,
@@ -159,6 +246,89 @@ class ToolRegistry:
         self._record_call(call, run_id, params_hash, risk, result)
         return result
 
+    async def execute_async(
+        self,
+        call: ToolCall,
+        *,
+        context: ToolExecutionContext,
+        skill_tools: set[str] | None,
+        authorization: dict[str, Any] | None = None,
+    ) -> ToolResult:
+        """Awaitable execution path for context-aware (possibly async) tools.
+
+        Shares authorization, approval, execution claims, persistence and
+        timeout/reconciliation with the synchronous :meth:`execute`. Sync
+        handlers keep running in a worker thread; async context handlers are
+        awaited directly, so a model-backed compile can use the existing
+        gateway lifecycle instead of a nested ``asyncio.run``.
+        """
+        context = replace(context, authorization=authorization)
+        run_id = context.run_id
+        try:
+            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+        except ToolRejected as exc:
+            self._run_event(run_id, "tool.authorization.denied", {
+                "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
+            })
+            raise
+        risk = self._risk(spec, call)
+        params_hash = normalized_params_hash(call.params)
+        existing = self._existing_call(call.id)
+        if existing:
+            if existing["run_id"] != run_id or existing["params_hash"] != params_hash:
+                raise ToolRejected("tool_call_id binding changed")
+            if existing["status"] == "completed":
+                return ToolResult(**json.loads(existing["result_json"]))
+        if risk == ToolRisk.WRITE:
+            if self.approval_service is None:
+                raise ApprovalRequired("WRITE tool requires approval")
+            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
+        try:
+            claimed = self._claim_execution(call, run_id, params_hash, risk)
+        except ToolReconciliationRequired:
+            if spec.recover_result is None:
+                raise
+            if inspect.iscoroutinefunction(spec.recover_result):
+                # An MCP receipt lookup is a real remote read, so it is awaited
+                # under the same deadline as the original call.
+                recovered = await asyncio.wait_for(
+                    spec.recover_result(call.params, context), timeout=spec.timeout_seconds,
+                )
+            else:
+                recovered = await asyncio.to_thread(spec.recover_result, call.params, context)
+            if recovered is None or not recovered.ok:
+                raise
+            self._record_call(call, run_id, params_hash, risk, recovered)
+            return recovered
+        if isinstance(claimed, ToolResult):
+            return claimed
+        try:
+            if spec.context_handler is not None:
+                if inspect.iscoroutinefunction(spec.context_handler):
+                    awaitable = spec.context_handler(call.params, context)
+                else:
+                    awaitable = asyncio.to_thread(spec.context_handler, call.params, context)
+            else:
+                awaitable = asyncio.to_thread(spec.handler, call.params)
+            result = await asyncio.wait_for(awaitable, timeout=spec.timeout_seconds)
+        except (ConnectorReconciliationRequired, ToolReconciliationRequired) as exc:
+            # A handler may already know its effect is unverifiable - an MCP
+            # write whose connection dropped, for example. Persist the claim as
+            # RECONCILIATION_REQUIRED instead of leaving it RUNNING.
+            self._mark_reconciliation(call, run_id, params_hash, str(exc))
+            raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
+        except asyncio.TimeoutError as exc:
+            if risk == ToolRisk.WRITE:
+                self._mark_reconciliation(call, run_id, params_hash, "timeout")
+                raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
+            timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
+            self._record_call(call, run_id, params_hash, risk, timeout_result)
+            return timeout_result
+        if not isinstance(result, ToolResult):
+            raise TypeError("tool handler must return ToolResult")
+        self._record_call(call, run_id, params_hash, risk, result)
+        return result
+
     def authorize(
         self,
         call: ToolCall,
@@ -172,7 +342,16 @@ class ToolRegistry:
             raise ToolRejected("unknown tool")
         if skill_tools is not None and call.name not in skill_tools:
             raise ToolRejected("skill does not allow tool")
+        if spec.reject_identity_params:
+            supplied = IDENTITY_PARAMETER_NAMES & set(call.params)
+            if supplied:
+                raise ToolRejected(
+                    "identity parameters are injected by the harness: "
+                    + ",".join(sorted(supplied))
+                )
         _validate_schema(spec.schema, call.params)
+        if spec.validator is not None:
+            spec.validator(call.params)
         for field_name in spec.path_fields:
             self.safe_path(call.params[field_name])
         if self._risk(spec, call) == ToolRisk.WRITE:

@@ -1,0 +1,160 @@
+{
+  "environment": {
+    "sdk_module": "mcp",
+    "sdk_version": "1.29.0",
+    "protocol_version_latest": "2025-11-25",
+    "python": "3.13.0",
+    "platform": "win32",
+    "model": "scripted gateway (no provider credential configured)"
+  },
+  "cases": {
+    "reference_time_server": {
+      "protocol_version": "2025-11-25",
+      "sdk_version": "1.29.0",
+      "server_info": {
+        "name": "mcp-time",
+        "version": "1.29.0"
+      },
+      "tools": [
+        {
+          "name": "get_current_time",
+          "digest": "a29d68370862210c39a80747bcd188257b4cc2379701af33e12b2090680684e3",
+          "read_only_hint": true
+        },
+        {
+          "name": "convert_time",
+          "digest": "0e444c2d729e03a40e1fda7f7d6679ee60f761010836d00881a75c108b72dd57",
+          "read_only_hint": true
+        }
+      ],
+      "cache_scope": "private",
+      "ttl_seconds": [
+        null
+      ]
+    },
+    "reference_fetch_server": {
+      "tool": "fetch",
+      "url": "https://example.com",
+      "is_error": false,
+      "content_length": 181,
+      "excerpt": "Contents of https://example.com/:\nExample Domain\n\n# Example Domain\n\nThis domain is for use in documentation examples without needing permission. Avoid use in operations.\n\nLearn more"
+    },
+    "normal_multi_turn": {
+      "tool_call_ids": [
+        "mcp__time__get_current_time",
+        "mcp__time__convert_time"
+      ],
+      "results": [
+        {
+          "text": "{\n  \"timezone\": \"Asia/Tokyo\",\n  \"datetime\": \"2026-09-21T00:53:11+09:00\",\n  \"day_of_week\": \"Monday\",\n  \"is_dst\": false\n}"
+        },
+        {
+          "text": "{\n  \"source\": {\n    \"timezone\": \"Asia/Tokyo\",\n    \"datetime\": \"2026-09-21T09:00:00+09:00\",\n    \"day_of_week\": \"Monday\",\n    \"is_dst\": false\n  },\n  \"target\": {\n    \"timezone\": \"UTC\",\n    \"datetime\": \"2026-09-21T00:00:00+00:00\",\n    \"day_of_week\": \"Monday\",\n    \"is_dst\": false\n  },\n  \"time_difference\": \"-9.0h\"\n}"
+        }
+      ]
+    },
+    "ttl_reuse_and_expiry": {
+      "requests_within_ttl": 1,
+      "requests_after_expiry": 2
+    },
+    "missing_ttl_hint": {
+      "discovery_requests": 2,
+      "cache_hits": 0
+    },
+    "tool_change_invalidation": {
+      "invalidations": 1
+    },
+    "private_scope_isolation": {
+      "discovery_requests": 2,
+      "scopes": [
+        "owner-a",
+        "owner-b"
+      ]
+    },
+    "pagination": {
+      "pages": 3,
+      "tools": 5,
+      "cursors": [
+        null,
+        "2",
+        "4"
+      ]
+    },
+    "unknown_invalid_and_out_of_scope": {
+      "unknown_tool": "rejected",
+      "missing_argument": "rejected",
+      "out_of_scope_resource": "rejected",
+      "authorised_resource": "repo-A:a.md"
+    },
+    "disconnect_and_timeout": {
+      "reconnects": 2,
+      "call_failures": 2
+    },
+    "large_result": {
+      "original_bytes": 40972,
+      "max_result_bytes": 2048,
+      "artifact_ref": "mcp-results/ctl/big_result-e208a0a973e58655.json",
+      "excerpt_chars": 2000
+    },
+    "definition_change": {
+      "before": "88647186e3511ddc4c9f0fde6a392bd1575f8b5c31967410d75cd0918f76096f",
+      "after": "807cbf285061d8c6907a372531284ccc473974caff1b7f7c32dadfa57eb34a70",
+      "error": "MCP_DEFINITION_CHANGED"
+    },
+    "business_tool_regression": {
+      "offered_tools": [
+        "activate_goal_plan",
+        "ask_user",
+        "create_plan_draft",
+        "defer_action",
+        "get_action_context",
+        "get_plan",
+        "get_today_tasks",
+        "mcp__ctl__big_result",
+        "mcp__ctl__broken",
+        "mcp__ctl__change_definition",
+        "mcp__ctl__drop_tool",
+        "mcp__ctl__echo",
+        "mcp__ctl__flip_description",
+        "mcp__ctl__picture",
+        "mcp__ctl__read_repo_file",
+        "mcp__ctl__slow",
+        "mcp__ctl__sum_numbers",
+        "modify_plan_document",
+        "query_goals",
+        "record_action_feedback",
+        "review_check_in"
+      ]
+    },
+    "unavailable_server": {
+      "report": {
+        "ghost": {
+          "registered": 0,
+          "unavailable": "MCP server ghost is unavailable (D:\\pycharm\\python.exe -c import sys; sys.exit(3)): McpError: Connection closed"
+        }
+      }
+    },
+    "unsupported_content": {
+      "content_error": "MCP_UNSUPPORTED_CONTENT",
+      "content_types": [
+        "image"
+      ],
+      "input_required_error": "MCP_INPUT_REQUIRED_UNSUPPORTED"
+    },
+    "cancellation": {
+      "pending_status": "CANCELLED",
+      "remote_effect": "none"
+    },
+    "http_transport": {
+      "configured": true,
+      "reachable": false,
+      "failure": "MCP server remote is unavailable (https://mcp.invalid.test/mcp): SSLEOFError: [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1020)"
+    },
+    "empty_catalogue": {
+      "tools": 0
+    },
+    "protocol_error": {
+      "reported": "does not advertise tool support"
+    }
+  }
+}

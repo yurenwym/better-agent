@@ -10,6 +10,12 @@ dependencies = [
   "alembic>=1.13,<2",
   "fastapi>=0.110",
   "httpx>=0.27",
+  # Pinned to a version that was actually exercised end to end. The 1.x line is
+  # the released SDK; there is no 2.x release to depend on.
+  "mcp==1.29.0",
+  # Argument validation for MCP tool schemas. The native partial checks in
+  # app/tools.py stay as they are; this only backs the MCP path.
+  "jsonschema>=4.23,<5",
   "markdown-it-py>=3,<5",
   "pgvector>=0.3,<1",
   "psycopg[binary,pool]>=3.2,<4",
@@ -21,6 +27,9 @@ dependencies = [
 
 [project.optional-dependencies]
 test = ["pytest>=8", "pytest-asyncio>=0.23"]
+# Real reference servers used by the MCP phase-1 acceptance run. They are
+# acceptance fixtures, not runtime dependencies.
+mcp-acceptance = ["mcp-server-time==2026.8.18", "mcp-server-fetch==2026.8.18"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

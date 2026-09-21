@@ -1,0 +1,369 @@
+{
+  "status": "completed",
+  "started_at": "2026-09-20T11:32:14.246408+00:00",
+  "completed_at": "2026-09-20T11:34:58.535785+00:00",
+  "model": "deepseek-flash",
+  "provider": "deepseek",
+  "configuration": {
+    "temperature": 0,
+    "thinking": false,
+    "max_output_tokens": 8192,
+    "max_attempts": 1,
+    "network_retries": 0,
+    "timeout_seconds": 120,
+    "database": "one disposable sqlite file per scenario in the output directory"
+  },
+  "source_hashes": {
+    "backend/app/live_model.py": "ea280275afe7e1be447f117521c6a181625c4de87d94a4d1db8354f5a5d98757",
+    "backend/app/conversation.py": "a916916008602f243d324bf137930680fc327db387f35655fe843f1ba9c5ec0d",
+    "backend/app/chat_tools.py": "ba148f0ac0189f67d45177ce13408848695487c751792140322f65eae0e7760b",
+    "backend/app/goal_tools.py": "44be0cb67a27850f03cc313d3f3c05a3b5216b405774f85588fd99121625cd24",
+    "backend/scripts/chat_tool_e2e.py": "1c2b432dafe7179af8e0bbae7bbf59a64fe6380aba108fec40bf7a408fbaba15"
+  },
+  "limitations": [
+    "Approval decisions are made by the harness, not by the model.",
+    "Each scenario uses its own disposable SQLite database; PostgreSQL write semantics are covered by integration tests.",
+    "One run per scenario; passing does not imply production reliability."
+  ],
+  "rows": [
+    {
+      "id": "travel_guide_delivery",
+      "input": "帮我做一份杭州三日旅游攻略，住西湖附近，预算两千元。",
+      "status": "ok",
+      "decisions": [],
+      "checks": {
+        "answer_nonempty": true,
+        "no_plan_documents": true,
+        "no_goal_programs": true,
+        "no_goals": true,
+        "no_runs": true,
+        "no_false_claims": true
+      },
+      "passed": true,
+      "final_answer": "\n# 杭州三日游攻略（住西湖附近 · 预算 2000 元）\n\n> 预算口径：**2000 元为在杭州的落地花费**（住宿 + 餐饮 + 市内交通 + 门票），不含往返大交通。按 1 人计算；若 2 人同行，住宿可摊薄，人均能降到 1500 元左右。\n\n## 一、预算分配（1 人 / 3 天）\n\n| 项目 | 预算 | 说明 |\n|---|---|---|\n| 住宿（2 晚） | 700 元 | 西湖东侧/北侧青旅单间或经济型酒店，约 300–380 元/晚 |\n| 餐饮 | 600 元 | 约 200 元/天，含 1 顿正经杭帮菜 |\n| 市内交通 | 150 元 | 地铁 + 公交 + 共享单车 + 少量打车 |\n| 门票 | 250 元 | 灵隐飞来峰、雷峰塔等 |\n| 机动/伴手礼 | 300 元 | 留出弹性 |\n| **合计** | **2000 元** | |\n\n**省钱要点**：西湖本身免费，环湖一圈不花一分钱；把门票钱集中在灵隐和雷峰塔两处即可。\n\n## 二、住宿建议\n\n优先选这三个片区，步行 10–15 分钟就能到湖边：\n\n- **龙翔桥 / 湖滨**：地铁 1 号线直达，商圈成熟，吃饭方便，价格略高。\n- **凤起路 / 武林路**：离湖稍远但性价比好，公交两站到断桥。\n- **南山路 / 柳浪闻莺一带**：安静，靠近雷峰塔、净慈寺，适合喜欢慢走的人。\n\n订房时注意：周末和节假日西湖周边涨价明显，尽量提前 1–2 周订，并确认是否含早。\n\n## 三、三日行程\n\n### Day 1｜北线：断桥 → 白堤 → 孤山 → 岳王庙 → 曲院风荷\n\n| 时间 | 安排 |\n|---|---|\n| 09:00 | 断桥残雪起步，沿白堤步行至平湖秋月 |\n| 10:30 | 孤山：西泠印社、浙江省博物馆（免费，周一闭馆） |\n| 12:00 | 楼外楼或周边小馆午餐（人均 60–100 元） |\n| 14:00 | 岳王庙（门票 25 元） |\n| 15:30 | 曲院风荷 → 苏堤北口，租共享单车骑苏堤 |\n| 18:00 | 湖滨晚餐，晚上看音乐喷泉（一般 19:00、20:00 各一场，以现场公告为准） |\n\n### Day 2｜西线 + 南线：灵隐 → 飞来峰 → 龙井 → 雷峰塔 → 南山路\n\n| 时间 | 安排 |\n|---|---|\n| 08:00 | 早出发去灵隐寺，避开人流 |\n| 08:30 | 飞来峰景区（门票 45 元）+ 灵隐寺香花券（30 元） |\n| 11:30 | 公交或打车到龙井村，农家菜午餐（人均 70 元左右） |\n| 13:30 | 龙井茶园散步，九溪十八涧轻徒步（免费） |\n| 16:00 | 雷峰塔（门票 40 元），登塔看西湖全景 |\n| 18:00 | 南山路晚餐，饭后沿湖散步到柳浪闻莺 |\n\n### Day 3｜东线 + 收尾：吴山 → 河坊街 → 南宋御街 → 城隍阁\n\n| 时间 | 安排 |\n|---|---|\n| 09:00 | 吴山广场上山，城隍阁（门票 30 元）俯瞰西湖与城区 |\n| 11:00 | 河坊街、南宋御街逛吃：定胜糕、葱包桧、片儿川 |\n| 13:00 | 胡庆余堂中药博物馆（门票 10 元，可选） |\n| 15:00 | 回湖滨取行李，或补一个没走完的湖边点位 |\n| 17:00 | 出发返程 |\n\n## 四、交通提示\n\n- 地铁 1 号线龙翔桥站是离西湖最近的一站，出站步行 5 分钟到湖边。\n- 西湖景区内**共享单车是最优解**，苏堤、白堤骑行体验很好；注意部分路段禁停。\n- 景区周边打车高峰期很难叫到，优先地铁 + 步行。\n- 灵隐方向可坐公交 7 路、游 2 路等，具体线路以实时导航为准。\n\n## 五、吃什么的实在建议\n\n- **必吃**：片儿川、虾爆鳝面、东坡肉、龙井虾仁、定胜糕、葱包桧。\n- **性价比路线**：知味观（小笼、猫耳朵）、新白鹿、外婆家，人均 60–90 元。\n- **想认真吃一顿**：楼外楼、山外山，人均 150–250 元，会明显吃掉预算，建议只安排一顿。\n- 河坊街小吃偏游客价，尝鲜可以，别当正餐主力。\n\n## 六、几个容易踩的坑\n\n1. **灵隐寺要买两道票**：飞来峰景区票 + 灵隐寺香花券，别以为一张票通吃。\n2. **周末苏堤、断桥人极多**，尽量把北线放在工作日或早上 9 点前。\n3. **西湖游船**分好几种（手划船、画舫、自开船），价格差别大，上船前先问清价格和路线。\n4. **龙井村买茶**：路边拉客的\"自家茶园\"溢价高，不懂茶就别在景区买。\n5. 浙江省博物馆、中国美院象山校区等免费场馆**多数周一闭馆**，排行程前确认。\n\n## 七、如果预算紧张，可以这样砍\n\n- 住宿换成青旅床位：省 300–400 元。\n- 砍掉雷峰塔或城隍阁其中一处：省 30–40 元。\n- 餐饮全部走面馆 + 小吃路线：省 200 元左右。\n\n---\n\n需要我把这份攻略按你的具体出行日期（含星期几）重排成逐日时间表，或者调整成 2 人同行的版本吗？",
+      "elapsed_seconds": 26.661677500000224,
+      "model_calls": 1,
+      "usage": {
+        "uncached_input_tokens": 217,
+        "cache_read_tokens": 4864,
+        "cache_write_tokens": 0,
+        "output_tokens": 1476,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "id": "save_guide",
+      "input": "帮我做一份桂林三日旅游攻略，并保存到计划页面。",
+      "status": "ok",
+      "decisions": [],
+      "checks": {
+        "answer_nonempty": true,
+        "one_plan_document": true,
+        "one_committed_version": true,
+        "no_goal_programs": true
+      },
+      "passed": true,
+      "final_answer": "\n# 桂林三日旅游攻略\n\n## 一、行程总览\n\n| 天数 | 主题 | 主要区域 | 核心体验 |\n|---|---|---|---|\n| 第 1 天 | 桂林市区山水初识 | 象鼻山—两江四湖—正阳步行街 | 城徽打卡、夜景环湖 |\n| 第 2 天 | 漓江精华 + 阳朔西街 | 磨盘山码头—兴坪—阳朔 | 漓江竹筏/游船、20 元人民币背景地 |\n| 第 3 天 | 阳朔田园与返程 | 遇龙河—十里画廊—返桂林 | 竹筏漂流、骑行田园 |\n\n**节奏说明**：三天属于紧凑但不赶的经典组合，第 2 天路程较长，建议早出发；第 3 天下午留出返程缓冲。\n\n---\n\n## 二、逐日安排\n\n### 第 1 天：桂林市区\n\n| 时间 | 安排 | 说明 |\n|---|---|---|\n| 上午 | 抵达桂林，入住市区（推荐中心广场/正阳步行街附近） | 便于步行和夜游 |\n| 中午 | 桂林米粉（卤菜粉） | 本地早餐/午餐主食，人均 10–20 元 |\n| 下午 | 象鼻山公园 | 桂林城徽，1–1.5 小时可逛完 |\n| 傍晚 | 两江四湖环湖步行或乘船 | 步行免费，游船约 1.5 小时 |\n| 晚上 | 正阳步行街、东西巷 | 小吃与夜景 |\n\n**当日提示**：象鼻山公园需提前在官方渠道预约门票；两江四湖夜游船票建议提前一天预订。\n\n### 第 2 天：漓江精华段 + 阳朔\n\n| 时间 | 安排 | 说明 |\n|---|---|---|\n| 07:00 前 | 出发前往磨盘山码头（或竹江码头） | 市区车程约 40–60 分钟 |\n| 上午 | 漓江游船（磨盘山—阳朔，约 4 小时） | 途经九马画山、黄布倒影 |\n| 中午 | 船上简餐或到阳朔后用餐 | 船上餐食一般，可自备干粮 |\n| 下午 | 兴坪古镇、20 元人民币背景地 | 若乘船直达阳朔，可另安排兴坪半日 |\n| 傍晚 | 入住阳朔，逛西街 | 西街夜间热闹，注意财物 |\n| 晚上 | 《印象·刘三姐》实景演出（可选） | 需提前订票，雨天可能停演 |\n\n**当日提示**：漓江游船分“全程游船”和“竹筏精华段”两种玩法。竹筏通常只走杨堤—兴坪段，时间更短、更灵活，但受水位和天气影响较大，出发前务必确认当日是否开航。\n\n### 第 3 天：遇龙河 + 十里画廊 + 返程\n\n| 时间 | 安排 | 说明 |\n|---|---|---|\n| 上午 | 遇龙河竹筏漂流（金龙桥—旧县段较经典） | 约 1.5–2 小时，比漓江更安静 |\n| 中午 | 阳朔县城用餐 | 啤酒鱼为当地特色 |\n| 下午 | 十里画廊骑行 | 租电动车或自行车，约 2–3 小时 |\n| 傍晚 | 返回桂林市区或直接前往机场/高铁站 | 阳朔到桂林约 1.5 小时 |\n\n**当日提示**：返程当天不要把行程排太满，遇龙河漂流排队时间在旺季可能较长。\n\n---\n\n## 三、交通建议\n\n- **桂林市区**：公交、打车都方便，景点集中，步行即可覆盖两江四湖一带。\n- **桂林 → 阳朔**：可选漓江游船（观景最佳）、高铁（桂林站/桂林北站到阳朔站约 30 分钟）、大巴（约 1.5 小时）。\n- **阳朔县内**：租电动车最灵活，一般 50–80 元/天；骑行十里画廊建议选电动车。\n- **注意**：阳朔高铁站离县城约 30 公里，需另乘接驳车或打车。\n\n---\n\n## 四、住宿建议\n\n| 区域 | 适合人群 | 特点 |\n|---|---|---|\n| 桂林市中心（正阳步行街/中心广场） | 第 1 晚 | 夜游方便，餐饮集中 |\n| 阳朔西街附近 | 第 2 晚 | 热闹，但夜间较吵 |\n| 阳朔遇龙河/十里画廊一带 | 想安静的人 | 田园风光，出行需电动车 |\n\n---\n\n## 五、美食清单\n\n- 桂林米粉（卤菜粉、马肉米粉）\n- 阳朔啤酒鱼\n- 荔浦芋扣肉\n- 恭城油茶\n- 田螺酿、十八酿\n\n---\n\n## 六、预算参考（人均，不含往返大交通）\n\n| 项目 | 经济型 | 舒适型 |\n|---|---|---|\n| 住宿（2 晚） | 200–400 元 | 600–1200 元 |\n| 餐饮（3 天） | 200–300 元 | 400–600 元 |\n| 门票与游船 | 300–500 元 | 500–800 元 |\n| 市内交通 | 100–200 元 | 200–400 元 |\n| **合计** | **约 800–1400 元** | **约 1700–3000 元** |\n\n---\n\n## 七、行前准备与注意事项\n\n1. **天气**：桂林 4–6 月多雨，漓江水位影响游船与竹筏，出行前查当日开航公告。\n2. **防晒防蚊**：夏季紫外线强，江边蚊虫多。\n3. **门票预约**：象鼻山、漓江游船、印象刘三姐建议提前 1–2 天预订。\n4. **现金与支付**：景区小摊可能只收现金或扫码，备少量现金。\n5. **旺季提醒**：五一、国庆、暑假人流大，住宿和船票需提前更久预订。\n6. **体力安排**：第 2 天行程最满，前一天早点休息。\n\n---\n\n## 八、可调整方案\n\n- **想更轻松**：把漓江游船换成杨堤—兴坪竹筏，第 2 天下午直接到阳朔休息。\n- **想加龙脊梯田**：需额外 1 天，建议改为四日行程，龙脊往返市区约 2.5 小时车程。\n- **亲子出行**：减少骑行，增加遇龙河竹筏和西街休闲时间。\n\n---\n\n以上为通用版攻略，已按你的要求保存到计划页面。如需按你的具体出行日期、预算或同行人数调整，告诉我即可。",
+      "elapsed_seconds": 27.709127900074236,
+      "model_calls": 1,
+      "usage": {
+        "uncached_input_tokens": 215,
+        "cache_read_tokens": 4864,
+        "cache_write_tokens": 0,
+        "output_tokens": 1594,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "id": "execution_management",
+      "input": "请开启这份攻略的执行管理：先生成执行预览，我确认后再激活。执行从明天开始，共三天，每天30分钟，时区 Asia/Shanghai。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_769f485bcf314e41875ac3e7827ebc73",
+          "tool": "activate_goal_plan",
+          "action": "approve",
+          "params": {
+            "daily_minutes": 30,
+            "document_id": "plan_8036972d814c4cba8f8cb887e4d4310a",
+            "end_date": "2026-01-03",
+            "expected_document_version_id": "planv_f50955537e434dfb9cd9f7b1110a80f7",
+            "mode": "preview",
+            "start_date": "2026-01-01",
+            "timezone": "Asia/Shanghai"
+          },
+          "binding": {}
+        },
+        {
+          "turn_id": "turn_31480a6efe74445eb3700a42e94f2b1f",
+          "action": "user_confirms_activation"
+        },
+        {
+          "turn_id": "turn_54d33aea7a124fc98321dee4e648272f",
+          "tool": "activate_goal_plan",
+          "action": "approve",
+          "params": {
+            "expected_version": 1,
+            "mode": "activate",
+            "program_id": "program_aadfc9bb48924a9dbc2e3c6be9770d30"
+          },
+          "binding": {
+            "goal_activation": {
+              "occurred_at": "2026-09-20T11:33:43.653428+00:00",
+              "preview": {
+                "daily_minutes": 30,
+                "end_date": "2026-01-03",
+                "objective_title": "桂林三日游行程规划与执行",
+                "start_date": "2026-01-01",
+                "structure": {
+                  "actions": [
+                    {
+                      "completion_criteria": "已确认象鼻山当日路线、时间与必要凭证。",
+                      "description": "来源：桂林三日攻略。核对象鼻山开放时间、交通与集合点；材料未给链接，可用地图应用或景区官方渠道替代查询。",
+                      "estimated_minutes": 30,
+                      "logical_key": "act_day1",
+                      "position": 1,
+                      "required": true,
+                      "scheduled_date": "2026-01-01",
+                      "title": "确认象鼻山行程"
+                    },
+                    {
+                      "completion_criteria": "已确认漓江当日路线、时间与必要凭证。",
+                      "description": "来源：桂林三日攻略。核对漓江游览方式、码头与天气影响；材料未给链接，可用地图应用或官方票务渠道替代查询。",
+                      "estimated_minutes": 30,
+                      "logical_key": "act_day2",
+                      "position": 1,
+                      "required": true,
+                      "scheduled_date": "2026-01-02",
+                      "title": "确认漓江行程"
+                    },
+                    {
+                      "completion_criteria": "已确认阳朔当日路线、时间与返程安排。",
+                      "description": "来源：桂林三日攻略。核对阳朔到达方式、核心区域与返程安排；材料未给链接，可用地图应用或本地交通平台替代查询。",
+                      "estimated_minutes": 30,
+                      "logical_key": "act_day3",
+                      "position": 1,
+                      "required": true,
+                      "scheduled_date": "2026-01-03",
+                      "title": "确认阳朔行程"
+                    }
+                  ],
+                  "assumptions": [
+                    "计划仅提供三天目的地，未含交通、门票、天气等细节。",
+                    "每日可投入30分钟用于行程确认与准备。",
+                    "所有安排均在可用日期内。"
+                  ],
+                  "coach": "旅行教练",
+                  "end_date": "2026-01-03",
+                  "milestones": [
+                    {
+                      "logical_key": "ms_day1",
+                      "target_date": "2026-01-01",
+                      "title": "完成象鼻山行程准备"
+                    },
+                    {
+                      "logical_key": "ms_day2",
+                      "target_date": "2026-01-02",
+                      "title": "完成漓江行程准备"
+                    },
+                    {
+                      "logical_key": "ms_day3",
+                      "target_date": "2026-01-03",
+                      "title": "完成阳朔行程准备"
+                    }
+                  ],
+                  "objective_summary": "按第一天象鼻山、第二天漓江、第三天阳朔的顺序，完成每日行程确认与要点准备。",
+                  "objective_title": "桂林三日游行程规划与执行",
+                  "start_date": "2026-01-01"
+                },
+                "timezone": "Asia/Shanghai"
+              },
+              "program_version": 1,
+              "snapshot_hash": "sha256:666cfb329406169dac44890827e378b38215a8d33d736a2c2750c23b55215664",
+              "source_content_hash": "sha256:500e545e91730f072c8a609383c23072f0c41d28f3fcff1a5f377e2320da53d5",
+              "source_version_id": "planv_f50955537e434dfb9cd9f7b1110a80f7"
+            }
+          }
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "one_goal_program": true,
+        "program_active": true,
+        "has_actions": true
+      },
+      "passed": true,
+      "final_answer": "当前暂时无法生成可用回答，请重试。",
+      "elapsed_seconds": 48.07349670003168,
+      "model_calls": 7,
+      "usage": {
+        "uncached_input_tokens": 3076,
+        "cache_read_tokens": 16128,
+        "cache_write_tokens": 0,
+        "output_tokens": 5365,
+        "reasoning_tokens": 4315
+      }
+    },
+    {
+      "id": "modify_plan",
+      "input": "把这份攻略改简单一点：减少一个景点，改完保存到同一份计划文档。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_2205aca9f9d8450d8704f473661bfce7",
+          "tool": "modify_plan_document",
+          "action": "approve",
+          "params": {
+            "document_id": "plan_39df6774e8064a658ba3782d34f17944",
+            "expected_version_id": "planv_e7243c5a4e0b42f68a423eb5ca8881c4",
+            "markdown_content": "\n# 桂林三日攻略\n\n第一天：象鼻山。\n第二天：漓江。\n第三天：阳朔。\n\n（已按你的要求减少一个景点，内容更简单。）",
+            "title": "桂林三日攻略"
+          },
+          "binding": {}
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "two_committed_versions": true,
+        "program_active": true,
+        "program_source_unchanged": true,
+        "execution_updated_false": true
+      },
+      "passed": true,
+      "final_answer": "已按你的要求把这份攻略改简单，并保存到同一份计划文档（新版本 v2）。\n\n**桂林三日攻略**\n\n- 第一天：象鼻山\n- 第二天：漓江\n- 第三天：阳朔\n\n改动说明：原计划中第一天包含象鼻山等多个景点，现精简为每天一个景点，行程更轻松。\n\n两点补充：\n\n1. 这次修改只更新了计划文档本身，**没有**改动已激活的执行安排。如果之前有基于旧版本生成的执行目标，它仍绑定原来源版本；需要按新内容执行的话，要重新生成执行预览并确认。\n2. 如果你希望再减一个景点（比如只保留漓江和阳朔），或者调整顺序，告诉我即可，我再提交一版。",
+      "elapsed_seconds": 14.595756000024267,
+      "model_calls": 4,
+      "usage": {
+        "uncached_input_tokens": 956,
+        "cache_read_tokens": 10368,
+        "cache_write_tokens": 0,
+        "output_tokens": 261,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "id": "feedback_reject",
+      "input": "我今天完成了第一项训练，用了30分钟。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_bc91a621e39845ca8cda14ea91824f4a",
+          "tool": "record_action_feedback",
+          "action": "reject",
+          "params": {
+            "action_id": "action_5dbc13e6bd0b48a99e5ffb6872b6337e",
+            "actual_date": "2026-09-20",
+            "actual_minutes": 30,
+            "completed_work": "完成第 1 天行动（力量训练）",
+            "expected_version": 0,
+            "kind": "partial"
+          },
+          "binding": {}
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "no_feedback_rows": true,
+        "answer_does_not_claim_recorded": true,
+        "no_false_claims": true
+      },
+      "passed": true,
+      "final_answer": "刚才那条记录没有生效——你在确认环节拒绝了这次写入，所以系统里第 1 天行动仍然是「未开始」状态，没有记录 30 分钟，也没有标记任何进展。\n\n当前真实状态：\n\n| 项目 | 内容 |\n|---|---|\n| 目标 | 四周力量计划（进行中） |\n| 今日行动 | 第 1 天行动，预计 30 分钟，状态：待执行 |\n| 进度 | 已完成 0 / 3 项必做 |\n\n如果你只是误点了拒绝，我可以再提交一次记录：完成内容为「第 1 天行动（力量训练）」，实际用时 30 分钟，日期 2026-09-20。你确认后我再写入。\n\n另外说明一下：这次记录的是「完成情况」，不会自动把行动标记为已完成，也不会开启任何提醒或每日复盘。如果你还想让我帮你复盘今天的训练感受和恢复状态，告诉我一声，我会以教练的角度问你几个问题再给结论。",
+      "elapsed_seconds": 19.605927799944766,
+      "model_calls": 5,
+      "usage": {
+        "uncached_input_tokens": 2323,
+        "cache_read_tokens": 20736,
+        "cache_write_tokens": 0,
+        "output_tokens": 465,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "id": "feedback_cancel",
+      "input": "记录一下，我今天练了20分钟。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_ffeb8a13918340d6b333f5eb8ba5a293",
+          "tool": "record_action_feedback",
+          "action": "cancel",
+          "params": {
+            "action_id": "action_43ed78b775a845f5a2dc1a39190b352c",
+            "actual_date": "2026-09-20",
+            "actual_minutes": 20,
+            "completed_work": "力量训练 20 分钟",
+            "expected_version": 0,
+            "kind": "partial",
+            "remaining_work": "当天计划原估 30 分钟，尚有约 10 分钟未完成"
+          },
+          "binding": {}
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "no_feedback_rows": true,
+        "no_false_claims": true
+      },
+      "passed": true,
+      "final_answer": "这项操作需要你的确认，确认后我会继续执行。",
+      "elapsed_seconds": 11.140184900024906,
+      "model_calls": 3,
+      "usage": {
+        "uncached_input_tokens": 1039,
+        "cache_read_tokens": 15744,
+        "cache_write_tokens": 0,
+        "output_tokens": 273,
+        "reasoning_tokens": 0
+      }
+    },
+    {
+      "id": "feedback_recovery",
+      "input": "我今天完成了第一项训练，用了25分钟。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_4e9c0745b0434c15a9ef0ab8c64cfabd",
+          "tool": "record_action_feedback",
+          "action": "approve",
+          "params": {
+            "action_id": "action_f6e7066fb436411a8750bb01abb94f39",
+            "actual_minutes": 25,
+            "completed_work": "完成第一项训练",
+            "expected_version": 0,
+            "kind": "partial",
+            "note": "用户自述：今天完成第一项训练，用时 25 分钟。"
+          },
+          "binding": {},
+          "restart_after_decision": true
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "one_feedback_row": true,
+        "process_restarted": true
+      },
+      "passed": true,
+      "final_answer": "当前暂时无法生成可用回答，请重试。",
+      "elapsed_seconds": 11.943405500031076,
+      "model_calls": 3,
+      "usage": {
+        "uncached_input_tokens": 1053,
+        "cache_read_tokens": 15744,
+        "cache_write_tokens": 0,
+        "output_tokens": 239,
+        "reasoning_tokens": 0
+      }
+    }
+  ],
+  "passed": 7,
+  "failed": 0,
+  "total_model_calls": 24,
+  "usage": {
+    "uncached_input_tokens": 8879,
+    "cache_read_tokens": 88448,
+    "cache_write_tokens": 0,
+    "output_tokens": 9673,
+    "reasoning_tokens": 4315
+  }
+}

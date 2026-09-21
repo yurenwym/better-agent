@@ -1,0 +1,85 @@
+{
+  "status": "completed",
+  "started_at": "2026-09-20T11:37:37.339164+00:00",
+  "completed_at": "2026-09-20T11:38:15.814599+00:00",
+  "model": "deepseek-flash",
+  "provider": "deepseek",
+  "configuration": {
+    "temperature": 0,
+    "thinking": false,
+    "max_output_tokens": 8192,
+    "max_attempts": 1,
+    "network_retries": 0,
+    "timeout_seconds": 120,
+    "database": "one disposable sqlite file per scenario in the output directory"
+  },
+  "source_hashes": {
+    "backend/app/live_model.py": "bc95b64d707933b29841b0037fd12f2f9ab49a42fc2e66944b75a94e55e047da",
+    "backend/app/conversation.py": "a916916008602f243d324bf137930680fc327db387f35655fe843f1ba9c5ec0d",
+    "backend/app/chat_tools.py": "ba148f0ac0189f67d45177ce13408848695487c751792140322f65eae0e7760b",
+    "backend/app/goal_tools.py": "44be0cb67a27850f03cc313d3f3c05a3b5216b405774f85588fd99121625cd24",
+    "backend/scripts/chat_tool_e2e.py": "dbb07cd317435646c5b90524f0c0ef0d9a754749ca7d013879c37c0dfdcc8401"
+  },
+  "limitations": [
+    "Approval decisions are made by the harness, not by the model.",
+    "Each scenario uses its own disposable SQLite database; PostgreSQL write semantics are covered by integration tests.",
+    "One run per scenario; passing does not imply production reliability."
+  ],
+  "rows": [
+    {
+      "id": "execution_management",
+      "input": "请开启这份攻略的执行管理：先生成执行预览，我确认后再激活。执行从明天开始，共三天，每天30分钟，时区 Asia/Shanghai。",
+      "status": "ok",
+      "decisions": [
+        {
+          "turn_id": "turn_759af6e417a44924836dea8458a0368c",
+          "tool": "activate_goal_plan",
+          "action": "approve",
+          "params": {
+            "daily_minutes": 30,
+            "document_id": "plan_b76dd79c5bf94d32a86d2fdb2fc9e121",
+            "end_date": "2026-09-23",
+            "expected_document_version_id": "planv_064778c4e44a410f8870f8c70a917b1f",
+            "mode": "preview",
+            "start_date": "2026-09-21",
+            "timezone": "Asia/Shanghai"
+          },
+          "binding": {}
+        },
+        {
+          "turn_id": "turn_ededa50045644e89b31e5b4a8b6406a6",
+          "action": "user_confirms_activation"
+        }
+      ],
+      "checks": {
+        "answer_nonempty": true,
+        "one_goal_program": true,
+        "program_active": false,
+        "has_actions": false,
+        "relative_dates_correct": true,
+        "schedule_constraints_correct": true
+      },
+      "passed": false,
+      "final_answer": "当前暂时无法生成可用回答，请重试。",
+      "elapsed_seconds": 37.840021900017746,
+      "model_calls": 5,
+      "usage": {
+        "uncached_input_tokens": 9251,
+        "cache_read_tokens": 3840,
+        "cache_write_tokens": 0,
+        "output_tokens": 5092,
+        "reasoning_tokens": 3098
+      }
+    }
+  ],
+  "passed": 0,
+  "failed": 1,
+  "total_model_calls": 5,
+  "usage": {
+    "uncached_input_tokens": 9251,
+    "cache_read_tokens": 3840,
+    "cache_write_tokens": 0,
+    "output_tokens": 5092,
+    "reasoning_tokens": 3098
+  }
+}

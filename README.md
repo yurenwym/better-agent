@@ -40,6 +40,8 @@ DEEPSEEK_API_KEY=<your-key>
 
 同样支持 `OPENAI_API_KEY` 和 `ANTHROPIC_API_KEY`。只配置一个供应商密钥时会自动选择它；同时配置多个时必须通过 `AGENT_MODEL_PROVIDER=openai|anthropic|deepseek` 明确选择。标准供应商会使用受审阅的默认端点、模型、能力与价格快照。自定义 `AGENT_MODEL_*` 端点仍受支持，但未知模型必须同时配置五项 `AGENT_MODEL_PRICE_*` 费率、`PRICE_EFFECTIVE_AT` 和 `PRICE_SOURCE_URL`，不会用虚构价格绕过预算门禁。
 
+官方 DeepSeek 端点（`https://api.deepseek.com`）的已识别模型默认使用 1,000,000 工作窗口：官方页面只写“1M”而未给出精确整数，因此该值按 `official-default` 保守整数默认记录，不宣称已验证精确边界；第三方代理和未知模型不会继承它。需要更小上限时显式设置 `DEEPSEEK_CONTEXT_WINDOW`（手动值生效）。预算计数使用启发式 `deepseek-text-estimate-v1`（估算 token = UTF-8 字节数 / 4，向上取整），它是估算而非已验证上界，真实 token 可能更多。
+
 `GET /api/model-readiness` 会在不访问供应商的前提下检查凭证引用、conversation/ask 角色路由、已生效价格和预算默认值。发送消息前也执行同一检查；配置不完整时直接返回结构化 `503`，不会先接受一个注定失败的任务。`network_verified=false` 表示尚未做真实供应商请求，不等同于配置失败。
 
 旧的 `LLM_AP_PATH` 仅为兼容已有验收脚本保留，日常启动不再要求 txt 文件。

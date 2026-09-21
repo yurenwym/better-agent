@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20260918_0019"
+POSTGRES_SCHEMA_HEAD = "20260920_0020"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1534,6 +1534,36 @@ MIGRATIONS = (*MIGRATIONS, (41, """
     -- so a job could not be audited against the policy that created it.
     ALTER TABLE memory_archive_jobs ADD COLUMN budget_policy_version TEXT;
     ALTER TABLE memory_archive_jobs ADD COLUMN budget_profile_version_id TEXT;
+"""))
+
+
+MIGRATIONS = (*MIGRATIONS, (42, """
+    -- D2: durable pending business-tool calls issued from a plain chat turn.
+    -- A READ call is executed inline and only needs its result replayed into
+    -- later transcripts. A WRITE call pauses the turn: the row keeps the tool
+    -- identity and parameters while the existing approvals table carries the
+    -- approval binding, so approval, replay and idempotency stay on the same
+    -- server-side machinery the Agent Runtime already uses.
+    CREATE TABLE IF NOT EXISTS turn_tool_calls (
+        id TEXT PRIMARY KEY,
+        turn_id TEXT NOT NULL,
+        thread_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        params_hash TEXT NOT NULL,
+        risk TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'PENDING_APPROVAL',
+        approval_id TEXT,
+        binding_json TEXT NOT NULL DEFAULT '{}',
+        result_json TEXT,
+        error_code TEXT,
+        continuation_turn_id TEXT,
+        decision_idempotency_key TEXT UNIQUE,
+        created_at TEXT NOT NULL,
+        acted_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_turn ON turn_tool_calls(turn_id, status);
+    CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_continuation ON turn_tool_calls(continuation_turn_id);
 """))
 
 

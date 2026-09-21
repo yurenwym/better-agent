@@ -1,0 +1,819 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "先在单独一行返回一个 JSON 控制头，再返回用户可见的 Markdown 正文。V1 用于仅回答兼容，V2 用于保存文档，V3 用于明确的深度研究，V4 用于有边界的专家协作。控制头 policy 只能是 answer|propose_execution|clarify|start_research|start_expert。仅当用户明确要求新的深度研究、调查或有来源报告时，返回 v=3、policy=start_research、content_shape=research、reason_code=explicit_deep_research、research={topic,scope:web}，且不要返回可见正文或 artifact。用户明确要求创建或保存新计划文档（当前会话尚无计划文档）时，使用 v=2 且只包含一个 artifact：kind=plan_document、operation=upsert 和简洁标题。控制头后返回完整 Markdown 文档，该可见正文就是保存内容。已有计划文档的修改必须调用 modify_plan_document 工具并经用户确认，不得用 artifact 覆盖已有内容；artifact 只用于首次保存。一般攻略、解释或只需回答的计划不得使用 artifact。artifact 权限只来自用户明确要求，绝不能仅凭关键词虚构保存意图。最高优先级保存规则：用户明确要求把对话中已经存在的完整计划写入或保存到计划页面，或据此生成计划文档，才算保存已有计划。单独要求生成全新文档不属于保存已有计划。保存已有计划时不得调用 ask_user，也不要再询问个性化信息；返回含 plan_document upsert artifact 的 v=2，并完整复现已有 Markdown，应用用户明确提出的修改。若历史中已有助手 Markdown 计划，且最新请求包含‘写进计划页面’、‘保存到计划’或‘生成文档’，视为保存已有计划，不得调用 ask_user。此规则优先于下面的个性化计划提问规则。新建计划文档且对话中尚无完整计划正文时，遵循个性化计划提问规则；ask_user 得到回答后，若原请求明确要求创建文档，则返回含 artifact 的 v=2。只有用户明确要求专家协作时才使用 start_expert，并遵从明确指定的专家角色。否则内容、解释、攻略、比较、行动求助和作为交付物的计划使用 answer，不得自行升级为专家协作。返回 v=4 和 expert={objective,roles}，roles 只能从 researcher、planner、critic 中选择，不返回可见正文。仅当用户明确要求在系统里创建持续执行任务、且当前对话已有可执行计划时，才使用 propose_execution；不要把生成攻略或保存文档升级为执行。执行管理是新链路：用户明确要求管理已保存计划的执行进度时，使用 activate_goal_plan 工具先编译执行预览、展示真实安排，再在用户确认该版本后激活；不得用文字建议代替工具调用。默认路径始终是先交付文档：生成攻略、行程、方案或安排直接回答，不保存、不激活；只有用户明确要求保存文档或开启执行管理才产生写入。根据当前请求和历史自行判断缺少哪些相关个人背景。个性化、长期或目标导向计划在缺少必要背景时必须先调用 ask_user。用户准备亲自遵循的训练教程、方案、日程或习惯计划属于目标导向交付物，应遵循同一规则。仅当用户明确要求通用解释/模板，或已经提供相关背景时才能跳过 ask_user；不要先回答后提问。若无法判断用户要通用解释还是个人计划，先问一个简洁的意图问题。只提本次请求真正需要的最少问题，不使用固定问卷，不询问无关信息。一般知识、宽泛攻略、模板，或可通过明确假设直接写出的有用第一版，应直接回答而不是询问偏好。ask_user 必须包含一到四个具体问题；同一响应中不要再输出正文或控制头。结构化询问不适用时，clarify 仅用于兼容旧版单问题文本。用户想复盘某个已在执行的计划时（例如说今天训练得怎么样、今天执行得如何、帮我复盘一下今天），调用 review_check_in 而不是 ask_user：制定行动时，依赖数据、材料或工具的步骤必须提供输入中可核验的资源入口、可直接使用的最小示例或可行替代；无法确认时标为待补材料，不编造链接或声称已验证。不仅罗列需要用户自行寻找的资源名称。先问清他今天真实的感受、遇到的困难与状态，一到三个问题，优先给出可选项；问题要像这份计划对应的专业角色那样提出（健身计划就像健身教练问训练与恢复，学习计划就像导师问方法与理解）。拿到回答后再以该角色的口吻给出简短、具体、可执行的复盘，不要在他回答之前就下结论。提醒、跟踪与复盘是三种独立请求：一次或周期性提醒都不等于进度跟踪，取消提醒也不改变已有进度记录；把每日复盘改成每周、或只取消总结而保留自主记录，都不等于取消进度跟踪；只有明确要求停止跟踪才算取消。按事件触发的每次复盘（例如每次跑步后复盘一次）不等于每日定时复盘，不要升级为每日服务。单次复盘用 review_check_in；每日或每周主动复盘属于周期服务，系统尚未提供可用配置入口时，如实说明并给出可行的替代方式，不得口头开启或承诺已开启。用户明确要求开启执行管理（即使说明自己查看今日任务）属于持续服务，按跟踪处理，不等于复盘或提醒。记录完成情况是跟踪，不是复盘；只有要求总结、分析或回顾表现时才算复盘。保存文档不等于激活执行；激活执行不等于授权主动提醒、定时监督或自动复盘。产品身份规则：你面向用户的名称始终是 Better Agent，是帮助用户研究、制定计划、执行、复盘并持续成长的本地个人 Agent。底层模型和模型供应商只是运行组件；不得自称 Claude、ChatGPT、DeepSeek、Anthropic、OpenAI 或任何其他底层模型、供应商，也不得虚构产品创建者。用户询问‘你是谁’时，应以 Better Agent 的身份简要说明与当前问题相关的能力。只有用户明确询问技术运行配置、当前模型或供应商时，才可以如实说明底层技术信息，并明确区分产品身份与底层模型。Markdown 正文中绝不暴露控制头、隐藏推理、工具结构或原始 JSON。使用用户的语言，并在控制头后立即开始有效答案。事实准确性：技术解释必须区分不同实现、适用条件和实践建议，不把可选优化、常见执行方式或经验建议写成必然机制。历史助手回答不是事实证据；发现错误时明确纠正，不为保持前后口径而重复错误。证据不足时说明不确定性，不编造核验过程。只有实际工具结果或用户提供的证据支持时，才能声称已验证、已测试或验收通过；不得自行宣布系统无需修复。用户已明确给出的时长、预算、日期和禁用条件是硬约束，不能擅自放宽，不能先违反再写‘如果严格限制就缩短’。有明确日期的学习计划使用阶段表（阶段、日期、学习日）与逐日表（日、日期、任务、验收标准）；阶段计数必须与逐日日期一致。不要在计划正文中声称已保存、已激活或已经执行；这些状态由应用根据持久化结果展示。需要查询或改变系统状态时使用提供的工具：用户明确要求管理执行进度（生成执行预览并激活）、查看目标或今日任务、记录行动进展、延期行动、修改已有计划文档时必须调用对应工具，不能只用文字建议代替操作。调用工具前先读取真实的目标、行动、文档 ID 与版本号；绝不编造 document_id、program_id、action_id、版本号或工具结果。写入类工具会先请求用户确认；在收到成功回执之前，不得声称已保存、已开启、已激活、已取消、已延期或已提醒。操作结果只依据成功回执：工具失败、被拒绝或仍在等待确认时，如实说明现状与下一步，不得把建议、计划或承诺说成系统已执行。保存计划文档成功后即可结束，不主动追问是否开启每日复盘；未实际配置调度时不得声称已开启每日复盘或提醒。计划的表格、逐日说明、调整建议必须统一遵守上限；热身和放松包含在总时长内，只覆盖请求的时间范围，不附加下周加量。\n当前服务器时间（UTC）：2026-09-20T11:38:08+00:00。解析今天、明天等相对日期时，先换算到用户明确指定的时区；时区不明且影响执行日期时先澄清，不得假定当前日期或沿用历史日期。"
+      },
+      {
+        "role": "user",
+        "content": "请开启这份攻略的执行管理：先生成执行预览，我确认后再激活。执行从明天开始，共三天，每天30分钟，时区 Asia/Shanghai。"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "chat-tool-85db4b67fb8c43669f3a615268fcce77",
+            "type": "function",
+            "function": {
+              "name": "activate_goal_plan",
+              "arguments": "{\"daily_minutes\": 30, \"document_id\": \"plan_b76dd79c5bf94d32a86d2fdb2fc9e121\", \"end_date\": \"2026-09-23\", \"expected_document_version_id\": \"planv_064778c4e44a410f8870f8c70a917b1f\", \"mode\": \"preview\", \"start_date\": \"2026-09-21\", \"timezone\": \"Asia/Shanghai\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "chat-tool-85db4b67fb8c43669f3a615268fcce77",
+        "content": "{\"data\": {\"actions\": [{\"estimated_minutes\": 10, \"logical_key\": \"a_d1_check\", \"position\": 1, \"required\": true, \"scheduled_date\": \"2026-09-21\", \"title\": \"核实象鼻山开放信息\"}, {\"estimated_minutes\": 15, \"logical_key\": \"a_d1_route\", \"position\": 2, \"required\": true, \"scheduled_date\": \"2026-09-21\", \"title\": \"安排当日交通与顺序\"}, {\"estimated_minutes\": 15, \"logical_key\": \"a_d2_boat\", \"position\": 1, \"required\": true, \"scheduled_date\": \"2026-09-22\", \"title\": \"选定漓江游览方式\"}, {\"estimated_minutes\": 15, \"logical_key\": \"a_d2_ticket\", \"position\": 2, \"required\": true, \"scheduled_date\": \"2026-09-22\", \"title\": \"确认班次与订票\"}, {\"estimated_minutes\": 15, \"logical_key\": \"a_d3_stay\", \"position\": 1, \"required\": true, \"scheduled_date\": \"2026-09-23\", \"title\": \"落实阳朔住宿\"}, {\"estimated_minutes\": 10, \"logical_key\": \"a_d3_return\", \"position\": 2, \"required\": true, \"scheduled_date\": \"2026-09-23\", \"title\": \"确定返程与行李清单\"}], \"activated\": false, \"calendar\": {\"available_dates\": [\"2026-09-21\", \"2026-09-22\", \"2026-09-23\"], \"natural_days\": 3, \"rest_dates\": [], \"study_days\": 3}, \"compile_status\": \"READY\", \"confirmation_snapshot_hash\": \"sha256:d7067fe7800ae33d6820105e8abba451614bb78ce5c526f5801fb6202ff5818c\", \"daily_minutes\": 30, \"end_date\": \"2026-09-23\", \"program_id\": \"program_bf28b116f22d4706b4604d92381a29f3\", \"program_version\": 1, \"source_document_version_id\": \"planv_064778c4e44a410f8870f8c70a917b1f\", \"source_plan_content_hash\": \"sha256:500e545e91730f072c8a609383c23072f0c41d28f3fcff1a5f377e2320da53d5\", \"start_date\": \"2026-09-21\", \"timezone\": \"Asia/Shanghai\"}, \"error\": null, \"ok\": true, \"summary\": \"已生成执行预览，请确认具体安排后再激活。\"}"
+      },
+      {
+        "role": "assistant",
+        "content": "这项操作需要你的确认，确认后我会继续执行。"
+      },
+      {
+        "role": "user",
+        "content": "（系统）待确认的工具操作已经有了结果。请依据工具结果继续完成用户最初的请求：成功时用工具返回的真实内容回答；失败或被拒绝时如实说明，不得声称操作已完成。"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "ask_user",
+          "description": "向用户询问继续当前目标所需的最少信息。仅在需要用户提供关键信息时提问。若助手此前已经给出 Markdown 计划，且用户要求保存为计划文档或写入计划页面，不要调用此工具；应直接返回 V2 plan_document 响应。",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "questions"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "header",
+                    "question",
+                    "options",
+                    "multi_select",
+                    "allow_free_text"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "header": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "question": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 400
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "description"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 200
+                          }
+                        }
+                      }
+                    },
+                    "multi_select": {
+                      "type": "boolean"
+                    },
+                    "allow_free_text": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "review_check_in",
+          "description": "当用户想复盘某个执行计划（目标、训练计划、学习计划等）当天或最近的实际表现时调用：先向他问清真实的感受、遇到的困难与当天状态，再据此复盘。问题要像这份计划对应的专业角色那样提出（健身计划就像教练问训练与恢复，学习计划就像导师问方法与理解），并优先给出可选项，方便他直接点选。一次最多问四个问题，且不要在同一次响应里输出正文。",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "questions"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "header",
+                    "question",
+                    "options",
+                    "multi_select",
+                    "allow_free_text"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "header": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "question": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 400
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "description"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 200
+                          }
+                        }
+                      }
+                    },
+                    "multi_select": {
+                      "type": "boolean"
+                    },
+                    "allow_free_text": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "create_plan_draft",
+          "description": "保存根据用户目标生成的计划草稿，供用户查看和确认。不会创建已激活的执行目标，也不会覆盖当前会话已有计划。保存成功只代表文档可交付，不代表开启执行管理、提醒或每日复盘；用户明确要求管理执行进度时再使用 activate_goal_plan。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "title": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Title",
+                "type": "string"
+              },
+              "markdown_content": {
+                "maxLength": 30000,
+                "minLength": 1,
+                "title": "Markdown Content",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "markdown_content"
+            ],
+            "title": "CreatePlanDraftParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "modify_plan_document",
+          "description": "修改已有计划文档并提交新版本，需要用户确认。只产生新版本，不会自动改写已激活的执行安排，也不会开启提醒或复盘；必须使用读取到的 document_id 与 expected_version_id，不能编造。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "document_id": {
+                "minLength": 1,
+                "title": "Document Id",
+                "type": "string"
+              },
+              "expected_version_id": {
+                "minLength": 1,
+                "title": "Expected Version Id",
+                "type": "string"
+              },
+              "title": {
+                "maxLength": 200,
+                "minLength": 1,
+                "title": "Title",
+                "type": "string"
+              },
+              "markdown_content": {
+                "maxLength": 30000,
+                "minLength": 1,
+                "title": "Markdown Content",
+                "type": "string"
+              }
+            },
+            "required": [
+              "document_id",
+              "expected_version_id",
+              "title",
+              "markdown_content"
+            ],
+            "title": "ModifyPlanDocumentParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "activate_goal_plan",
+          "description": "将已保存的计划编译为执行预览，并在用户确认该预览后激活。preview 只生成待确认目标；activate 必须有系统验证的用户确认，不能自行跳过。activate 只传 mode、program_id、expected_version，不要携带 document_id、文档版本、日期或预览字段，携带会被拒绝。激活只建立行动安排和进度记录，不代表开启主动提醒、定时监督或自动复盘；未实际配置调度时不得声称已开启每日复盘。",
+          "parameters": {
+            "$defs": {
+              "ScheduleConstraints": {
+                "additionalProperties": false,
+                "properties": {
+                  "available_weekdays": {
+                    "items": {
+                      "type": "integer"
+                    },
+                    "title": "Available Weekdays",
+                    "type": "array"
+                  },
+                  "excluded_dates": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "title": "Excluded Dates",
+                    "type": "array"
+                  }
+                },
+                "title": "ScheduleConstraints",
+                "type": "object"
+              }
+            },
+            "additionalProperties": false,
+            "properties": {
+              "mode": {
+                "enum": [
+                  "preview",
+                  "activate"
+                ],
+                "title": "Mode",
+                "type": "string"
+              },
+              "document_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Document Id"
+              },
+              "expected_document_version_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Document Version Id"
+              },
+              "start_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Start Date"
+              },
+              "end_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "End Date"
+              },
+              "timezone": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Timezone"
+              },
+              "daily_minutes": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Daily Minutes"
+              },
+              "constraints": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ScheduleConstraints"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null
+              },
+              "program_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Program Id"
+              },
+              "expected_version": {
+                "anyOf": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Version"
+              }
+            },
+            "required": [
+              "mode"
+            ],
+            "title": "ActivateGoalPlanParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "query_goals",
+          "description": "查询当前用户的长期目标列表或指定目标详情。用户未明确目标时先查询候选；不要猜测目标 ID。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "program_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Program Id"
+              },
+              "offset": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              },
+              "limit": {
+                "default": 10,
+                "maximum": 20,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "title": "QueryGoalsParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_today_tasks",
+          "description": "查询今日或指定日期的行动安排，同时区分逾期和已完成事项。默认日期按各目标所在时区确定。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "program_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Program Id"
+              },
+              "date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Date"
+              },
+              "offset": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              },
+              "limit": {
+                "default": 20,
+                "maximum": 50,
+                "minimum": 1,
+                "title": "Limit",
+                "type": "integer"
+              }
+            },
+            "title": "GetTodayTasksParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_action_context",
+          "description": "读取一个行动的目标背景、任务说明、完成标准、已有进展和最新版本。记录反馈或延期前应先读取。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "minLength": 1,
+                "title": "Action Id",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action_id"
+            ],
+            "title": "GetActionContextParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "get_plan",
+          "description": "读取目标关联的计划文档。默认读取生成该目标时绑定的计划版本；只有查看最新文档时选择 latest。内容分段返回，可继续读取。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "program_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Program Id"
+              },
+              "version_mode": {
+                "default": "goal_source",
+                "enum": [
+                  "goal_source",
+                  "latest"
+                ],
+                "title": "Version Mode",
+                "type": "string"
+              },
+              "document_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Document Id"
+              },
+              "expected_version_id": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Expected Version Id"
+              },
+              "offset": {
+                "default": 0,
+                "minimum": 0,
+                "title": "Offset",
+                "type": "integer"
+              },
+              "max_chars": {
+                "default": 8000,
+                "maximum": 16000,
+                "minimum": 500,
+                "title": "Max Chars",
+                "type": "integer"
+              }
+            },
+            "title": "GetPlanParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "record_action_feedback",
+          "description": "记录用户明确陈述的行动进展或更正已有反馈，不标记行动完成。不得推测投入时间、难度和完成情况。调用前读取最新行动版本。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "minLength": 1,
+                "title": "Action Id",
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "title": "Expected Version",
+                "type": "integer"
+              },
+              "kind": {
+                "enum": [
+                  "partial",
+                  "correction"
+                ],
+                "title": "Kind",
+                "type": "string"
+              },
+              "actual_date": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Actual Date"
+              },
+              "actual_minutes": {
+                "anyOf": [
+                  {
+                    "maximum": 1440,
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Actual Minutes"
+              },
+              "difficulty": {
+                "anyOf": [
+                  {
+                    "maximum": 5,
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Difficulty"
+              },
+              "note": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Note"
+              },
+              "completed_work": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Completed Work"
+              },
+              "remaining_work": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Remaining Work"
+              },
+              "output": {
+                "anyOf": [
+                  {
+                    "maxLength": 2000,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Output"
+              },
+              "cleared_fields": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "title": "Cleared Fields"
+              }
+            },
+            "required": [
+              "action_id",
+              "expected_version",
+              "kind"
+            ],
+            "title": "RecordActionFeedbackParams",
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "defer_action",
+          "description": "将待执行行动延期到用户指定的更晚日期。操作会保留原行动并创建替代行动；必须使用最新版本，并遵守目标日历和每日容量限制。",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "action_id": {
+                "minLength": 1,
+                "title": "Action Id",
+                "type": "string"
+              },
+              "expected_version": {
+                "minimum": 0,
+                "title": "Expected Version",
+                "type": "integer"
+              },
+              "scheduled_date": {
+                "title": "Scheduled Date",
+                "type": "string"
+              }
+            },
+            "required": [
+              "action_id",
+              "expected_version",
+              "scheduled_date"
+            ],
+            "title": "DeferActionParams",
+            "type": "object"
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": null,
+    "role": "conversation",
+    "purpose": "route_and_respond",
+    "thinking": false,
+    "response_format": null,
+    "single_attempt": false
+  },
+  "status": "ok",
+  "started_at": "2026-09-20T11:38:08.063640+00:00",
+  "response": {
+    "message": "执行预览已生成（尚未激活）。以下是系统编译出的真实安排：\n\n**执行预览**\n\n- 计划来源：当前攻略文档（版本 `planv_064778c4e44a410f8870f8c70a917b1f`）\n- 时间范围：2026-09-21 至 2026-09-23，共 3 个自然日，均为执行日，无休息日\n- 时区：Asia/Shanghai\n- 每日容量：30 分钟\n- 编译状态：READY（可激活）\n\n**逐日安排**\n\n| 日期 | 行动 | 预计用时 |\n|---|---|---|\n| 2026-09-21 | 核实象鼻山开放信息 | 10 分钟 |\n| 2026-09-21 | 安排当日交通与顺序 | 15 分钟 |\n| 2026-09-22 | 选定漓江游览方式 | 15 分钟 |\n| 2026-09-22 | 确认班次与订票 | 15 分钟 |\n| 2026-09-23 | 落实阳朔住宿 | 15 分钟 |\n| 2026-09-23 | 确定返程与行李清单 | 10 分钟 |\n\n每天合计 25 分钟，在你设定的 30 分钟上限内。\n\n**请确认**：以上安排是否符合预期？确认后我再执行激活。激活只会建立行动安排和进度记录，不会自动开启主动提醒、定时监督或每日复盘——如果你需要这些，请另外告诉我。",
+    "tool_calls": [],
+    "finish_reason": "stop",
+    "usage": {
+      "uncached_input_tokens": 4527,
+      "cache_read_tokens": 1536,
+      "cache_write_tokens": 0,
+      "output_tokens": 330,
+      "reasoning_tokens": 0
+    },
+    "timing": {
+      "started_at": 807122.8197945,
+      "first_token_at": 807125.7216214,
+      "finished_at": 807127.0015791
+    },
+    "attempts": 1
+  },
+  "elapsed_seconds": 4.184295699931681
+}

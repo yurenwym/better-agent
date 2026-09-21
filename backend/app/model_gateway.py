@@ -420,6 +420,8 @@ class ModelGateway:
                     if on_text_delta is not None:
                         on_text_delta(value)
 
+                if handle is not None:
+                    self.control_store.record_request_estimate(handle, attempt_count, self.profile, request)
                 response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
                 response = ModelResponse(**{**response.__dict__, "attempts": attempt_count})
                 if handle is not None:

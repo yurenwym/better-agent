@@ -279,3 +279,36 @@ def test_merged_episode_keeps_decisions_and_outcomes_under_long_chunks() -> None
         json.dumps(merged, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     )
     assert size <= MAX_SUMMARY_OUTPUT_TOKENS
+
+
+def test_worker_hot_window_uses_the_gateway_resolved_profile(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from test_runtime import make_runtime
+
+    from app.config import load_model_profile_from_env
+    from app.token_budget import hot_window
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://provider.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "demo")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    monkeypatch.setenv("AGENT_MODEL_CONTEXT_WINDOW", "65536")
+    profile = load_model_profile_from_env()
+
+    class RouteModel:
+        gateway = SimpleNamespace(resolved_profile=lambda context=None, **kwargs: profile)
+
+        async def route_and_respond(self, **_kwargs):
+            raise AssertionError("not used")
+
+    runtime = make_runtime(tmp_path, RouteModel())
+    thread = runtime.conversation.create_thread("window")
+    accepted = runtime.conversation.accept_turn(thread.id, "window-1", "hi", [])
+    turn = runtime.conversation.turn(accepted.turn_id)
+
+    window = runtime.turn_worker.primary._hot_window(turn, "local-user")
+
+    assert window is not None
+    assert window.input_limit == hot_window(profile).input_limit
+    assert window.input_limit > 12_000

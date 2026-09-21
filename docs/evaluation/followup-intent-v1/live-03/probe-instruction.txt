@@ -1,0 +1,7 @@
+本次为意图观测，替换前述输出格式：不生成攻略，不执行工具，只返回一个 JSON 对象。
+字段必须为 tracking、review、document、reason。
+tracking: none（没有新增或取消持续跟踪请求，或保留原状）、enable（请求持续跟进，含主动周期复盘）、disable（取消跟踪）、clarify（是否跟踪不清楚）。
+review: none（无本次复盘或变更复盘服务的请求）、once（单次复盘）、daily（要求每日主动复盘）、weekly（要求每周主动复盘）、stop（取消既有复盘）、clarify（复盘意图不明确）。
+document: answer（只需回答或非文档操作）、save（创建或保存文档）、modify（修改现有计划内容）。
+reason: 一句说明判断所依据的用户表达。
+标签针对最新请求涉及的目标和本次操作，不是用户全部历史偏好的汇总。不把缺少日期等操作参数当作意图不明。

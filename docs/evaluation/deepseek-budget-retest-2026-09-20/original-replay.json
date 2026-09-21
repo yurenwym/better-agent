@@ -1,0 +1,15 @@
+{
+  "status": "passed",
+  "mode": "original production history read-only replay through mocked HTTP transport; no provider request",
+  "source_thread_id": "thread_6e29935d71644c56ae07112dd2ae2ae3",
+  "source_turn_id": "turn_d77eb4d35fe041c6abf35c7af2f658c7",
+  "canonical_payload_bytes": 25408,
+  "estimated_input_tokens": 6352,
+  "context_window": 32768,
+  "tool_count": 11,
+  "input_limit": 23348,
+  "packing_limit": 23298,
+  "final_transport_calls": 1,
+  "preserved_messages": true,
+  "preserved_tools": true
+}

@@ -1026,6 +1026,37 @@ def register_routes(app) -> None:
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="turn not found") from exc
 
+    @app.get("/api/turns/{turn_id}/tool-call")
+    async def get_turn_tool_call(turn_id: str, service=Depends(conversation)) -> dict[str, Any]:
+        try:
+            call = service.pending_tool_call(turn_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        if call is None:
+            raise HTTPException(status_code=404, detail="no pending tool call")
+        return {"tool_call": call.as_dict()}
+
+    @app.post("/api/turns/{turn_id}/tool-call/decision", dependencies=[Depends(mutate)])
+    async def decide_turn_tool_call(
+        turn_id: str,
+        payload: dict[str, Any],
+        service=Depends(conversation),
+    ) -> dict[str, Any]:
+        action = payload.get("action")
+        idempotency_key = payload.get("idempotency_key")
+        expected_version = payload.get("expected_version")
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise HTTPException(status_code=422, detail="expected_version must be an integer")
+        if not isinstance(action, str) or not isinstance(idempotency_key, str):
+            raise HTTPException(status_code=422, detail="action and idempotency_key are required")
+        try:
+            turn = service.decide_tool_call(turn_id, action, expected_version, idempotency_key)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return {"turn": _turn_json(turn)}
+
     @app.post("/api/threads/{thread_id}/research", status_code=202, dependencies=[Depends(mutate)])
     async def create_research(thread_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
         research = getattr(service, "research", None)
@@ -1868,6 +1899,7 @@ def _run_json(run, service) -> dict[str, Any]:
         "version": run.version,
         "budget": _public_budget(run.budget),
         "pending_approvals": [approval.id for approval in service.pending_approvals(run.id)],
+        "approval_details": service.approval_details(run.id),
         "skill_names": list(run.skill_names),
         "source_plan_document_id": run.source_plan_document_id,
         "source_plan_document_version_id": run.source_plan_document_version_id,

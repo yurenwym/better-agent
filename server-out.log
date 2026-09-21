@@ -1,0 +1,467 @@
+
+> better-agent-ui@1.0.0 build
+> tsc -b && vite build
+
+[36mvite v8.2.1 [32mbuilding client environment for production...[36m[39m
+[2Ktransforming...[33m[vite:css][postcss] @import must precede all other statements (besides @charset or empty @layer)
+4  |  
+5  |  /* UI/UX Pro Max: DeepSeek-inspired local conversation workspace */
+6  |  @import "./tokens.css";
+   |  ^^^^^^^^^^^^^^^^^^^^^^^
+7  |  
+8  |  :root {[39m
+✓ 1971 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                               0.86 kB │ gzip:   0.47 kB
+dist/assets/TodayPage-C6IGmQTd.css            1.50 kB │ gzip:   0.53 kB
+dist/assets/PlanningWorkspace-BXScPDQA.css    6.41 kB │ gzip:   1.41 kB
+dist/assets/index-sIkZ-Y_N.css              163.27 kB │ gzip:  25.68 kB
+dist/assets/arrow-up-right-BRvPrzqe.js        0.19 kB │ gzip:   0.17 kB
+dist/assets/UsagePage-BUWFRCX3.js             3.64 kB │ gzip:   1.40 kB
+dist/assets/PlanningWorkspace-DI2KCyX2.js     5.25 kB │ gzip:   2.09 kB
+dist/assets/SchedulesPage-CohxBFz-.js         7.40 kB │ gzip:   2.52 kB
+dist/assets/GoalWorkspacePage-tnlxy-Px.js     8.62 kB │ gzip:   2.96 kB
+dist/assets/SkillsPage-CfwI-BRs.js            9.24 kB │ gzip:   2.80 kB
+dist/assets/EvaluationPage-DYyPXB7m.js       10.20 kB │ gzip:   3.43 kB
+dist/assets/TrajectoryPage-CMRLvnSg.js       11.32 kB │ gzip:   3.88 kB
+dist/assets/MemoryPage-C4Ixt2LE.js           12.33 kB │ gzip:   3.59 kB
+dist/assets/ResearchPage-BjhYlvlH.js         12.68 kB │ gzip:   4.57 kB
+dist/assets/ModelsPage-BI_9si2K.js           12.98 kB │ gzip:   4.14 kB
+dist/assets/GrowthPage-Dgah5Qg7.js           22.47 kB │ gzip:   7.48 kB
+dist/assets/ChatPage-BchpvPFD.js             27.33 kB │ gzip:   9.62 kB
+dist/assets/useThreadTelemetry-8mZgMwdc.js   30.85 kB │ gzip:  10.24 kB
+dist/assets/PlanPage-CYN91b56.js             31.58 kB │ gzip:   9.48 kB
+dist/assets/TodayPage-v8CUN4Jn.js            45.27 kB │ gzip:  12.12 kB
+dist/assets/index-DxdaSrIJ.js               396.16 kB │ gzip: 124.41 kB
+
+[32m✓ built in 1.30s[39m
+INFO:     Started server process [18968]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5530 - "GET /api/model-readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3657 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3657 - "GET /api/model-readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /threads/thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /assets/index-DxdaSrIJ.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14456 - "GET /assets/index-sIkZ-Y_N.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14456 - "GET /assets/useThreadTelemetry-8mZgMwdc.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /assets/ChatPage-BchpvPFD.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/bootstrap HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14456 - "GET /api/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2398 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:2398 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4361 - "GET /api/skills HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2398 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14456 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5173 - "GET /api/research/jobs?thread_id=thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5173 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11564 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2899 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /threads/thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /assets/index-5RtfkaAM.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11462 - "GET /assets/index-BXCDniUh.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /assets/ChatPage-CfbJgBPn.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11462 - "GET /assets/useThreadTelemetry-CQymaPvR.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11462 - "GET /api/bootstrap HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/threads HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11462 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12050 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12592 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /api/research/jobs?thread_id=thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/skills HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2569 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:2569 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2569 - "GET /favicon.ico HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:2569 - "GET /assets/PlanningWorkspace-BxD5pPRC.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14381 - "GET /assets/arrow-up-right-BMmQ2pPk.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /assets/GoalWorkspacePage-CBkap5C_.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12592 - "GET /assets/PlanPage-CeqUBCmv.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11462 - "GET /assets/TodayPage-C6IGmQTd.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12050 - "GET /assets/TodayPage-BtUOH198.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2569 - "GET /assets/PlanningWorkspace-BXScPDQA.css HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2569 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2569 - "GET /api/programs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12050 - "GET /api/plans HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/today HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /assets/ResearchPage-CD2flZii.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/research/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /assets/MemoryPage-D2h88p8S.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/memories HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /assets/GrowthPage-_UZ31_Z4.js HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/growth/profile HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/skills HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/research/jobs?thread_id=thread_6e29935d71644c56ae07112dd2ae2ae3 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/events/stream?after_seq=92&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_6e29935d71644c56ae07112dd2ae2ae3/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/research/jobs?thread_id=thread_47124990bbb14a96900209a625c0723b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:11215 - "GET /api/threads/thread_47124990bbb14a96900209a625c0723b/events/stream?after_seq=11&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/research/jobs?thread_id=thread_4b0dc05b0fb44f93956263764f63fa54 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54/expert-runs/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54/events/stream?after_seq=133&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/research/jobs?thread_id=thread_f29b9929694f4921834b16d87c50b611 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/agent-runs/agent_run_7dd50872451f4f5fb7d605b1c69cd92c/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611/events/stream?after_seq=365&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_f29b9929694f4921834b16d87c50b611/expert-runs/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/actions/action_d1898899abd842c9a28d9357d15129bf HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11215 - "GET /api/research/jobs?thread_id=thread_471edd86c5d44711905a7c9e65a76681 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8062 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11635 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/agent-runs/agent_run_2142c3a7ccb54c6c8f632d7aa6b60144/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/events/stream?after_seq=51&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "DELETE /api/threads/thread_471edd86c5d44711905a7c9e65a76681 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/events?after_seq=0 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_471edd86c5d44711905a7c9e65a76681/messages HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:13298 - "DELETE /api/threads/thread_ba0a9be43ae44817b363b96fa3545e6c HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:13298 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5297 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1209 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8940 - "GET /api/research/jobs?thread_id=thread_6c08af046f6b41b8bba33e6830869b72 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7869 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/expert-runs/latest HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8940 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/events/stream?after_seq=435&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1209 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7869 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8940 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:8940 - "DELETE /api/threads/thread_6c08af046f6b41b8bba33e6830869b72 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:8940 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:7869 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/events?after_seq=0 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:1209 - "GET /api/threads/thread_6c08af046f6b41b8bba33e6830869b72/messages HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:5297 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11567 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928/tasks HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "GET /api/agent-runs/agent_run_61bd47ac4ace4ee9a8210b1ed857f928/artifacts HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13298 - "DELETE /api/threads/thread_f29b9929694f4921834b16d87c50b611 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:13298 - "DELETE /api/threads/thread_79a6678e63354ec29b493932f85c77b0 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:13298 - "DELETE /api/threads/thread_4b0dc05b0fb44f93956263764f63fa54 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:13298 - "DELETE /api/threads/thread_47124990bbb14a96900209a625c0723b HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:10631 - "GET /api/memories HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10631 - "GET /api/growth/profile HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10631 - "GET /api/research/jobs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10631 - "GET /api/programs HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2193 - "GET /api/plans HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4696 - "GET /api/today HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4696 - "GET /api/skills HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3692 - "DELETE /api/threads/thread_50c614e437c5481fb90284594119cf52 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:3692 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/archive HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12339 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6299 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/events?after_seq=0 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7708 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14753 - "GET /api/research/jobs?thread_id=thread_d3eba885014d4f638ac2718563036289 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2112 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/expert-runs/latest HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:14753 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/events/stream?after_seq=70&follow=1 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14753 - "DELETE /api/threads/thread_d3eba885014d4f638ac2718563036289 HTTP/1.1" 204 No Content
+INFO:     127.0.0.1:14753 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:2112 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/events?after_seq=0 HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:7708 - "GET /api/threads/thread_d3eba885014d4f638ac2718563036289/messages HTTP/1.1" 404 Not Found
+INFO:     127.0.0.1:11041 - "GET /api/model-readiness HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3332 - "GET /api/bootstrap HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3333 - "POST /api/threads HTTP/1.1" 201 Created
+INFO:     127.0.0.1:3334 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:3340 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3341 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3344 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9097 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7815 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14412 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14414 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14415 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:14416 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14430 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14431 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14432 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14437 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14440 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10032 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7831 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14268 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14270 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14272 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14273 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14274 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14276 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14279 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14280 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:14281 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6676 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:6682 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12309 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12592 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5437 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7660 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7672 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11558 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3347 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1680 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1682 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1684 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1685 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:1687 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1692 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5972 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10645 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12904 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12907 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12909 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12913 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12914 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:10664 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11628 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5684 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5707 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5708 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:5709 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:5712 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13160 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13164 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13167 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2605 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2607 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2612 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2621 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2624 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2628 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14175 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14183 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14185 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14186 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:14188 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2891 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2898 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2906 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2924 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2927 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2928 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2932 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3844 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3865 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3871 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4436 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11054 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11055 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11056 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:11057 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11066 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11068 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11078 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11080 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11082 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11083 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11084 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:11085 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9453 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4479 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4492 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4496 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4503 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4505 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4506 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:4507 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4514 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4524 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4538 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4553 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:4554 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12081 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13126 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13127 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13130 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13149 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13154 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13156 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13157 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:13163 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13170 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13171 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:13174 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:14938 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9598 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9603 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9604 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9605 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2260 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2263 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2264 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:2275 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2283 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2284 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3042 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3043 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3044 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3045 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3047 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3052 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3053 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3055 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3056 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3059 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3060 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2821 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2822 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2823 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2824 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:2828 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2835 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2837 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2838 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2845 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2857 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2858 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:2860 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9610 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9614 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9616 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9619 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9620 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9621 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9623 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9629 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9632 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK
+INFO:     127.0.0.1:9634 - "POST /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/turns HTTP/1.1" 202 Accepted
+INFO:     127.0.0.1:11123 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3287 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:3290 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:12209 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7721 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7725 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:7728 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1952 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/messages HTTP/1.1" 200 OK
+INFO:     127.0.0.1:1953 - "GET /api/threads/thread_102966a3edea4f3fbf453b23b254ffad/events HTTP/1.1" 200 OK

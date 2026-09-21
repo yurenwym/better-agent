@@ -1,0 +1,1008 @@
+[
+  {
+    "id": "H01",
+    "split": "holdout",
+    "family": "sailing_weather_log",
+    "targets": [
+      {
+        "id": "sail",
+        "description": "sail",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "帆船集训 sail，每天清晨由助手主动回顾前一天航行记录和操作失误，持续到结营。",
+    "expected": {
+      "intents": [
+        {
+          "target": "sail",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H02",
+    "split": "holdout",
+    "family": "rehab_daily_change",
+    "targets": [
+      {
+        "id": "rehab",
+        "description": "rehab",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "rehab 康复练习结束一天后，请你每天主动比较当天和前一天的感受并总结变化，进度记录不用开。",
+    "expected": {
+      "intents": [
+        {
+          "target": "rehab",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H03",
+    "split": "holdout",
+    "family": "debate_daily_feedback",
+    "targets": [
+      {
+        "id": "debate",
+        "description": "debate",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "debate 辩论备赛期间你每天下午主动分析当天论证训练中的不足，并提出改进。",
+    "expected": {
+      "intents": [
+        {
+          "target": "debate",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H04",
+    "split": "holdout",
+    "family": "shop_close_daily",
+    "targets": [
+      {
+        "id": "shop",
+        "description": "shop",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "店铺 shop 每天打烊时，你主动分析我上传的经营数据，复盘客诉与转化情况。",
+    "expected": {
+      "intents": [
+        {
+          "target": "shop",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H05",
+    "split": "holdout",
+    "family": "volunteer_daily_learning",
+    "targets": [
+      {
+        "id": "volunteer",
+        "description": "volunteer",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "volunteer 志愿活动这周每天结束后，由你主动总结当天协作问题，而不是等我来问。",
+    "expected": {
+      "intents": [
+        {
+          "target": "volunteer",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H06",
+    "split": "holdout",
+    "family": "coding_kata_daily_recap",
+    "targets": [
+      {
+        "id": "kata",
+        "description": "kata",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 kata，每日22点自动发起当日编程练习回顾，关注重复犯的错误，不要单独加学习提醒。",
+    "expected": {
+      "intents": [
+        {
+          "target": "kata",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H07",
+    "split": "holdout",
+    "family": "retain_reminder_new_feedback",
+    "targets": [
+      {
+        "id": "stretch",
+        "description": "stretch",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "recurring",
+        "document": "absent"
+      },
+      {
+        "id": "interview",
+        "description": "interview",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对 stretch，原来的提醒照常。对 interview，现在帮我复盘刚刚结束的这场模拟面试，仅这一次。",
+    "expected": {
+      "intents": [
+        {
+          "target": "stretch",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        },
+        {
+          "target": "interview",
+          "tracking": "none",
+          "review": "once",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H08",
+    "split": "holdout",
+    "family": "two_reminder_actions",
+    "targets": [
+      {
+        "id": "vehicle",
+        "description": "vehicle",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "recurring",
+        "document": "absent"
+      },
+      {
+        "id": "package",
+        "description": "package",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "取消 vehicle 的保养提醒；为 package 只设置明晚取快递的提醒。",
+    "expected": {
+      "intents": [
+        {
+          "target": "vehicle",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "stop",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        },
+        {
+          "target": "package",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "once",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H09",
+    "split": "holdout",
+    "family": "two_targets_independent_cycles",
+    "targets": [
+      {
+        "id": "yoga",
+        "description": "yoga",
+        "tracking": "enabled",
+        "review": "daily",
+        "reminder": "unknown",
+        "document": "absent"
+      },
+      {
+        "id": "coffee",
+        "description": "coffee",
+        "tracking": "enabled",
+        "review": "weekly",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 yoga 改为每周我交记录后复盘；对象 coffee 改为每月你主动分析一次消费。两个目标的进度跟踪都保持。",
+    "expected": {
+      "intents": [
+        {
+          "target": "yoga",
+          "tracking": "none",
+          "review": "weekly",
+          "review_initiation": "user_initiated",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        },
+        {
+          "target": "coffee",
+          "tracking": "none",
+          "review": "other_recurring",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H10",
+    "split": "holdout",
+    "family": "document_and_service_independence",
+    "targets": [
+      {
+        "id": "wedding",
+        "description": "wedding",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "committed"
+      },
+      {
+        "id": "cycling",
+        "description": "cycling",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "修改并保存 wedding 已有文档的宾客安排；为 cycling 开启执行进度管理，婚礼不要跟进。",
+    "expected": {
+      "intents": [
+        {
+          "target": "wedding",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "modify",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        },
+        {
+          "target": "cycling",
+          "tracking": "enable",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H11",
+    "split": "holdout",
+    "family": "ambiguous_target_stop",
+    "targets": [
+      {
+        "id": "piano",
+        "description": "piano",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "recurring",
+        "document": "absent"
+      },
+      {
+        "id": "chess",
+        "description": "chess",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "recurring",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "把那个每日提醒关掉。上下文中的 piano 和 chess 都有每日提醒，我没有指定哪个。",
+    "expected": {
+      "intents": [
+        {
+          "target": "unresolved",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "stop",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H12",
+    "split": "holdout",
+    "family": "event_initiator_unstated",
+    "targets": [
+      {
+        "id": "baking",
+        "description": "baking",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 baking，以后每次烘焙失败都帮我复盘一次。",
+    "expected": {
+      "intents": [
+        {
+          "target": "baking",
+          "tracking": "none",
+          "review": "event_recurring",
+          "review_initiation": "clarify",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H13",
+    "split": "holdout",
+    "family": "tracking_decision_unmade",
+    "targets": [
+      {
+        "id": "portfolio",
+        "description": "portfolio",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 portfolio 的方案写好了，我还没决定要不要开启执行管理，先问我是否开启。",
+    "expected": {
+      "intents": [
+        {
+          "target": "portfolio",
+          "tracking": "clarify",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H14",
+    "split": "holdout",
+    "family": "frequency_conflict_proactive",
+    "targets": [
+      {
+        "id": "speech",
+        "description": "speech",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 speech，我希望你主动复盘，但按周还是按月还没有决定，请澄清频率。",
+    "expected": {
+      "intents": [
+        {
+          "target": "speech",
+          "tracking": "none",
+          "review": "clarify",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H15",
+    "split": "holdout",
+    "family": "diet_daily_menu_reference",
+    "targets": [
+      {
+        "id": "brunch",
+        "description": "brunch",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "给 brunch 列十天早午餐搭配，我只要通用菜单，不保存、不提醒、不收集反馈。",
+    "expected": {
+      "intents": [
+        {
+          "target": "brunch",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H16",
+    "split": "holdout",
+    "family": "previous_trip_once",
+    "targets": [
+      {
+        "id": "rail",
+        "description": "rail",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 rail，上个月那趟铁路旅行已结束，今天一次性分析为什么连续误车。",
+    "expected": {
+      "intents": [
+        {
+          "target": "rail",
+          "tracking": "none",
+          "review": "once",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H17",
+    "split": "holdout",
+    "family": "manual_weekly_lab_report",
+    "targets": [
+      {
+        "id": "lab",
+        "description": "lab",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "lab 每周五由我提交实验记录后再请你归纳问题，不设置主动复盘。",
+    "expected": {
+      "intents": [
+        {
+          "target": "lab",
+          "tracking": "none",
+          "review": "weekly",
+          "review_initiation": "user_initiated",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H18",
+    "split": "holdout",
+    "family": "proactive_event_build_failure",
+    "targets": [
+      {
+        "id": "build",
+        "description": "build",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "build 目标以后每次构建失败，由系统检测到失败后主动发起原因复盘。",
+    "expected": {
+      "intents": [
+        {
+          "target": "build",
+          "tracking": "none",
+          "review": "event_recurring",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H19",
+    "split": "holdout",
+    "family": "fortnightly_user_recap",
+    "targets": [
+      {
+        "id": "journal",
+        "description": "journal",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 journal，每两周我来发日志之后，你分析一次这两周情绪变化，别主动联系我。",
+    "expected": {
+      "intents": [
+        {
+          "target": "journal",
+          "tracking": "none",
+          "review": "other_recurring",
+          "review_initiation": "user_initiated",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H20",
+    "split": "holdout",
+    "family": "resume_tracking_no_review",
+    "targets": [
+      {
+        "id": "climbing",
+        "description": "climbing",
+        "tracking": "disabled",
+        "review": "stopped",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "恢复 climbing 已暂停的进度跟踪，别恢复以前的复盘。",
+    "expected": {
+      "intents": [
+        {
+          "target": "climbing",
+          "tracking": "enable",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H21",
+    "split": "holdout",
+    "family": "pause_tracking_preserve_alerts",
+    "targets": [
+      {
+        "id": "plants",
+        "description": "plants",
+        "tracking": "enabled",
+        "review": "unknown",
+        "reminder": "recurring",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 plants 暂停养护完成记录，已有浇水提醒照常，不改变提醒。",
+    "expected": {
+      "intents": [
+        {
+          "target": "plants",
+          "tracking": "disable",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H22",
+    "split": "holdout",
+    "family": "event_reminder_only",
+    "targets": [
+      {
+        "id": "backup",
+        "description": "backup",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 backup，每次备份完成后提醒我检查文件，只提醒，不分析过程。",
+    "expected": {
+      "intents": [
+        {
+          "target": "backup",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "recurring",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H23",
+    "split": "holdout",
+    "family": "stop_review_preserve_log",
+    "targets": [
+      {
+        "id": "driving",
+        "description": "driving",
+        "tracking": "enabled",
+        "review": "weekly",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "停止 driving 已经启用的考试练习复盘，错题完成记录继续保留。",
+    "expected": {
+      "intents": [
+        {
+          "target": "driving",
+          "tracking": "none",
+          "review": "stop",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H24",
+    "split": "holdout",
+    "family": "keep_scheduled_add_once",
+    "targets": [
+      {
+        "id": "music",
+        "description": "music",
+        "tracking": "unknown",
+        "review": "weekly",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 music 的每周复盘照旧；现在只分析一下我今天练琴节奏不稳的原因。",
+    "expected": {
+      "intents": [
+        {
+          "target": "music",
+          "tracking": "none",
+          "review": "once",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H25",
+    "split": "holdout",
+    "family": "create_from_chat_revision",
+    "targets": [
+      {
+        "id": "museum",
+        "description": "museum",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "聊天里有 museum 参观草案，减少一处展馆后另存为新文档；不要启动行程管理。",
+    "expected": {
+      "intents": [
+        {
+          "target": "museum",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "create",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H26",
+    "split": "holdout",
+    "family": "existing_doc_self_reminder",
+    "targets": [
+      {
+        "id": "cooking",
+        "description": "cooking",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "committed"
+      }
+    ],
+    "history": [],
+    "input": "对已有 cooking 文档加一句‘我自己设闹钟，每日回顾’，保存到原文档。不要你提醒或复盘。",
+    "expected": {
+      "intents": [
+        {
+          "target": "cooking",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "modify",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H27",
+    "split": "holdout",
+    "family": "weekly_proactive_no_tracking",
+    "targets": [
+      {
+        "id": "startup",
+        "description": "startup",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 startup 每周一你主动总结上周客户访谈的教训，不开启任务进度管理。",
+    "expected": {
+      "intents": [
+        {
+          "target": "startup",
+          "tracking": "none",
+          "review": "weekly",
+          "review_initiation": "proactive",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H28",
+    "split": "holdout",
+    "family": "hypothetical_automation_advice",
+    "targets": [
+      {
+        "id": "travel_notes",
+        "description": "travel_notes",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 travel_notes：如果将来我想每日自动复盘，应该怎么设计记录表？现在只解释，不开服务。",
+    "expected": {
+      "intents": [
+        {
+          "target": "travel_notes",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H29",
+    "split": "holdout",
+    "family": "weekly_reminder_not_review",
+    "targets": [
+      {
+        "id": "reading_club",
+        "description": "reading_club",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "对象 reading_club，每周六提醒我读书就行，别问读完没，更不用分析。",
+    "expected": {
+      "intents": [
+        {
+          "target": "reading_club",
+          "tracking": "none",
+          "review": "none",
+          "review_initiation": "not_applicable",
+          "reminder": "recurring",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  },
+  {
+    "id": "H30",
+    "split": "holdout",
+    "family": "daily_manual_school_log",
+    "targets": [
+      {
+        "id": "school",
+        "description": "school",
+        "tracking": "unknown",
+        "review": "unknown",
+        "reminder": "unknown",
+        "document": "absent"
+      }
+    ],
+    "history": [],
+    "input": "school 每天我主动发孩子作业情况后，你帮我回顾当天难点。无需定时主动问我。",
+    "expected": {
+      "intents": [
+        {
+          "target": "school",
+          "tracking": "none",
+          "review": "daily",
+          "review_initiation": "user_initiated",
+          "reminder": "none",
+          "document": "none",
+          "reason": "按当前请求的目标、动作与触发方式标注。"
+        }
+      ]
+    },
+    "rationale": "判断最新请求，不把内容安排或其他服务当成复盘授权。"
+  }
+]

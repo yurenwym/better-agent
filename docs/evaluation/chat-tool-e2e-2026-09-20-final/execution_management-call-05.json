@@ -1,0 +1,43 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "只返回 JSON：{\"plan_document_request\": true|false}。判断用户最新消息是否明确要求生成、编写、保存完整计划文档或写入计划页面。明确要求不经提问直接生成文档时也为 true。一般攻略、推荐、询问计划，或没有明确文档/保存指令的计划请求为 false。仅要求七天饮食、旅行或训练计划属于回答请求，不是文档保存请求。不要仅凭规划关键词推断为 true。"
+      },
+      {
+        "role": "user",
+        "content": "{\"latest_user_message\": \"（系统）待确认的工具操作已经有了结果。请依据工具结果继续完成用户最初的请求：成功时用工具返回的真实内容回答；失败或被拒绝时如实说明，不得声称操作已完成。\", \"has_prior_assistant_markdown_plan\": false}"
+      }
+    ],
+    "tools": [],
+    "temperature": 0,
+    "max_tokens": 64,
+    "role": "conversation",
+    "purpose": "classify_plan_document_request",
+    "thinking": false,
+    "response_format": null,
+    "single_attempt": false
+  },
+  "status": "ok",
+  "started_at": "2026-09-20T11:10:08.011738+00:00",
+  "response": {
+    "message": "{\"plan_document_request\": false}",
+    "tool_calls": [],
+    "finish_reason": "stop",
+    "usage": {
+      "uncached_input_tokens": 160,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 8,
+      "reasoning_tokens": 0
+    },
+    "timing": {
+      "started_at": 805442.7677927,
+      "first_token_at": 805445.4401365,
+      "finished_at": 805445.5213024
+    },
+    "attempts": 1
+  },
+  "elapsed_seconds": 2.7550804000347853
+}

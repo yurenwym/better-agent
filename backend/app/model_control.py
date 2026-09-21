@@ -359,6 +359,27 @@ class ModelControlStore:
         with self.db.transaction() as connection:
             self._event(connection, handle.context, event_type, data, handle.invocation_id)
 
+    def record_request_estimate(self, handle: ModelCallHandle, ordinal: int, profile: Any, request: Any) -> None:
+        """Pair the final adapter request estimate with one provider attempt's usage."""
+        from .model_gateway import provider_payload
+        from .token_budget import counter_for_profile, effective_input_budget
+
+        payload = provider_payload(profile, request)
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+        selection = counter_for_profile(profile)
+        self.record_event(handle, "model.request.estimated", {
+            "model_invocation_id": handle.invocation_id,
+            "model_attempt_id": f"{handle.invocation_id}_attempt_{ordinal}",
+            "profile_version_id": handle.profile_version_id,
+            "counter_id": selection.counter_id,
+            "counter_version": selection.counter_version,
+            "counter_mode": selection.mode,
+            "estimated_input_tokens": selection.counter.count_text(encoded),
+            "wire_payload_bytes": len(encoded.encode("utf-8")),
+            "wire_payload_digest": hashlib.sha256(encoded.encode("utf-8")).hexdigest(),
+            "input_limit": effective_input_budget(profile).input_limit,
+        })
+
     def _event(self, connection: Any, context: ModelCallContext, event_type: str, data: dict[str, Any],
                invocation_id: str | None = None) -> None:
         invocation_id = invocation_id or getattr(context, "invocation_id", None)
@@ -577,6 +598,7 @@ class RoutedModelGateway:
                         nonlocal output_started
                         output_started = True
                         self.control_store.mark_output_started(active, ordinal)
+                    self.control_store.record_request_estimate(active, ordinal, attempt_profile, request)
                     response = await self._execute_attempt(
                         attempt_profile, request, cancel_event=cancel_event,
                         on_text_delta=text_delta, on_output_started=output,

@@ -1,0 +1,35 @@
+{
+  "status": "passed",
+  "checks": [
+    {
+      "round": 1,
+      "call_id": "chat-tool-9c30d3f158ae4236bd78b22a7165415b",
+      "result_content_sha256": "3bc000ba5c14c28e79357b5026d9847655a1c275c62208c396d57785fd6e270d",
+      "returned_to_model": true
+    },
+    {
+      "round": 2,
+      "call_id": "chat-tool-252506bb8dfc45f492c2abdd02388e71",
+      "result_content_sha256": "7eeaa2f449170084a2f16cdaf9c9f79edf0976b2652cd3bbd3752ad5eb076e59",
+      "returned_to_model": true
+    },
+    {
+      "round": 3,
+      "call_id": "chat-tool-e31f555c940d48cab352982146771d46",
+      "result_content_sha256": "4257e7941771cfdf1273e02819454499408ba5797aba927d61e56f37e121d26b",
+      "returned_to_model": true
+    },
+    {
+      "round": 4,
+      "call_id": "chat-tool-2aaabc9e92864c0fb7c51dae9ef8beee",
+      "result_content_sha256": "1da9725a64aea2938c2221a1f71ca6746afbf7a4224c2ce6e3fe04183023c886",
+      "returned_to_model": true
+    },
+    {
+      "round": 5,
+      "call_id": "chat-tool-6a13d642a5244ccda6ed89bbe441922a",
+      "result_content_sha256": "5fa3fbe160cfd70db8eccf8e90e2f65a4b4b89d2a7127ed1f64c7a03b9ad332c",
+      "returned_to_model": true
+    }
+  ]
+}

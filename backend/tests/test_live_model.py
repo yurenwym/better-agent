@@ -6,6 +6,25 @@ import httpx
 import pytest
 
 
+def test_conversation_clock_is_available_in_preflight_and_send(monkeypatch):
+    from datetime import datetime, timezone
+    from app import live_model
+
+    class FrozenClock:
+        @staticmethod
+        def now(tz):
+            return datetime(2026, 9, 20, 23, 30, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(live_model, "datetime", FrozenClock)
+    model = live_model.LiveConversationModel(object())
+    kwargs = dict(content="明天开始，Asia/Shanghai", history=[], human_mode=False, branch_state=None)
+    preflight = model.prepare_mandatory_request(**kwargs)
+    send = model._conversation_messages(**kwargs)
+    assert preflight[0] == send[0]
+    assert "2026-09-20T23:30:00+00:00" in send[0]["content"]
+    assert "先换算到用户明确指定的时区" in send[0]["content"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", ["payment", "authentication", "configuration", "budget"])
 @pytest.mark.parametrize("classifier", ["research", "plan", "remember"])

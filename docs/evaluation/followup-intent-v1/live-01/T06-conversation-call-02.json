@@ -1,0 +1,208 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "先在单独一行返回一个 JSON 控制头，再返回用户可见的 Markdown 正文。V1 用于仅回答兼容，V2 用于保存文档，V3 用于明确的深度研究，V4 用于有边界的专家协作。控制头 policy 只能是 answer|propose_execution|clarify|start_research|start_expert。仅当用户明确要求新的深度研究、调查或有来源报告时，返回 v=3、policy=start_research、content_shape=research、reason_code=explicit_deep_research、research={topic,scope:web}，且不要返回可见正文或 artifact。用户明确要求创建、保存或修改计划文档时，使用 v=2 且只包含一个 artifact：kind=plan_document、operation=upsert 和简洁标题。控制头后返回完整 Markdown 文档，该可见正文就是保存内容。一般攻略、解释或只需回答的计划不得使用 artifact。artifact 权限只来自用户明确要求，绝不能仅凭关键词虚构保存意图。最高优先级保存规则：用户明确要求把对话中已经存在的完整计划写入或保存到计划页面，或据此生成计划文档，才算保存已有计划。单独要求生成全新文档不属于保存已有计划。保存已有计划时不得调用 ask_user，也不要再询问个性化信息；返回含 plan_document upsert artifact 的 v=2，并完整复现已有 Markdown，应用用户明确提出的修改。若历史中已有助手 Markdown 计划，且最新请求包含‘写进计划页面’、‘保存到计划’或‘生成文档’，视为保存已有计划，不得调用 ask_user。此规则优先于下面的个性化计划提问规则。新建计划文档且对话中尚无完整计划正文时，遵循个性化计划提问规则；ask_user 得到回答后，若原请求明确要求创建文档，则返回含 artifact 的 v=2。只有用户明确要求专家协作时才使用 start_expert，并遵从明确指定的专家角色。否则内容、解释、攻略、比较、行动求助和作为交付物的计划使用 answer，不得自行升级为专家协作。返回 v=4 和 expert={objective,roles}，roles 只能从 researcher、planner、critic 中选择，不返回可见正文。仅对明确需要持续跟踪、工具调用、外部写入或副作用的请求使用 propose_execution。根据当前请求和历史自行判断缺少哪些相关个人背景。个性化、长期或目标导向计划在缺少必要背景时必须先调用 ask_user。用户准备亲自遵循的训练教程、方案、日程或习惯计划属于目标导向交付物，应遵循同一规则。仅当用户明确要求通用解释/模板，或已经提供相关背景时才能跳过 ask_user；不要先回答后提问。若无法判断用户要通用解释还是个人计划，先问一个简洁的意图问题。只提本次请求真正需要的最少问题，不使用固定问卷，不询问无关信息。一般知识、宽泛攻略、模板，或可通过明确假设直接写出的有用第一版，应直接回答而不是询问偏好。ask_user 必须包含一到四个具体问题；同一响应中不要再输出正文或控制头。结构化询问不适用时，clarify 仅用于兼容旧版单问题文本。用户想复盘某个已在执行的计划时（例如说今天训练得怎么样、今天执行得如何、帮我复盘一下今天），调用 review_check_in 而不是 ask_user：制定行动时，依赖数据、材料或工具的步骤必须提供输入中可核验的资源入口、可直接使用的最小示例或可行替代；无法确认时标为待补材料，不编造链接或声称已验证。不仅罗列需要用户自行寻找的资源名称。先问清他今天真实的感受、遇到的困难与状态，一到三个问题，优先给出可选项；问题要像这份计划对应的专业角色那样提出（健身计划就像健身教练问训练与恢复，学习计划就像导师问方法与理解）。拿到回答后再以该角色的口吻给出简短、具体、可执行的复盘，不要在他回答之前就下结论。产品身份规则：你面向用户的名称始终是 Better Agent，是帮助用户研究、制定计划、执行、复盘并持续成长的本地个人 Agent。底层模型和模型供应商只是运行组件；不得自称 Claude、ChatGPT、DeepSeek、Anthropic、OpenAI 或任何其他底层模型、供应商，也不得虚构产品创建者。用户询问‘你是谁’时，应以 Better Agent 的身份简要说明与当前问题相关的能力。只有用户明确询问技术运行配置、当前模型或供应商时，才可以如实说明底层技术信息，并明确区分产品身份与底层模型。Markdown 正文中绝不暴露控制头、隐藏推理、工具结构或原始 JSON。使用用户的语言，并在控制头后立即开始有效答案。事实准确性：技术解释必须区分不同实现、适用条件和实践建议，不把可选优化、常见执行方式或经验建议写成必然机制。历史助手回答不是事实证据；发现错误时明确纠正，不为保持前后口径而重复错误。证据不足时说明不确定性，不编造核验过程。只有实际工具结果或用户提供的证据支持时，才能声称已验证、已测试或验收通过；不得自行宣布系统无需修复。用户已明确给出的时长、预算、日期和禁用条件是硬约束，不能擅自放宽，不能先违反再写‘如果严格限制就缩短’。有明确日期的学习计划使用阶段表（阶段、日期、学习日）与逐日表（日、日期、任务、验收标准）；阶段计数必须与逐日日期一致。不要在计划正文中声称已保存、已激活或已经执行；这些状态由应用根据持久化结果展示。计划的表格、逐日说明、调整建议必须统一遵守上限；热身和放松包含在总时长内，只覆盖请求的时间范围，不附加下周加量。"
+      },
+      {
+        "role": "assistant",
+        "content": "# 旅行攻略\n明天上午爬山，下午逛博物馆，晚上步行游古城。"
+      },
+      {
+        "role": "user",
+        "content": "今天走得太累了，帮我把明天的攻略改轻松一点，不需要持续跟进。"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "ask_user",
+          "description": "向用户询问继续当前目标所需的最少信息。仅在需要用户提供关键信息时提问。若助手此前已经给出 Markdown 计划，且用户要求保存为计划文档或写入计划页面，不要调用此工具；应直接返回 V2 plan_document 响应。",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "questions"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "header",
+                    "question",
+                    "options",
+                    "multi_select",
+                    "allow_free_text"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "header": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "question": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 400
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "description"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 200
+                          }
+                        }
+                      }
+                    },
+                    "multi_select": {
+                      "type": "boolean"
+                    },
+                    "allow_free_text": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "review_check_in",
+          "description": "当用户想复盘某个执行计划（目标、训练计划、学习计划等）当天或最近的实际表现时调用：先向他问清真实的感受、遇到的困难与当天状态，再据此复盘。问题要像这份计划对应的专业角色那样提出（健身计划就像教练问训练与恢复，学习计划就像导师问方法与理解），并优先给出可选项，方便他直接点选。一次最多问四个问题，且不要在同一次响应里输出正文。",
+          "parameters": {
+            "type": "object",
+            "required": [
+              "questions"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "questions": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 4,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "id",
+                    "header",
+                    "question",
+                    "options",
+                    "multi_select",
+                    "allow_free_text"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "header": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "question": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 400
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 0,
+                      "maxItems": 4,
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "label",
+                          "description"
+                        ],
+                        "additionalProperties": false,
+                        "properties": {
+                          "label": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "description": {
+                            "type": "string",
+                            "maxLength": 200
+                          }
+                        }
+                      }
+                    },
+                    "multi_select": {
+                      "type": "boolean"
+                    },
+                    "allow_free_text": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": null,
+    "role": "conversation",
+    "purpose": "route_and_respond",
+    "thinking": false,
+    "response_format": null,
+    "single_attempt": false
+  },
+  "status": "ok",
+  "started_at": "2026-09-20T07:46:25.107489+00:00",
+  "response": {
+    "message": "{\"v\":1,\"policy\":\"answer\",\"content_shape\":\"answer\",\"reason_code\":\"general_advice\"}\n\n# 明天轻松版攻略\n\n今天走得太累，明天核心思路是**减少步行总量、增加休息和坐下来的时间**，把\"打卡\"换成\"体验\"。\n\n## 上午：爬山（改为半程 + 索道/缆车）\n\n- **上山坐索道或缆车**，只走山顶那一段平缓的观景步道，20–30 分钟即可。\n- 如果山不高、没有索道，就走到第一个观景平台就折返，不追求登顶。\n- 带够水，走 15 分钟就找地方坐 5 分钟，别硬撑。\n- 山顶找个视野好的地方坐一会儿，比赶路更值。\n\n## 中午：早点下山，好好吃一顿 + 回酒店躺平\n\n- 11:30 前下山，避开人流和正午暴晒。\n- 找家离酒店近的餐厅，慢慢吃，别赶。\n- **回酒店睡 40–60 分钟午觉**，这是明天最关键的恢复环节。\n\n## 下午：博物馆（坐着逛）\n\n- 博物馆本身就是\"轻松项\"——有空调、有座椅、有讲解。\n- 只挑 **2–3 个最想看的展厅**，其余快速走过或直接跳过。\n- 每逛 40 分钟，去休息区坐 10 分钟。\n- 可以租个讲解器或跟着导览走，省得自己费神找路。\n\n## 晚上：古城（缩短 + 随时可撤）\n\n- 傍晚再出门，避开白天余热。\n- 只走**主街一条线**，不钻小巷、不绕圈，1–1.5 小时足够。\n- 找家临街的店坐下来吃晚饭，边吃边看夜景，比边走边逛省力得多。\n- 累了就直接打车回酒店，不用走完全程。\n\n## 几个省力小技巧\n\n| 事项 | 建议 |\n|---|---|\n| 交通 | 能打车/坐公交就别走，尤其景点之间 |\n| 鞋子 | 穿最软最合脚的那双，别穿新鞋 |\n| 背包 | 越轻越好，只带水、充电宝、纸巾 |\n| 节奏 | 每 1 小时必须坐下休息一次 |\n| 心态 | 少看一个景点没关系，别把行程当任务 |\n\n## 如果明天还是很累\n\n那就**砍掉爬山**，上午睡到自然醒，下午博物馆、晚上古城照旧。旅行是为了放松，不是完成清单。\n\n需要我按你具体的山、博物馆和古城名字，把时间和路线排得更细吗？",
+    "tool_calls": [],
+    "finish_reason": "stop",
+    "usage": {
+      "uncached_input_tokens": 152,
+      "cache_read_tokens": 2048,
+      "cache_write_tokens": 0,
+      "output_tokens": 585,
+      "reasoning_tokens": 0
+    },
+    "timing": {
+      "started_at": 793219.8661656,
+      "first_token_at": 793222.5532094,
+      "finished_at": 793227.578532
+    },
+    "attempts": 1
+  },
+  "elapsed_seconds": 7.713898199959658
+}

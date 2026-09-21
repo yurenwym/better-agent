@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import math
 import os
 import json
@@ -18,6 +19,17 @@ from .ask import (
     normalize_answers,
     questions_from_json,
     tool_result_payload,
+)
+from .chat_tools import (
+    STATUS_APPROVED,
+    STATUS_PENDING,
+    STATUS_REJECTED,
+    TOOL_CONTINUATION_INSTRUCTION,
+    ChatToolCallSnapshot,
+    ChatToolCallStore,
+    ChatToolRunner,
+    chat_run_id,
+    decide_approval,
 )
 from .db import Database
 from .events import ThreadEvent, ThreadEventStore
@@ -310,6 +322,7 @@ class _FallbackConversationModel:
         memory_context_content: str | None = None,
         on_memory_context_applied=None,
         branch_state: Any = None,
+        tool_loop: Any = None,
     ) -> Any:
         if on_text_delta is not None:
             on_text_delta(
@@ -345,6 +358,7 @@ class ConversationService:
         self.plan_context = PlanContextProvider(db, self.plan_documents, events=self.events)
         from .goal_context import GoalContextProvider
         self.goal_context = GoalContextProvider(db)
+        self.chat_tool_calls = ChatToolCallStore(db)
         self._worker = None
         self._cancel_events: dict[str, asyncio.Event] = {}
         self.materializer = ExecutionMaterializer(db, agent_runtime, self.events)
@@ -521,7 +535,7 @@ class ConversationService:
                 row["thread_id"], turn_id, "turn.cancel_requested", "user", {},
                 connection=connection, occurred_at=now,
             )
-            if row["job_status"] == "QUEUED" or row["status"] in {"AWAITING_DIRECTION", "AWAITING_INPUT"}:
+            if row["job_status"] == "QUEUED" or row["status"] in {"AWAITING_DIRECTION", "AWAITING_INPUT", "AWAITING_TOOL_APPROVAL"}:
                 connection.execute(
                     "UPDATE turn_jobs SET status = 'CANCELLED', finished_at = ? WHERE turn_id = ?",
                     (now, turn_id),
@@ -539,6 +553,26 @@ class ConversationService:
                         self.events.append(
                             row["thread_id"], turn_id, "ask.cancelled", "user",
                             {"ask_id": ask["id"]}, connection=connection, occurred_at=now,
+                        )
+                if row["status"] == "AWAITING_TOOL_APPROVAL":
+                    pending_calls = connection.execute(
+                        "SELECT id,approval_id FROM turn_tool_calls WHERE turn_id = ? AND status = ?",
+                        (turn_id, STATUS_PENDING),
+                    ).fetchall()
+                    for call in pending_calls:
+                        connection.execute(
+                            "UPDATE turn_tool_calls SET status = 'CANCELLED', error_code = 'TURN_CANCELLED', acted_at = ? WHERE id = ?",
+                            (now, call["id"]),
+                        )
+                        if call["approval_id"]:
+                            connection.execute(
+                                "UPDATE approvals SET status = 'rejected', acted_at = ? WHERE id = ? AND status = 'pending'",
+                                (now, call["approval_id"]),
+                            )
+                        self.events.append(
+                            row["thread_id"], turn_id, "chat_tool.cancelled", "user",
+                            {"call_id": call["id"], "approval_id": call["approval_id"]},
+                            connection=connection, occurred_at=now,
                         )
                 connection.execute(
                     "UPDATE turns SET status = 'CANCELLED', version = version + 1, updated_at = ? WHERE id = ?",
@@ -711,6 +745,156 @@ class ConversationService:
             raise RuntimeError("ask continuation was not created")
         return AskAnswerResult(ask_id, self.turn(continuation_id,owner_id))
 
+    def pending_tool_call(self, turn_id: str, owner_id: str = "local-user") -> ChatToolCallSnapshot | None:
+        self.turn(turn_id, owner_id)
+        return self.chat_tool_calls.pending_for_turn(turn_id)
+
+    def decide_tool_call(
+        self,
+        turn_id: str,
+        action: str,
+        expected_version: int,
+        idempotency_key: str,
+        owner_id: str = "local-user",
+    ) -> TurnSnapshot:
+        """Record the user's decision and resume the exact pending tool call.
+
+        Approval is bound to the stored call parameters and binding, so a
+        changed call cannot reuse an old decision, and replaying the same
+        decision returns the same continuation instead of executing twice.
+        """
+        self.turn(turn_id, owner_id)
+        if action not in {"approve", "reject"}:
+            raise ValueError("unsupported tool decision")
+        if not isinstance(idempotency_key, str) or not idempotency_key.strip():
+            raise ValueError("idempotency_key is required")
+        now = _now()
+        continuation_id: str | None = None
+        with self.db.transaction() as connection:
+            if self.db.backend == "postgresql":
+                connection.execute("SELECT id FROM turns WHERE id=? FOR UPDATE", (turn_id,)).fetchone()
+            replay = connection.execute(
+                "SELECT * FROM turn_tool_calls WHERE decision_idempotency_key = ?", (idempotency_key,),
+            ).fetchone()
+            if replay is not None:
+                if replay["turn_id"] != turn_id or not replay["continuation_turn_id"]:
+                    raise ValueError("tool decision idempotency key already used")
+                if action == "approve" and replay["status"] not in {STATUS_APPROVED, "EXECUTED", "FAILED"}:
+                    raise ValueError("tool decision conflicts with the recorded decision")
+                if action == "reject" and replay["status"] != STATUS_REJECTED:
+                    raise ValueError("tool decision conflicts with the recorded decision")
+                continuation_id = replay["continuation_turn_id"]
+            else:
+                turn_row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+                call_row = connection.execute(
+                    "SELECT * FROM turn_tool_calls WHERE turn_id = ? AND status = ? "
+                    "ORDER BY created_at DESC, id DESC LIMIT 1",
+                    (turn_id, STATUS_PENDING),
+                ).fetchone()
+                if turn_row is None or call_row is None:
+                    raise ValueError("no pending tool call for this turn")
+                if turn_row["status"] != "AWAITING_TOOL_APPROVAL":
+                    raise ValueError("turn is not waiting for a tool decision")
+                if int(turn_row["version"]) != int(expected_version):
+                    raise ValueError("turn version conflict")
+                params = json.loads(call_row["params_json"])
+                binding = json.loads(call_row["binding_json"] or "{}")
+                decide_approval(
+                    connection,
+                    approval_id=call_row["approval_id"],
+                    run_id=chat_run_id(turn_id),
+                    tool_call_id=call_row["id"],
+                    params=params,
+                    binding=binding,
+                    approved=action == "approve",
+                )
+                continuation_id = f"turn_{uuid.uuid4().hex}"
+                client_turn_id = f"tool:{call_row['id']}:{uuid.uuid4().hex}"
+                root_budget_id = _row_value(turn_row, "root_budget_id")
+                if self.db.backend == "postgresql":
+                    from .costs import CostService
+
+                    costs = getattr(self.agent_runtime, "costs", None) or CostService(self.db)
+                    if root_budget_id is not None:
+                        costs.resume_root_after_ask(
+                            owner_id, root_budget_id, call_row["created_at"],
+                            resumed_at=now, connection=connection,
+                        )
+                    else:
+                        root_budget_id = costs.ensure_default_root_budget(
+                            owner_id, "turn", continuation_id, connection=connection,
+                        )["id"]
+                connection.execute(
+                    "INSERT INTO turns(id, thread_id, client_turn_id, parent_turn_id, status, version, "
+                    "skill_names_json, goal_action_id, plan_context_document_id, plan_context_version_id, "
+                    "plan_context_version, plan_context_hash, runtime_bundle_id, root_budget_id, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, 'ACCEPTED', 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        continuation_id,
+                        turn_row["thread_id"],
+                        client_turn_id,
+                        turn_id,
+                        turn_row["skill_names_json"],
+                        _row_value(turn_row, "goal_action_id"),
+                        _row_value(turn_row, "plan_context_document_id"),
+                        _row_value(turn_row, "plan_context_version_id"),
+                        _row_value(turn_row, "plan_context_version"),
+                        _row_value(turn_row, "plan_context_hash"),
+                        turn_row["runtime_bundle_id"],
+                        root_budget_id,
+                        now,
+                        now,
+                    ),
+                )
+                connection.execute(
+                    "INSERT INTO turn_jobs(turn_id, thread_id, status, attempts) VALUES (?, ?, 'QUEUED', 0)",
+                    (continuation_id, turn_row["thread_id"]),
+                )
+                connection.execute(
+                    "UPDATE turn_tool_calls SET status = ?, decision_idempotency_key = ?, "
+                    "continuation_turn_id = ?, acted_at = ? WHERE id = ?",
+                    (
+                        STATUS_APPROVED if action == "approve" else STATUS_REJECTED,
+                        idempotency_key,
+                        continuation_id,
+                        now,
+                        call_row["id"],
+                    ),
+                )
+                connection.execute(
+                    "UPDATE turns SET status = 'COMPLETED', version = version + 1, updated_at = ? WHERE id = ?",
+                    (now, turn_id),
+                )
+                connection.execute(
+                    "UPDATE threads SET version = version + 1, active_turn_id = ?, updated_at = ? WHERE id = ?",
+                    (continuation_id, now, turn_row["thread_id"]),
+                )
+                self.events.append(
+                    turn_row["thread_id"], turn_id,
+                    "chat_tool.approved" if action == "approve" else "chat_tool.rejected",
+                    "user",
+                    {
+                        "call_id": call_row["id"],
+                        "tool_name": call_row["tool_name"],
+                        "approval_id": call_row["approval_id"],
+                        "continuation_turn_id": continuation_id,
+                    },
+                    connection=connection, occurred_at=now,
+                )
+                self.events.append(
+                    turn_row["thread_id"], turn_id, "turn.completed", "user",
+                    {"continuation_turn_id": continuation_id},
+                    connection=connection, occurred_at=now,
+                )
+                self.events.append(
+                    turn_row["thread_id"], continuation_id, "turn.accepted", "user",
+                    {"parent_turn_id": turn_id, "tool_call_id": call_row["id"]},
+                    connection=connection, occurred_at=now,
+                )
+        if continuation_id is None:
+            raise RuntimeError("tool continuation was not created")
+        return self.turn(continuation_id, owner_id)
+
     async def select_direction(
         self,
         turn_id: str,
@@ -822,6 +1006,8 @@ class ConversationService:
                 ).fetchone()
                 if active_turn is not None and active_turn["status"] == "AWAITING_INPUT":
                     raise ValueError("answer the pending ask before sending another message")
+                if active_turn is not None and active_turn["status"] == "AWAITING_TOOL_APPROVAL":
+                    raise ValueError("decide the pending tool call before sending another message")
             existing = connection.execute(
                 "SELECT * FROM turns WHERE thread_id = ? AND client_turn_id = ?",
                 (thread_id, client_turn_id),
@@ -1337,6 +1523,7 @@ def _validate_direction(row: Any, expected_version: int) -> None:
 SAFE_FAILURE_MESSAGE = "当前暂时无法生成可用回答，请重试。"
 SAFE_CANCEL_MESSAGE = "已停止生成。"
 ASK_PROMPT_MESSAGE = "为了更准确地完成这个目标，请先补充以下信息。"
+TOOL_APPROVAL_MESSAGE = "这项操作需要你的确认，确认后我会继续执行。"
 
 
 class ManagedTurnWorker:
@@ -1509,14 +1696,18 @@ class ManagedTurnWorker:
         context_incomplete = False
         try:
             self._assert_job_owner(turn_id)
-            user_message = self._user_message(turn_id)
+            tool_continuation = None
+            if turn.parent_turn_id is not None:
+                tool_continuation = self.conversation.chat_tool_calls.by_continuation(turn.id)
+            user_message = None if tool_continuation is not None else self._user_message(turn_id)
+            content = user_message.content if user_message is not None else TOOL_CONTINUATION_INSTRUCTION
             model_invocation_id = f"conversation:{turn.id}"
             generation = self._prepare_generation(turn)
             plan_context = self.conversation.plan_context.load_for_turn(turn.thread_id, turn.id)
             goal_context = self.conversation.goal_context.load_for_turn(turn.thread_id, turn.id)
             from .memory_archive import ArchiveUnavailable, ArchiveWaitTimeout
             from .memory_v2 import ContinuationError
-            from .live_model import _is_plain_existing_plan_save, _latest_assistant_plan
+            from .live_model import ToolApprovalRequest, _is_plain_existing_plan_save, _latest_assistant_plan
             # The hot-window policy and the memory provider both need the thread
             # scope, so resolve it before either of them runs.
             with self.db.connection() as connection:
@@ -1526,8 +1717,34 @@ class ManagedTurnWorker:
             if scope is None:
                 raise KeyError(turn.thread_id)
             window = self._hot_window(turn, scope["owner_id"])
+            mcp_sync = getattr(self.conversation.agent_runtime, "mcp_sync", None)
+            if mcp_sync is not None:
+                # The tool catalogue the model is about to be shown must be the
+                # current one. A server that is down contributes its last known
+                # definitions instead of failing the turn.
+                try:
+                    await mcp_sync.refresh_connected(scope["owner_id"])
+                except Exception:  # noqa: BLE001 - an optional integration never breaks a turn
+                    pass
+            tool_runner = self._chat_tool_runner(turn, scope)
+            tool_schemas = tool_runner.schemas() if tool_runner is not None else []
+            if tool_continuation is not None:
+                if tool_runner is None:
+                    raise RuntimeError("chat tool execution is not configured")
+                resumed = await tool_runner.resume(tool_continuation)
+                self.conversation.events.append(
+                    turn.thread_id, turn.id,
+                    "chat_tool.resumed",
+                    "tool",
+                    {
+                        "call_id": tool_continuation.id,
+                        "tool_name": tool_continuation.tool_name,
+                        "ok": resumed.ok,
+                        "error": resumed.error,
+                    },
+                )
             save_history = None
-            if _is_plain_existing_plan_save(user_message.content):
+            if user_message is not None and _is_plain_existing_plan_save(content):
                 with self.db.connection() as connection:
                     prior = connection.execute(
                         "SELECT m.content FROM thread_messages m JOIN threads t ON t.id=m.thread_id "
@@ -1576,7 +1793,7 @@ class ManagedTurnWorker:
                     emit_count=False,
                 )
                 branch_state = await resolve_branch(
-                    content=user_message.content, history=preliminary_history,
+                    content=content, history=preliminary_history,
                     cancel_event=cancel_event, ask_parent_request=ask_parent_request,
                 )
             try:
@@ -1584,8 +1801,8 @@ class ManagedTurnWorker:
                     await self._archive_history_before_generation(
                         turn, scope=scope, window=window, provider=provider,
                         history_through=history_through, goal_context=goal_context,
-                        user_content=user_message.content, human_mode=human_mode,
-                        branch_state=branch_state,
+                        user_content=content, human_mode=human_mode,
+                        branch_state=branch_state, tool_schemas=tool_schemas,
                     )
             except ArchiveWaitTimeout:
                 # A timeout is *not* a recovered context, so this deliberately
@@ -1627,7 +1844,7 @@ class ManagedTurnWorker:
             memory_context_content = None
             if provider is not None and not context_incomplete:
                 from .memory_reference import ConversationReferenceResolver
-                reference_query = user_message.content
+                reference_query = content
                 if ask_parent_request is not None:
                     with self.db.connection() as connection:
                         reference_parent = connection.execute(
@@ -1635,7 +1852,7 @@ class ManagedTurnWorker:
                             (turn.parent_turn_id, turn.id, f"memory-reference:{turn.parent_turn_id}"),
                         ).fetchone()
                     if reference_parent is not None:
-                        reference_query = f"原问题：{ask_parent_request}\n用户补充：{user_message.content}"
+                        reference_query = f"原问题：{ask_parent_request}\n用户补充：{content}"
                 reference, is_new_reference = await ConversationReferenceResolver(self.db).prepare(
                     turn, scope["owner_id"], reference_query, history_through,
                     gateway=gateway, cancel_event=cancel_event,
@@ -1827,14 +2044,14 @@ class ManagedTurnWorker:
                 self.conversation.events.append(turn.thread_id, turn.id, "skill.snapshot_invalidated", "worker", {"reason": "disabled_or_revoked"})
             model_task = asyncio.create_task(
                 respond(
-                    content=user_message.content,
+                    content=content,
                     **({"action_context": goal_context.context_text} if context_incomplete and goal_context is not None else {}),
                     history=[] if context_incomplete else history,
                     skill_names=list(turn.skill_names),
                     owner_id=scope["owner_id"],
                     thread_id=turn.thread_id,
                     project_id=scope["project_id"],
-                    source_message_id=user_message.id,
+                    source_message_id=user_message.id if user_message is not None else None,
                     ask_parent_request=ask_parent_request,
                     memory_context_content=None if context_incomplete else memory_context_content,
                     on_memory_context_applied=on_memory_context_applied,
@@ -1842,6 +2059,7 @@ class ManagedTurnWorker:
                     on_text_reset=on_reset,
                     cancel_event=cancel_event,
                     branch_state=branch_state,
+                    tool_loop=tool_runner,
                 ),
                 name=f"conversation-turn-{turn_id}",
             )
@@ -1903,6 +2121,13 @@ class ManagedTurnWorker:
                     raise RouteProtocolError("ask cannot be combined with a streamed response")
                 self._finish_ask(turn, result, generation)
                 return
+            if isinstance(result, ToolApprovalRequest):
+                if context_incomplete:
+                    raise ArchiveUnavailable("incomplete history cannot start a workflow")
+                if decoder.header is not None or decoder._buffer or message_id is not None or pending:
+                    raise RouteProtocolError("tool approval cannot be combined with a streamed response")
+                self._finish_tool_approval(turn, result, generation)
+                return
             decoder.finish()
             if context_incomplete and (decoder.header.policy != "answer" or decoder.header.artifact is not None):
                 raise ArchiveUnavailable("incomplete history only permits a plain answer")
@@ -1916,7 +2141,7 @@ class ManagedTurnWorker:
                     self._require_job_owner(connection, turn.id, require_not_cancelled=True)
                     research.create_from_turn(
                         turn.id,
-                        decoder.header.research_topic or user_message.content,
+                        decoder.header.research_topic or content,
                         (decoder.header.research_scope or "web",),
                         connection=connection,
                     )
@@ -1938,10 +2163,11 @@ class ManagedTurnWorker:
                 with self.db.transaction() as connection:
                     self._require_job_owner(connection, turn.id, require_not_cancelled=True)
                     agent_tasks.create_run(
-                        thread_scope["owner_id"], decoder.header.expert_objective or user_message.content,
+                        thread_scope["owner_id"], decoder.header.expert_objective or content,
                         {
                             "thread_id": turn.thread_id, "source_turn_id": turn.id,
-                            "source_message_id": user_message.id, "request": user_message.content,
+                            "source_message_id": user_message.id if user_message is not None else None,
+                            "request": content,
                             "task_mode": "user_task",
                             "plan_source": {
                                 "document_id": plan_context.plan_document_id,
@@ -2394,6 +2620,124 @@ class ManagedTurnWorker:
                 (now, turn.id),
             )
 
+    def _finish_tool_approval(self, turn: TurnSnapshot, request: "ToolApprovalRequest", generation: int) -> None:
+        """Persist a paused WRITE tool call; the decision endpoint resumes it."""
+        now = _now()
+        message_id = f"message_{uuid.uuid4().hex}"
+        with self.db.transaction() as connection:
+            self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            existing = connection.execute(
+                "SELECT 1 FROM turn_tool_calls WHERE id = ?", (request.call_id,)
+            ).fetchone()
+            if existing is None:
+                raise RouteProtocolError("pending tool approval was not persisted")
+            connection.execute(
+                "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, message_seq, presentation, created_at, completed_at) "
+                "VALUES (?, ?, ?, 'assistant', ?, 'ready', ?, ?, (SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?), 'standard', ?, ?)",
+                (message_id, turn.thread_id, turn.id, TOOL_APPROVAL_MESSAGE, generation, len(TOOL_APPROVAL_MESSAGE), turn.thread_id, now, now),
+            )
+            connection.execute(
+                "UPDATE turns SET status = 'AWAITING_TOOL_APPROVAL', version = version + 1, updated_at = ? WHERE id = ?",
+                (now, turn.id),
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "message.started", "model",
+                {"message_id": message_id, "generation": generation},
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "message.completed", "model",
+                {
+                    "message_id": message_id,
+                    "generation": generation,
+                    "finish_reason": "tool_approval",
+                    "content_length": len(TOOL_APPROVAL_MESSAGE),
+                },
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "chat_tool.approval_requested", "model",
+                {
+                    "call_id": request.call_id,
+                    "approval_id": request.approval_id,
+                    "tool_name": request.tool_name,
+                },
+                connection=connection, occurred_at=now,
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "turn.awaiting_tool_approval", "worker",
+                {"call_id": request.call_id, "tool_name": request.tool_name},
+                connection=connection, occurred_at=now,
+            )
+            connection.execute(
+                "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
+                (now, turn.id),
+            )
+
+    def _suspend_artifact_modification(
+        self, turn: TurnSnapshot, decision: RouteDecision, document, version, markdown: str,
+    ) -> tuple[str, str] | None:
+        """Convert a legacy artifact update into the approval-gated modify tool.
+
+        The conversation model may still answer an explicit modification with a
+        v=2 artifact. Instead of either overwriting or only reporting a
+        conflict, the write is suspended as a real ``modify_plan_document``
+        call: the user gets the same approval card, and the committed version is
+        produced by the same tool contract.
+        """
+        runtime = self.conversation.agent_runtime
+        if runtime is None:
+            return None
+        tools = getattr(runtime, "tools", None)
+        approvals = getattr(runtime, "approvals", None)
+        if tools is None or approvals is None:
+            return None
+        if "modify_plan_document" not in {item["function"]["name"] for item in tools.describe()}:
+            return None
+        params = {
+            "document_id": document.id,
+            "expected_version_id": version.id,
+            "title": decision.artifact.title,
+            "markdown_content": normalize_markdown(markdown),
+        }
+        digest = hashlib.sha256(
+            json.dumps(params, ensure_ascii=False, sort_keys=True).encode("utf-8")
+        ).hexdigest()[:16]
+        call_id = f"chat-artifact-{turn.id}-{digest}"
+        run_id = chat_run_id(turn.id)
+        store = self.conversation.chat_tool_calls
+        try:
+            store.get(call_id)
+            existing_row = True
+        except KeyError:
+            existing_row = False
+        if not existing_row:
+            stale = store.pending_for_turn(turn.id)
+            while stale is not None:
+                if stale.approval_id:
+                    try:
+                        approvals.reject(stale.approval_id, run_id, stale.id, stale.params, stale.binding)
+                    except Exception:  # noqa: BLE001 - a stale row must not block the new call
+                        pass
+                store.record_result(
+                    stale.id, result=None, error_code="SUPERSEDED", status="CANCELLED",
+                )
+                stale = store.pending_for_turn(turn.id)
+        approval = approvals.request(run_id, call_id, "modify_plan_document", params, binding={})
+        if not existing_row:
+            store.create(
+                turn_id=turn.id,
+                thread_id=turn.thread_id,
+                tool_name="modify_plan_document",
+                params=params,
+                risk="WRITE",
+                call_id=call_id,
+                status=STATUS_PENDING,
+                approval_id=approval.id,
+                binding={},
+            )
+        return call_id, approval.id
+
     def _finish_success(
         self,
         turn: TurnSnapshot,
@@ -2431,6 +2775,7 @@ class ManagedTurnWorker:
         document_version = None
         document_error: str | None = None
         document_error_type = "plan.document_failed"
+        artifact_suspended: tuple[str, str] | None = None
         if decision.artifact is not None:
             markdown = visible_content
             # A cropped context can only belong to an existing committed document;
@@ -2446,27 +2791,52 @@ class ManagedTurnWorker:
                 try:
                     self._assert_job_owner(turn.id)
                     markdown = normalize_markdown(markdown)
-                    expected_version_id = plan_context.version_id if plan_context else None
-                    expected_file_hash = plan_context.content_hash if plan_context else None
+                    existing_row = None
                     if plan_context is None:
+                        with self.db.connection() as connection:
+                            existing_row = connection.execute(
+                                "SELECT id,current_version_id,deleted_at FROM plan_documents WHERE thread_id = ?",
+                                (turn.thread_id,),
+                            ).fetchone()
+                    existing_document = plan_context is not None or existing_row is not None
+                    if existing_document:
+                        # First-save stays on the artifact fast path; an
+                        # existing (or deleted) document becomes an approval-
+                        # gated modify call so the tool contract is uniform.
+                        document = None
+                        version = None
                         try:
-                            document = self.conversation.plan_documents.get_by_thread(turn.thread_id)
-                            current = self.conversation.plan_documents.current_version(document.id)
-                            expected_version_id = current.id
-                            expected_file_hash = current.content_hash
-                        except KeyError:
-                            pass
-                    document_version = self.conversation.plan_documents.save_model_revision(
-                        thread_id=turn.thread_id,
-                        title=decision.artifact.title,
-                        markdown_content=markdown,
-                        source_turn_id=turn.id,
-                        source_message_id=message_id,
-                        actor="model",
-                        expected_version_id=expected_version_id,
-                        expected_file_hash=expected_file_hash,
-                        owner_check=lambda: self._assert_job_owner(turn.id),
-                    )
+                            if plan_context is not None:
+                                document = self.conversation.plan_documents.get_document(plan_context.plan_document_id)
+                                version = self.conversation.plan_documents.get_version(plan_context.version_id)
+                            elif existing_row is not None and existing_row["deleted_at"] is None and existing_row["current_version_id"]:
+                                document = self.conversation.plan_documents.get_document(existing_row["id"])
+                                version = self.conversation.plan_documents.get_version(existing_row["current_version_id"])
+                        except (KeyError, PlanDocumentValidationError):
+                            document = None
+                            version = None
+                        if document is not None and version is not None and version.status == "committed":
+                            try:
+                                artifact_suspended = self._suspend_artifact_modification(
+                                    turn, decision, document, version, markdown,
+                                )
+                            except Exception:  # noqa: BLE001 - fall back to a recorded conflict
+                                artifact_suspended = None
+                        if artifact_suspended is None:
+                            raise PlanDocumentConflict(
+                                "已有计划文档；修改需要调用 modify_plan_document 并经用户确认，本次未覆盖已有内容"
+                            )
+                    else:
+                        document_version = self.conversation.plan_documents.save_model_revision(
+                            thread_id=turn.thread_id,
+                            title=decision.artifact.title,
+                            markdown_content=markdown,
+                            source_turn_id=turn.id,
+                            source_message_id=message_id,
+                            actor="model",
+                            create_only=True,
+                            owner_check=lambda: self._assert_job_owner(turn.id),
+                        )
                 except PlanDocumentConflict as exc:
                     document_error = str(exc)
                     document_error_type = "plan.document_conflict"
@@ -2474,8 +2844,15 @@ class ManagedTurnWorker:
                     document_error = str(exc)
 
         now = _now()
-        terminal = "AWAITING_DIRECTION" if decision.policy == "propose_execution" else "COMPLETED"
-        event_type = "turn.awaiting_direction" if terminal == "AWAITING_DIRECTION" else "turn.completed"
+        if decision.policy == "propose_execution":
+            terminal = "AWAITING_DIRECTION"
+            event_type = "turn.awaiting_direction"
+        elif artifact_suspended is not None:
+            terminal = "AWAITING_TOOL_APPROVAL"
+            event_type = "turn.awaiting_tool_approval"
+        else:
+            terminal = "COMPLETED"
+            event_type = "turn.completed"
         with self.db.transaction() as connection:
             self._require_job_owner(connection, turn.id, require_not_cancelled=True)
             row = connection.execute(
@@ -2520,6 +2897,13 @@ class ManagedTurnWorker:
                 turn.thread_id, turn.id, event_type, "worker", {},
                 connection=connection, occurred_at=now,
             )
+            if artifact_suspended is not None:
+                call_id, approval_id = artifact_suspended
+                self.conversation.events.append(
+                    turn.thread_id, turn.id, "chat_tool.approval_requested", "worker",
+                    {"call_id": call_id, "approval_id": approval_id, "tool_name": "modify_plan_document"},
+                    connection=connection, occurred_at=now,
+                )
             connection.execute(
                 "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
                 (now, turn.id),
@@ -2760,14 +3144,14 @@ class ManagedTurnWorker:
         )
 
         model = self.conversation.route_model
-        store = getattr(model, "control_store", None)
-        if store is None:
-            # ``LiveConversationModel`` wraps the gateway, and the routing store
-            # lives on the gateway. Looking only at the adapter made every real
-            # conversation fall back to the archiver's static retention, so the
-            # pre-flight budget was never derived from the model that answers.
-            store = getattr(getattr(model, "gateway", None), "control_store", None)
-        if store is not None:
+        # ``RoutedModelGateway`` owns ``resolved_profile``; its ``control_store``
+        # does not. Reading the store alone silently fell back to the archiver's
+        # static retention (12k) even for a routed conversation, so the packed
+        # window no longer matched the profile that answers.
+        resolver = getattr(model, "resolved_profile", None)
+        if not callable(resolver):
+            resolver = getattr(getattr(model, "gateway", None), "resolved_profile", None)
+        if callable(resolver):
             context = ModelCallContext(
                 role="conversation", purpose="route_and_respond", thread_id=turn.thread_id,
                 turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
@@ -2775,11 +3159,18 @@ class ManagedTurnWorker:
                 root_budget_id=getattr(turn, "root_budget_id", None),
             )
             try:
-                return hot_window(store.resolved_profile(context))
-            except Exception:
-                # No resolvable profile for this turn: fall through to the
-                # archiver retention rather than inventing a budget.
-                pass
+                profile = resolver(context)
+            except Exception as exc:
+                # A routed turn whose profile cannot be resolved is a
+                # configuration error. Falling back to the static 12k window
+                # would reject requests the routed model can serve, so fail
+                # explicitly instead of guessing.
+                from .model_gateway import GatewayError
+
+                raise GatewayError(
+                    "routed model profile could not be resolved for this turn", "configuration",
+                ) from exc
+            return hot_window(profile)
 
         # Not routed: a fallback or test double has no profile to derive a budget
         # from. Reuse the archiver's own configured retention rather than
@@ -2862,6 +3253,14 @@ class ManagedTurnWorker:
         rendered = self._render_required_history(builder, transcript)
         if emit_count:
             message_count = len(rendered)
+            counter = getattr(window, "counter", None)
+            history_units = (
+                counter.count_payload(
+                    [{key: value for key, value in message.items() if not key.startswith("_context_")} for message in rendered],
+                    [],
+                )
+                if counter is not None else None
+            )
             self.conversation.events.append(
                 thread_id, turn_id, "context.counted", "worker",
                 {
@@ -2874,6 +3273,10 @@ class ManagedTurnWorker:
                     "pre_cropped": False,
                     "counter_id": getattr(window, "counter_id", None),
                     "counter_version": window.counter_version,
+                    "counter_mode": getattr(window, "counter_mode", None),
+                    "estimated_input_units": history_units,
+                    "effective_input_limit": window.input_limit,
+                    "reserved_output": getattr(window, "reserved_output", 0),
                     "validation_tier": window.validation_tier,
                     "profile_version_id": window.profile_version_id,
                     "model_context_limit": getattr(window, "model_context_limit", None),
@@ -2929,6 +3332,7 @@ class ManagedTurnWorker:
         self, turn: TurnSnapshot, *, scope: Any = None, window: Any = None,
         provider: Any = None, history_through: int = 0, goal_context: Any = None,
         user_content: str = "", human_mode: bool = False, branch_state: Any = None,
+        tool_schemas: list[dict[str, Any]] | None = None,
     ) -> None:
         """Compact the uncovered prefix, inside a bounded and cancellable wait.
 
@@ -2972,6 +3376,10 @@ class ManagedTurnWorker:
             window = self._window_for_turn(turn)
         if window is None:
             return
+        # One ruler for this send: the measure loop, the selector and the wire
+        # gate must all count with the routed profile's counter, never the
+        # global byte default.
+        counter = getattr(window, "counter", None) or DEFAULT_TOKEN_COUNTER
 
         prepare = getattr(self.conversation.route_model, "prepare_mandatory_request", None)
         full_budget = callable(prepare)
@@ -3001,7 +3409,7 @@ class ManagedTurnWorker:
             }
             return history, continuation, len(groups)
 
-        def measure_full_request() -> tuple[int, int, int]:
+        def measure_full_request() -> tuple[int, int, int, int]:
             history, continuation, turn_count = unfinished_history()
             if continuation:
                 history = [{
@@ -3018,8 +3426,8 @@ class ManagedTurnWorker:
                 branch_state=branch_state,
             )
             tools = (
-                self.conversation.route_model.mandatory_tools(branch_state)
-                if hasattr(self.conversation.route_model, "mandatory_tools") else []
+                self.conversation.route_model.mandatory_tools(branch_state, tool_schemas)
+                if hasattr(self.conversation.route_model, "mandatory_tools") else list(tool_schemas or [])
             )
             # Count exactly what the final packer will count: local
             # ``_context_*`` packing hints are stripped before they can reach a
@@ -3028,9 +3436,14 @@ class ManagedTurnWorker:
             from .token_budget import strip_packing_hints
 
             effective = strip_packing_hints(messages)
-            cost = DEFAULT_TOKEN_COUNTER.count_payload(effective, tools)
+            canonical = json.dumps(
+                {"messages": effective, "tools": tools},
+                ensure_ascii=False, sort_keys=True, separators=(",", ":"),
+            )
+            cost = counter.count_payload(effective, tools)
+            payload_bytes = len(canonical.encode("utf-8"))
             limit = window.packing_limit(len(effective), len(tools))
-            return cost, limit, turn_count
+            return cost, limit, turn_count, payload_bytes
 
         policy = archive_wait_policy()
         deadline = WaitDeadline(policy)
@@ -3044,6 +3457,11 @@ class ManagedTurnWorker:
                     "waited_ms": deadline.elapsed_ms,
                     "deadline_ms": policy.deadline_ms,
                     "input_limit": window.input_limit,
+                    "effective_input_limit": window.input_limit,
+                    "reserved_output": getattr(window, "reserved_output", 0),
+                    "counter_id": getattr(window, "counter_id", None),
+                    "counter_version": getattr(window, "counter_version", None),
+                    "counter_mode": getattr(window, "counter_mode", None),
                     **extra,
                 },
             )
@@ -3085,10 +3503,23 @@ class ManagedTurnWorker:
                 raise give_up("attempt_exceeded_deadline", "attempt overran the deadline") from None
 
         if full_budget:
-            cost, limit, turn_count = measure_full_request()
+            cost, limit, turn_count, payload_bytes = measure_full_request()
             # Fits: never wait for a background pass and never archive for
             # optional context, which the packer may drop instead.
             if cost <= limit:
+                self.conversation.events.append(
+                    turn.thread_id, turn.id, "context.request_estimated", "worker",
+                    {
+                        "estimated_input_units": cost,
+                        "effective_input_limit": limit,
+                        "reserved_output": getattr(window, "reserved_output", 0),
+                        "counter_id": getattr(window, "counter_id", None),
+                        "counter_version": getattr(window, "counter_version", None),
+                        "counter_mode": getattr(window, "counter_mode", None),
+                        "canonical_payload_bytes": payload_bytes,
+                        "profile_version_id": window.profile_version_id,
+                    },
+                )
                 return
             while True:
                 if self._cancel_requested(turn.id):
@@ -3104,7 +3535,14 @@ class ManagedTurnWorker:
                             "reason_code": "continuation_context_overflow",
                             "message": ContinuationContextOverflow.public_message,
                             "required_units": cost,
+                            "estimated_input_units": cost,
                             "input_limit": limit,
+                            "effective_input_limit": limit,
+                            "reserved_output": getattr(window, "reserved_output", 0),
+                            "counter_id": getattr(window, "counter_id", None),
+                            "counter_version": getattr(window, "counter_version", None),
+                            "counter_mode": getattr(window, "counter_mode", None),
+                            "canonical_payload_bytes": payload_bytes,
                             "protected_turns": turn_count,
                             "min_turns": window.min_turns,
                             "recoverable": True,
@@ -3119,7 +3557,7 @@ class ManagedTurnWorker:
                     announced = True
                     announce("waiting", pending_units=cost, target_units=limit)
                 outcome = await one_attempt(force_prefix=True)
-                cost, limit, turn_count = measure_full_request()
+                cost, limit, turn_count, payload_bytes = measure_full_request()
                 if cost <= limit:
                     if announced:
                         announce("ready", pending_units=cost, target_units=limit)
@@ -3149,7 +3587,7 @@ class ManagedTurnWorker:
             )
 
         pending = uncovered()
-        pending_units = builder.measure(pending)
+        pending_units = builder.measure(pending, counter=counter)
         if pending_units <= window.input_limit:
             return
         while True:
@@ -3177,7 +3615,7 @@ class ManagedTurnWorker:
                 )
                 return
             pending = uncovered()
-            pending_units = builder.measure(pending)
+            pending_units = builder.measure(pending, counter=counter)
 
     async def _archive_attempt_once(
         self, archiver: Any, turn: TurnSnapshot, window: Any, *, sleep_seconds: float,
@@ -3202,6 +3640,7 @@ class ManagedTurnWorker:
             root_budget_id=turn.root_budget_id,
             static_policy=static_policy,
             budget_profile_version_id=window.profile_version_id,
+            counter=getattr(window, "counter", None),
             force_prefix=force_prefix,
         )
         if job_id is None:
@@ -3232,6 +3671,38 @@ class ManagedTurnWorker:
         if owner is None:
             return ""
         return SkillPlatform(self.db, self.conversation.agent_runtime.skill_platform.root, owner[0]).context_text("RUN", turn.id, "conversation")
+
+    def _chat_tool_runner(self, turn: TurnSnapshot, scope) -> ChatToolRunner | None:
+        """Build the per-turn harness for the goal business tools.
+
+        The runner executes through the same ToolRegistry and ApprovalService
+        the Agent Runtime uses; only the trusted binding is chat-scoped.
+        """
+        runtime = self.conversation.agent_runtime
+        tools = getattr(runtime, "tools", None) if runtime is not None else None
+        approvals = getattr(runtime, "approvals", None) if runtime is not None else None
+        if tools is None or approvals is None:
+            return None
+        allowance = None
+        allowance_fn = getattr(runtime, "conversation_tool_allowance", None)
+        if callable(allowance_fn):
+            allowance = allowance_fn(turn.id, list(turn.skill_names))
+        return ChatToolRunner(
+            tools,
+            approvals,
+            self.conversation.chat_tool_calls,
+            turn_id=turn.id,
+            thread_id=turn.thread_id,
+            owner_id=scope["owner_id"] if scope is not None else "",
+            project_id=scope["project_id"] if scope is not None else None,
+            skill_names=turn.skill_names,
+            root_budget_id=turn.root_budget_id,
+            runtime_bundle_id=turn.runtime_bundle_id,
+            goal_programs=getattr(runtime, "goal_programs", None),
+            plan_documents=getattr(runtime, "plan_documents", None),
+            tool_allowance=allowance,
+            mcp_sync=getattr(runtime, "mcp_sync", None),
+        )
 
     def _cancel_requested(self, turn_id: str) -> bool:
         with self.db.connection() as connection:
@@ -3280,6 +3751,14 @@ class ManagedTurnWorkerPool:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self.primary, name)
+
+
+def _row_value(row: Any, name: str, default: Any = None) -> Any:
+    """Read an optional column from a sqlite3.Row or psycopg dict row."""
+    try:
+        return row[name]
+    except (KeyError, IndexError):
+        return default
 
 
 def _turn_from_row(row: Any) -> TurnSnapshot:

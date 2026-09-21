@@ -1,0 +1,730 @@
+{
+  "status": "completed",
+  "completed_at": "2026-09-20T13:41:37.817052+00:00",
+  "base_url": "http://127.0.0.1:8000",
+  "thread_id": "thread_b76552935ba9495988e44becf1350a3e",
+  "turn_count": 12,
+  "rows": [
+    {
+      "index": 1,
+      "user_turn_id": "turn_a5412c6a2c1a499197d683920632c637",
+      "chain_turn_ids": [
+        "turn_a5412c6a2c1a499197d683920632c637"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 229,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 19992,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 4998,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_a5412c6a2c1a499197d683920632c637",
+          "seq": 3
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 7,
+          "input_limit": 989760,
+          "kept_messages": 0,
+          "kept_turns": 0,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_a5412c6a2c1a499197d683920632c637",
+          "seq": 6
+        }
+      ],
+      "input_chars": 2,
+      "provider_usage": {
+        "uncached": 3778,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 207,
+        "reasoning": 55,
+        "attempts": 2,
+        "actual_input_tokens": 5442
+      }
+    },
+    {
+      "index": 2,
+      "user_turn_id": "turn_8b7972bad2e14825ac96a06a8c10907f",
+      "chain_turn_ids": [
+        "turn_8b7972bad2e14825ac96a06a8c10907f"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 1664,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 20724,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 5181,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_8b7972bad2e14825ac96a06a8c10907f",
+          "seq": 35
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 174,
+          "input_limit": 989760,
+          "kept_messages": 2,
+          "kept_turns": 1,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_8b7972bad2e14825ac96a06a8c10907f",
+          "seq": 43
+        }
+      ],
+      "input_chars": 23,
+      "provider_usage": {
+        "uncached": 5200,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 1260,
+        "reasoning": 59,
+        "attempts": 3,
+        "actual_input_tokens": 6864
+      }
+    },
+    {
+      "index": 3,
+      "user_turn_id": "turn_53dc6fedeebc440c816960e5089e709b",
+      "chain_turn_ids": [
+        "turn_53dc6fedeebc440c816960e5089e709b"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 1783,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 24795,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 6199,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_53dc6fedeebc440c816960e5089e709b",
+          "seq": 77
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 1194,
+          "input_limit": 989760,
+          "kept_messages": 4,
+          "kept_turns": 2,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_53dc6fedeebc440c816960e5089e709b",
+          "seq": 80
+        }
+      ],
+      "input_chars": 20,
+      "provider_usage": {
+        "uncached": 6462,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 1323,
+        "reasoning": 58,
+        "attempts": 3,
+        "actual_input_tokens": 8126
+      }
+    },
+    {
+      "index": 4,
+      "user_turn_id": "turn_a29274d1aa514b938892dbc2aec14dee",
+      "chain_turn_ids": [
+        "turn_a29274d1aa514b938892dbc2aec14dee"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 2001,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 29152,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 7288,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_a29274d1aa514b938892dbc2aec14dee",
+          "seq": 109
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 2284,
+          "input_limit": 989760,
+          "kept_messages": 6,
+          "kept_turns": 3,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_a29274d1aa514b938892dbc2aec14dee",
+          "seq": 117
+        }
+      ],
+      "input_chars": 19,
+      "provider_usage": {
+        "uncached": 7884,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 1453,
+        "reasoning": 45,
+        "attempts": 3,
+        "actual_input_tokens": 9548
+      }
+    },
+    {
+      "index": 5,
+      "user_turn_id": "turn_cdad56ec69d94b06b6b0686a65266f7a",
+      "chain_turn_ids": [
+        "turn_cdad56ec69d94b06b6b0686a65266f7a"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 2440,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 34077,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 8520,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_cdad56ec69d94b06b6b0686a65266f7a",
+          "seq": 151
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 3514,
+          "input_limit": 989760,
+          "kept_messages": 8,
+          "kept_turns": 4,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_cdad56ec69d94b06b6b0686a65266f7a",
+          "seq": 154
+        }
+      ],
+      "input_chars": 21,
+      "provider_usage": {
+        "uncached": 9616,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 1771,
+        "reasoning": 63,
+        "attempts": 3,
+        "actual_input_tokens": 11280
+      }
+    },
+    {
+      "index": 6,
+      "user_turn_id": "turn_07d3a03840b74999aa84329fb7079f7a",
+      "chain_turn_ids": [
+        "turn_07d3a03840b74999aa84329fb7079f7a"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 3063,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 40074,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 10019,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_07d3a03840b74999aa84329fb7079f7a",
+          "seq": 183
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 5019,
+          "input_limit": 989760,
+          "kept_messages": 10,
+          "kept_turns": 5,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_07d3a03840b74999aa84329fb7079f7a",
+          "seq": 191
+        }
+      ],
+      "input_chars": 13,
+      "provider_usage": {
+        "uncached": 11620,
+        "cache_read": 1792,
+        "cache_write": 0,
+        "output": 2158,
+        "reasoning": 35,
+        "attempts": 3,
+        "actual_input_tokens": 13412
+      }
+    },
+    {
+      "index": 7,
+      "user_turn_id": "turn_8b27ddde0d504f3eafb445ce7113fa00",
+      "chain_turn_ids": [
+        "turn_8b27ddde0d504f3eafb445ce7113fa00"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 3422,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 47638,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 11910,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_8b27ddde0d504f3eafb445ce7113fa00",
+          "seq": 225
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 6908,
+          "input_limit": 989760,
+          "kept_messages": 12,
+          "kept_turns": 6,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_8b27ddde0d504f3eafb445ce7113fa00",
+          "seq": 228
+        }
+      ],
+      "input_chars": 19,
+      "provider_usage": {
+        "uncached": 14127,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 2423,
+        "reasoning": 60,
+        "attempts": 3,
+        "actual_input_tokens": 15791
+      }
+    },
+    {
+      "index": 8,
+      "user_turn_id": "turn_37192bc617344ac4955802345d325912",
+      "chain_turn_ids": [
+        "turn_37192bc617344ac4955802345d325912"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 3634,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 45352,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 11338,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_37192bc617344ac4955802345d325912",
+          "seq": 257
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 8966,
+          "input_limit": 989760,
+          "kept_messages": 14,
+          "kept_turns": 7,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_37192bc617344ac4955802345d325912",
+          "seq": 265
+        }
+      ],
+      "input_chars": 12,
+      "provider_usage": {
+        "uncached": 13364,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 2612,
+        "reasoning": 48,
+        "attempts": 3,
+        "actual_input_tokens": 15028
+      }
+    },
+    {
+      "index": 9,
+      "user_turn_id": "turn_18be0be5e69b49a0b7f61c74a1b73d31",
+      "chain_turn_ids": [
+        "turn_18be0be5e69b49a0b7f61c74a1b73d31"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 701,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 194255,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 48564,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_18be0be5e69b49a0b7f61c74a1b73d31",
+          "seq": 464
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 0,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 11152,
+          "input_limit": 989760,
+          "kept_messages": 16,
+          "kept_turns": 8,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_18be0be5e69b49a0b7f61c74a1b73d31",
+          "seq": 467
+        }
+      ],
+      "input_chars": 43230,
+      "provider_usage": {
+        "uncached": 51685,
+        "cache_read": 33664,
+        "cache_write": 0,
+        "output": 568,
+        "reasoning": 66,
+        "attempts": 3,
+        "actual_input_tokens": 85349
+      }
+    },
+    {
+      "index": 10,
+      "user_turn_id": "turn_1e4c378c263045268740f85454ed0ac3",
+      "chain_turn_ids": [
+        "turn_1e4c378c263045268740f85454ed0ac3"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 5093,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 196234,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 49059,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_1e4c378c263045268740f85454ed0ac3",
+          "seq": 555
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 1,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 44056,
+          "input_limit": 989760,
+          "kept_messages": 18,
+          "kept_turns": 9,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_1e4c378c263045268740f85454ed0ac3",
+          "seq": 558
+        }
+      ],
+      "input_chars": 17,
+      "provider_usage": {
+        "uncached": 55279,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 3530,
+        "reasoning": 68,
+        "attempts": 3,
+        "actual_input_tokens": 56943
+      }
+    },
+    {
+      "index": 11,
+      "user_turn_id": "turn_8580ca47d41846f8ab4ceb61633d43bc",
+      "chain_turn_ids": [
+        "turn_8580ca47d41846f8ab4ceb61633d43bc"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 5254,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 208126,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 52032,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_8580ca47d41846f8ab4ceb61633d43bc",
+          "seq": 593
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 1,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 47029,
+          "input_limit": 989760,
+          "kept_messages": 20,
+          "kept_turns": 10,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_8580ca47d41846f8ab4ceb61633d43bc",
+          "seq": 596
+        }
+      ],
+      "input_chars": 17,
+      "provider_usage": {
+        "uncached": 58892,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 3642,
+        "reasoning": 48,
+        "attempts": 3,
+        "actual_input_tokens": 60556
+      }
+    },
+    {
+      "index": 12,
+      "user_turn_id": "turn_52e8953bf16e4e18a4179ae9ebfeb34c",
+      "chain_turn_ids": [
+        "turn_52e8953bf16e4e18a4179ae9ebfeb34c"
+      ],
+      "final_status": "COMPLETED",
+      "interactions": [],
+      "assistant_answer_length": 65,
+      "diagnostics": [
+        {
+          "canonical_payload_bytes": 220455,
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "effective_input_limit": 989710,
+          "estimated_input_units": 55114,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "type": "context.request_estimated",
+          "turn_id": "turn_52e8953bf16e4e18a4179ae9ebfeb34c",
+          "seq": 631
+        },
+        {
+          "capacity_source": "catalog-official-default",
+          "capacity_status": "official-default",
+          "counter_id": "deepseek-text-estimate",
+          "counter_mode": "estimate",
+          "counter_version": "deepseek-text-estimate-v1",
+          "counting_ms": 2,
+          "effective_input_limit": 989760,
+          "estimated_input_units": 50114,
+          "input_limit": 989760,
+          "kept_messages": 22,
+          "kept_turns": 11,
+          "min_turns": 5,
+          "model_context_limit": null,
+          "packing_limit": 989710,
+          "pre_cropped": false,
+          "profile_version_id": "model_profile_version_9ad09ba106bc4b80914811bcc38dbdee",
+          "reserved_output": 8192,
+          "validation_tier": "legacy",
+          "working_window_mode": "auto",
+          "type": "context.counted",
+          "turn_id": "turn_52e8953bf16e4e18a4179ae9ebfeb34c",
+          "seq": 634
+        }
+      ],
+      "input_chars": 13,
+      "provider_usage": {
+        "uncached": 58614,
+        "cache_read": 1664,
+        "cache_write": 0,
+        "output": 57,
+        "reasoning": 0,
+        "attempts": 3,
+        "actual_input_tokens": 60278
+      }
+    }
+  ],
+  "provider_usage_available": true,
+  "provider_usage_note": null,
+  "active_profile": {
+    "context_window": 1000000,
+    "counter_id": "deepseek-text-estimate",
+    "counter_version": "deepseek-text-estimate-v1",
+    "max_output_tokens": 8192,
+    "capacity_evidence": "{\"admitted_context_limit\":null,\"catalog_version\":\"model-capacity-2026-09-19\",\"counter_id\":\"deepseek-text-estimate\",\"counter_mode\":\"estimate\",\"counter_version\":\"deepseek-text-estimate-v1\",\"default_context_limit\":1000000,\"effective_context_limit\":1000000,\"evidence_refs\":[\"https://api-docs.deepseek.com/quick_start/pricing\",\"https://api-docs.deepseek.com/api/create-chat-completion\",\"https://api-docs.deepseek.com/quick_start/token_usage\"],\"mode\":\"auto\",\"model_context_limit\":null,\"model_max_output_limit\":393216,\"reason\":\"official vendor page declares this context length; adopted as a conservative integer default, not an exact verified boundary\",\"schema\":\"capacity-evidence-v1\",\"soft_context_limit\":null,\"source\":\"catalog-official-default\",\"status\":\"official-default\",\"verified_at\":\"2026-09-19T11:07:32Z\"}"
+  },
+  "limitations": [
+    "Provider usage is the gateway's recorded token buckets; cached input is counted as context usage.",
+    "One run only; this is a budget acceptance, not a production reliability claim."
+  ]
+}

@@ -98,6 +98,38 @@ async def test_idempotent_replay_never_calls_provider_twice(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_request_estimate_matches_transmitted_payload_and_attempt(tmp_path, monkeypatch):
+    import hashlib
+    from app.db import Database
+    from app.model_control import ModelCallContext, ModelControlStore
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+
+    db = Database(tmp_path / "agent.db")
+    monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+    captured = []
+
+    async def handler(request):
+        captured.append(json.loads(request.content))
+        return httpx.Response(200, content=b'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\ndata: [DONE]\n\n')
+
+    profile = ModelProfile("https://api.deepseek.com", "deepseek-flash", "MODEL_TEST_KEY",
+                           counter_id="deepseek-text-estimate", max_attempts=1)
+    gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=ModelControlStore(db))
+    await gateway.complete(ModelRequest(messages=[{"role": "user", "content": "桂林行程", "_context_required": True}]),
+                           context=ModelCallContext("conversation", "route_and_respond"))
+    with db.connection() as connection:
+        event = connection.execute("SELECT data_json FROM model_invocation_events WHERE event_type='model.request.estimated'").fetchone()
+        attempt = connection.execute("SELECT id FROM model_attempts").fetchone()
+    data = json.loads(event["data_json"])
+    wire = json.dumps(captured[0], ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    assert data["model_attempt_id"] == attempt["id"]
+    assert data["wire_payload_digest"] == hashlib.sha256(wire).hexdigest()
+    assert data["wire_payload_bytes"] == len(wire)
+    assert data["estimated_input_tokens"] == (len(wire) + 3) // 4
+    assert "secret" not in event["data_json"]
+
+
+@pytest.mark.asyncio
 async def test_idempotency_key_rejects_a_different_request_digest(tmp_path, monkeypatch) -> None:
     from app.db import Database
     from app.model_control import InvocationIdempotencyConflict, ModelCallContext, ModelControlStore
@@ -205,9 +237,11 @@ async def test_gateway_persists_real_attempts_and_emits_contiguous_run_events(tm
         "model.invocation.created",
         "model.route.selected",
         "model.attempt.started",
+        "model.request.estimated",
         "model.attempt.finished",
         "model.attempt.retry_scheduled",
         "model.attempt.started",
+        "model.request.estimated",
         "model.output.started",
         "model.attempt.finished",
         "model.invocation.finished",

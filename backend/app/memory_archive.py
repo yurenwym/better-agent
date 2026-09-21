@@ -234,6 +234,7 @@ class ConversationArchiver:
 
     def uncovered_cost(
         self, thread_id: str, *, owner_id: str | None = None, exclude_turn_id: str | None = None,
+        counter: Any | None = None,
     ) -> int:
         """Size of the compressible prefix: everything past the coverage cursor.
 
@@ -241,6 +242,10 @@ class ConversationArchiver:
         the *committed* coverage cursor, so a job that has not committed yet is
         still counted -- an in-flight pass never makes the prefix look smaller
         than it is.
+
+        ``counter`` must be the counter of the profile whose static policy is
+        being compared against; otherwise the prefix is measured with a
+        different ruler than the trigger/target it is checked against.
         """
         scope = self.transcripts.resolve_scope(thread_id, owner_id)
         with self.db.connection() as connection:
@@ -253,11 +258,12 @@ class ConversationArchiver:
             exclude_turn_id=exclude_turn_id,
             after_sequence=int(row["archived_through_seq"]) if row else 0,
         )
-        return self.transcripts.measure(transcript)
+        return self.transcripts.measure(transcript, counter=counter or DEFAULT_TOKEN_COUNTER)
 
     def static_trigger_state(
         self, thread_id: str, policy: StaticArchivePolicy, *,
         owner_id: str | None = None, exclude_turn_id: str | None = None,
+        counter: Any | None = None,
     ) -> dict[str, Any]:
         """Evaluate the static line against a stable snapshot.
 
@@ -266,7 +272,9 @@ class ConversationArchiver:
         no-op enqueue per turn inside the band between the trigger line and the
         target.
         """
-        pending = self.uncovered_cost(thread_id, owner_id=owner_id, exclude_turn_id=exclude_turn_id)
+        pending = self.uncovered_cost(
+            thread_id, owner_id=owner_id, exclude_turn_id=exclude_turn_id, counter=counter,
+        )
         return {
             "pending": pending,
             "trigger": policy.trigger,
@@ -283,6 +291,7 @@ class ConversationArchiver:
         source_turn_id: str | None = None, runtime_bundle_id: str | None = None,
         root_budget_id: str | None = None, static_policy: StaticArchivePolicy | None = None,
         budget_profile_version_id: str | None = None, force_prefix: bool = False,
+        counter: Any | None = None,
     ) -> str | None:
         scope = self.transcripts.resolve_scope(thread_id, owner_id)
         with self.db.connection() as connection:
@@ -319,7 +328,8 @@ class ConversationArchiver:
             # foreground is already reacting to a request that does not fit.
             if proactive:
                 state_now = self.static_trigger_state(
-                    thread_id, static_policy, owner_id=scope.owner_id, exclude_turn_id=source_turn_id,
+                    thread_id, static_policy, owner_id=scope.owner_id,
+                    exclude_turn_id=source_turn_id, counter=counter,
                 )
                 if not state_now["actionable"]:
                     return None
@@ -1083,10 +1093,24 @@ class ManagedArchiveWorker:
             )
         except Exception:
             policy, profile_version_id = None, None
+        counter = None
+        if profile_version_id:
+            with self.archiver.db.connection() as connection:
+                row = connection.execute(
+                    "SELECT counter_id,counter_evidence_version FROM model_profile_versions WHERE id=?",
+                    (profile_version_id,),
+                ).fetchone()
+            if row is not None:
+                from .token_budget import counter_for_fields
+
+                counter = counter_for_fields(
+                    row["counter_id"], row["counter_evidence_version"],
+                ).counter
         try:
             self.archiver.enqueue(
                 signal["thread_id"], proactive=True, source_turn_id=signal["turn_id"],
                 static_policy=policy, budget_profile_version_id=profile_version_id,
+                counter=counter,
             )
         except Exception:
             # Keep the durable signal for a later poll/retry. A transient

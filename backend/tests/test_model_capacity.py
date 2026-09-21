@@ -8,8 +8,10 @@ import pytest
 
 from app.model_capacity import (
     CAPACITY_STATUS_MANUAL,
+    CAPACITY_STATUS_OFFICIAL_DEFAULT,
     CAPACITY_STATUS_UNVERIFIED,
     CAPACITY_STATUS_VERIFIED,
+    CAPACITY_SOURCE_OFFICIAL_DEFAULT,
     CATALOG,
     DEEPSEEK_FLASH,
     DEEPSEEK_FLASH_ANTHROPIC,
@@ -96,7 +98,7 @@ def test_alias_and_unknown_model_matching():
 # Auto / manual resolution
 # ---------------------------------------------------------------------------
 
-def test_deepseek_auto_stays_unverified_because_context_integer_is_unresolved():
+def test_deepseek_auto_uses_the_official_default_window_without_claiming_verification():
     resolution = resolve_working_window(
         base_url="https://api.deepseek.com",
         protocol="openai_compatible",
@@ -105,12 +107,15 @@ def test_deepseek_auto_stays_unverified_because_context_integer_is_unresolved():
         max_output_tokens=8_192,
         entries=CATALOG,
     )
-    assert resolution.status == CAPACITY_STATUS_UNVERIFIED
-    assert resolution.effective_context_limit is None
-    assert resolution.model_context_limit is None
+    assert resolution.status == CAPACITY_STATUS_OFFICIAL_DEFAULT
+    assert resolution.source == CAPACITY_SOURCE_OFFICIAL_DEFAULT
+    assert resolution.effective_context_limit == 1_000_000
+    assert resolution.model_context_limit is None  # exact integer stays unresolved
+    assert resolution.default_context_limit == 1_000_000
     assert resolution.model_max_output_limit == 393_216
-    assert "no verified exact context length" in resolution.reason
+    assert "conservative integer default" in resolution.reason
     assert resolution.counter_mode == COUNTER_MODE_ESTIMATE
+    assert resolution.counter_id == "deepseek-text-estimate"
 
 
 def test_unknown_proxy_auto_is_unverified_and_does_not_inherit_official_capacity():
@@ -260,18 +265,19 @@ def _set_generic(monkeypatch, base_url="https://api.deepseek.com", model="deepse
     monkeypatch.setenv("AGENT_MODEL_API_KEY", "secret")
 
 
-def test_env_loader_labels_official_deepseek_auto_as_unverified(monkeypatch):
+def test_env_loader_labels_official_deepseek_auto_as_official_default(monkeypatch):
     from app.config import load_model_profile_from_env
 
     _set_generic(monkeypatch)
     profile = load_model_profile_from_env()
-    assert profile.context_window == 32_768  # legacy conservative fallback
+    assert profile.context_window == 1_000_000
     assert profile.working_window_mode == "auto"
-    assert profile.capacity_status == CAPACITY_STATUS_UNVERIFIED
-    assert profile.capacity_source == "legacy-conservative-default"
+    assert profile.capacity_status == CAPACITY_STATUS_OFFICIAL_DEFAULT
+    assert profile.capacity_source == CAPACITY_SOURCE_OFFICIAL_DEFAULT
     assert profile.model_max_output_limit == 393_216
+    assert profile.counter_id == "deepseek-text-estimate"
     record = loads_capacity_record(profile.capacity_evidence)
-    assert record is not None and record["status"] == CAPACITY_STATUS_UNVERIFIED
+    assert record is not None and record["status"] == CAPACITY_STATUS_OFFICIAL_DEFAULT
 
 
 def test_explicit_generic_window_is_manual_and_kept(monkeypatch):
@@ -304,8 +310,8 @@ def test_generic_and_vendor_entry_points_agree(monkeypatch):
     monkeypatch.setenv("DEEPSEEK_API_KEY", "secret")
     vendor = load_model_profile_from_environment()
     assert vendor is not None
-    assert vendor.context_window == generic.context_window == 32_768
-    assert vendor.capacity_status == generic.capacity_status == CAPACITY_STATUS_UNVERIFIED
+    assert vendor.context_window == generic.context_window == 1_000_000
+    assert vendor.capacity_status == generic.capacity_status == CAPACITY_STATUS_OFFICIAL_DEFAULT
     assert vendor.model_max_output_limit == generic.model_max_output_limit == 393_216
 
 
@@ -434,7 +440,10 @@ def test_model_admin_accepts_only_internal_legacy_fallback(tmp_path, monkeypatch
             model_context_limit=None, effective_context_limit=32768))}
     with pytest.raises(ModelAdminError, match="verified capacity evidence"):
         service.create_profile(payload)
-    _set_generic(monkeypatch)
+    # A third-party endpoint has no catalog entry, so the environment loader
+    # resolves the legacy conservative window; ensure_profile registers it
+    # internally without exposing that path to the public API.
+    _set_generic(monkeypatch, base_url="https://proxy.test/v1", model="deepseek-flash")
     bound = service.ensure_profile(load_model_profile_from_env())
     version = service.version(bound.registered_profile_version_id)
     assert version["capacity_source"] == "legacy-conservative-default"
@@ -771,10 +780,11 @@ def test_capacity_endpoint_resolves_official_deepseek_without_guessing(tmp_path)
     })
     assert response.status_code == 200
     body = response.json()
-    assert body["capacity"]["status"] == "unverified"
-    assert body["capacity"]["effective_context_limit"] is None
+    assert body["capacity"]["status"] == CAPACITY_STATUS_OFFICIAL_DEFAULT
+    assert body["capacity"]["effective_context_limit"] == 1_000_000
     assert body["entry"]["max_output_limit"] == 393_216
     assert body["entry"]["context_limit"] is None
+    assert body["entry"]["default_context_limit"] == 1_000_000
 
     missing = http.get("/api/model-capacity", headers=headers, params={
         "base_url": "https://proxy.test/v1", "model": "deepseek-flash",
@@ -794,7 +804,7 @@ def test_capacity_record_round_trips_and_legacy_text_is_not_mistaken_for_a_recor
     stored = dumps_capacity_record(resolution.capacity_record())
     parsed = loads_capacity_record(stored)
     assert parsed is not None
-    assert parsed["status"] == CAPACITY_STATUS_UNVERIFIED
+    assert parsed["status"] == CAPACITY_STATUS_OFFICIAL_DEFAULT
     assert parsed["model_max_output_limit"] == 393_216
     assert loads_capacity_record("official pricing snapshot, plain note") is None
     assert loads_capacity_record(None) is None

@@ -143,6 +143,33 @@ def test_configured_startup_repairs_an_unroutable_stable_bundle(tmp_path, monkey
     assert policy["policy_digest"] == routing["digest"]
 
 
+def test_model_routing_requires_conversation_and_ask_routes(tmp_path, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from app.startup import _has_valid_model_routing, build_runtime
+
+    monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
+    monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://provider.test/v1")
+    monkeypatch.setenv("AGENT_MODEL_ID", "demo")
+    monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "streaming,tool_calling,json_object")
+    runtime = build_runtime(tmp_path)
+    stable = runtime.behavior.active("stable")
+    primary = stable.manifest["model_role_bindings"]["conversation"]["primary"]
+
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO model_routing_policies(id,owner_id,version,name,roles_json,policy_digest,created_at) "
+            "VALUES (?, 'local-user', 1, 'expert only', ?, 'digest-expert-only', datetime('now'))",
+            ("policy_expert_only", '{"expert":{"primary":"%s","fallback":[]}}' % primary),
+        )
+
+    expert_only = SimpleNamespace(manifest={
+        "model_routing": {"policy_id": "policy_expert_only", "digest": "digest-expert-only"},
+    })
+    assert _has_valid_model_routing(runtime.db, expert_only) is False
+    assert _has_valid_model_routing(runtime.db, stable) is True
+
+
 def test_configured_startup_activates_a_changed_model_profile(tmp_path, monkeypatch) -> None:
     from app.startup import build_runtime
 
@@ -245,6 +272,8 @@ def test_custom_unpriced_model_is_rejected_before_turn_is_accepted(tmp_path, mon
     from app.main import create_app
     from app.startup import build_runtime
 
+    # This contract is about enforcement mode; the ambient default is observe.
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     monkeypatch.setenv("AGENT_MODEL_API_KEY", "configured")
     monkeypatch.setenv("AGENT_MODEL_BASE_URL", "https://custom.test/v1")
     monkeypatch.setenv("AGENT_MODEL_ID", "custom")

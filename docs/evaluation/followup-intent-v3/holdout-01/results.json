@@ -1,0 +1,850 @@
+{
+  "status": "completed",
+  "split": "holdout",
+  "manifest": {
+    "contract": "followup-intent-contract-v3.0",
+    "hashes": {
+      "docs/evaluation/followup-intent-v3/cases.json": "a76dab7ea4c1d0c2e5b0b359ff574b9e702f8ddbbfcc48008a93a6d287914d1a",
+      "docs/superpowers/plans/2026-09-20-d4-write-contract-and-v3-labels.md": "8543d1f1dae7fc53a4c170b8e70e33db1c89ea5af633752dd08010e2c90e4cb4",
+      "backend/scripts/followup_intent_v3.py": "6eb811d55215a1546965bbe79cd31abb82a4ba1924b513ca1a6fea55f435bc44",
+      "backend/tests/test_followup_intent_v3.py": "839242c33eb7ba6df53bcbb24c6ba980ea5a417649db182bcf439cc567a3e797"
+    },
+    "prompt_hash": "6651d3afe64963cf58aa0407fd8d3d960d874aabf376f3f99abb3639200c89c5",
+    "frozen_at": "2026-09-20T11:31:36.563677+00:00",
+    "counts": {
+      "dev": 30,
+      "holdout": 30
+    }
+  },
+  "started_at": "2026-09-20T11:34:51.564040+00:00",
+  "model": "deepseek-flash",
+  "provider": "deepseek",
+  "rows": [
+    {
+      "id": "H01",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 136,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 57,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "sail",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天清晨由助手主动回顾前一天航行记录和操作失误，持续到结营"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H02",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 139,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 56,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "rehab",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天主动比较当天和前一天感受并总结变化，明确进度记录不用开"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H03",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 134,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 59,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "debate",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "要求备赛期间每天下午主动分析当天论证训练不足并提出改进，属于每日主动复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H04",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 135,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "shop",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "要求每天打烊时主动分析经营数据并复盘客诉与转化"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H05",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 139,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 51,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "volunteer",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "要求每天结束后由助手主动总结当天协作问题"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H06",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 137,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 59,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "kata",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每日22点自动发起当日编程练习回顾，明确主动发起；不要单独加学习提醒"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H07",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 177,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 97,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "stretch",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "原来的提醒照常，保留已有提醒，无本次变更"
+          },
+          {
+            "target": "interview",
+            "tracking": "none",
+            "review": "once",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "仅这一次复盘刚刚结束的模拟面试"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H08",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 170,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 120,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "vehicle",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "stop",
+            "document": "none",
+            "reason": "取消 vehicle 的保养提醒"
+          },
+          {
+            "target": "package",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "once",
+            "document": "none",
+            "reason": "为 package 只设置明晚取快递的提醒"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H09",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 184,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 104,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "yoga",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "yoga 改为每周我交记录后复盘，跟踪保持"
+          },
+          {
+            "target": "coffee",
+            "tracking": "none",
+            "review": "other_recurring",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "coffee 改为每月你主动分析一次消费，跟踪保持"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H10",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 175,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 99,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "wedding",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "modify",
+            "reason": "修改并保存 wedding 已有文档的宾客安排；婚礼不要跟进"
+          },
+          {
+            "target": "cycling",
+            "tracking": "enable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "为 cycling 开启执行进度管理"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H11",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 177,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 74,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "unresolved",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "stop",
+            "document": "none",
+            "reason": "用户要求关闭每日提醒，但未指明是 piano 还是 chess，目标不明"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H12",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 253,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 58,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "baking",
+            "tracking": "none",
+            "review": "event_recurring",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "以后每次烘焙失败都帮我复盘一次，属事件触发的重复复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H13",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "portfolio",
+            "tracking": "clarify",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户尚未决定是否开启执行管理，要求先询问是否开启，跟踪意图不明确"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H14",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 58,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "speech",
+            "tracking": "none",
+            "review": "clarify",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户要求主动复盘，但频率按周还是按月未定，需澄清频率"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H15",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 138,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 57,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "brunch",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "用户只要通用菜单，明确不保存、不提醒、不收集反馈"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H16",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 53,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "rail",
+            "tracking": "none",
+            "review": "once",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "对已结束的铁路旅行做一次性误车原因分析"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H17",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 258,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "lab",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每周五由用户提交实验记录后再归纳问题，不设置主动复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H18",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 258,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 54,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "build",
+            "tracking": "none",
+            "review": "event_recurring",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每次构建失败后由系统检测并主动发起原因复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H19",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 134,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "journal",
+            "tracking": "none",
+            "review": "other_recurring",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每两周用户发日志后分析情绪变化，由用户发起，不主动联系"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H20",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 256,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 53,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "climbing",
+            "tracking": "enable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "恢复已暂停的进度跟踪，明确不恢复复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H21",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 260,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 51,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "plants",
+            "tracking": "disable",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "暂停养护完成记录，浇水提醒照常不变"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H22",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 56,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "backup",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "recurring",
+            "document": "none",
+            "reason": "每次备份完成后提醒检查文件，只提醒不分析过程"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H23",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 56,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "driving",
+            "tracking": "none",
+            "review": "stop",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "停止已启用的考试练习复盘，错题完成记录继续保留"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H24",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 259,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 72,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "music",
+            "tracking": "none",
+            "review": "once",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每周复盘照旧保留，本次只要求一次分析今天练琴节奏不稳的原因"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H25",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 57,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "museum",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "create",
+            "reason": "减少一处展馆后另存为新文档，且明确不要启动行程管理"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H26",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 141,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 62,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "cooking",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "modify",
+            "reason": "在已有 cooking 文档中加一句并保存到原文档，明确不要提醒或复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H27",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 55,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "startup",
+            "tracking": "none",
+            "review": "weekly",
+            "review_initiation": "proactive",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每周一主动总结上周客户访谈教训，明确不开启任务进度管理"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H28",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 140,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 60,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "travel_notes",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "none",
+            "document": "none",
+            "reason": "假设性咨询记录表设计，明确现在只解释不开服务，不配置复盘"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H29",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 136,
+        "cache_read_tokens": 2048,
+        "cache_write_tokens": 0,
+        "output_tokens": 54,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "reading_club",
+            "tracking": "none",
+            "review": "none",
+            "review_initiation": "not_applicable",
+            "reminder": "recurring",
+            "document": "none",
+            "reason": "每周六提醒读书；明确不要复盘分析"
+          }
+        ]
+      }
+    },
+    {
+      "id": "H30",
+      "status": "ok",
+      "usage": {
+        "uncached_input_tokens": 261,
+        "cache_read_tokens": 1920,
+        "cache_write_tokens": 0,
+        "output_tokens": 56,
+        "reasoning_tokens": 0
+      },
+      "prediction": {
+        "intents": [
+          {
+            "target": "school",
+            "tracking": "none",
+            "review": "daily",
+            "review_initiation": "user_initiated",
+            "reminder": "none",
+            "document": "none",
+            "reason": "每天用户主动发作业情况后回顾当天难点，明确无需定时主动询问"
+          }
+        ]
+      }
+    }
+  ],
+  "cost_usd": null,
+  "config": {
+    "temperature": 0,
+    "thinking": false,
+    "max_tokens": 1600,
+    "max_attempts": 1,
+    "network_retries": 0
+  },
+  "candidate_hashes": {
+    "backend/app/live_model.py": "ea280275afe7e1be447f117521c6a181625c4de87d94a4d1db8354f5a5d98757",
+    "backend/app/chat_tools.py": "ba148f0ac0189f67d45177ce13408848695487c751792140322f65eae0e7760b",
+    "backend/app/conversation.py": "a916916008602f243d324bf137930680fc327db387f35655fe843f1ba9c5ec0d"
+  },
+  "limitations": [
+    "Standalone classification probe, not production behavior or business E2E.",
+    "Holdout authored by developer, not independent human adjudication.",
+    "Billing rate unverified; cost unknown."
+  ],
+  "metrics": {
+    "n": 30,
+    "target_count": 34,
+    "exact_correct": 29,
+    "exact_accuracy": 0.9666666666666667,
+    "target_set_accuracy": 1.0,
+    "fields": {
+      "tracking": 1.0,
+      "review": 1.0,
+      "review_initiation": 0.9705882352941176,
+      "reminder": 1.0,
+      "document": 1.0
+    },
+    "daily": {
+      "tp": 7,
+      "fp": 0,
+      "fn": 0,
+      "extra_target_fp": 0,
+      "negative_target_fp": 0,
+      "non_daily_targets": 27,
+      "precision": 1.0,
+      "recall": 1.0
+    },
+    "errors": 0,
+    "hallucinated_targets": 0,
+    "cross_target_witnesses": 0,
+    "proactive_escalations": 1,
+    "confusion": {
+      "daily -> daily": 7,
+      "none -> none": 15,
+      "once -> once": 3,
+      "weekly -> weekly": 3,
+      "other_recurring -> other_recurring": 2,
+      "event_recurring -> event_recurring": 2,
+      "clarify -> clarify": 1,
+      "stop -> stop": 1
+    },
+    "failed_ids": [
+      "H12"
+    ],
+    "probe_threshold_passed": false,
+    "behavior_acceptance": "not_evaluated"
+  },
+  "completed_at": "2026-09-20T11:36:24.194325+00:00",
+  "usage": {
+    "uncached_input_tokens": 6016,
+    "cache_read_tokens": 59648,
+    "cache_write_tokens": 0,
+    "output_tokens": 1918,
+    "reasoning_tokens": 0
+  },
+  "usage_missing_rows": 0
+}

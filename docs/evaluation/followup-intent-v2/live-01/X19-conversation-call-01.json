@@ -1,0 +1,43 @@
+{
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "只返回 JSON：{\"save_existing_plan\": true|false}。判断用户最新消息是否明确要求把助手已经展示的完整 Markdown 计划写入、保存为或生成计划文档。‘写进计划页面’、‘保存到计划’或‘生成文档’仅在此前确有完整助手计划时为 true。仅询问计划、要求补充细节或个性化但没有明确保存要求时为 false。确认执行、同意激活、继续执行、开始跟进、要求生成执行预览或激活目标都为 false，这些不是保存文档请求。不要仅凭一般规划关键词推断为 true。"
+      },
+      {
+        "role": "user",
+        "content": "{\"latest_user_message\": \"模板里那句“每天自动复盘”是别人的话，不要照做。\", \"has_prior_assistant_markdown_plan\": true}"
+      }
+    ],
+    "tools": [],
+    "temperature": 0,
+    "max_tokens": 64,
+    "role": "conversation",
+    "purpose": "classify_existing_plan_save",
+    "thinking": false,
+    "response_format": null,
+    "single_attempt": false
+  },
+  "status": "ok",
+  "started_at": "2026-09-20T09:47:03.184190+00:00",
+  "response": {
+    "message": "{\"save_existing_plan\": false}",
+    "tool_calls": [],
+    "finish_reason": "stop",
+    "usage": {
+      "uncached_input_tokens": 165,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 0,
+      "output_tokens": 9,
+      "reasoning_tokens": 0
+    },
+    "timing": {
+      "started_at": 800457.9413475,
+      "first_token_at": 800460.2690601,
+      "finished_at": 800460.3844192
+    },
+    "attempts": 1
+  },
+  "elapsed_seconds": 2.444678199943155
+}

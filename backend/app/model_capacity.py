@@ -31,6 +31,11 @@ CAPACITY_STATUS_VERIFIED = "verified"
 CAPACITY_STATUS_UNVERIFIED = "unverified"
 CAPACITY_STATUS_MANUAL = "manual"
 CAPACITY_STATUS_LEGACY = "legacy"
+# An official vendor page declares a context length without an exact integer.
+# The declared value is adopted as a conservative integer default and is *not*
+# presented as a verified exact boundary.
+CAPACITY_STATUS_OFFICIAL_DEFAULT = "official-default"
+CAPACITY_SOURCE_OFFICIAL_DEFAULT = "catalog-official-default"
 
 COUNTER_MODE_ESTIMATE = "estimate"
 COUNTER_MODE_VERIFIED = "verified"
@@ -67,6 +72,10 @@ class CapacityEntry:
     verified_at: str
     evidence: CapacityEvidence
     catalog_version: str = CATALOG_VERSION
+    # Official vendor page declares a context length (e.g. "1M") without an
+    # exact integer. The adopted conservative integer is a *default*, not a
+    # verified boundary; third-party endpoints never inherit it.
+    default_context_limit: int | None = None
 
     @property
     def verified(self) -> bool:
@@ -81,6 +90,7 @@ class CapacityEntry:
             "model_version": self.model_version,
             "aliases": list(self.aliases),
             "context_limit": self.context_limit,
+            "default_context_limit": self.default_context_limit,
             "max_output_limit": self.max_output_limit,
             "counter_id": self.counter_id,
             "counter_version": self.counter_version,
@@ -115,6 +125,7 @@ class WorkingWindowResolution:
     verified_at: str | None
     entry: CapacityEntry | None = None
     reason: str = ""
+    default_context_limit: int | None = None
 
     @property
     def verified(self) -> bool:
@@ -128,6 +139,7 @@ class WorkingWindowResolution:
             "effective_context_limit": self.effective_context_limit,
             "model_context_limit": self.model_context_limit,
             "model_max_output_limit": self.model_max_output_limit,
+            "default_context_limit": self.default_context_limit,
             "admitted_context_limit": self.admitted_context_limit,
             "soft_context_limit": self.soft_context_limit,
             "counter_id": self.counter_id,
@@ -149,6 +161,7 @@ class WorkingWindowResolution:
             "effective_context_limit": self.effective_context_limit,
             "model_context_limit": self.model_context_limit,
             "model_max_output_limit": self.model_max_output_limit,
+            "default_context_limit": self.default_context_limit,
             "admitted_context_limit": self.admitted_context_limit,
             "soft_context_limit": self.soft_context_limit,
             "counter_id": self.counter_id,
@@ -316,6 +329,40 @@ def resolve_working_window(
             verified_at=None,
             reason="no verified capacity entry matches this endpoint, protocol and model",
         )
+    if not entry.verified and entry.default_context_limit:
+        # Official page declares a context length (e.g. "1M") without an exact
+        # integer. Adopt the declared value as a conservative default; it is
+        # recorded as ``official-default``, never as ``verified``.
+        limits = [int(entry.default_context_limit)]
+        if admitted_context_limit is not None:
+            limits.append(int(admitted_context_limit))
+        if soft_context_limit is not None:
+            limits.append(int(soft_context_limit))
+        effective = min(limits)
+        if max_output_tokens is not None and int(max_output_tokens) >= effective:
+            raise CapacityContractError("output reserve must be smaller than the working window")
+        return WorkingWindowResolution(
+            mode=WORKING_WINDOW_AUTO,
+            status=CAPACITY_STATUS_OFFICIAL_DEFAULT,
+            source=CAPACITY_SOURCE_OFFICIAL_DEFAULT,
+            effective_context_limit=effective,
+            model_context_limit=None,
+            model_max_output_limit=model_output,
+            admitted_context_limit=admitted_context_limit,
+            soft_context_limit=soft_context_limit,
+            counter_id=counter_id,
+            counter_version=counter_version,
+            counter_mode=counter_mode,
+            evidence_refs=evidence_refs,
+            catalog_version=catalog_version,
+            verified_at=verified_at,
+            entry=entry,
+            default_context_limit=entry.default_context_limit,
+            reason=(
+                "official vendor page declares this context length; adopted as a "
+                "conservative integer default, not an exact verified boundary"
+            ),
+        )
     if not entry.verified:
         return WorkingWindowResolution(
             mode=WORKING_WINDOW_AUTO,
@@ -451,9 +498,10 @@ DEEPSEEK_FLASH = CapacityEntry(
     model_version="DeepSeek-V4.1-Flash",
     aliases=("deepseek-v4-flash", "deepseek-v4-flash-vision-exp"),
     context_limit=None,  # unresolved: official page only says 1M
+    default_context_limit=1_000_000,  # adopted conservative integer for "1M"
     max_output_limit=393216,  # 384K, verified
-    counter_id="utf8-upper-bound",
-    counter_version="utf8-upper-bound-v1",
+    counter_id="deepseek-text-estimate",
+    counter_version="deepseek-text-estimate-v1",
     counter_verified=False,
     context_verified=False,
     verified_at="2026-09-19T11:07:32Z",

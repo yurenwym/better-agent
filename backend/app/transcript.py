@@ -26,9 +26,12 @@ class TranscriptEvent:
     content: str
     sequence: int
     generation: int | None = None
+    # Set only on business-tool events. Ask events keep ``None`` so the
+    # canonical hash of existing transcripts does not change.
+    tool_name: str | None = None
 
     def canonical(self) -> dict[str, Any]:
-        return {
+        payload = {
             "event_type": self.event_type,
             "turn_id": self.turn_id,
             "message_id": self.message_id,
@@ -38,6 +41,9 @@ class TranscriptEvent:
             "sequence": self.sequence,
             "generation": self.generation,
         }
+        if self.tool_name is not None:
+            payload["tool_name"] = self.tool_name
+        return payload
 
 
 @dataclass(frozen=True)
@@ -142,6 +148,13 @@ class CanonicalTurnTranscriptBuilder:
                 + "ORDER BY a.created_at,a.id",
                 (thread_id, exclude_turn_id) if exclude_turn_id is not None else (thread_id,),
             ).fetchall()
+            tool_rows = connection.execute(
+                "SELECT c.* FROM turn_tool_calls c "
+                "WHERE c.thread_id=? AND c.status IN ('EXECUTED','FAILED','REJECTED') "
+                + ("AND c.turn_id<>? " if exclude_turn_id is not None else "")
+                + "ORDER BY c.created_at,c.id",
+                (thread_id, exclude_turn_id) if exclude_turn_id is not None else (thread_id,),
+            ).fetchall()
 
         terminal = {"COMPLETED", "FAILED", "CANCELLED"}
         eligible_rows = []
@@ -154,6 +167,9 @@ class CanonicalTurnTranscriptBuilder:
         asks_by_turn: dict[str, list[Any]] = {}
         for ask in ask_rows:
             asks_by_turn.setdefault(ask["turn_id"], []).append(ask)
+        tools_by_turn: dict[str, list[Any]] = {}
+        for tool_call in tool_rows:
+            tools_by_turn.setdefault(tool_call["turn_id"], []).append(tool_call)
         grouped: dict[str, list[Any]] = {}
         order: list[str] = []
         for row in rows:
@@ -196,6 +212,22 @@ class CanonicalTurnTranscriptBuilder:
                         "tool_result", turn_id, None, ask["call_id"], "tool",
                         json.dumps(tool_result_payload(questions, answers), ensure_ascii=False, sort_keys=True),
                         sequence, None,
+                    ))
+            business_calls = tools_by_turn.get(turn_id, [])
+            if business_calls:
+                # Place the exchange at the turn's first message position so the
+                # rendered order is user -> tool_call -> tool_result -> answer.
+                sequence = min(int(row["message_seq"]) for row in visible)
+                for call in business_calls:
+                    events.append(TranscriptEvent(
+                        "tool_call", turn_id, None, call["id"], "assistant",
+                        json.dumps(json.loads(call["params_json"]), ensure_ascii=False, sort_keys=True),
+                        sequence, None, tool_name=call["tool_name"],
+                    ))
+                    events.append(TranscriptEvent(
+                        "tool_result", turn_id, None, call["id"], "tool",
+                        _business_tool_result_content(call),
+                        sequence, None, tool_name=call["tool_name"],
                     ))
             events.sort(key=lambda event: (event.sequence, _event_order(event.event_type), event.call_id or ""))
             turns.append(TranscriptTurn(
@@ -249,7 +281,7 @@ class CanonicalTurnTranscriptBuilder:
                     and len(event.content.encode("utf-8")) > limit_bytes
                 ):
                     reference = {
-                        "tool": "ask_user",
+                        "tool": event.tool_name or "ask_user",
                         "call_id": event.call_id,
                         "turn_id": event.turn_id,
                     }
@@ -403,7 +435,7 @@ class CanonicalTurnTranscriptBuilder:
                     tool_call = {
                         "id": event.call_id,
                         "type": "function",
-                        "function": {"name": "ask_user", "arguments": event.content},
+                        "function": {"name": event.tool_name or "ask_user", "arguments": event.content},
                     }
                     if history and history[-1].get("role") == "assistant":
                         history[-1].setdefault("tool_calls", []).append(tool_call)
@@ -416,6 +448,32 @@ class CanonicalTurnTranscriptBuilder:
 
 def _event_order(event_type: str) -> int:
     return {"message": 0, "tool_call": 1, "tool_result": 2, "turn_outcome": 3}.get(event_type, 9)
+
+
+def _business_tool_result_content(row: Any) -> str:
+    """Replay one chat tool result in the provider's tool-message shape."""
+    if row["status"] == "REJECTED":
+        from .chat_tools import REJECTION_OBSERVATION
+
+        return json.dumps(
+            {"ok": False, "error": "USER_REJECTED", "summary": REJECTION_OBSERVATION},
+            ensure_ascii=False, sort_keys=True,
+        )
+    if not row["result_json"]:
+        return json.dumps(
+            {"ok": False, "error": row["error_code"] or "INTERNAL_ERROR", "summary": "工具没有返回结果"},
+            ensure_ascii=False, sort_keys=True,
+        )
+    payload = json.loads(row["result_json"])
+    return json.dumps(
+        {
+            "ok": bool(payload.get("ok")),
+            "summary": payload.get("summary", ""),
+            "data": payload.get("data") or {},
+            "error": payload.get("error"),
+        },
+        ensure_ascii=False, sort_keys=True, default=str,
+    )
 
 
 def _source_hash(
