@@ -415,6 +415,8 @@ class RoutedModelGateway:
         "reflector": {"text", "json_object"}, "researcher": {"text", "streaming"},
         "expert": {"text", "json_object"}, "coordinator": {"text", "json_object"},
         "judge_quality": {"text", "json_object"}, "judge_safety": {"text", "json_object"},
+        # V3 learning pipeline roles: the generator drafts, the judge scores.
+        "learning_generator": {"text", "json_object"}, "learning_judge": {"text", "json_object"},
     }
 
     def __init__(self, db: Database, control_store: ModelControlStore, *, execute_attempt=None) -> None:

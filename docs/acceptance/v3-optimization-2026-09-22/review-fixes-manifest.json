@@ -1,0 +1,22 @@
+{
+  "head": "532378290b649e33d5048541aa984c9cb893fe87",
+  "note": "Working tree file hashes for reviewed repairs; pre-existing edits preserved; JEV budget excluded.",
+  "files": {
+    ".env.example": "ee7305da6e6d45fab12b2f6d3d3e9adb127dd239f7626b0c9b78e1fd0e0a2c4a",
+    "backend/app/api.py": "782d45ba430eaa1330dae297a313d15d929977adc51ac6da26333542e335b48c",
+    "backend/app/learning.py": "ce47ba5d38fc38d44172de5538d2112db01d18bb7e347b2b6535f1b6fb671fa2",
+    "backend/app/startup.py": "ea991ce3eec1877af149d12229f646d301ae7117c4ca30023dffc9367fe689f0",
+    "backend/app/skill_platform.py": "c5399ef42042bf878da79bd0365d5297d951f2da4fc151d06eda993a50905c66",
+    "backend/app/learning_targets.py": "457340c0f999d8c41337e6da0ab4d109a4fc75cd274443a4efa5e60c886692aa",
+    "backend/app/learning_pipeline.py": "a94aef8e5aa42559785bad0bdc0942eda74eaeed9a48ebb2874bef405d801326",
+    "backend/app/learning_promotion.py": "f6f7c1ba5a753702717980da2f2660858d14c8277dcac1e17b77d2f6c656663a",
+    "backend/app/learning_eval.py": "f66b4225c174305cd7bb2326009ef886336bc3519f1bcebdf15afb26163f69d6",
+    "backend/app/learning_replay.py": "20059ad5772fc09cf822d4c8b875200e9606dd39262e59b4f59145489a3b826c",
+    "backend/app/learning_sources.py": "fa8f984e31aed9243d88f0f0ce08abb2c32a982b25ca2b4234cfffdd695f8f3e",
+    "backend/tests/integration/db_target_guard.py": "3f243f817da57c2e4b359220a589be0a3026fb263bac27096f4170d6043626db",
+    "backend/tests/integration/test_db_target_guard.py": "c689c2d7f6c3236daea8d65b14ffd99931d4e63bf08c593880bd7e2d4765a823",
+    "backend/tests/integration/test_learning_v3_postgres.py": "8d37e95689c73f6789f2feadb042d93f9e1526f5c1dba4c51a9000b02fe2b5db",
+    "backend/tests/test_learning_v3_fixes.py": "243cb9965113548f95b345234c18b6a7128b0299e829453bb676bf56659a09f4",
+    "backend/tests/test_learning_v3_wiring.py": "fde6747a394f2c33a9a7cbfc2a7cec9ba18ca44b9744039e8eae44615e61b38e"
+  }
+}

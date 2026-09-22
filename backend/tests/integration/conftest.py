@@ -13,9 +13,24 @@ import psycopg
 from psycopg import sql
 from psycopg.rows import dict_row
 
+from db_target_guard import UnsafeDatabaseTarget, assert_isolated_test_database
+
 
 COMPOSE_FILE = Path(__file__).with_name("compose.postgres.yaml")
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _require_test_database(database_url: str) -> None:
+    """Reject a non-test target *before* alembic or TRUNCATE can touch it.
+
+    `isolated_postgres_test` truncates every application table around each test,
+    so a mis-pointed `TEST_DATABASE_URL` would destroy the development database.
+    See `db_target_guard` for the rules and why the ordering matters.
+    """
+    try:
+        assert_isolated_test_database(database_url)
+    except UnsafeDatabaseTarget as exc:
+        pytest.fail(str(exc), pytrace=False)
 
 
 class RedactedDatabaseUrl(str):
@@ -45,6 +60,7 @@ def postgres_url() -> RedactedDatabaseUrl:
     if configured:
         if not configured.startswith(("postgresql://", "postgresql+psycopg://")):
             pytest.fail("TEST_DATABASE_URL must be a PostgreSQL URL")
+        _require_test_database(configured)
         yield RedactedDatabaseUrl(configured)
         return
 
@@ -73,6 +89,8 @@ def postgres_url() -> RedactedDatabaseUrl:
 
 @pytest.fixture(scope="session")
 def migrated_postgres_url(postgres_url: RedactedDatabaseUrl) -> RedactedDatabaseUrl:
+    # Re-checked here so the rejection sits adjacent to the mutation, not merely early.
+    _require_test_database(str(postgres_url))
     environment = os.environ.copy()
     environment["DATABASE_URL"] = postgres_url
     result = subprocess.run(
@@ -95,6 +113,7 @@ def migrated_postgres_url(postgres_url: RedactedDatabaseUrl) -> RedactedDatabase
 
 
 def _truncate_application_tables(database_url: str) -> None:
+    _require_test_database(database_url)
     with psycopg.connect(database_url, row_factory=dict_row) as connection:
         tables = [
             row["tablename"]

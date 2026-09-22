@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20260920_0020"
+POSTGRES_SCHEMA_HEAD = "20260921_0023"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1565,6 +1565,28 @@ MIGRATIONS = (*MIGRATIONS, (42, """
     CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_turn ON turn_tool_calls(turn_id, status);
     CREATE INDEX IF NOT EXISTS idx_turn_tool_calls_continuation ON turn_tool_calls(continuation_turn_id);
 """))
+
+from .learning_v3_schema import SQLITE_TRIGGERS as LEARNING_V3_TRIGGERS
+from .learning_v3_schema import TABLE_STATEMENTS as LEARNING_V3_STATEMENTS
+from .learning_v3_schema import PROMOTION_SQLITE_TRIGGERS as LEARNING_V3_PROMOTION_TRIGGERS
+from .learning_v3_schema import PROMOTION_TABLE_STATEMENTS as LEARNING_V3_PROMOTION_STATEMENTS
+
+# V3 learning decisions are append-only evidence of what the harness decided.
+MIGRATIONS = (*MIGRATIONS, (43, ";\n".join(LEARNING_V3_STATEMENTS + LEARNING_V3_TRIGGERS) + ";"))
+
+# V3 promotions are the append-only trail of what the harness actually applied.
+MIGRATIONS = (
+    *MIGRATIONS,
+    (44, ";\n".join(LEARNING_V3_PROMOTION_STATEMENTS + LEARNING_V3_PROMOTION_TRIGGERS) + ";"),
+)
+
+# `support` is the distribution mass behind the chosen target — the number the
+# routing gate reads. `confidence` is JEV's self-report and is kept beside it, but
+# a row that carried only the self-report would look like a bypassed threshold.
+MIGRATIONS = (
+    *MIGRATIONS,
+    (45, "ALTER TABLE learning_decisions ADD COLUMN support REAL NOT NULL DEFAULT 0;"),
+)
 
 
 class Database:

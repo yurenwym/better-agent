@@ -89,8 +89,52 @@ def _has_valid_model_routing(db: Database, bundle) -> bool:
     )
 
 
-def build_runtime(
-    data_root: str | Path,
+#: The rollout gate for the V3 learning pipeline (V3 §65 steps 17/20/21/22).
+#: `OFF` leaves the legacy branches in `learning_legacy` in charge, which is the
+#: pre-cut-over state the frozen regression baseline was pinned to.
+LEARNING_V3_MODES: dict[str, str] = {"SHADOW": "SHADOW", "ACTIVE": "ACTIVE"}
+
+
+def _wire_learning_pipeline(runtime: AgentRuntime, gateway) -> None:
+    """Attach the one Learning Pipeline, if this deployment has asked for it.
+
+    Wiring is deliberately a deployment decision rather than a per-owner one:
+    the pipeline needs a JEV credential and a generator, and a half-wired
+    pipeline would silently learn nothing. It therefore fails loudly instead of
+    degrading, and stays off unless `BETTER_AGENT_LEARNING_V3` names a mode.
+    """
+    requested = (os.getenv("BETTER_AGENT_LEARNING_V3") or "OFF").strip().upper()
+    if requested == "OFF":
+        return
+    if requested not in LEARNING_V3_MODES:
+        raise ValueError(f"invalid BETTER_AGENT_LEARNING_V3: {requested!r}; "
+                         f"expected OFF or one of {sorted(LEARNING_V3_MODES)}")
+    if gateway is None:
+        raise RuntimeError(f"BETTER_AGENT_LEARNING_V3={requested} requires a model gateway")
+    if not os.getenv("TYPESAFE_API_KEY"):
+        raise RuntimeError(f"BETTER_AGENT_LEARNING_V3={requested} requires TYPESAFE_API_KEY")
+
+    from .learning_agent import LearningAgent
+    from .learning_decision import DEFAULT_MODEL, JevDecisionService, TypesafeClient
+    from .learning_eval import LearningJudge
+    from .learning_pipeline import build_pipeline
+    from .learning_replay import RuntimeLearningReplay
+    from .learning_promotion import PromotionPolicy
+
+    runtime.learning.pipeline = build_pipeline(
+        runtime, mode=LEARNING_V3_MODES[requested],
+        decisions=JevDecisionService(
+            db=runtime.db, client=TypesafeClient(model=os.getenv("TYPESAFE_MODEL", DEFAULT_MODEL))),
+        agent=LearningAgent(gateway), judge=LearningJudge(gateway),
+        replay=RuntimeLearningReplay(runtime, gateway, os.getenv("BETTER_AGENT_LEARNING_REPLAY_FILE")))
+    canary_budget = os.getenv("BETTER_AGENT_LEARNING_CANARY_BUDGET_MICROUSD")
+    if canary_budget is not None:
+        if not canary_budget.isdigit() or int(canary_budget) <= 0:
+            raise ValueError("BETTER_AGENT_LEARNING_CANARY_BUDGET_MICROUSD must be a positive integer")
+        runtime.learning.pipeline.gate.policy = PromotionPolicy(canary_budget_microusd=int(canary_budget))
+
+
+def build_runtime(    data_root: str | Path,
     profile: ModelProfile | None = None,
     llm_ap_path: str | Path | None = None,
     *,
@@ -368,6 +412,7 @@ def build_runtime(
     )
     from .learning_prompt import PromptLearning
     runtime.learning.prompt_learning = PromptLearning(runtime.learning, runtime.candidate_generator, root / "learning_suites", gateway)
+    _wire_learning_pipeline(runtime, gateway)
     # Observation is a local projection only. Paid proposal generation is
     # started exclusively through an explicitly approved generation batch.
     runtime.observer_worker = ManagedExperienceObserver(runtime.observer)

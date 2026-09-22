@@ -11,6 +11,18 @@ from app.model_control import ModelCallContext
 from test_cost_control import _registered_cost_handle
 
 
+@pytest.fixture(autouse=True)
+def _enforce_cost_limits(monkeypatch):
+    """These cases assert *enforcement*, so they must declare the enforcing mode.
+
+    `monetary_limits_enabled()` reads `BETTER_AGENT_COST_MODE`, which defaults to
+    `observe`. In that default `reserve_attempt` reserves 0 microusd and nothing
+    raises `BudgetExceeded`, so every assertion below would be vacuous.
+    See `tests/test_cost_control.py` for the same note.
+    """
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+
+
 @pytest.fixture
 def root_budget(migrated_postgres_url, tmp_path):
     db = Database(migrated_postgres_url, workspace=tmp_path)

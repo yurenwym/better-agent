@@ -1,0 +1,47 @@
+............F..                                                          [100%]
+================================== FAILURES ===================================
+_______ test_gateway_charges_each_retry_attempt_without_double_counting _______
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03d/test_gateway_charges_each_retr0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000000007092570>
+
+    @pytest.mark.asyncio
+    async def test_gateway_charges_each_retry_attempt_without_double_counting(tmp_path, monkeypatch) -> None:
+        from app.costs import CostService, PriceSnapshot
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelControlStore
+        from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+    
+        db = Database(tmp_path / "agent.db")
+        costs = CostService(db)
+        monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+        calls = 0
+    
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(429, json={"error": {"message": "retry"}})
+            return httpx.Response(200, content=(
+                'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n'
+                'data: {"usage":{"prompt_tokens":10,"completion_tokens":5,"cached_tokens":0}}\n\n'
+                'data: [DONE]\n\n'
+            ).encode())
+    
+        profile = ModelProfile(
+            "https://provider.test/v1", "demo", "MODEL_TEST_KEY", max_attempts=2, network_retries=1,
+            retry_base_seconds=0, context_window=100, max_output_tokens=20,
+        )
+        control = ModelControlStore(db, costs=costs)
+        gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=control)
+        await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "unmetered_setup"))
+        with db.connection() as connection:
+            profile_version_id = connection.execute("SELECT id FROM model_profile_versions").fetchone()[0]
+            connection.execute("DELETE FROM model_attempts")
+>           connection.execute("DELETE FROM model_invocations")
+E           sqlite3.IntegrityError: FOREIGN KEY constraint failed
+
+tests\test_cost_control.py:348: IntegrityError
+=========================== short test summary info ===========================
+FAILED tests/test_cost_control.py::test_gateway_charges_each_retry_attempt_without_double_counting
+1 failed, 14 passed in 6.03s

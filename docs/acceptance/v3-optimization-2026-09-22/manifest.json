@@ -1,0 +1,306 @@
+{
+  "generated_by": "backend/scripts/v3_baseline_manifest.py",
+  "head": "532378290b649e33d5048541aa984c9cb893fe87",
+  "branch": "refs/heads/front0920",
+  "head_usable_as_tested_version": false,
+  "reason_head_unusable": "本轮 V3 核心文件未跟踪，HEAD 不含它们；受测版本以本 manifest 的 sha256 为准",
+  "counts": {
+    "tracked_modified": 6,
+    "untracked_entries": 35,
+    "files_hashed": 41
+  },
+  "tracked_modified": [
+    ".env.example",
+    "backend/app/db.py",
+    "backend/app/learning.py",
+    "backend/app/model_admin.py",
+    "backend/app/model_control.py",
+    "backend/app/startup.py"
+  ],
+  "untracked_entries": [
+    "backend/alembic/versions/20260921_0021_learning_decisions.py",
+    "backend/alembic/versions/20260921_0022_learning_promotions.py",
+    "backend/alembic/versions/20260921_0023_learning_decision_support.py",
+    "backend/app/learning_agent.py",
+    "backend/app/learning_contract.py",
+    "backend/app/learning_decision.py",
+    "backend/app/learning_eval.py",
+    "backend/app/learning_legacy.py",
+    "backend/app/learning_pipeline.py",
+    "backend/app/learning_promotion.py",
+    "backend/app/learning_targets.py",
+    "backend/app/learning_v3_schema.py",
+    "backend/scripts/learning_choice_vs_distribution.py",
+    "backend/scripts/learning_decision_acceptance.py",
+    "backend/scripts/learning_judge_reliability.py",
+    "backend/scripts/learning_target_stability_probe.py",
+    "backend/scripts/learning_v3_acceptance.py",
+    "backend/scripts/v3_baseline_manifest.py",
+    "backend/tests/integration/test_learning_v3_postgres.py",
+    "backend/tests/test_learning_agent.py",
+    "backend/tests/test_learning_characterization.py",
+    "backend/tests/test_learning_contract.py",
+    "backend/tests/test_learning_decision.py",
+    "backend/tests/test_learning_eval.py",
+    "backend/tests/test_learning_judge_reliability.py",
+    "backend/tests/test_learning_pipeline_v3.py",
+    "backend/tests/test_learning_promotion.py",
+    "backend/tests/test_learning_targets.py",
+    "backend/tests/test_learning_v3_wiring.py",
+    "docs/V3-任务进度与问题清单-2026-09-22.md",
+    "docs/V3-自进化机制优化开发任务书-2026-09-22.md",
+    "docs/acceptance/learning-v3-acceptance-2026-09-21.md",
+    "docs/acceptance/v3-optimization-2026-09-22/",
+    "evals/cases/learning-decision-v3.json",
+    "evals/cases/learning-judge-reliability.json"
+  ],
+  "files": {
+    ".env.example": {
+      "sha256": "7ab701f5d5624cc0143bd5a54118296184e3cf86c562bf0e7914c133912d824d",
+      "bytes": 7610,
+      "lines": 139,
+      "tracked_in_head": true
+    },
+    "backend/alembic/versions/20260921_0021_learning_decisions.py": {
+      "sha256": "976cd685f35a7dd7636b1c5082d4608d4d3d3e637351999183e2974957f8fa8b",
+      "bytes": 486,
+      "lines": 19,
+      "tracked_in_head": false
+    },
+    "backend/alembic/versions/20260921_0022_learning_promotions.py": {
+      "sha256": "91bf169fa272fcb2ced6201d6f418b433b98b82482915156fc861dd200800987",
+      "bytes": 528,
+      "lines": 19,
+      "tracked_in_head": false
+    },
+    "backend/alembic/versions/20260921_0023_learning_decision_support.py": {
+      "sha256": "00280c0d2dfd69c43ca675213e866ad70b046cdbffedda7359aaaf0e5bd75a45",
+      "bytes": 787,
+      "lines": 22,
+      "tracked_in_head": false
+    },
+    "backend/app/db.py": {
+      "sha256": "299b7fe37dcfbf55605a2ed463bc7643bb3bb22bca9b4ab5ab93bc3823f6ae7a",
+      "bytes": 126256,
+      "lines": 2154,
+      "tracked_in_head": true
+    },
+    "backend/app/learning.py": {
+      "sha256": "16b6700306605b9beb84df7c9ff49f0df120c674ed3edef6d131bac49c697def",
+      "bytes": 41296,
+      "lines": 568,
+      "tracked_in_head": true
+    },
+    "backend/app/learning_agent.py": {
+      "sha256": "408bc762363e925bd63674e508e7b2266f9017f3b947e01575aeeafae4c95305",
+      "bytes": 20783,
+      "lines": 452,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_contract.py": {
+      "sha256": "ff07a5b089744d0c7086cb3685bdfdfd889e6ef0e5434d3b308a5c147115f237",
+      "bytes": 5845,
+      "lines": 144,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_decision.py": {
+      "sha256": "cf9c10b06d479bd932ca5ac8c648156592ce1bedd8f1771de922dc587a88c274",
+      "bytes": 25024,
+      "lines": 466,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_eval.py": {
+      "sha256": "fd6fd8a641a495d698d04987244389fbd27031ee18c3eb56ae95f3ec5261ff42",
+      "bytes": 19193,
+      "lines": 373,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_legacy.py": {
+      "sha256": "41062788d4efa279714784c435d3f3cd12c266ed51bae6298aff4388cd74aec9",
+      "bytes": 27891,
+      "lines": 339,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_pipeline.py": {
+      "sha256": "b443f736c6b7b15b6a640178b981e006bd29fd23438558a52e897cc018cb72ba",
+      "bytes": 23987,
+      "lines": 477,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_promotion.py": {
+      "sha256": "c41a1e6f25baf2b6c4453a5e748092fa1eeb37d11cafd7ecb159adfce6aace8b",
+      "bytes": 29075,
+      "lines": 566,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_targets.py": {
+      "sha256": "0f11f23a0b6cac926b78fc0a0e790c08d6ab6edee24ebb4f37b80594c056ea06",
+      "bytes": 20313,
+      "lines": 376,
+      "tracked_in_head": false
+    },
+    "backend/app/learning_v3_schema.py": {
+      "sha256": "78932876fd8b66d9ab1e9c0f5dbbec54c426df404e56a714daf8b7553b920982",
+      "bytes": 4300,
+      "lines": 84,
+      "tracked_in_head": false
+    },
+    "backend/app/model_admin.py": {
+      "sha256": "ad310deae5798f14c8c12515db16050dce013ca678bd730b1d4e0c649b167aa4",
+      "bytes": 30714,
+      "lines": 575,
+      "tracked_in_head": true
+    },
+    "backend/app/model_control.py": {
+      "sha256": "1024ff5535cb9a4f5bcc9959c587864442ca71e274a7719095bce6f7d6d5b585",
+      "bytes": 49564,
+      "lines": 868,
+      "tracked_in_head": true
+    },
+    "backend/app/startup.py": {
+      "sha256": "f3453d45be2f8c911e48fd347d2521c00b61872f75085a781b8fe385475a3636",
+      "bytes": 22438,
+      "lines": 425,
+      "tracked_in_head": true
+    },
+    "backend/scripts/learning_choice_vs_distribution.py": {
+      "sha256": "c6e9f126af523042b7a15c0401637ab37c179232269af6931b64057f681490d8",
+      "bytes": 4379,
+      "lines": 104,
+      "tracked_in_head": false
+    },
+    "backend/scripts/learning_decision_acceptance.py": {
+      "sha256": "715de81c5c639863452eabee0b5ef6c266042c423dcf89f25bc192f80cc0880f",
+      "bytes": 11043,
+      "lines": 260,
+      "tracked_in_head": false
+    },
+    "backend/scripts/learning_judge_reliability.py": {
+      "sha256": "0621acc7294ed0ff2f6747cdca86f31e9a420b6eca4ac62acd4236215c5a4a27",
+      "bytes": 11918,
+      "lines": 251,
+      "tracked_in_head": false
+    },
+    "backend/scripts/learning_target_stability_probe.py": {
+      "sha256": "df13deacb4f7e46c9a75a94817e8c45ab633a4669ce80bfe185f926ea8420208",
+      "bytes": 6183,
+      "lines": 134,
+      "tracked_in_head": false
+    },
+    "backend/scripts/learning_v3_acceptance.py": {
+      "sha256": "4e71f8e0a47199ca7f0d635956e8471b8c48e71d85e492b3916dba836df6d16d",
+      "bytes": 37740,
+      "lines": 678,
+      "tracked_in_head": false
+    },
+    "backend/scripts/v3_baseline_manifest.py": {
+      "sha256": "0763869ddd90e7a153e26e13a5d29406879c98ab0621a67a33884ccaf73bedb2",
+      "bytes": 3893,
+      "lines": 124,
+      "tracked_in_head": false
+    },
+    "backend/tests/integration/test_learning_v3_postgres.py": {
+      "sha256": "cf335d0c6f432515099214099e24697f45fe4c900164acff230d4fca710f71e4",
+      "bytes": 5932,
+      "lines": 124,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_agent.py": {
+      "sha256": "2b92e9b1bd7a20d4adc2be1cf228ebe48e472b7313d6853f7297250092333fe2",
+      "bytes": 15345,
+      "lines": 307,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_characterization.py": {
+      "sha256": "7484cf542d40f47f890fabe2bdf2f98ec59a2f21295e50e7bffbb23ebd29e1d9",
+      "bytes": 10531,
+      "lines": 200,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_contract.py": {
+      "sha256": "0ed96c12ace09e425e714e425e2251c5d6998f24bae8acb08da9687816a58b96",
+      "bytes": 3244,
+      "lines": 84,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_decision.py": {
+      "sha256": "8ac3ee9499d199a070e5d4fd23279d5fb96186847df43f56a4e5948e473370c1",
+      "bytes": 13644,
+      "lines": 292,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_eval.py": {
+      "sha256": "dad33f9b24393034cf3c31ee33c76d3cb5a7a4737a01dbfc07d2be68b75e828c",
+      "bytes": 12087,
+      "lines": 265,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_judge_reliability.py": {
+      "sha256": "599b3b61951ef0d449356f7e3b9771b8d1bd42c6a2f21d0baff352e149dd8e56",
+      "bytes": 6992,
+      "lines": 169,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_pipeline_v3.py": {
+      "sha256": "52b83f16633a956059f5639b000baf058de2a7602ab104bf8af29b3f3cde20f7",
+      "bytes": 30248,
+      "lines": 646,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_promotion.py": {
+      "sha256": "a15474b1cec2840de1dbee71968a495326d0be429545e8fceda721387ca07005",
+      "bytes": 20481,
+      "lines": 409,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_targets.py": {
+      "sha256": "6b88cef17fbd0d5ebb57cefe8102fed9ab1a70ed3cdba943f8cf8e7edad6fa15",
+      "bytes": 14901,
+      "lines": 290,
+      "tracked_in_head": false
+    },
+    "backend/tests/test_learning_v3_wiring.py": {
+      "sha256": "576b823a8273e334e9cb038af0f05d7f07fd88b370592f39283ffcc1a90a5c00",
+      "bytes": 3580,
+      "lines": 89,
+      "tracked_in_head": false
+    },
+    "docs/V3-任务进度与问题清单-2026-09-22.md": {
+      "sha256": "b1f21f49b2c584b978841c088dc89397a86fea3255ad312bf05f3f0526bcd37e",
+      "bytes": 23393,
+      "lines": 394,
+      "tracked_in_head": false
+    },
+    "docs/V3-自进化机制优化开发任务书-2026-09-22.md": {
+      "sha256": "c3cfff2d471cea8c0819a2b33835b7fd492aaa8f6c5abc5cfc0c8295b6a1e2c6",
+      "bytes": 23476,
+      "lines": 299,
+      "tracked_in_head": false
+    },
+    "docs/acceptance/learning-v3-acceptance-2026-09-21.md": {
+      "sha256": "aa6e0a1abb5691ad10f6857c272564091e48c32c84794641dacb8ddd41627eac",
+      "bytes": 28733,
+      "lines": 462,
+      "tracked_in_head": false
+    },
+    "docs/acceptance/v3-optimization-2026-09-22/worktree-status.txt": {
+      "sha256": "a121bd9c9f1442901afa68433556a478aa72dbf236fa4a3af40a6c7e4b2a6e84",
+      "bytes": 1729,
+      "lines": 40,
+      "tracked_in_head": false
+    },
+    "evals/cases/learning-decision-v3.json": {
+      "sha256": "28b35bad703bfdccfdd7ced914525eb332468b323a77e347ea7f482be35507a6",
+      "bytes": 30425,
+      "lines": 90,
+      "tracked_in_head": false
+    },
+    "evals/cases/learning-judge-reliability.json": {
+      "sha256": "a0a3baa80e324d451df98f2510f0c71e89c722817934ac919a50e728b559abcc",
+      "bytes": 16758,
+      "lines": 298,
+      "tracked_in_head": false
+    }
+  },
+  "missing": []
+}

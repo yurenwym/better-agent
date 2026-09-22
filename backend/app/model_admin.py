@@ -15,6 +15,10 @@ from .db import Database
 ROLES = {
     "conversation", "ask", "planner", "executor", "reflector", "researcher",
     "expert", "coordinator", "judge_quality", "judge_safety",
+    # V3 learning pipeline roles. `learning_generator` drafts candidates and
+    # `learning_judge` scores them; they are separate roles so the judge can be
+    # re-pointed at another model by changing routing only (V3 §18).
+    "learning_generator", "learning_judge",
 }
 ROLE_CAPABILITIES = {
     "conversation": {"text", "streaming"}, "ask": {"text", "tool_calling"},
@@ -22,6 +26,7 @@ ROLE_CAPABILITIES = {
     "reflector": {"text", "json_object"}, "researcher": {"text", "streaming"},
     "expert": {"text"}, "coordinator": {"text", "json_object"},
     "judge_quality": {"text", "json_object"}, "judge_safety": {"text", "json_object"},
+    "learning_generator": {"text", "json_object"}, "learning_judge": {"text", "json_object"},
 }
 PROTOCOLS = {"openai_compatible", "anthropic", "gemini"}
 MODEL_CAPABILITIES = {

@@ -1,0 +1,40 @@
+ M .env.example
+ M backend/app/db.py
+ M backend/app/learning.py
+ M backend/app/model_admin.py
+ M backend/app/model_control.py
+ M backend/app/startup.py
+?? backend/alembic/versions/20260921_0021_learning_decisions.py
+?? backend/alembic/versions/20260921_0022_learning_promotions.py
+?? backend/alembic/versions/20260921_0023_learning_decision_support.py
+?? backend/app/learning_agent.py
+?? backend/app/learning_contract.py
+?? backend/app/learning_decision.py
+?? backend/app/learning_eval.py
+?? backend/app/learning_legacy.py
+?? backend/app/learning_pipeline.py
+?? backend/app/learning_promotion.py
+?? backend/app/learning_targets.py
+?? backend/app/learning_v3_schema.py
+?? backend/scripts/learning_choice_vs_distribution.py
+?? backend/scripts/learning_decision_acceptance.py
+?? backend/scripts/learning_judge_reliability.py
+?? backend/scripts/learning_target_stability_probe.py
+?? backend/scripts/learning_v3_acceptance.py
+?? backend/tests/integration/test_learning_v3_postgres.py
+?? backend/tests/test_learning_agent.py
+?? backend/tests/test_learning_characterization.py
+?? backend/tests/test_learning_contract.py
+?? backend/tests/test_learning_decision.py
+?? backend/tests/test_learning_eval.py
+?? backend/tests/test_learning_judge_reliability.py
+?? backend/tests/test_learning_pipeline_v3.py
+?? backend/tests/test_learning_promotion.py
+?? backend/tests/test_learning_targets.py
+?? backend/tests/test_learning_v3_wiring.py
+?? docs/V3-任务进度与问题清单-2026-09-22.md
+?? docs/V3-自进化机制优化开发任务书-2026-09-22.md
+?? docs/acceptance/learning-v3-acceptance-2026-09-21.md
+?? docs/acceptance/v3-optimization-2026-09-22/
+?? evals/cases/learning-decision-v3.json
+?? evals/cases/learning-judge-reliability.json

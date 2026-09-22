@@ -103,6 +103,21 @@ def register_routes(app) -> None:
     async def learning_history(request: Request):
         return {"items": runtime(request).learning.history(owner_id(request))}
 
+    @app.post("/api/learning/jobs/{job_id}/resume", dependencies=[Depends(mutate)])
+    async def resume_learning(job_id: str, request: Request):
+        pipeline = runtime(request).learning.pipeline
+        if pipeline is None:
+            raise HTTPException(status_code=409, detail="V3 learning is not enabled")
+        payload = await request.json()
+        if type(payload.get("expected_version")) is not int or type(payload.get("approve", False)) is not bool:
+            raise HTTPException(status_code=422, detail="expected_version must be an integer and approve a boolean")
+        try:
+            result = await asyncio.to_thread(pipeline.resume, job_id, owner_id=owner_id(request),
+                expected_version=payload["expected_version"], approve=payload.get("approve", False))
+            return result.to_dict()
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
     @app.post("/api/learning/prompt-suites", dependencies=[Depends(mutate)])
     async def register_learning_suite(request: Request):
         try:

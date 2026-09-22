@@ -29,6 +29,10 @@ class SkillValidationError(ValueError):
     pass
 
 
+class SkillCandidateRejected(SkillValidationError):
+    """Candidate validation failed before any asset or filesystem write."""
+
+
 @dataclass(frozen=True)
 class _Preview:
     package: bytes
@@ -161,35 +165,56 @@ class SkillPlatform:
 
     def store_candidate(self, package: bytes, *, job_id: str) -> dict[str, Any]:
         """Store a workflow draft without installing, granting or selecting it."""
-        preview = self._validate_package(package)
+        try:
+            preview = self._validate_package(package)
+        except SkillValidationError as exc:
+            raise SkillCandidateRejected(str(exc)) from exc
         if preview.manifest.get("kind") != "instruction_only":
-            raise SkillValidationError("learned skills must be instruction_only")
+            raise SkillCandidateRejected("learned skills must be instruction_only")
         name, version = preview.manifest["name"], preview.manifest["version"]
         timestamp = _now()
         with self.db.transaction() as connection:
+            if self.db.backend == "postgresql":
+                # Serialize both first creation and subsequent versions by owner/name.
+                lock = int(hashlib.sha256(f"{self.owner_id}:{name}".encode()).hexdigest()[:15], 16)
+                connection.execute("SELECT pg_advisory_xact_lock(?)", (lock,))
             job = connection.execute("SELECT id FROM learning_jobs WHERE id=? AND owner_id=?", (job_id, self.owner_id)).fetchone()
             if job is None:
-                raise SkillValidationError("candidate learning job missing")
+                raise SkillCandidateRejected("candidate learning job missing")
+            event_key = f"candidate-job:{self.owner_id}:{job_id}"
+            cached = connection.execute("SELECT data_json FROM skill_events WHERE idempotency_key=?", (event_key,)).fetchone()
+            if cached:
+                data = json.loads(cached["data_json"])
+                if data["package_digest"] != preview.package_digest:
+                    raise SkillCandidateRejected("candidate job is already bound to different content")
+                return {**self.version(data["version_id"], connection=connection), "base_version_id": data.get("base_version_id")}
             skill = connection.execute("SELECT * FROM skills WHERE owner_id=? AND name=?", (self.owner_id, name)).fetchone()
             skill_id = skill["id"] if skill else f"skill_{uuid.uuid4().hex}"
+            prior = connection.execute("SELECT * FROM skill_versions WHERE skill_id=? AND version=?", (skill_id, version)).fetchone()
+            if prior and prior["package_digest"] != preview.package_digest:
+                raise SkillCandidateRejected("same skill version has different content")
             if skill is None:
                 connection.execute("INSERT INTO skills(id,owner_id,name,status,created_at,updated_at) VALUES (?,?,?,'INSTALLED',?,?)",
                                    (skill_id, self.owner_id, name, timestamp, timestamp))
-            prior = connection.execute("SELECT * FROM skill_versions WHERE skill_id=? AND version=?", (skill_id, version)).fetchone()
             if prior:
-                if prior["package_digest"] != preview.package_digest:
-                    raise SkillValidationError("same skill version has different content")
-                return self.version(prior["id"], connection=connection)
+                self._event(connection, skill_id, prior["id"], "skill.candidate_reused",
+                            {"job_id": job_id, "version_id": prior["id"], "package_digest": preview.package_digest,
+                             "base_version_id": skill["default_version_id"]}, event_key, actor="learning")
+                return {**self.version(prior["id"], connection=connection), "base_version_id": skill["default_version_id"]}
             version_id = f"skill_version_{uuid.uuid4().hex}"
-            storage = self.root / name / version / preview.package_digest
+            # Keep paths short on Windows; the full digest already identifies
+            # the immutable package (including its name and version).
+            storage = self.root / "candidates" / preview.package_digest
             self._extract(package, storage)
             connection.execute(
                 "INSERT INTO skill_versions(id,skill_id,version,package_digest,manifest_digest,manifest_json,title,description,content,"
                 "requested_tools_json,connectors_json,phases_json,storage_path,status,created_at) VALUES (?,?,?,?,?,?,?,?,?,'[]','[]',?,?,'INSTALLED',?)",
                 (version_id, skill_id, version, preview.package_digest, preview.manifest_digest, _json(preview.manifest),
                  preview.manifest["title"], preview.manifest["description"], preview.content, _json(preview.manifest["phases"]), str(storage), timestamp))
-            self._event(connection, skill_id, version_id, "skill.candidate_stored", {"job_id": job_id}, f"candidate:{job_id}:{version_id}", actor="learning")
-            return self.version(version_id, connection=connection)
+            self._event(connection, skill_id, version_id, "skill.candidate_stored",
+                        {"job_id": job_id, "version_id": version_id, "package_digest": preview.package_digest,
+                         "base_version_id": skill["default_version_id"] if skill else None}, event_key, actor="learning")
+            return {**self.version(version_id, connection=connection), "base_version_id": skill["default_version_id"] if skill else None}
 
     def enabled_versions(self) -> list[dict[str, Any]]:
         return [item for item in self.list() if item["status"] == "ENABLED"]

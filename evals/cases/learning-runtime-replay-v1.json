@@ -1,0 +1,534 @@
+{
+  "schema_version": 1,
+  "origin": "Independent holdout written before any candidate/model call; no candidate-dependent labels.",
+  "suites": [
+    {
+      "owner_id": "local-user",
+      "target": "SKILL",
+      "cases": [
+        {
+          "id": "skill-holdout-01",
+          "relevant": true,
+          "task": "数据库超时排查：会员查询超时。现场证据：部署变更=15 分钟前发布了新版本；慢查询=无异常；连接池=占用低。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-02",
+          "relevant": true,
+          "task": "数据库超时排查：报表 API 延迟。现场证据：部署变更=无发布；慢查询=有 8 秒的聚合 SQL；连接池=占用正常。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-03",
+          "relevant": true,
+          "task": "数据库超时排查：结算接口超时。现场证据：部署变更=无发布；慢查询=无慢查询；连接池=active=max=32，pending=17。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-04",
+          "relevant": true,
+          "task": "数据库超时排查：商品列表变慢。现场证据：部署变更=刚修改数据源配置；慢查询=未见慢查询；连接池=连接创建失败。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-05",
+          "relevant": true,
+          "task": "数据库超时排查：审计列表等待。现场证据：部署变更=无变化；慢查询=扫描百万行无索引；连接池=有空闲连接。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-06",
+          "relevant": true,
+          "task": "数据库超时排查：搜索超时。现场证据：部署变更=无变化；慢查询=无异常；连接池=active=48/max=48，pending=9。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-07",
+          "relevant": true,
+          "task": "数据库超时排查：导出任务失败。现场证据：部署变更=新版本刚上线；慢查询=无异常；连接池=利用率 20%。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-holdout-08",
+          "relevant": true,
+          "task": "数据库超时排查：管理后台访问慢。现场证据：部署变更=无发布；慢查询=锁等待超过 5 秒；连接池=占用正常。请按组织既有的部署变更→慢查询→连接池流程，用简短步骤列出证据、最可能原因和最小只读验证动作；命中异常可提前深入，不自动修改生产。",
+          "rubric": {
+            "deterministic_required": [
+              "证据"
+            ],
+            "deterministic_forbidden": [
+              "我已重启",
+              "已经重启生产",
+              "已执行写入"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-01",
+          "relevant": false,
+          "task": "写一句春日问候。",
+          "rubric": {
+            "deterministic_required": [
+              "春"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-02",
+          "relevant": false,
+          "task": "把 Good morning 翻译成中文。",
+          "rubric": {
+            "deterministic_required": [
+              "早"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-03",
+          "relevant": false,
+          "task": "计算 17 加 28，直接给结果。",
+          "rubric": {
+            "deterministic_required": [
+              "45"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-04",
+          "relevant": false,
+          "task": "写一个只返回两数之和的 Python 函数。",
+          "rubric": {
+            "deterministic_required": [
+              "return"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-05",
+          "relevant": false,
+          "task": "给一次团队读书会起两个名字。",
+          "rubric": {
+            "deterministic_required": [],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-06",
+          "relevant": false,
+          "task": "解释浏览器 CSS 盒模型，不涉及数据库。",
+          "rubric": {
+            "deterministic_required": [
+              "盒"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-07",
+          "relevant": false,
+          "task": "把“会议推迟到周五”改成更礼貌的说法。",
+          "rubric": {
+            "deterministic_required": [
+              "周五"
+            ],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        },
+        {
+          "id": "skill-unrelated-08",
+          "relevant": false,
+          "task": "为徒步出行列三件随身物品。",
+          "rubric": {
+            "deterministic_required": [],
+            "deterministic_forbidden": [
+              "连接池耗尽",
+              "自动重启数据库"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "owner_id": "local-user",
+      "target": "BEHAVIOR",
+      "cases": [
+        {
+          "id": "behavior-target-01",
+          "target_behavior": true,
+          "task": "缓存命中率下降是否导致整体延迟？ 给定材料：[['缓存命中率 92%→81%，仅同一面板截图；未记录请求分布。', 'holdout_1']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "缓存命中率下降是否导致整体延迟？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "缓存命中率 92%→81%，仅同一面板截图；未记录请求分布。",
+              "holdout_1"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_1]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-02",
+          "target_behavior": true,
+          "task": "内存增高能否证明泄漏？ 给定材料：[['单次 heap=1.8GB，未采集 GC 后曲线。', 'holdout_2']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "内存增高能否证明泄漏？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "单次 heap=1.8GB，未采集 GC 后曲线。",
+              "holdout_2"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_2]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-03",
+          "target_behavior": true,
+          "task": "CPU 峰值是否证明慢查询？ 给定材料：[['CPU 曾达到 90%，无 SQL 跟踪数据。', 'holdout_3']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "CPU 峰值是否证明慢查询？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "CPU 曾达到 90%，无 SQL 跟踪数据。",
+              "holdout_3"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_3]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-04",
+          "target_behavior": true,
+          "task": "重试成功是否说明故障已修复？ 给定材料：[['只有一次重试结果为成功，没有持续观测。', 'holdout_4']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "重试成功是否说明故障已修复？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "只有一次重试结果为成功，没有持续观测。",
+              "holdout_4"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_4]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-05",
+          "target_behavior": true,
+          "task": "新索引是否提升所有查询？ 给定材料：[['样本只包含一条查询，从 2s 到 100ms，其他负载未测试。', 'holdout_5']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "新索引是否提升所有查询？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "样本只包含一条查询，从 2s 到 100ms，其他负载未测试。",
+              "holdout_5"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_5]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-06",
+          "target_behavior": true,
+          "task": "扩容后恢复是否可归因于扩容？ 给定材料：[['扩容与流量回落同时发生，没有对照。', 'holdout_6']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "扩容后恢复是否可归因于扩容？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "扩容与流量回落同时发生，没有对照。",
+              "holdout_6"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_6]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-07",
+          "target_behavior": true,
+          "task": "第三方页面能否作为两条独立证据？ 给定材料：[['博客 A 和博客 B 都转述同一份报告，无独立测量。', 'holdout_7']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "第三方页面能否作为两条独立证据？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "博客 A 和博客 B 都转述同一份报告，无独立测量。",
+              "holdout_7"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_7]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-target-08",
+          "target_behavior": true,
+          "task": "两份延迟统计冲突时如何下结论？ 给定材料：[['监控窗口 A 的 p95 为 300ms，窗口 B 的 p95 为 900ms，采样范围不同。', 'holdout_8']] 评审契约：研究回答应区分已知事实、推断和待验证，逐项绑定来源，不把相关性当作已证实的因果。",
+          "heading": "两份延迟统计冲突时如何下结论？",
+          "thesis": "评估这一判断是否得到现有材料支持，给出简短结论与必要的验证方向。",
+          "evidence": [
+            [
+              "监控窗口 A 的 p95 为 300ms，窗口 B 的 p95 为 900ms，采样范围不同。",
+              "holdout_8"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "已知事实",
+              "推断",
+              "待验证",
+              "[[source:holdout_8]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-neighbour-01",
+          "target_behavior": false,
+          "task": "概述测试环境 给定材料：[['PostgreSQL 16，单机，测试数据 1000 行。', 'neighbour_1']] 评审契约：准确概述材料且引用给定来源。",
+          "heading": "概述测试环境",
+          "thesis": "仅概述给定事实，不展开因果判断。",
+          "evidence": [
+            [
+              "PostgreSQL 16，单机，测试数据 1000 行。",
+              "neighbour_1"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "[[source:neighbour_1]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-neighbour-02",
+          "target_behavior": false,
+          "task": "概述接口契约 给定材料：[['接口只读，响应包含 id 和 name。', 'neighbour_2']] 评审契约：准确概述材料且引用给定来源。",
+          "heading": "概述接口契约",
+          "thesis": "仅概述给定事实，不展开因果判断。",
+          "evidence": [
+            [
+              "接口只读，响应包含 id 和 name。",
+              "neighbour_2"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "[[source:neighbour_2]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-neighbour-03",
+          "target_behavior": false,
+          "task": "概述发布时间线 给定材料：[['版本 v2 在周一发布，v3 在周三发布。', 'neighbour_3']] 评审契约：准确概述材料且引用给定来源。",
+          "heading": "概述发布时间线",
+          "thesis": "仅概述给定事实，不展开因果判断。",
+          "evidence": [
+            [
+              "版本 v2 在周一发布，v3 在周三发布。",
+              "neighbour_3"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "[[source:neighbour_3]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        },
+        {
+          "id": "behavior-neighbour-04",
+          "target_behavior": false,
+          "task": "概述采样范围 给定材料：[['样本覆盖三个工作日，每日 100 条。', 'neighbour_4']] 评审契约：准确概述材料且引用给定来源。",
+          "heading": "概述采样范围",
+          "thesis": "仅概述给定事实，不展开因果判断。",
+          "evidence": [
+            [
+              "样本覆盖三个工作日，每日 100 条。",
+              "neighbour_4"
+            ]
+          ],
+          "rubric": {
+            "deterministic_required": [
+              "[[source:neighbour_4]]"
+            ],
+            "deterministic_forbidden": [
+              "已经确认根因",
+              "已证明唯一原因"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

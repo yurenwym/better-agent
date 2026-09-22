@@ -1,0 +1,162 @@
+FFF....F....FF                                                           [100%]
+================================== FAILURES ===================================
+________________ test_concurrent_roles_share_last_root_attempt ________________
+
+root_budget = (<app.db.Database object at 0x000000000747E120>, <app.costs.CostService object at 0x000000000747F0E0>, {'id': 'task_bu...rice_snapshot_id=None, root_budget_id='task_budget_b97375b2b678091220bd44fe9b4207414cdeb8bfa00154b3bcc17bcb1a2809d1')))
+
+    def test_concurrent_roles_share_last_root_attempt(root_budget):
+        db, costs, root, handle = root_budget
+        barrier = Barrier(2)
+        def reserve(number):
+            call = replace(handle, invocation_id=f"inv-{number}",
+                           context=replace(handle.context, role="expert" if number else "conversation"))
+            barrier.wait()
+            try:
+                with db.transaction() as connection:
+                    costs.reserve_attempt(connection, call, f"attempt-{number}")
+                return "reserved"
+            except BudgetExceeded:
+                return "blocked"
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            assert sorted(pool.map(reserve, (0, 1))) == ["blocked", "reserved"]
+        with db.connection() as connection:
+            assert connection.execute("SELECT attempts_started FROM task_budget_roots WHERE id=?", (root["id"],)).fetchone()[0] == 1
+>       assert costs.summary("local-user", "ROOT", root["id"])["reserved_microusd"] == 140
+E       assert 0 == 140
+
+tests\integration\test_root_task_budgets.py:44: AssertionError
+_____ test_failed_money_reservation_rolls_back_root_count_and_all_ledgers _____
+
+root_budget = (<app.db.Database object at 0x00000000074CE0D0>, <app.costs.CostService object at 0x00000000074CF890>, {'id': 'task_bu...rice_snapshot_id=None, root_budget_id='task_budget_b97375b2b678091220bd44fe9b4207414cdeb8bfa00154b3bcc17bcb1a2809d1')))
+
+    def test_failed_money_reservation_rolls_back_root_count_and_all_ledgers(root_budget):
+        db, costs, root, handle = root_budget
+        costs.set_budget("local-user", "DAILY", costs.today_period(), 0)
+>       with pytest.raises(BudgetExceeded):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE BudgetExceeded
+
+tests\integration\test_root_task_budgets.py:50: Failed
+________ test_duplicate_reservation_and_new_service_do_not_reset_root _________
+
+root_budget = (<app.db.Database object at 0x00000000074CF750>, <app.costs.CostService object at 0x00000000084907D0>, {'id': 'task_bu...rice_snapshot_id=None, root_budget_id='task_budget_b97375b2b678091220bd44fe9b4207414cdeb8bfa00154b3bcc17bcb1a2809d1')))
+
+    def test_duplicate_reservation_and_new_service_do_not_reset_root(root_budget):
+        db, costs, root, handle = root_budget
+        for _ in range(2):
+            with db.transaction() as connection:
+                costs.reserve_attempt(connection, handle, "same-attempt")
+        recovered_db = Database(db.database_url, workspace=db.workspace)
+        try:
+            recovered = CostService(recovered_db)
+            with pytest.raises(BudgetExceeded, match="attempt limit"):
+                with recovered_db.transaction() as connection:
+                    recovered.reserve_attempt(connection, replace(handle, invocation_id="retry"), "new-attempt")
+>           assert recovered.summary("local-user", "ROOT", root["id"])["reserved_microusd"] == 140
+E           assert 0 == 140
+
+tests\integration\test_root_task_budgets.py:70: AssertionError
+___________ test_unbudgeted_postgres_call_is_blocked_before_network ___________
+
+migrated_postgres_url = 'postgresql://better_agent:***@127.0.0.1:5432/better_agent_v3_test'
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03a/test_unbudgeted_postgres_call_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000000000752DF40>
+
+    @pytest.mark.asyncio
+    async def test_unbudgeted_postgres_call_is_blocked_before_network(migrated_postgres_url, tmp_path, monkeypatch):
+        db = Database(migrated_postgres_url, workspace=tmp_path)
+        try:
+            monkeypatch.setenv("ISOLATED_BUDGET_KEY", "offline")
+            gateway = ModelGateway(
+                ModelProfile("https://example.invalid", "offline", "ISOLATED_BUDGET_KEY"),
+                transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+                control_store=ModelControlStore(db, costs=CostService(db)),
+            )
+            with pytest.raises(GatewayError, match="no configured budget") as error:
+>               await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("planner", "compile_goal_program"))
+
+tests\integration\test_budget_waiting_and_operations.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\model_gateway.py:425: in complete
+    response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:505: in _attempt
+    return await self._attempt_openai(request, api_key, cancel_event, on_text_delta, on_output_started)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:530: in _attempt_openai
+    async with client.stream(
+D:\pycharm\Lib\contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1583: in stream
+    response = await self.send(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1629: in send
+    response = await self._send_handling_auth(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_transports\mock.py:34: in handle_async_request
+    response = self.handler(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+_ = <Request('POST', 'https://example.invalid/chat/completions')>
+
+>       transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        control_store=ModelControlStore(db, costs=CostService(db)),
+    )
+E   Failed: network must not be called
+
+tests\integration\test_budget_waiting_and_operations.py:65: Failed
+_____ test_ask_does_not_revive_exhausted_execution_or_reset_limits[money] _____
+
+pending_ask = (<app.db.Database object at 0x0000000007556B30>, <app.conversation.ConversationService object at 0x000000000855D260>, ...ebdbc124424727a0fee0e484c7d1c5', ...}, datetime.datetime(2026, 9, 19, 2, 28, 28, 470742, tzinfo=datetime.timezone.utc))
+exhausted = 'money'
+
+    @pytest.mark.parametrize("exhausted", ["deadline", "attempts", "money"])
+    def test_ask_does_not_revive_exhausted_execution_or_reset_limits(pending_ask, exhausted):
+        db, service, costs, turn, root, waiting = pending_ask
+        with db.transaction() as connection:
+            if exhausted == "deadline":
+                connection.execute("UPDATE task_budget_roots SET deadline_at=? WHERE id=?", ((waiting - timedelta(seconds=1)).isoformat(), root["id"]))
+            elif exhausted == "attempts":
+                connection.execute("UPDATE task_budget_roots SET attempts_started=max_attempts WHERE id=?", (root["id"],))
+            else:
+                connection.execute("UPDATE cost_budgets SET charged_microusd=limit_microusd WHERE period_key=?", (root["id"],))
+        result = _answer(service, turn)
+        assert result.turn.status == "ACCEPTED"
+        handle = _registered_cost_handle(db, costs, ModelCallContext("conversation", "answer", root_budget_id=root["id"]))
+>       with pytest.raises(BudgetExceeded):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE BudgetExceeded
+
+tests\integration\test_budget_waiting_and_operations.py:156: Failed
+_________ test_historical_ask_without_root_gets_bounded_continuation __________
+
+pending_ask = (<app.db.Database object at 0x00000000074F3860>, <app.conversation.ConversationService object at 0x0000000008466E50>, ...086d9775ee6474e9a7018a7a9ade6a1', ...}, datetime.datetime(2026, 9, 19, 2, 28, 33, 36830, tzinfo=datetime.timezone.utc))
+
+    def test_historical_ask_without_root_gets_bounded_continuation(pending_ask):
+        db, service, costs, turn, root, waiting = pending_ask
+        with db.transaction() as connection:
+            connection.execute("UPDATE turns SET root_budget_id=NULL WHERE id=?", (turn.turn_id,))
+        answer = _answer(service, turn)
+        assert answer.turn.root_budget_id and answer.turn.root_budget_id != root["id"]
+        assert costs.root_seconds_remaining("local-user", answer.turn.root_budget_id) > 0
+>       assert costs.summary("local-user", "ROOT", answer.turn.root_budget_id)["limit_microusd"] > 0
+E       assert 0 > 0
+
+tests\integration\test_budget_waiting_and_operations.py:168: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/integration/test_root_task_budgets.py::test_concurrent_roles_share_last_root_attempt
+FAILED tests/integration/test_root_task_budgets.py::test_failed_money_reservation_rolls_back_root_count_and_all_ledgers
+FAILED tests/integration/test_root_task_budgets.py::test_duplicate_reservation_and_new_service_do_not_reset_root
+FAILED tests/integration/test_budget_waiting_and_operations.py::test_unbudgeted_postgres_call_is_blocked_before_network
+FAILED tests/integration/test_budget_waiting_and_operations.py::test_ask_does_not_revive_exhausted_execution_or_reset_limits[money]
+FAILED tests/integration/test_budget_waiting_and_operations.py::test_historical_ask_without_root_gets_bounded_continuation
+6 failed, 8 passed in 64.37s (0:01:04)

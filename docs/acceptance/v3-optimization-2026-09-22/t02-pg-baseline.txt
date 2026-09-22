@@ -1,0 +1,148 @@
+.FFF                                                                     [100%]
+================================== FAILURES ===================================
+_____________ test_the_decision_audit_is_append_only_on_postgres ______________
+
+v3_runtime = <app.runtime.AgentRuntime object at 0x00000000078EA990>
+
+    def test_the_decision_audit_is_append_only_on_postgres(v3_runtime):
+        message_id = make_message(v3_runtime)
+        decider = StubDecisions(v3_runtime.db, promoted_decision())
+        job_id = enqueue(v3_runtime, message_id)
+>       decider.decide(owner_id="local-user", job_id=job_id, experience={"id": message_id})
+
+tests\integration\test_learning_v3_postgres.py:67: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_learning_pipeline_v3.py:62: in decide
+    self.service.record(owner_id=owner_id, job_id=job_id, decision=self.decision,
+app\learning_decision.py:397: in record
+    return self._insert(owned, row)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+app\learning_decision.py:401: in _insert
+    connection.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 user=better_agent database=better_agent_v3_test) at 0x7a496a0>
+query = 'INSERT INTO learning_decisions(id,job_id,owner_id,learn,target,subtype,confidence,support,importance,risk,reason_code...:reason_codes_json,:input_digest,:decision_digest,:model_identity,:created_at) ON CONFLICT(owner_id,job_id) DO NOTHING'
+params = {'id': 'learning_decision_a2ff66f5a402824dccfead3432abfaafadbd27dd16164ef6c5b0742ce3854f36', 'job_id': 'learning_3fe664b961a40f0034a44bbe3469f38653bf310923f8d35fdf688315199cf7f6', 'owner_id': 'local-user', 'learn': 1, ...}
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at or near ":"
+E           LINE 1: ...ecision_digest,model_identity,created_at) VALUES (:id,:job_i...
+E                                                                        ^
+
+D:\pycharm\Lib\site-packages\psycopg\connection.py:300: SyntaxError
+____________ test_a_promotion_is_unique_per_candidate_on_postgres _____________
+
+v3_runtime = <app.runtime.AgentRuntime object at 0x0000000007874410>
+
+    def test_a_promotion_is_unique_per_candidate_on_postgres(v3_runtime):
+        """V3 §61 'duplicate promotion = 0', enforced by the index rather than by code."""
+        message_id = make_message(v3_runtime)
+        decider = StubDecisions(v3_runtime.db, promoted_decision())
+        job_id = enqueue(v3_runtime, message_id)
+>       decision = decider.decide(owner_id="local-user", job_id=job_id, experience={"id": message_id})
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\integration\test_learning_v3_postgres.py:83: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+tests\test_learning_pipeline_v3.py:62: in decide
+    self.service.record(owner_id=owner_id, job_id=job_id, decision=self.decision,
+app\learning_decision.py:397: in record
+    return self._insert(owned, row)
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+app\learning_decision.py:401: in _insert
+    connection.execute(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <psycopg.Connection [IDLE] (host=127.0.0.1 user=better_agent database=better_agent_v3_test) at 0x78e5590>
+query = 'INSERT INTO learning_decisions(id,job_id,owner_id,learn,target,subtype,confidence,support,importance,risk,reason_code...:reason_codes_json,:input_digest,:decision_digest,:model_identity,:created_at) ON CONFLICT(owner_id,job_id) DO NOTHING'
+params = {'id': 'learning_decision_c325afcaf013aa58b38b3601593846a9d06859a244cc59b90759b96b36666a8a', 'job_id': 'learning_2f8af8c4e9a360931058b8b2093c2f094acbc853695af7d0931ee57dadd63e09', 'owner_id': 'local-user', 'learn': 1, ...}
+prepare = None, binary = False
+
+    def execute(
+        self,
+        query: Query,
+        params: Params | None = None,
+        *,
+        prepare: bool | None = None,
+        binary: bool = False,
+    ) -> Cursor[Row]:
+        """Execute a query and return a cursor to read its results."""
+        try:
+            cur = self.cursor()
+            if binary:
+                cur.format = BINARY
+    
+            if isinstance(query, Template):
+                if params is not None:
+                    raise TypeError(
+                        "'execute()' with string template query doesn't support parameters"
+                    )
+                return cur.execute(query, prepare=prepare)
+            else:
+                return cur.execute(query, params, prepare=prepare)
+        except e._NO_TRACEBACK as ex:
+>           raise ex.with_traceback(None)
+E           psycopg.errors.SyntaxError: syntax error at or near ":"
+E           LINE 1: ...ecision_digest,model_identity,created_at) VALUES (:id,:job_i...
+E                                                                        ^
+
+D:\pycharm\Lib\site-packages\psycopg\connection.py:300: SyntaxError
+_______________ test_a_memory_cycle_runs_end_to_end_on_postgres _______________
+
+v3_runtime = <app.runtime.AgentRuntime object at 0x00000000078782D0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x00000000078E6580>
+
+    def test_a_memory_cycle_runs_end_to_end_on_postgres(v3_runtime, monkeypatch):
+        message_id = make_message(v3_runtime)
+        job_id = enqueue(v3_runtime, message_id)
+        stub_budget(monkeypatch, v3_runtime)
+    
+        pipeline = build_pipeline(
+            v3_runtime, mode=MODE_ACTIVE,
+            decisions=StubDecisions(v3_runtime.db, promoted_decision()),
+            agent=StubAgent(lambda evidence_ids, source_refs: memory_draft(message_id)),
+        )
+        v3_runtime.learning.pipeline = pipeline
+    
+        assert v3_runtime.learning.run_once() is True
+        job = v3_runtime.learning.history()[0]
+>       assert job["id"] == job_id and job["status"] == STATUS_APPLIED
+E       AssertionError: assert ('learning_a2b...78f879957a31b' == 'learning_a2b...78f879957a31b'
+E         
+E         Skipping 62 identical leading characters in diff, use -v to show
+E           f879957a31b and 'UNKNOWN' == 'APPLIED'
+E         
+E         - APPLIED
+E         + UNKNOWN)
+
+tests\integration\test_learning_v3_postgres.py:117: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/integration/test_learning_v3_postgres.py::test_the_decision_audit_is_append_only_on_postgres
+FAILED tests/integration/test_learning_v3_postgres.py::test_a_promotion_is_unique_per_candidate_on_postgres
+FAILED tests/integration/test_learning_v3_postgres.py::test_a_memory_cycle_runs_end_to_end_on_postgres
+3 failed, 1 passed in 25.21s

@@ -14,6 +14,18 @@ from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelReq
 from test_cost_control import _registered_cost_handle
 
 
+@pytest.fixture(autouse=True)
+def _enforce_cost_limits(monkeypatch):
+    """These cases assert *enforcement*, so they must declare the enforcing mode.
+
+    `monetary_limits_enabled()` reads `BETTER_AGENT_COST_MODE`, which defaults to
+    `observe`. In that default the "budget exhausted" assertions below are
+    vacuous: nothing raises `BudgetExceeded`, and a fresh root budget gets
+    `limit_microusd == 0`. See `tests/test_cost_control.py` for the same note.
+    """
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+
+
 def test_operation_root_survives_retry_restart_and_changed_defaults(migrated_postgres_url, tmp_path, monkeypatch):
     db = Database(migrated_postgres_url, workspace=tmp_path)
     try:

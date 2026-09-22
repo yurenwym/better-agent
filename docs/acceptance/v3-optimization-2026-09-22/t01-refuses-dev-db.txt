@@ -1,0 +1,28 @@
+EEEE                                                                     [100%]
+=================================== ERRORS ====================================
+_ ERROR at setup of test_the_support_column_exists_on_the_authoritative_backend _
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+
+During handling of the above exception, another exception occurred:
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+____ ERROR at setup of test_the_decision_audit_is_append_only_on_postgres _____
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+
+During handling of the above exception, another exception occurred:
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+___ ERROR at setup of test_a_promotion_is_unique_per_candidate_on_postgres ____
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+
+During handling of the above exception, another exception occurred:
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+______ ERROR at setup of test_a_memory_cycle_runs_end_to_end_on_postgres ______
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+
+During handling of the above exception, another exception occurred:
+refusing to migrate or truncate a non-test database: database 'better_agent' is an application database, not a test database [target=postgresql://better_agent:***@127.0.0.1:5432/better_agent]
+=========================== short test summary info ===========================
+ERROR tests/integration/test_learning_v3_postgres.py::test_the_support_column_exists_on_the_authoritative_backend
+ERROR tests/integration/test_learning_v3_postgres.py::test_the_decision_audit_is_append_only_on_postgres
+ERROR tests/integration/test_learning_v3_postgres.py::test_a_promotion_is_unique_per_candidate_on_postgres
+ERROR tests/integration/test_learning_v3_postgres.py::test_a_memory_cycle_runs_end_to_end_on_postgres
+4 errors in 0.51s

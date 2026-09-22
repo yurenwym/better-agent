@@ -1,0 +1,469 @@
+...FF.FFFFFFF.F                                                          [100%]
+================================== FAILURES ===================================
+______________ test_budget_reservation_is_atomic_and_replay_safe ______________
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_budget_reservation_is_ato0')
+
+    def test_budget_reservation_is_atomic_and_replay_safe(tmp_path) -> None:
+        from app.costs import BudgetExceeded, CostService
+        from app.db import Database
+    
+        service = CostService(Database(tmp_path / "agent.db"))
+        service.set_budget("local-user", "DAILY", "2026-08-28", 100)
+    
+        first = service.reserve("local-user", "DAILY", "2026-08-28", "inv-1", "att-1", 70, "reserve-1")
+        replay = service.reserve("local-user", "DAILY", "2026-08-28", "inv-1", "att-1", 70, "reserve-1")
+        assert first == replay
+>       with pytest.raises(BudgetExceeded):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE BudgetExceeded
+
+tests\test_cost_control.py:61: Failed
+___________ test_concurrent_reservations_cannot_overspend_a_budget ____________
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_concurrent_reservations_c0')
+
+    def test_concurrent_reservations_cannot_overspend_a_budget(tmp_path) -> None:
+        from app.costs import BudgetExceeded, CostService
+        from app.db import Database
+    
+        service = CostService(Database(tmp_path / "agent.db"))
+        service.set_budget("local-user", "DAILY", "2026-08-28", 100)
+        barrier = Barrier(2)
+    
+        def reserve(number: int) -> str:
+            barrier.wait()
+            try:
+                service.reserve(
+                    "local-user", "DAILY", "2026-08-28", f"inv-{number}",
+                    f"att-{number}", 70, f"reserve-{number}",
+                )
+                return "reserved"
+            except BudgetExceeded:
+                return "blocked"
+    
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(reserve, (1, 2)))
+    
+>       assert sorted(results) == ["blocked", "reserved"]
+E       AssertionError: assert ['reserved', 'reserved'] == ['blocked', 'reserved']
+E         
+E         At index 0 diff: 'reserved' != 'blocked'
+E         Use -v to get more diff
+
+tests\test_cost_control.py:88: AssertionError
+_ test_three_level_attempt_reservation_is_atomic_and_unconfigured_levels_are_unlimited _
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_three_level_attempt_reser0')
+
+    def test_three_level_attempt_reservation_is_atomic_and_unconfigured_levels_are_unlimited(tmp_path) -> None:
+        from app.costs import BudgetExceeded, CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelCallHandle
+    
+        db = Database(tmp_path / "agent.db")
+        service = CostService(db)
+        handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+        daily = service.today_period()
+        monthly = daily[:7]
+        service.set_budget("local-user", "INVOCATION", handle.invocation_id, 1_000)
+        service.set_budget("local-user", "DAILY", daily, 1_000)
+        service.set_budget("local-user", "MONTHLY", monthly, 139)
+    
+>       with pytest.raises(BudgetExceeded):
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       Failed: DID NOT RAISE BudgetExceeded
+
+tests\test_cost_control.py:125: Failed
+_ test_three_level_settlement_and_release_are_append_only_idempotent_and_replayable _
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_three_level_settlement_an0')
+
+    def test_three_level_settlement_and_release_are_append_only_idempotent_and_replayable(tmp_path) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext
+        from app.model_gateway import UsageBuckets
+    
+        db = Database(tmp_path / "agent.db")
+        service = CostService(db)
+        handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+        periods = {
+            "INVOCATION": handle.invocation_id,
+            "DAILY": service.today_period(),
+            "MONTHLY": service.today_period()[:7],
+        }
+        for kind, key in periods.items():
+            service.set_budget("local-user", kind, key, 1_000)
+        with db.transaction() as connection:
+            service.reserve_attempt(connection, handle, "att-settle-three")
+            first = service.settle_attempt(
+                connection, handle, "att-settle-three", UsageBuckets(10, 0, 0, 5, 0)
+            )
+        with db.transaction() as connection:
+            replay = service.settle_attempt(
+                connection, handle, "att-settle-three", UsageBuckets(10, 0, 0, 5, 0)
+            )
+    
+        assert first == replay
+        assert first.microusd == 20
+        for kind, key in periods.items():
+            assert service.summary("local-user", kind, key) == {
+                "limit_microusd": 1_000, "reserved_microusd": 0, "charged_microusd": 20,
+            }
+        with db.connection() as connection:
+            entries = connection.execute(
+                "SELECT period_kind,entry_type,amount_microusd FROM cost_ledger "
+                "WHERE attempt_id=? ORDER BY period_kind,row_id",
+                ("att-settle-three",),
+            ).fetchall()
+            with pytest.raises(Exception, match="append-only"):
+                connection.execute(
+                    "UPDATE cost_ledger SET amount_microusd=0 WHERE attempt_id='att-settle-three'"
+                )
+>       assert [tuple(row) for row in entries] == [
+            ("DAILY", "RESERVE", 140), ("DAILY", "CHARGE", 20), ("DAILY", "RELEASE", 120),
+            ("INVOCATION", "RESERVE", 140), ("INVOCATION", "CHARGE", 20), ("INVOCATION", "RELEASE", 120),
+            ("MONTHLY", "RESERVE", 140), ("MONTHLY", "CHARGE", 20), ("MONTHLY", "RELEASE", 120),
+        ]
+E       AssertionError: assert [('DAILY', 'R...'CHARGE', 20)] == [('DAILY', 'R...E', 120), ...]
+E         
+E         At index 0 diff: ('DAILY', 'RESERVE', 0) != ('DAILY', 'RESERVE', 140)
+E         Right contains 3 more items, first extra item: ('MONTHLY', 'RESERVE', 140)
+E         Use -v to get more diff
+
+tests\test_cost_control.py:217: AssertionError
+_______ test_missing_usage_conservatively_charges_all_configured_levels _______
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_missing_usage_conservativ0')
+
+    def test_missing_usage_conservatively_charges_all_configured_levels(tmp_path) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext
+    
+        db = Database(tmp_path / "agent.db")
+        service = CostService(db)
+        handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+        periods = {
+            "INVOCATION": handle.invocation_id,
+            "DAILY": service.today_period(),
+            "MONTHLY": service.today_period()[:7],
+        }
+        for kind, key in periods.items():
+            service.set_budget("local-user", kind, key, 1_000)
+        with db.transaction() as connection:
+            service.reserve_attempt(connection, handle, "att-no-usage")
+            result = service.settle_attempt(connection, handle, "att-no-usage", None)
+    
+>       assert result.microusd == 140
+E       AssertionError: assert None == 140
+E        +  where None = CostEstimateWithPrice(microusd=None, status='UNAVAILABLE', price_snapshot_id='price-v1').microusd
+
+tests\test_cost_control.py:243: AssertionError
+____________ test_budget_block_happens_before_network[INVOCATION] _____________
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_budget_block_happens_befo0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000000007122DD0>
+period_kind = 'INVOCATION'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("period_kind", ["INVOCATION", "DAILY", "MONTHLY"])
+    async def test_budget_block_happens_before_network(tmp_path, monkeypatch, period_kind) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelControlStore
+        from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
+    
+        db = Database(tmp_path / "agent.db")
+        costs = CostService(db)
+        invocation_id = f"inv-blocked-{period_kind.lower()}"
+        period_key = {
+            "INVOCATION": invocation_id,
+            "DAILY": costs.today_period(),
+            "MONTHLY": costs.today_period()[:7],
+        }[period_kind]
+        costs.set_budget("local-user", period_kind, period_key, 0)
+        monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+        gateway = ModelGateway(
+            ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY"),
+            transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+            control_store=ModelControlStore(db, costs=costs),
+        )
+    
+        with pytest.raises(GatewayError) as caught:
+>           await gateway.complete(
+                ModelRequest(messages=[]),
+                context=ModelCallContext("conversation", "answer", invocation_id=invocation_id),
+            )
+
+tests\test_cost_control.py:303: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\model_gateway.py:425: in complete
+    response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:505: in _attempt
+    return await self._attempt_openai(request, api_key, cancel_event, on_text_delta, on_output_started)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:530: in _attempt_openai
+    async with client.stream(
+D:\pycharm\Lib\contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1583: in stream
+    response = await self.send(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1629: in send
+    response = await self._send_handling_auth(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_transports\mock.py:34: in handle_async_request
+    response = self.handler(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+_ = <Request('POST', 'https://provider.test/v1/chat/completions')>
+
+>       transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        control_store=ModelControlStore(db, costs=costs),
+    )
+E   Failed: network must not be called
+
+tests\test_cost_control.py:298: Failed
+_______________ test_budget_block_happens_before_network[DAILY] _______________
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_budget_block_happens_befo1')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000000005F81E60>
+period_kind = 'DAILY'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("period_kind", ["INVOCATION", "DAILY", "MONTHLY"])
+    async def test_budget_block_happens_before_network(tmp_path, monkeypatch, period_kind) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelControlStore
+        from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
+    
+        db = Database(tmp_path / "agent.db")
+        costs = CostService(db)
+        invocation_id = f"inv-blocked-{period_kind.lower()}"
+        period_key = {
+            "INVOCATION": invocation_id,
+            "DAILY": costs.today_period(),
+            "MONTHLY": costs.today_period()[:7],
+        }[period_kind]
+        costs.set_budget("local-user", period_kind, period_key, 0)
+        monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+        gateway = ModelGateway(
+            ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY"),
+            transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+            control_store=ModelControlStore(db, costs=costs),
+        )
+    
+        with pytest.raises(GatewayError) as caught:
+>           await gateway.complete(
+                ModelRequest(messages=[]),
+                context=ModelCallContext("conversation", "answer", invocation_id=invocation_id),
+            )
+
+tests\test_cost_control.py:303: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\model_gateway.py:425: in complete
+    response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:505: in _attempt
+    return await self._attempt_openai(request, api_key, cancel_event, on_text_delta, on_output_started)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:530: in _attempt_openai
+    async with client.stream(
+D:\pycharm\Lib\contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1583: in stream
+    response = await self.send(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1629: in send
+    response = await self._send_handling_auth(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_transports\mock.py:34: in handle_async_request
+    response = self.handler(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+_ = <Request('POST', 'https://provider.test/v1/chat/completions')>
+
+>       transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        control_store=ModelControlStore(db, costs=costs),
+    )
+E   Failed: network must not be called
+
+tests\test_cost_control.py:298: Failed
+______________ test_budget_block_happens_before_network[MONTHLY] ______________
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_budget_block_happens_befo2')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000000007044A10>
+period_kind = 'MONTHLY'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("period_kind", ["INVOCATION", "DAILY", "MONTHLY"])
+    async def test_budget_block_happens_before_network(tmp_path, monkeypatch, period_kind) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelControlStore
+        from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
+    
+        db = Database(tmp_path / "agent.db")
+        costs = CostService(db)
+        invocation_id = f"inv-blocked-{period_kind.lower()}"
+        period_key = {
+            "INVOCATION": invocation_id,
+            "DAILY": costs.today_period(),
+            "MONTHLY": costs.today_period()[:7],
+        }[period_kind]
+        costs.set_budget("local-user", period_kind, period_key, 0)
+        monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+        gateway = ModelGateway(
+            ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY"),
+            transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+            control_store=ModelControlStore(db, costs=costs),
+        )
+    
+        with pytest.raises(GatewayError) as caught:
+>           await gateway.complete(
+                ModelRequest(messages=[]),
+                context=ModelCallContext("conversation", "answer", invocation_id=invocation_id),
+            )
+
+tests\test_cost_control.py:303: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+app\model_gateway.py:425: in complete
+    response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:505: in _attempt
+    return await self._attempt_openai(request, api_key, cancel_event, on_text_delta, on_output_started)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_gateway.py:530: in _attempt_openai
+    async with client.stream(
+D:\pycharm\Lib\contextlib.py:214: in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1583: in stream
+    response = await self.send(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1629: in send
+    response = await self._send_handling_auth(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1657: in _send_handling_auth
+    response = await self._send_handling_redirects(
+D:\pycharm\Lib\site-packages\httpx\_client.py:1694: in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_client.py:1730: in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\site-packages\httpx\_transports\mock.py:34: in handle_async_request
+    response = self.handler(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+_ = <Request('POST', 'https://provider.test/v1/chat/completions')>
+
+>       transport=httpx.MockTransport(lambda _: pytest.fail("network must not be called")),
+                                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        control_store=ModelControlStore(db, costs=costs),
+    )
+E   Failed: network must not be called
+
+tests\test_cost_control.py:298: Failed
+_______ test_gateway_charges_each_retry_attempt_without_double_counting _______
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_gateway_charges_each_retr0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000000000708F280>
+
+    @pytest.mark.asyncio
+    async def test_gateway_charges_each_retry_attempt_without_double_counting(tmp_path, monkeypatch) -> None:
+        from app.costs import CostService, PriceSnapshot
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelControlStore
+        from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
+    
+        db = Database(tmp_path / "agent.db")
+        costs = CostService(db)
+        monkeypatch.setenv("MODEL_TEST_KEY", "secret")
+        calls = 0
+    
+        async def handler(request: httpx.Request) -> httpx.Response:
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return httpx.Response(429, json={"error": {"message": "retry"}})
+            return httpx.Response(200, content=(
+                'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n'
+                'data: {"usage":{"prompt_tokens":10,"completion_tokens":5,"cached_tokens":0}}\n\n'
+                'data: [DONE]\n\n'
+            ).encode())
+    
+        profile = ModelProfile(
+            "https://provider.test/v1", "demo", "MODEL_TEST_KEY", max_attempts=2, network_retries=1,
+            retry_base_seconds=0, context_window=100, max_output_tokens=20,
+        )
+        control = ModelControlStore(db, costs=costs)
+        gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=control)
+        await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "unmetered_setup"))
+        with db.connection() as connection:
+            profile_version_id = connection.execute("SELECT id FROM model_profile_versions").fetchone()[0]
+            connection.execute("DELETE FROM model_attempts")
+>           connection.execute("DELETE FROM model_invocations")
+E           sqlite3.IntegrityError: FOREIGN KEY constraint failed
+
+tests\test_cost_control.py:348: IntegrityError
+___ test_default_invocation_budget_is_materialized_for_each_real_invocation ___
+
+tmp_path = WindowsPath('C:/Users/wym/AppData/Local/Temp/better-v3-t03c/test_default_invocation_budget0')
+
+    def test_default_invocation_budget_is_materialized_for_each_real_invocation(tmp_path) -> None:
+        from app.costs import CostService
+        from app.db import Database
+        from app.model_control import ModelCallContext, ModelCallHandle
+        db = Database(tmp_path / "agent.db")
+        service = CostService(db)
+        base = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+        service.set_budget("local-user", "INVOCATION", "default", 1_000)
+        handle = ModelCallHandle("inv-from-template", base.profile_version_id, base.context)
+        with db.transaction() as connection:
+            service.reserve_attempt(connection, handle, "attempt-from-template")
+>       assert service.summary("local-user", "INVOCATION", "inv-from-template") == {
+            "limit_microusd":1_000,"reserved_microusd":140,"charged_microusd":0,
+        }
+E       AssertionError: assert {'limit_micro..._microusd': 0} == {'limit_micro..._microusd': 0}
+E         
+E         Omitting 1 identical items, use -vv to show
+E         Differing items:
+E         {'limit_microusd': 0} != {'limit_microusd': 1000}
+E         {'reserved_microusd': 0} != {'reserved_microusd': 140}
+E         Use -v to get more diff
+
+tests\test_cost_control.py:395: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_cost_control.py::test_budget_reservation_is_atomic_and_replay_safe
+FAILED tests/test_cost_control.py::test_concurrent_reservations_cannot_overspend_a_budget
+FAILED tests/test_cost_control.py::test_three_level_attempt_reservation_is_atomic_and_unconfigured_levels_are_unlimited
+FAILED tests/test_cost_control.py::test_three_level_settlement_and_release_are_append_only_idempotent_and_replayable
+FAILED tests/test_cost_control.py::test_missing_usage_conservatively_charges_all_configured_levels
+FAILED tests/test_cost_control.py::test_budget_block_happens_before_network[INVOCATION]
+FAILED tests/test_cost_control.py::test_budget_block_happens_before_network[DAILY]
+FAILED tests/test_cost_control.py::test_budget_block_happens_before_network[MONTHLY]
+FAILED tests/test_cost_control.py::test_gateway_charges_each_retry_attempt_without_double_counting
+FAILED tests/test_cost_control.py::test_default_invocation_budget_is_materialized_for_each_real_invocation
+10 failed, 5 passed in 6.66s

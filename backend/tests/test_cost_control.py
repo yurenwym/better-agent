@@ -7,6 +7,20 @@ import httpx
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _enforce_cost_limits(monkeypatch):
+    """These cases assert *enforcement*, so they must declare the enforcing mode.
+
+    `monetary_limits_enabled()` reads `BETTER_AGENT_COST_MODE`, which defaults to
+    `observe` — a mode where every limit is still recorded but never blocks. Under
+    that default the assertions here are vacuous: `reserved_microusd` stays 0
+    because the reserved amount is 0, and nothing ever raises `BudgetExceeded`.
+    Declaring the mode in the fixture keeps the file self-contained instead of
+    silently depending on the operator's shell environment.
+    """
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+
+
 def test_migration_10_creates_append_only_cost_tables(tmp_path) -> None:
     from app.db import Database
 
@@ -344,6 +358,9 @@ async def test_gateway_charges_each_retry_attempt_without_double_counting(tmp_pa
     await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "unmetered_setup"))
     with db.connection() as connection:
         profile_version_id = connection.execute("SELECT id FROM model_profile_versions").fetchone()[0]
+        # `model_invocation_events` (migration 37) also references `model_invocations`,
+        # so it must be cleared first or the delete below trips a foreign key constraint.
+        connection.execute("DELETE FROM model_invocation_events")
         connection.execute("DELETE FROM model_attempts")
         connection.execute("DELETE FROM model_invocations")
     calls = 0
