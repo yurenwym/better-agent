@@ -13,6 +13,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .db import Database
+from .execution_context import (
+    HarnessContextError,
+    HarnessExecutionContext,
+    check_context_alignment,
+    rebind,
+)
 
 
 class RoutingError(ValueError):
@@ -69,6 +75,69 @@ class ModelCallContext:
     invocation_id: str | None = None
     price_snapshot_id: str | None = None
     root_budget_id: str | None = None
+    # Span identity of the logical call.  A model call that shares a span with
+    # another is the *same* logical call (a retry, or a role/purpose adaptation
+    # inside one invocation), never a second independent call.
+    trace_id: str | None = None
+    span_id: str | None = None
+    parent_span_id: str | None = None
+    task_id: str | None = None
+    parent_task_id: str | None = None
+    root_task_id: str | None = None
+    # The harness this context was converted from, when it came from one.
+    harness: HarnessExecutionContext | None = None
+
+    def __post_init__(self) -> None:
+        check_context_alignment(self)
+
+    @classmethod
+    def from_harness(
+        cls,
+        harness: HarnessExecutionContext,
+        *,
+        role: str,
+        purpose: str,
+        invocation_id: str | None = None,
+        idempotency_key: str | None = None,
+        goal_id: str | None = None,
+        routing_policy_id: str | None = None,
+        routing_policy_digest: str = "direct",
+        context_snapshot_digest: str = "",
+        price_snapshot_id: str | None = None,
+    ) -> "ModelCallContext":
+        """Convert a harness context into a model call identity.
+
+        A conversion, not a factory: it neither mints a trace/span nor creates a
+        task or a budget.  Owner, budget root, bundle and trace are taken from
+        the harness and cannot be overridden here.
+        """
+        if not isinstance(harness, HarnessExecutionContext):
+            raise HarnessContextError("harness must be a HarnessExecutionContext")
+        return cls(
+            role=role,
+            purpose=purpose,
+            owner_id=harness.owner_id,
+            run_id=harness.run_id,
+            goal_id=goal_id,
+            thread_id=harness.thread_id,
+            turn_id=harness.turn_id,
+            agent_task_id=harness.task_id,
+            runtime_bundle_id=harness.runtime_bundle_id,
+            routing_policy_id=routing_policy_id,
+            routing_policy_digest=routing_policy_digest,
+            context_snapshot_digest=context_snapshot_digest,
+            idempotency_key=idempotency_key,
+            invocation_id=invocation_id,
+            price_snapshot_id=price_snapshot_id,
+            root_budget_id=harness.root_budget_id,
+            trace_id=harness.trace_id,
+            span_id=harness.span_id,
+            parent_span_id=harness.parent_span_id,
+            task_id=harness.task_id,
+            parent_task_id=harness.parent_task_id,
+            root_task_id=harness.root_task_id,
+            harness=harness,
+        )
 
 
 def child_call_context(
@@ -210,6 +279,12 @@ class ModelControlStore:
                 connection.execute("UPDATE model_invocations SET root_budget_id=? WHERE id=?",
                                    (context.root_budget_id, invocation_id))
             connection.execute("UPDATE model_invocations SET system_prompt_digest=? WHERE id=?", (system_prompt_digest, invocation_id))
+            if context.harness is not None:
+                # Same transaction as the INSERT: an invocation row can never be
+                # observable without the execution identity it was opened under.
+                from .harness_context_store import HarnessContextStore
+
+                HarnessContextStore(self.db).save_invocation_context(connection, invocation_id, context.harness)
             if getattr(self, "learning_assets", None) is not None:
                 self.learning_assets.freeze_request(connection, context, request, invocation_id)
             exposure = connection.execute(
@@ -503,7 +578,7 @@ class RoutedModelGateway:
                      role: str | None = None, purpose: str | None = None) -> int:
         active = context or self._call_context.get() or ModelCallContext("planner", "compile_goal_program", owner_id=owner_id or "local-user")
         if owner_id is not None and active.owner_id != owner_id:
-            active = replace(active, owner_id=owner_id)
+            active = rebind(active, owner_id=owner_id)
         active = child_call_context(active, role=role, purpose=purpose)
         _, profiles, _ = self._route(active)
         return int(profiles[0].max_output_tokens)
@@ -722,7 +797,7 @@ class RoutedModelGateway:
             "profile_sequence": eligible_ids, "profile_version_id": eligible_ids[0],
             "provider_protocol": profiles[0].provider_protocol, "fallback_enabled": len(eligible_ids) > 1,
         }
-        return snapshot, profiles, replace(
+        return snapshot, profiles, rebind(
             context, runtime_bundle_id=bundle_id, routing_policy_id=policy_id, routing_policy_digest=digest
         )
 

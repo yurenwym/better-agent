@@ -16,6 +16,11 @@ from typing import Any, Callable
 
 from .db import Database
 from .domain import ApprovalRequired, ApprovalService, normalized_params_hash
+from .execution_context import (
+    HarnessContextError,
+    HarnessExecutionContext,
+    check_context_alignment,
+)
 from .trusted_connectors import ConnectorReconciliationRequired, ConnectorSecurityError, TrustedConnectorService
 
 
@@ -77,6 +82,7 @@ class ToolExecutionContext:
     run_id: str
     tool_call_id: str
     thread_id: str | None = None
+    turn_id: str | None = None
     project_id: str | None = None
     # Budget/bundle identity of the originating run, so a tool-triggered model
     # compile can share the run's root budget instead of creating an unrelated
@@ -84,6 +90,56 @@ class ToolExecutionContext:
     root_budget_id: str | None = None
     runtime_bundle_id: str | None = None
     authorization: dict[str, Any] | None = None
+    # Span identity of the logical tool call.  An approval that waits for a
+    # human keeps this span; only a genuinely new internal model call gets a
+    # child span of it.
+    trace_id: str | None = None
+    span_id: str | None = None
+    parent_span_id: str | None = None
+    task_id: str | None = None
+    parent_task_id: str | None = None
+    root_task_id: str | None = None
+    harness: HarnessExecutionContext | None = None
+
+    def __post_init__(self) -> None:
+        check_context_alignment(self)
+
+    @classmethod
+    def from_harness(
+        cls,
+        harness: HarnessExecutionContext,
+        *,
+        tool_call_id: str,
+        authorization: dict[str, Any] | None = None,
+    ) -> "ToolExecutionContext":
+        """Convert a harness context into a tool call identity.
+
+        A conversion, not a factory: no trace/span is minted and no task or
+        budget is created.  A tool call without a run binding is refused rather
+        than silently given one.
+        """
+        if not isinstance(harness, HarnessExecutionContext):
+            raise HarnessContextError("harness must be a HarnessExecutionContext")
+        if not harness.run_id:
+            raise HarnessContextError("a tool call requires a run binding")
+        return cls(
+            owner_id=harness.owner_id,
+            run_id=harness.run_id,
+            tool_call_id=tool_call_id,
+            thread_id=harness.thread_id,
+            turn_id=harness.turn_id,
+            project_id=harness.project_id,
+            root_budget_id=harness.root_budget_id,
+            runtime_bundle_id=harness.runtime_bundle_id,
+            authorization=authorization,
+            trace_id=harness.trace_id,
+            span_id=harness.span_id,
+            parent_span_id=harness.parent_span_id,
+            task_id=harness.task_id,
+            parent_task_id=harness.parent_task_id,
+            root_task_id=harness.root_task_id,
+            harness=harness,
+        )
 
     def public_view(self) -> dict[str, Any]:
         return {

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20260921_0023"
+POSTGRES_SCHEMA_HEAD = "20260930_0024"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1586,6 +1586,25 @@ MIGRATIONS = (
 MIGRATIONS = (
     *MIGRATIONS,
     (45, "ALTER TABLE learning_decisions ADD COLUMN support REAL NOT NULL DEFAULT 0;"),
+)
+
+# Harness execution context: the durable identity of a turn, a tool call and a
+# model call.  JSON and digest are written in the same statement, so a row that
+# carries one without the other is corrupt rather than half migrated.
+MIGRATIONS = (
+    *MIGRATIONS,
+    (46, """
+    ALTER TABLE turns ADD COLUMN execution_context_json TEXT;
+    ALTER TABLE turns ADD COLUMN execution_context_digest TEXT;
+    ALTER TABLE turn_tool_calls ADD COLUMN execution_context_json TEXT;
+    ALTER TABLE turn_tool_calls ADD COLUMN execution_context_digest TEXT;
+    ALTER TABLE model_invocations ADD COLUMN execution_context_json TEXT;
+    ALTER TABLE model_invocations ADD COLUMN execution_context_digest TEXT;
+    -- PostgreSQL got model_invocations.root_budget_id in alembic 0002; the
+    -- SQLite mirror never did, so the column the writer already targets was
+    -- missing and only the routed-PostgreSQL path ever exercised it.
+    ALTER TABLE model_invocations ADD COLUMN root_budget_id TEXT;
+    """),
 )
 
 

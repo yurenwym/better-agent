@@ -1,0 +1,165 @@
+{
+  "feature": "harness-execution-context",
+  "phase": 1,
+  "date": "2026-09-30",
+  "requirement_document": "docs/HarnessExecutionContext-第一阶段开发任务与验收-2026-09-30.md",
+  "acceptance_report": "docs/acceptance/harness-context-phase1/harness-context-phase1-acceptance-2026-09-30.md",
+  "repository_commit": "733866b69b93fae4d868541ad1a86d1e9e7ce3cb",
+  "schema": {
+    "postgres_head": "20260930_0024",
+    "previous_head": "20260921_0023",
+    "sqlite_migration": 46,
+    "columns": ["execution_context_json", "execution_context_digest"],
+    "tables": ["turns", "turn_tool_calls", "model_invocations"]
+  },
+  "environment": {
+    "interpreter": "D:\\pycharm\\python.exe",
+    "basetemp_root": "C:/Users/wym/AppData/Local/Temp",
+    "postgres": "better-postgres-1 (pgvector/pg16) @ 127.0.0.1:5432",
+    "test_database": "better_agent_v4_test",
+    "test_database_guard": "tests/integration/db_target_guard.py (suffix + loopback + denylist)",
+    "docker_compose_plugin": "unavailable (unknown command: docker compose)",
+    "escape_hatch": "TEST_DATABASE_URL"
+  },
+  "cases": {
+    "U": {
+      "file": "tests/test_execution_context.py",
+      "result": "10 passed",
+      "ids": {
+        "U01": "test_u01_two_roots_have_distinct_trace_and_span_and_no_parent",
+        "U02": "test_u02_child_and_grandchild_inherit_business_identity",
+        "U03": "test_u03_plain_conversation_has_no_task_and_creates_none",
+        "U04": "test_u04_root_task_is_the_root_and_children_keep_the_task_tree",
+        "U05": "test_u05_empty_owner_overrides_and_malformed_ids_are_rejected",
+        "U06": "test_u06_serialisation_round_trip_and_digest_sensitivity",
+        "U07": "test_u07_conversion_keeps_span_and_specialised_fields",
+        "U08": "test_u08_conversion_refuses_identity_overrides",
+        "U09": "test_u09_independent_calls_get_new_spans_and_retries_do_not",
+        "U10": "test_u10_gateway_wrappers_keep_the_public_identity"
+      }
+    },
+    "I": {
+      "file": "tests/test_harness_context_flow.py",
+      "result": "6 passed",
+      "ids": {
+        "I01": "test_i01_read_tool_chain_shares_one_trace",
+        "I02": "test_i02_parallel_tools_share_one_parent_and_next_call_is_new",
+        "I03": "test_i03_tool_internal_llm_call_is_a_child_of_the_tool",
+        "I04": "test_i04_two_owners_never_share_identity_or_version",
+        "I05": "test_i05_failed_turn_does_not_leak_its_context",
+        "I06": "test_i06_internal_call_keeps_the_original_bundle_after_a_stable_switch"
+      }
+    },
+    "A": {
+      "file": "tests/test_harness_context_approval.py",
+      "result": "13 passed",
+      "ids": {
+        "A01": "test_a01_restart_restores_the_original_context_and_span",
+        "A02": "test_a02_continuation_budget_bundle_and_trace_do_not_replace_the_original",
+        "A03": "test_a03_revoked_tool_is_refused_without_side_effects",
+        "A04": "test_a04_tampered_call_is_refused[params|association|binding]",
+        "A05": "test_a05_another_owner_cannot_resume_the_call",
+        "A06": "test_a06_unusable_original_bundle_does_not_fall_back_to_stable",
+        "A07": "test_a07_legacy_missing_context_is_refused_and_stays_readable + test_a07_corrupt_and_unknown_context_fail_closed",
+        "A08": "test_a08_repeated_resume_reuses_the_result_without_rewriting + test_a08_crash_before_result_persistence_recovers_one_side_effect",
+        "A09": "test_a09_unclear_write_outcome_is_not_retried"
+      }
+    },
+    "P": {
+      "file": "tests/integration/test_harness_context_postgres.py",
+      "result": "7 passed",
+      "ids": {
+        "P01": "test_p01_empty_database_upgrade_matches_the_declared_head + test_p01_upgrade_from_the_previous_head_keeps_legacy_rows_readable",
+        "P02": "test_p02_round_trip_and_legacy_and_half_written",
+        "P03": "test_p03_conflicting_bindings_are_refused_on_every_table + test_p03_concurrent_writers_of_the_same_context_are_idempotent",
+        "P04": "test_p04_failed_write_leaves_no_partial_row_and_tampering_is_refused + test_p04_approval_context_is_written_before_the_approval_exists"
+      }
+    }
+  },
+  "commands": [
+    {
+      "command": "python -m pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py -q",
+      "exit_code": 0,
+      "result": "29 passed in 26.74s",
+      "note": "superset of the documented command (adds the approval suite)"
+    },
+    {
+      "command": "python -m pytest tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py -q",
+      "exit_code": 0,
+      "result": "54 passed in 13.58s"
+    },
+    {
+      "command": "python -m pytest tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py -q",
+      "exit_code": 0,
+      "result": "47 passed in 30.64s"
+    },
+    {
+      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_worker.py tests/test_conversation_protocol_v2.py -q",
+      "exit_code": 0,
+      "result": "83 passed in 51.48s"
+    },
+    {
+      "command": "python -m pytest tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py -q",
+      "exit_code": 0,
+      "result": "24 passed in 117.24s",
+      "note": "requires TEST_DATABASE_URL pointing at an isolated *_test database"
+    }
+  ],
+  "full_suite": [
+    {
+      "command": "TEST_DATABASE_URL=<isolated> python -m pytest -q -rfE",
+      "exit_code": 1,
+      "result": "13 failed, 1905 passed, 4 skipped, 0 errors in 1532.94s",
+      "note": "before the artifact-path fix; found one real regression",
+      "log": "outputs/_full_suite.txt"
+    },
+    {
+      "command": "TEST_DATABASE_URL=<isolated> python -m pytest -q -rfE",
+      "exit_code": 1,
+      "result": "12 failed, 1906 passed, 4 skipped, 0 errors in 1494.98s",
+      "note": "after the fix; all 12 remaining failures are pre-existing/environmental",
+      "log": "outputs/_full_suite_after_fix.txt"
+    }
+  ],
+  "baseline_comparison": {
+    "baseline_2026_09_22": "19 failed, 1714 passed, 4 skipped, 100 errors",
+    "now": "12 failed, 1906 passed, 4 skipped, 0 errors",
+    "errors_resolved_because": "tests/integration/* now runs via TEST_DATABASE_URL instead of failing on a missing docker compose plugin"
+  },
+  "regression_found_and_fixed": {
+    "test": "tests/test_v2_acceptance.py::test_explicit_plan_modification_becomes_an_approval_gated_tool_call",
+    "root_cause": "the artifact-driven pending tool call is created by ConversationService._suspend_artifact_modification, a second creation site that did not persist the execution context and requested the approval before writing the row",
+    "symptom": "resume() reported LEGACY_CONTEXT_MISSING; the plan document stayed at version 1",
+    "fix": [
+      "ManagedTurnWorker._turn_tool_harness(turn): read the persisted turn root back and derive the tool span",
+      "store.create(..., execution_context=tool_harness) first, then approvals.request, then attach_approval"
+    ]
+  },
+  "pre_existing_failures": {
+    "test_plan_security.py": "3 cases, Windows symlinks",
+    "test_golden_journey.py": "1 case, needs real DNS resolution of sqlite.org",
+    "cost_mode_not_declared": [
+      "tests/test_evaluation_api.py::test_budget_blocked_evaluation_resumes_through_api_without_repeating_case",
+      "tests/test_m5_release_gates.py (2)",
+      "tests/test_real_evaluation.py (2)",
+      "tests/integration/test_learning_v2_postgres.py::test_postgres_independent_learning_budget_and_unknown_recovery"
+    ],
+    "tests/integration/test_db_target_guard.py::test_alembic_never_runs_against_a_rejected_target": "session-scoped postgres_url fixture makes the monkeypatched env ineffective when an earlier test already resolved it",
+    "tests/integration/test_m1_live_harness.py::test_live_harness_exercises_one_complete_round_without_network": "stale stub: scripts/m1_live_acceptance.CapturingMemoryContext lacks memory_v2.load_continuation"
+  },
+  "raw_logs": [
+    "outputs/_t07_regression.txt",
+    "outputs/_t07_regression_pg.txt",
+    "outputs/_t07_regression_after_fix.txt",
+    "outputs/_p_series_run4.txt",
+    "outputs/_full_suite.txt",
+    "outputs/_full_suite_after_fix.txt"
+  ],
+  "scope_review": {
+    "direct_context_construction_outside_execution_context_py": false,
+    "create_root_context_call_sites": ["app/harness_context_store.py:89"],
+    "new_policy_engine_or_task_runtime": false,
+    "tool_registry_rewritten": false,
+    "not_migrated": ["Research runtime", "Learning runtime", "Goal Review runtime", "standalone non-tool plan compilation entry"]
+  }
+}

@@ -868,6 +868,7 @@ class LiveConversationModel:
         on_memory_context_applied=None,
         branch_state: ConversationBranchState | None = None,
         tool_loop=None,
+        harness=None,
     ) -> Any:
         continuation_messages = [
             item for item in history
@@ -949,6 +950,32 @@ class LiveConversationModel:
             content=content, history=history, human_mode=human_mode,
             branch_state=branch_state,
         )
+
+        # Every logical model call in this turn gets its own span under the turn
+        # root; a retry inside one invocation keeps the span it started with.
+        # ``llm_state["harness"]`` is the span of the most recent call, which is
+        # the parent of any tool call that response produces.
+        llm_state: dict[str, Any] = {"harness": None, "base_invocation_id": None}
+        if harness is not None and getattr(harness, "turn_id", None):
+            llm_state["base_invocation_id"] = f"conversation:{harness.turn_id}"
+
+        def call_context(role: str, purpose: str):
+            """Mint this call's identity, or ``None`` for a harness-less caller."""
+            if harness is None:
+                return None
+            from .execution_context import create_child_context
+            from .model_control import ModelCallContext
+
+            call_harness = create_child_context(harness)
+            llm_state["harness"] = call_harness
+            base = llm_state["base_invocation_id"]
+            invocation_id = None
+            if base is not None:
+                invocation_id = base if purpose == "route_and_respond" else f"{base}:{purpose}"
+            return ModelCallContext.from_harness(
+                call_harness, role=role, purpose=purpose, invocation_id=invocation_id,
+            )
+
         async def complete_once(
             request_messages: list[dict[str, str]],
             *,
@@ -1065,6 +1092,7 @@ class LiveConversationModel:
                 cancel_event=cancel_event,
                 on_text_delta=emit,
                 on_text_reset=reset,
+                context=call_context("conversation", purpose),
             )
             if skill_trace is not None:
                 from .events import ThreadEventStore
@@ -1249,6 +1277,7 @@ class LiveConversationModel:
                     tool_name=call.name,
                     params=call.params,
                     provider_call_id=call.provider_call_id,
+                    parent_harness=llm_state["harness"],
                 )
                 if outcome.pending:
                     pending_request = ToolApprovalRequest(

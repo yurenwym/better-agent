@@ -33,6 +33,8 @@ from .chat_tools import (
 )
 from .db import Database
 from .events import ThreadEvent, ThreadEventStore
+from .execution_context import HarnessExecutionContext, create_child_context
+from .harness_context_store import HarnessContextStore
 from .plan_documents import (
     PlanDocumentConflict,
     PlanDocumentService,
@@ -210,6 +212,8 @@ class RouteAndRespondModel(Protocol):
         memory_context_content: str | None = None,
         on_memory_context_applied=None,
         branch_state: Any = None,
+        tool_loop: Any = None,
+        harness: Any = None,
     ) -> Any: ...
 
 
@@ -323,6 +327,7 @@ class _FallbackConversationModel:
         on_memory_context_applied=None,
         branch_state: Any = None,
         tool_loop: Any = None,
+        harness: Any = None,
     ) -> Any:
         if on_text_delta is not None:
             on_text_delta(
@@ -359,6 +364,7 @@ class ConversationService:
         from .goal_context import GoalContextProvider
         self.goal_context = GoalContextProvider(db)
         self.chat_tool_calls = ChatToolCallStore(db)
+        self.harness_context = HarnessContextStore(db)
         self._worker = None
         self._cancel_events: dict[str, asyncio.Event] = {}
         self.materializer = ExecutionMaterializer(db, agent_runtime, self.events)
@@ -1029,6 +1035,14 @@ class ConversationService:
             evolution = getattr(self.agent_runtime, "evolution", None)
             if evolution is not None:
                 runtime_bundle_id, _ = evolution.assign_run(turn_id, thread_id, connection=connection)
+            else:
+                # Pin the fallback at the trusted turn entry, before creating
+                # any harness. The gateway must not rebind a child later.
+                stable = connection.execute(
+                    "SELECT bundle_id FROM runtime_channels WHERE name='stable'"
+                ).fetchone()
+                if stable is not None:
+                    runtime_bundle_id = stable["bundle_id"]
             connection.execute(
                 """
                 INSERT INTO turns(
@@ -1716,6 +1730,18 @@ class ManagedTurnWorker:
                 ).fetchone()
             if scope is None:
                 raise KeyError(turn.thread_id)
+            # One trace root per turn, persisted with the turn itself: a worker
+            # restart or a retry re-reads the same trace instead of minting a
+            # second one.  Every model call and tool call below derives from it.
+            turn_harness = self.conversation.harness_context.load_or_create_turn_context(
+                turn.id,
+                owner_id=scope["owner_id"],
+                thread_id=turn.thread_id,
+                project_id=scope["project_id"],
+                run_id=chat_run_id(turn.id),
+                root_budget_id=getattr(turn, "root_budget_id", None),
+                runtime_bundle_id=turn.runtime_bundle_id,
+            )
             window = self._hot_window(turn, scope["owner_id"])
             mcp_sync = getattr(self.conversation.agent_runtime, "mcp_sync", None)
             if mcp_sync is not None:
@@ -1726,7 +1752,7 @@ class ManagedTurnWorker:
                     await mcp_sync.refresh_connected(scope["owner_id"])
                 except Exception:  # noqa: BLE001 - an optional integration never breaks a turn
                     pass
-            tool_runner = self._chat_tool_runner(turn, scope)
+            tool_runner = self._chat_tool_runner(turn, scope, turn_harness)
             tool_schemas = tool_runner.schemas() if tool_runner is not None else []
             if tool_continuation is not None:
                 if tool_runner is None:
@@ -1776,11 +1802,13 @@ class ManagedTurnWorker:
             context_token = None
             if getattr(gateway, "control_store", None) is not None:
                 from .model_control import ModelCallContext
-                context_token = gateway.set_call_context(ModelCallContext(
-                    role="conversation", purpose="route_and_respond", thread_id=turn.thread_id,
-                    turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
-                    invocation_id=model_invocation_id, owner_id=scope["owner_id"],
-                    root_budget_id=getattr(turn, "root_budget_id", None),
+                # The ambient context carries the turn's auxiliary model calls
+                # (branch resolution, reference resolution).  Each logical
+                # ``route_and_respond`` call gets its own child span below.
+                context_token = gateway.set_call_context(ModelCallContext.from_harness(
+                    create_child_context(turn_harness),
+                    role="conversation", purpose="route_and_respond",
+                    invocation_id=model_invocation_id,
                 ))
             # Resolve the required-instruction branches once, before the budget
             # loop, so the pre-check measures exactly what the send will carry.
@@ -2060,6 +2088,7 @@ class ManagedTurnWorker:
                     cancel_event=cancel_event,
                     branch_state=branch_state,
                     tool_loop=tool_runner,
+                    harness=turn_harness,
                 ),
                 name=f"conversation-turn-{turn_id}",
             )
@@ -2674,6 +2703,33 @@ class ManagedTurnWorker:
                 (now, turn.id),
             )
 
+    def _turn_tool_harness(self, turn: TurnSnapshot):
+        """A tool span under the turn root, read back from its persisted record.
+
+        The artifact path suspends a write from inside the turn that produced
+        it, so the root already exists; re-reading it keeps the identity equal
+        to the one the model-emitted tool path would have used.
+        """
+        store = getattr(self.conversation, "harness_context", None)
+        if store is None:
+            return None
+        with self.db.connection() as connection:
+            scope = connection.execute(
+                "SELECT owner_id,project_id FROM threads WHERE id=?", (turn.thread_id,),
+            ).fetchone()
+        if scope is None:
+            return None
+        turn_harness = store.load_or_create_turn_context(
+            turn.id,
+            owner_id=scope["owner_id"],
+            thread_id=turn.thread_id,
+            project_id=scope["project_id"],
+            run_id=chat_run_id(turn.id),
+            root_budget_id=getattr(turn, "root_budget_id", None),
+            runtime_bundle_id=turn.runtime_bundle_id,
+        )
+        return create_child_context(turn_harness)
+
     def _suspend_artifact_modification(
         self, turn: TurnSnapshot, decision: RouteDecision, document, version, markdown: str,
     ) -> tuple[str, str] | None:
@@ -2706,6 +2762,7 @@ class ManagedTurnWorker:
         call_id = f"chat-artifact-{turn.id}-{digest}"
         run_id = chat_run_id(turn.id)
         store = self.conversation.chat_tool_calls
+        tool_harness = self._turn_tool_harness(turn)
         try:
             store.get(call_id)
             existing_row = True
@@ -2723,8 +2780,10 @@ class ManagedTurnWorker:
                     stale.id, result=None, error_code="SUPERSEDED", status="CANCELLED",
                 )
                 stale = store.pending_for_turn(turn.id)
-        approval = approvals.request(run_id, call_id, "modify_plan_document", params, binding={})
         if not existing_row:
+            # The row carries the call's execution context, and it is written
+            # before the approval exists: a failed identity write must never
+            # leave an actionable approval behind.
             store.create(
                 turn_id=turn.id,
                 thread_id=turn.thread_id,
@@ -2733,9 +2792,12 @@ class ManagedTurnWorker:
                 risk="WRITE",
                 call_id=call_id,
                 status=STATUS_PENDING,
-                approval_id=approval.id,
                 binding={},
+                execution_context=tool_harness,
             )
+        approval = approvals.request(run_id, call_id, "modify_plan_document", params, binding={})
+        if not existing_row:
+            store.attach_approval(call_id, approval.id)
         return call_id, approval.id
 
     def _finish_success(
@@ -3672,7 +3734,9 @@ class ManagedTurnWorker:
             return ""
         return SkillPlatform(self.db, self.conversation.agent_runtime.skill_platform.root, owner[0]).context_text("RUN", turn.id, "conversation")
 
-    def _chat_tool_runner(self, turn: TurnSnapshot, scope) -> ChatToolRunner | None:
+    def _chat_tool_runner(
+        self, turn: TurnSnapshot, scope, harness: HarnessExecutionContext | None = None,
+    ) -> ChatToolRunner | None:
         """Build the per-turn harness for the goal business tools.
 
         The runner executes through the same ToolRegistry and ApprovalService
@@ -3702,6 +3766,7 @@ class ManagedTurnWorker:
             plan_documents=getattr(runtime, "plan_documents", None),
             tool_allowance=allowance,
             mcp_sync=getattr(runtime, "mcp_sync", None),
+            harness=harness,
         )
 
     def _cancel_requested(self, turn_id: str) -> bool:

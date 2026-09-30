@@ -512,6 +512,7 @@ async def _preview_goal_plan(
         expected_source_version_id=model.expected_document_version_id,
         root_budget_id=context.root_budget_id,
         runtime_bundle_id=context.runtime_bundle_id,
+        harness=context.harness,
     )
     snapshot_hash = _confirmation_hash(program)
     service.record_preview_snapshot(

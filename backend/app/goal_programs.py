@@ -9,6 +9,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from .db import Database
+from .execution_context import rebind
 from .goal_program_compiler import GoalCompilationError, GoalCompiler, validate_program_structure
 from .goal_calendar import MAX_PROGRAM_DAYS, calendar_days, schedule_constraints
 from .token_budget import DEFAULT_TOKEN_COUNTER
@@ -80,6 +81,7 @@ class GoalProgramService:
         expected_source_version_id: str | None = None,
         root_budget_id: str | None = None,
         runtime_bundle_id: str | None = None,
+        harness: Any | None = None,
     ) -> dict[str, Any]:
         start, end, defaulted = _program_dates(start_date, requested_end_date)
         _timezone(timezone_name)
@@ -162,7 +164,7 @@ class GoalProgramService:
                            "defaulted_end_date": defaulted, "root_budget_id": root_budget_id,
                            "runtime_bundle_id": runtime_bundle_id}
         try:
-            structure = await self._compile(program_id, source["markdown_content"], compile_request)
+            structure = await self._compile(program_id, source["markdown_content"], compile_request, harness=harness)
             structure = validate_program_structure(structure, start.isoformat(), end.isoformat(), daily_minutes, constraints=constraints)
         except asyncio.CancelledError:
             with self.db.transaction() as connection:
@@ -272,12 +274,16 @@ class GoalProgramService:
             self._save_receipt(connection, owner_id, "program", program_id, "compile-retry", idempotency_key, request_hash, response)
         return response
 
-    async def _compile(self, program_id: str, source_markdown: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def _compile(
+        self, program_id: str, source_markdown: str, request: dict[str, Any],
+        *, harness: Any | None = None,
+    ) -> dict[str, Any]:
         try:
             context = self._model_context(
                 program_id, "planner", "compile_goal_program",
                 root_budget_id=request.get("root_budget_id"),
                 runtime_bundle_id=request.get("runtime_bundle_id"),
+                harness=harness,
             )
             memory_constraint = None
             if getattr(self, "learning", None) is not None:
@@ -285,12 +291,14 @@ class GoalProgramService:
                     scope = connection.execute("SELECT owner_id,project_id FROM threads WHERE id=?", (context.thread_id,)).fetchone()
                 if scope is not None:
                     memory_constraint = self.learning.planning_constraints(scope["owner_id"], scope["project_id"], program_id=program_id, turn_id=context.turn_id)
-                    from dataclasses import replace
-                    base_bundle_id = context.runtime_bundle_id
-                    if base_bundle_id is None:
-                        from .behavior import BehaviorBundleService
-                        base_bundle_id = BehaviorBundleService(self.db).active("stable").id
-                    context = replace(context, runtime_bundle_id=self.learning.resolve_task_policy(scope["owner_id"], scope["project_id"], base_bundle_id))
+                    # A tool's harness already pins the effective version.
+                    # Personal policy adoption only resolves on legacy/root entry.
+                    if harness is None:
+                        base_bundle_id = context.runtime_bundle_id
+                        if base_bundle_id is None:
+                            from .behavior import BehaviorBundleService
+                            base_bundle_id = BehaviorBundleService(self.db).active("stable").id
+                        context = rebind(context, runtime_bundle_id=self.learning.resolve_task_policy(scope["owner_id"], scope["project_id"], base_bundle_id))
             if context.runtime_bundle_id:
                 from .behavior import BehaviorBundleService
                 from .task_policy import planning_request
@@ -314,7 +322,7 @@ class GoalProgramService:
                 if advice is not None:
                     request = {**request, "expert_advice": advice}
             # Revalidate after advisory awaits, immediately before dispatch.
-            if getattr(self, "learning", None) is not None and scope is not None:
+            if harness is None and getattr(self, "learning", None) is not None and scope is not None:
                 resolved = self.learning.resolve_task_policy(scope["owner_id"], scope["project_id"], base_bundle_id)
                 if resolved != context.runtime_bundle_id:
                     raise GoalCompilationError("TASK_POLICY_REVOKED", "task policy changed before dispatch")
@@ -344,7 +352,7 @@ class GoalProgramService:
                     })
             if memory_constraint is not None and self.learning.planning_constraints(scope["owner_id"], scope["project_id"], program_id=program_id, turn_id=context.turn_id) != memory_constraint:
                 raise GoalCompilationError("MEMORY_REVOKED", "planning constraint changed during generation; result discarded")
-            if getattr(self, "learning", None) is not None and scope is not None and self.learning.resolve_task_policy(scope["owner_id"], scope["project_id"], base_bundle_id) != context.runtime_bundle_id:
+            if harness is None and getattr(self, "learning", None) is not None and scope is not None and self.learning.resolve_task_policy(scope["owner_id"], scope["project_id"], base_bundle_id) != context.runtime_bundle_id:
                 raise GoalCompilationError("TASK_POLICY_REVOKED", "task policy changed during generation; result discarded")
             return result
         except asyncio.TimeoutError as exc:
@@ -1010,8 +1018,19 @@ class GoalProgramService:
         self, program_id: str, role: str, purpose: str, *,
         operation_id: str | None = None, root_budget_id: str | None = None,
         runtime_bundle_id: str | None = None,
+        harness: Any | None = None,
     ):
         from .model_control import ModelCallContext
+
+        if harness is not None:
+            # A compile triggered by a tool call keeps that tool's trace, budget
+            # root and bundle.  It must not mint a ``goal_operation`` budget root
+            # or fall back to the current stable bundle.
+            from .execution_context import create_child_context
+
+            return ModelCallContext.from_harness(
+                create_child_context(harness), role=role, purpose=purpose,
+            )
 
         with self.db.connection() as connection:
             row = connection.execute(
