@@ -1,0 +1,58 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.0, pytest-9.1.1, pluggy-1.6.0 -- D:\pycharm\python.exe
+rootdir: D:\RAG\better\backend
+configfile: pyproject.toml
+plugins: anyio-4.14.2, langsmith-0.10.18, asyncio-1.4.0, cov-7.1.0, socket-0.7.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 41 items / 1 deselected / 40 selected
+
+tests/test_conversation_worker.py::test_action_context_cannot_be_dropped_to_fit_conversation PASSED [  2%]
+tests/test_conversation_worker.py::test_incomplete_archive_only_allows_plain_answer[answer] PASSED [  5%]
+tests/test_conversation_worker.py::test_incomplete_archive_only_allows_plain_answer[propose_execution] PASSED [  7%]
+tests/test_conversation_worker.py::test_incomplete_archive_only_allows_plain_answer[propose_plan] PASSED [ 10%]
+tests/test_conversation_worker.py::test_incomplete_archive_only_allows_plain_answer[ask] PASSED [ 12%]
+tests/test_conversation_worker.py::test_worker_pool_runs_different_threads_concurrently_within_cap PASSED [ 15%]
+tests/test_conversation_worker.py::test_claim_next_never_runs_two_turns_from_the_same_thread PASSED [ 17%]
+tests/test_conversation_worker.py::test_worker_pool_concurrency_uses_bounded_environment_value PASSED [ 20%]
+tests/test_conversation_worker.py::test_terminal_turn_persists_latency_metrics_and_event PASSED [ 22%]
+tests/test_conversation_worker.py::test_missing_control_header_completes_full_conversation_flow[```markdown\n{\n  "v": 1,\n  "policy": "answer"\n}\n\n# \u5b66\u4e60\u8ba1\u5212\n\n\u6bcf\u5929\u5b66\u4e60\u4e24\u5c0f\u65f6\uff0c\u5e76\u5728\u5468\u672b\u590d\u76d8\u3002\n```] PASSED [ 25%]
+tests/test_conversation_worker.py::test_missing_control_header_completes_full_conversation_flow[v=1\npolicy=answer\n\n# \u5b66\u4e60\u8ba1\u5212\n\n\u6bcf\u5929\u5b66\u4e60\u4e24\u5c0f\u65f6\uff0c\u5e76\u5728\u5468\u672b\u590d\u76d8\u3002] PASSED [ 27%]
+tests/test_conversation_worker.py::test_turn_metrics_count_all_auxiliary_model_attempts PASSED [ 30%]
+tests/test_conversation_worker.py::test_worker_streams_markdown_and_finishes_answer_without_agent_rows PASSED [ 32%]
+tests/test_conversation_worker.py::test_worker_audits_memory_only_after_model_confirms_actual_use[True] PASSED [ 35%]
+tests/test_conversation_worker.py::test_worker_audits_memory_only_after_model_confirms_actual_use[False] PASSED [ 37%]
+tests/test_conversation_worker.py::test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode FAILED [ 40%]
+tests/test_conversation_worker.py::test_worker_does_not_generate_when_required_archive_permanently_fails PASSED [ 42%]
+tests/test_conversation_worker.py::test_completed_conversation_finishes_canary_exposure_with_safety_judgment PASSED [ 45%]
+tests/test_conversation_worker.py::test_worker_routes_start_expert_to_bounded_agent_run_without_visible_raw_header PASSED [ 47%]
+tests/test_conversation_worker.py::test_cancel_accepted_before_research_commit_prevents_durable_side_effect PASSED [ 50%]
+tests/test_conversation_worker.py::test_cancel_accepted_before_expert_commit_prevents_durable_side_effect PASSED [ 52%]
+tests/test_conversation_worker.py::test_stale_epoch_cannot_write_terminal_metrics PASSED [ 55%]
+tests/test_conversation_worker.py::test_worker_routes_expert_with_authoritative_non_default_owner PASSED [ 57%]
+tests/test_conversation_worker.py::test_propose_execution_waits_for_direction_without_agent_rows PASSED [ 60%]
+tests/test_conversation_worker.py::test_cancel_queued_turn_is_persisted_and_not_claimed PASSED [ 62%]
+tests/test_conversation_worker.py::test_cancel_active_turn_stops_model_and_keeps_terminal_state PASSED [ 65%]
+tests/test_conversation_worker.py::test_cancel_accepted_before_answer_commit_cannot_be_overwritten PASSED [ 67%]
+tests/test_conversation_worker.py::test_stale_worker_cannot_finalize_a_taken_over_turn_job PASSED [ 70%]
+tests/test_conversation_worker.py::test_expired_turn_job_lease_fences_same_owner_before_takeover PASSED [ 72%]
+tests/test_conversation_worker.py::test_plan_context_load_failure_finishes_turn_as_failed PASSED [ 75%]
+tests/test_conversation_worker.py::test_expired_running_job_recovers_partial_generation PASSED [ 77%]
+tests/test_conversation_worker.py::test_invalid_control_head_fails_safely_without_persisting_raw_model_output PASSED [ 80%]
+tests/test_conversation_worker.py::test_failed_retry_preserves_a_readable_prior_generation PASSED [ 82%]
+tests/test_conversation_worker.py::test_clarify_completes_turn_without_agent_rows PASSED [ 85%]
+tests/test_conversation_worker.py::test_worker_persists_ask_and_waits_without_creating_agent_rows PASSED [ 87%]
+tests/test_conversation_worker.py::test_worker_auto_asks_for_personalized_training_plan PASSED [ 90%]
+tests/test_conversation_worker.py::test_worker_discards_streamed_text_when_model_also_calls_ask PASSED [ 92%]
+tests/test_conversation_worker.py::test_continuation_history_contains_ask_tool_result PASSED [ 95%]
+tests/test_conversation_worker.py::test_only_answered_ask_continuation_inherits_parent_request_and_pins PASSED [ 97%]
+tests/test_conversation_worker.py::test_selected_skills_survive_turn_worker PASSED [100%]
+
+================================== FAILURES ===================================
+_ test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode _
+tests\test_conversation_worker.py:498: in test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+    assert model.calls == 1
+E   assert 0 == 1
+E    +  where 0 = <test_conversation_worker.HistoryRecordingConversationModel object at 0x0000000005F32E40>.calls
+=========================== short test summary info ===========================
+FAILED tests/test_conversation_worker.py::test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+=========== 1 failed, 39 passed, 1 deselected in 179.00s (0:02:58) ============

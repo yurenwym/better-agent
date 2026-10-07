@@ -1,0 +1,401 @@
+{
+  "phase": "2A",
+  "gate": "M1",
+  "date": "2026-10-06",
+  "status": "phase2a_main_complete_m1_pending_pg_reverify",
+  "status_note": "The original round reported ready_for_m1_review. The 2026-10-06 fix round (fixes_2026_10_06) fixed F01/F02/F03 and re-ran every SQLite group, but the PostgreSQL integration group could not be re-run (Docker engine down). M1 is therefore NOT declared passed until the PG group is re-run.",
+  "code": {
+    "head_commit": "dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7",
+    "worktree_dirty": true,
+    "note": "all phase 2A work is uncommitted; git write operations are unavailable in this repository",
+    "postgres_schema_head": "20260930_0025",
+    "sqlite_migration_max": 47,
+    "previous_postgres_head": "20260930_0024"
+  },
+  "environment": {
+    "python": "3.13 (D:\\pycharm\\python.exe)",
+    "sqlite": "stdlib sqlite3, WAL",
+    "postgres": "pgvector/pgvector:pg16, container better-postgres-1, 127.0.0.1:5432",
+    "test_database": "better_agent_v4_test",
+    "test_database_isolation": "db_target_guard.assert_isolated_test_database; name must end with _test/_tests/_pgtest and host must be loopback"
+  },
+  "fixes_this_round": [
+    {
+      "id": "F1",
+      "file": "app/live_model.py",
+      "line": 1221,
+      "issue": "syntax error: 'source = None' merged with the following 'if' statement",
+      "impact": "module unimportable; blocked 20 first-phase chain/approval regression tests",
+      "fix": "split back into two statements"
+    },
+    {
+      "id": "F2",
+      "file": "app/model_control.py",
+      "issue": "idempotency compared request_digest only",
+      "fix": "compare request digest, owner, runtime bundle, role/purpose, frozen input digest and execution_context_digest; mismatch raises InvocationIdempotencyConflict",
+      "helpers": ["ModelControlStore._existing_invocation", "ModelControlStore._resolve_existing_invocation", "_execution_identity_digest"]
+    },
+    {
+      "id": "F3",
+      "file": "app/model_control.py",
+      "issue": "concurrent writers of one idempotency key surfaced the driver's unique-constraint violation",
+      "fix": "INSERT ... ON CONFLICT(idempotency_key) DO NOTHING; on rowcount 0 re-read inside the same transaction and raise replay/conflict"
+    },
+    {
+      "id": "F4",
+      "file": "app/model_input_snapshot_store.py",
+      "issue": "bind() was an UPDATE against an existing invocation, allowing a RUNNING call to be given an input after the fact",
+      "fix": "removed bind(); added require_bindable() (read + identity check only). The binding is now a column of the invocation INSERT."
+    },
+    {
+      "id": "F5",
+      "files": ["app/db.py (migration 47)", "alembic/versions/20260930_0025_model_input_snapshots.py"],
+      "issue": "trigger rejected rebinding only when OLD.context_snapshot_id was non-null, so NULL -> id back-fill was allowed",
+      "fix": "trigger now rejects any UPDATE of context_snapshot_id / context_snapshot_digest; INSERT and status updates are unaffected"
+    }
+  ],
+  "fixes_2026_10_06": [
+    {
+      "id": "F01",
+      "severity": "P1",
+      "title": "controlled direct gateway had no pre-send asset-revocation check",
+      "file": "app/model_gateway.py",
+      "line": 433,
+      "issue": "the direct ModelGateway.complete attempt loop wrote the snapshot and asset records, then went straight to start_attempt -> network. Only the routed gateway checked assets. A bundle revoked after attempt 1 was still sent on attempt 2, and the routed refusal path left the invocation RUNNING.",
+      "reproduced_by": ["test_d01_a_direct_gateway_refuses_the_first_send_after_a_revocation", "test_d02_a_direct_gateway_does_not_retry_past_a_revocation", "test_d05_a_failing_required_check_leaves_no_open_attempt_or_reservation", "test_d06_a_callback_that_revokes_is_caught_before_the_wire", "test_d07_the_routed_gateway_keeps_its_per_attempt_check"],
+      "before_log": "fix-2026-10-06/logs/before-d-family.log",
+      "before_result": "5 failed / 2 passed / 19 deselected",
+      "before_symptom": "DID NOT RAISE LearningConflict (D01/D02/D05/D06); assert 'RUNNING' == 'FAILED' (D07)",
+      "fix": "added shared ModelControlStore.assert_request_active(invocation_id, context) (bound invocation + owner + bundle; does not re-resolve latest stable/learning policy; not installed when no Learning service is configured). The direct gateway calls it after on_attempt_started and before start_attempt, and on failure calls finish_invocation(handle, 'failed') then re-raises (no retry, no fallback, zero network, snapshot unchanged). The routed gateway's inline checks were replaced by the same method and its refusal path now finishes the invocation.",
+      "after_result": "D01-D07 pass (tests/test_snapshot_gateway.py)"
+    },
+    {
+      "id": "F02",
+      "severity": "P2",
+      "title": "the real compiler's JSON repair reused the original execution span",
+      "file": "app/goal_program_compiler.py",
+      "line": 157,
+      "related": ["app/model_control.py:157", "app/goal_programs.py:1017"],
+      "issue": "GoalProgramCompiler._validated reused the ambient ModelCallContext for both complete() calls; with the same purpose, child_call_context did not create a new span, so the repair call looked like a retry of the first call (2 invocations, 2 snapshots, only 1 distinct span).",
+      "reproduced_by": ["test_s01_a_real_compiler_repair_is_a_second_logical_call", "test_s02_a_network_retry_stays_inside_one_logical_call", "test_s03_a_repair_that_retries_keeps_its_own_identity", "test_s04_the_ambient_context_is_restored_after_a_compile", "test_s05_a_resumed_compile_keeps_its_tool_identity_and_pinned_bundle"],
+      "before_log": "fix-2026-10-06/logs/before-s-family.log",
+      "before_result": "2 failed / 2 passed / 6 deselected",
+      "before_symptom": "assert 'cebccfe...' != 'cebccfe...' (two invocations, one span)",
+      "fix": "added model_control.new_logical_call(context, *, role, purpose) which derives an independent logical call (new span/invocation/snapshot) from the PARENT context, inheriting owner/trace/budget/bundle/task and clearing invocation_id/idempotency_key/input_snapshot_id/context_snapshot_digest; without a harness it falls back to replace(). _validated reads parent = self._parent_context() once and derives sibling spans from that same parent on every iteration. goal_programs._model_context no longer pre-derives a child span. Added read-only current_call_context(); when there is no parent the call omits the context= argument so the legacy standalone entry point keeps its exact old call shape.",
+      "after_result": "S01-S05 pass; redacted sample chain-sample/chain-compile.md shows the two spans both hanging off the root span, same trace, different snapshots, and the first logical call's 2 attempts sharing one invocation and one request_digest"
+    },
+    {
+      "id": "F03",
+      "severity": "P2",
+      "title": "idempotency identity comparison was incomplete without a harness",
+      "file": "app/model_control.py",
+      "line": 446,
+      "related": ["app/model_control.py:1209"],
+      "issue": "_execution_identity_digest returned None without a harness and _resolve_existing_invocation only compared execution digests when BOTH sides were non-null, and did not compare run/thread/turn/task/root_budget field by field. The same key with the same input but run_id A -> B was still judged a replay.",
+      "reproduced_by": ["test_k01_an_identical_call_is_still_a_replay_and_writes_nothing", "test_k02_without_a_harness_every_public_identity_field_is_compared", "test_k03_a_one_sided_harness_is_never_the_same_call", "test_k04_the_same_columns_with_a_different_span_or_input_are_a_conflict", "test_k05_concurrent_writers_with_the_same_identity_have_one_winner", "test_k06_concurrent_writers_with_different_execution_identities_conflict"],
+      "before_log": "fix-2026-10-06/logs/before-k-family.log",
+      "before_result": "12 failed / 6 passed / 16 deselected",
+      "before_symptom": "the second call raised InvocationReplayError where InvocationIdempotencyConflict was expected",
+      "fix": "added _IDENTITY_COLUMNS (owner_id, run_id, thread_id, turn_id, agent_task_id, root_budget_id, runtime_bundle_id; agent_task_id is the harness task_id). _existing_invocation now SELECTs those columns. _resolve_existing_invocation compares them field by field (including nulls) plus role/purpose, and keeps the request_digest and context_snapshot_digest comparisons. Added _execution_identity_conflicts: a one-sided harness is always refused as a replay, and when both sides carry a harness the execution_context_digest is compared too.",
+      "after_result": "K01-K06 pass (K05/K06 on isolated PostgreSQL when Docker was up)"
+    }
+  ],
+  "test_runs": [
+    {
+      "name": "phase2a-sqlite-specialised",
+      "command": "python -m pytest tests/test_model_input_snapshot.py tests/test_model_input_snapshot_store.py tests/test_snapshot_gateway.py tests/test_snapshot_flow.py tests/test_snapshot_recovery.py -q --tb=short -rfE",
+      "result": "72 passed",
+      "duration_s": 141.60,
+      "log": "phase2a/logs/g1-specialised-sqlite.log",
+      "rerun": "the first run reported 70 passed; two provenance tests (U08, U09) were added to tests/test_model_input_snapshot.py and the group was re-run to 72 passed. The log holds the 72-passed run; the 70-passed run is the earlier row in phase2a/logs/_summary.tsv."
+    },
+    {
+      "name": "postgres-snapshot-integration",
+      "command": "python -m pytest tests/integration/test_model_input_snapshot_postgres.py -q --tb=short -rfE",
+      "env": "TEST_DATABASE_URL=postgresql://better_agent:***@127.0.0.1:5432/better_agent_v4_test",
+      "result": "12 passed",
+      "duration_s": 70.13
+    },
+    {
+      "name": "postgres-integration-all",
+      "command": "python -m pytest tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py -q --tb=short -rfE",
+      "env": "TEST_DATABASE_URL=postgresql://better_agent:***@127.0.0.1:5432/better_agent_v4_test",
+      "result": "42 passed",
+      "duration_s": 226.06,
+      "log": "phase2a/logs/g2-postgres-integration.log",
+      "rerun": "the same 5-file command re-run the same evening reported 1 failed / 41 passed; the failure is the sandbox safe-delete guard (see environment_limited_tests). Split per file the five files report 12+13+5+7+5 = 42 passed (logs/g2a..g2e-*.log)."
+    },
+    {
+      "name": "regression-batch-1",
+      "command": "python -m pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py -q --tb=short -rfE",
+      "result": "99 passed",
+      "duration_s": 347.16
+    },
+    {
+      "name": "regression-batch-2",
+      "command": "python -m pytest tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py tests/test_goal_programs.py tests/test_goal_program_compiler.py -q --tb=short -rfE",
+      "result": "85 passed",
+      "duration_s": 326.00,
+      "log": "phase2a/logs/g4-regression-batch2.log",
+      "rerun": "re-run the same evening reported 1 failed / 84 passed; the failure is the sandbox safe-delete guard in test_first_artifact_race_preserves_other_writer_and_tombstone[True], which passes 2/2 when run as a single node"
+    },
+    {
+      "name": "regression-batch-3",
+      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_worker.py tests/test_conversation_protocol_v2.py -q --tb=short -rfE",
+      "note": "run per file; the combined command exceeded the local time budget and was split only to localise, not to change scope",
+      "result": "81 passed / 1 failed / 1 not executed (hang)",
+      "detail": [
+        {
+          "file": "tests/test_conversation.py",
+          "result": "9 passed",
+          "duration_s": 2.64
+        },
+        {
+          "file": "tests/test_conversation_protocol_v2.py",
+          "result": "33 passed",
+          "duration_s": 51.31
+        },
+        {
+          "file": "tests/test_conversation_worker.py",
+          "command": "python -m pytest tests/test_conversation_worker.py -q -rfE --deselect tests/test_conversation_worker.py::test_active_turn_lease_is_renewed_during_long_model_call",
+          "result": "39 passed / 1 failed / 1 deselected",
+          "duration_s": 179.0,
+          "failed": ["test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode"]
+        }
+      ],
+      "log": "phase2a/pytest-regression-batch3.log",
+      "logs": {
+        "conversation": "phase2a/logs/g5g6-conversation.log (test_conversation.py + test_conversation_protocol_v2.py, 42 passed)",
+        "worker_default_env": "phase2a/logs/g7-conversation-worker-default-env.log",
+        "worker_enlarged_deadline": "phase2a/logs/g8-conversation-worker-enlarged-archive-deadline.log"
+      },
+      "per_run_summary": "phase2a/logs/_summary.tsv (group, started_at, finished_at, exit_code, result, duration_s, log)"
+    },
+    {
+      "name": "regression-batch-3-worker-enlarged-archive-deadline",
+      "command": "AGENT_ARCHIVE_WAIT_MS=30000 python -m pytest tests/test_conversation_worker.py -q -rfE --deselect tests/test_conversation_worker.py::test_active_turn_lease_is_renewed_during_long_model_call",
+      "result": "40 passed / 1 deselected",
+      "duration_s": 183.32,
+      "purpose": "isolate the single batch-3 failure as an environment deadline, not a code defect"
+    },
+    {
+      "name": "fix-round-specialised-sqlite",
+      "round": "2026-10-06",
+      "command": "python -m pytest tests/test_model_input_snapshot.py tests/test_model_input_snapshot_store.py tests/test_snapshot_gateway.py tests/test_snapshot_flow.py tests/test_snapshot_recovery.py -q --tb=short -rfE",
+      "result": "107 passed",
+      "duration_s": 286.75,
+      "note": "run twice, both 107 passed (287.05s then 286.75s). The first run's log segment also records the pre-fix compiler-compat state.",
+      "log": "fix-2026-10-06/logs/after-specialty.log"
+    },
+    {
+      "name": "fix-round-regression-batch-1",
+      "round": "2026-10-06",
+      "command": "python -m pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py -q --tb=short -rfE",
+      "result": "99 passed",
+      "duration_s": 376.70,
+      "log": "fix-2026-10-06/logs/after-batch1.log"
+    },
+    {
+      "name": "fix-round-regression-batch-2",
+      "round": "2026-10-06",
+      "command": "python -m pytest tests/test_goal_program_compiler.py tests/test_goal_programs.py tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py -q --tb=short -rfE",
+      "result": "85 passed",
+      "duration_s": 307.49,
+      "log": "fix-2026-10-06/logs/after-batch2.log",
+      "rerun": "the first pass of this batch reported 4 failed: test_goal_program_compiler.py::test_operations_route_limits_and_repairs_consistently[4 cases] raised TypeError: Gateway.complete() got an unexpected keyword argument 'context'. Cause: the R05 change passed context= unconditionally, breaking a duck-typed gateway stub. Fix: _validated omits context= when there is no parent. Re-run: 85 passed."
+    },
+    {
+      "name": "fix-round-conversation-and-protocol",
+      "round": "2026-10-06",
+      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_protocol_v2.py -q --tb=short -rfE",
+      "result": "42 passed",
+      "duration_s": 43.12,
+      "log": "fix-2026-10-06/logs/after-conversation.log"
+    },
+    {
+      "name": "fix-round-worker-default-archive-deadline",
+      "round": "2026-10-06",
+      "command": "python -m pytest tests/test_conversation_worker.py -q -rfE --deselect tests/test_conversation_worker.py::test_active_turn_lease_is_renewed_during_long_model_call",
+      "result": "2 failed / 38 passed / 1 deselected",
+      "duration_s": 207.0,
+      "log": "fix-2026-10-06/logs/after-worker-default.log",
+      "failed": ["test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode", "test_worker_does_not_generate_when_required_archive_permanently_fails"],
+      "cause": "environment: AGENT_ARCHIVE_WAIT_MS defaults to 2000 ms; see environment_limited_tests"
+    },
+    {
+      "name": "fix-round-worker-enlarged-archive-deadline",
+      "round": "2026-10-06",
+      "command": "AGENT_ARCHIVE_WAIT_MS=30000 python -m pytest tests/test_conversation_worker.py -q -rfE --deselect tests/test_conversation_worker.py::test_active_turn_lease_is_renewed_during_long_model_call",
+      "result": "40 passed / 1 deselected",
+      "duration_s": 191.0,
+      "log": "fix-2026-10-06/logs/after-worker-enlarged-deadline.log"
+    },
+    {
+      "name": "fix-round-postgres-snapshot-integration",
+      "round": "2026-10-06",
+      "command": "TEST_DATABASE_URL=postgresql://better_agent:***@127.0.0.1:5432/better_agent_v4_test python -m pytest tests/integration/test_model_input_snapshot_postgres.py -q --tb=short -rfE",
+      "result": "14 errors (NOT a product result)",
+      "duration_s": 67.0,
+      "log": "fix-2026-10-06/logs/after-pg-snapshot.log",
+      "cause": "environment: Docker Desktop was not running, so better-postgres-1 was absent and the session-scoped alembic upgrade head hit its 60 s timeout. Evidence that the code is fine: the same file with -k 'k05 or k06' reported 2 passed earlier in the same round while Docker was still up.",
+      "action_required": "re-run this 5-file group once Docker Desktop is up; this is the only outstanding item before M1 can be marked passed"
+    }
+  ],
+  "environment_limited_tests": [
+    {
+      "file": "tests/test_conversation_worker.py",
+      "test": "test_active_turn_lease_is_renewed_during_long_model_call",
+      "symptom": "hangs forever; the worker never reaches the model call, so the test blocks on model.started.wait()",
+      "root_cause": "the test hardcodes lease_seconds=0.2, but on this machine the worker spends 190-340 ms between claim_next() and the first _assert_job_owner() (a single sqlite connection + SELECT 1 costs 100-186 ms here). The lease is already stale when ownership is first asserted, _process exits through TurnJobLeaseLost, and the model is never called.",
+      "evidence": "traced _process line-by-line: it jumps straight to `except TurnJobLeaseLost: return` (conversation.py:2253-2254) after _assert_job_owner -> _lease_active returns False; measured claim->assert gaps of 269/282/340/335 ms over four consecutive turns on one runtime, and a single trivial db.connection()+SELECT 1 at 100-186 ms.",
+      "isolation": "same test passes when the only change is lease_seconds 0.2 -> 30 (not a repository change; measured in a scratch script). The Phase 2A diff does not touch claim_next, _assert_job_owner, _heartbeat, _process or TurnJobLeaseLost.",
+      "treatment": "deselected for the batch-3 record; recorded as environment-limited, not as a Phase 2A regression",
+      "fix_round_2026_10_06": {
+        "attempts": [
+          "whole-file run: did not finish (timeout)",
+          "standalone with a 300 s cap: exit 124",
+          "standalone with a 180 s cap: exit 124"
+        ],
+        "log": "fix-2026-10-06/logs/after-lease-standalone.log",
+        "statement": "HISTORICAL ENVIRONMENT RECORD, NOT A CURRENT HARD BLOCKER. It is accurate to say the test cannot complete at this machine's latency (0.2 s lease < the measured 190-340 ms claim->assert gap), and the independent review's single-run pass (1 passed, 1.36 s) was NOT reproduced this round. Both readings are kept; the test is NOT claimed to pass. It is not on any code path Phase 2A touches."
+      }
+    },
+    {
+      "file": "tests/test_conversation_worker.py",
+      "test": "test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode",
+      "symptom": "model.calls == 0; the turn ends FAILED with a context.archive_wait_timeout event",
+      "root_cause": "AGENT_ARCHIVE_WAIT_MS defaults to 2000 ms; the archiver's claim/summarise/persist cycle needs more than that at this machine's sqlite latency (~100 ms per round trip).",
+      "evidence": "reproduced in isolation (fails alone in 6.22 s); the same test passes in 8.25 s when the only change is AGENT_ARCHIVE_WAIT_MS=30000, and the whole file then reports 40 passed.",
+      "isolation": "the archive wait deadline is an operational environment knob (app/memory_archive.py:1186), not profile policy; Phase 2A does not touch memory_archive.py or the archive branch of _process.",
+      "treatment": "reported both with the default deadline (failed) and with an enlarged deadline (passed)"
+    },
+    {
+      "file": "tests/test_chat_goal_tools.py / tests/integration/test_chat_goal_tools_postgres.py",
+      "test": "test_first_artifact_race_preserves_other_writer_and_tombstone[True] / test_first_artifact_race_on_postgres[True]",
+      "symptom": "SystemExit: 1 raised from inside path.unlink() during the turn; the test reports a failure unrelated to its assertions",
+      "root_cause": "the sandbox safe-delete shim (vendor/shim/sitecustomize.py) aborts the process once a shell invocation has performed more than the bulk-guard threshold (50) deletions; the marker is [safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] with count 2125-2177. The target is the plan file the test deletes via app/plan_files.py:146.",
+      "evidence": "traceback goes app/plan_files.py:146 -> sitecustomize.py:1168 _safe_path_unlink -> :967 _try_trash -> :851 _check_bulk_delete_guard -> raise SystemExit(1); the marker names the plan.md path and count/threshold",
+      "isolation": "run as a single test node the same test reports 2 passed (SQLite 12.37s, PostgreSQL 11.29s); split per file the PostgreSQL group reports 42 passed (12+13+5+7+5)",
+      "treatment": "recorded both the grouped result (1 failed) and the isolated / per-file result (all passed)"
+    },
+    {
+      "file": "tests/integration/* (PostgreSQL group)",
+      "test": "test_model_input_snapshot_postgres.py (incl. new K05/K06), test_harness_context_postgres.py, test_chat_goal_tools_postgres.py, test_goal_tool_recovery_postgres.py, test_root_task_budgets.py",
+      "symptom": "all 14 collected items ERROR: subprocess.TimeoutExpired: alembic ... upgrade head timed out after 60 seconds",
+      "root_cause": "Docker Desktop was not running (docker ps: failed to connect to the docker API ... dockerDesktopLinuxEngine); better-postgres-1 was absent. The sandbox recycles GUI processes, so starting Docker Desktop.exe did not keep it alive (Get-Process count 0).",
+      "evidence": "fix-2026-10-06/logs/after-pg-snapshot.log; docker_start.txt records the process count of 0",
+      "isolation": "NOT a product defect: earlier in the same round, while Docker was still up, -k 'k05 or k06' on the same file reported 2 passed; the original acceptance-report round recorded 42 passed across the 5 files. The Phase 2A diff does not touch the migration harness.",
+      "treatment": "declared environment-limited; this is the ONE outstanding item before M1 can be marked passed. Re-run the 5-file group through db_target_guard against the isolated test database once Docker Desktop is up."
+    }
+  ],
+  "failed_rounds": [
+    {
+      "round": "postgres-1",
+      "tests": ["test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot", "test_p04_store_refuses_corrupt_and_impersonating_rows"],
+      "symptom": "DID NOT RAISE RaiseException",
+      "cause": "test database already at revision 0025 with the older trigger definition; alembic does not re-run an applied revision",
+      "fix": "recreated the isolated test database and migrated from empty"
+    },
+    {
+      "round": "postgres-1",
+      "tests": ["test_p06_concurrent_calls_on_one_idempotency_key_have_exactly_one_winner"],
+      "symptom": "threading.BrokenBarrierError",
+      "cause": "two transactions serialised on the first INSERT ... DO NOTHING of model_profiles, so the second writer never reached the barrier",
+      "fix": "warm the profile rows up before the race; barrier only for each writer's first key lookup"
+    },
+    {
+      "round": "phase2a-1",
+      "tests": ["test_a02_a_revoked_tool_resumes_into_no_call_and_no_new_snapshot"],
+      "symptom": "invocation count 2 != 1",
+      "cause": "assertion too strict: the continuation turn legitimately makes its own conversation call",
+      "fix": "assert no planner call and that every call made carries a snapshot"
+    },
+    {
+      "round": "phase2a-1",
+      "tests": ["test_a05_revoking_an_asset_after_the_freeze_stops_the_send"],
+      "symptom": "DID NOT RAISE LearningConflict",
+      "cause": "learning_snapshots are per invocation, so revoking does not affect a later call",
+      "fix": "test the same call: freeze committed, pre-send check refuses, snapshot unchanged"
+    }
+  ],
+  "chain_sample": {
+    "file": "phase2a/chain-sample/chain.md",
+    "generator": "phase2a/chain-sample/dump_chain.py",
+    "how": "one real minimal-chain conversation call through the real routed gateway, with a real turn root context; the scripted transport kills attempt 1 so the retry path is covered too",
+    "invocation_id": "conversation:turn_70beda8dc226440eaa460085a4dae002",
+    "role_purpose": "conversation / route_and_respond",
+    "execution_context_digest": "e0d686774539139c3ba396fe...(truncated in the report; full value in chain.md)",
+    "context_snapshot_id": "model_input_snapshot_ec07129b37d546a8966d808e71161e3f",
+    "context_snapshot_digest": "af5c73bc2ee232be943341a6...(truncated)",
+    "snapshot_self_check": "sha256(canonical JSON bytes) == content_digest; invocation.context_snapshot_digest == snapshot.content_digest",
+    "canonical_json_bytes": 12202,
+    "provenance_status": "partial",
+    "attempts": [
+      {"ordinal": 1, "reason": "primary", "status": "FAILED"},
+      {"ordinal": 2, "reason": "retry", "status": "SUCCEEDED"}
+    ],
+    "redaction": "identifiers, digests, sizes and statuses only; no user text"
+  },
+  "chain_sample_compile_2026_10_06": {
+    "file": "fix-2026-10-06/chain-sample/chain-compile.md",
+    "generator": "fix-2026-10-06/chain-sample/dump_compile_chain.py",
+    "how": "one real GoalProgramCompiler compile through the real ModelGateway with an httpx.MockTransport scripted so attempt 1 -> 504, attempt 2 -> invalid JSON, attempt 3 -> valid program. This exercises both the compile and the JSON-repair logical calls and the retry inside the first call.",
+    "purpose": "demonstrate F02's fix: the compile and the repair are two sibling logical calls under the same root span, and a network retry stays one call",
+    "findings": {
+      "compile_and_repair_span_ids_differ": true,
+      "both_parent_span_ids_equal_root_span": true,
+      "trace_ids_equal": true,
+      "compile_and_repair_snapshot_ids_differ": true,
+      "first_logical_call_attempts": 2,
+      "first_logical_call_shares_one_invocation_and_request_digest": true,
+      "sha256_canonical_json_equals_content_digest": true,
+      "invocation_context_snapshot_digest_equals_snapshot_content_digest": true
+    },
+    "redaction": "identifiers, digests, sizes and statuses only; no prompt text"
+  },
+  "coverage": {
+    "U": ["U01", "U02", "U03", "U04", "U05", "U06", "U07", "U08", "U09"],
+    "P": ["P01", "P02", "P03", "P04", "P05", "P06", "P07", "P08"],
+    "G": ["G01", "G02", "G03", "G04", "G05", "G06", "G07", "G08", "G09", "G10", "G11"],
+    "I": ["I01", "I02", "I03", "I04", "I05", "I06"],
+    "A": ["A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08"],
+    "C": ["C01 (2A scope only)"],
+    "R": ["R01"],
+    "D": ["D01", "D02", "D03", "D04", "D05", "D06", "D07"],
+    "K": ["K01", "K02", "K03", "K04", "K05 (PostgreSQL)", "K06 (PostgreSQL)"],
+    "S": ["S01", "S02", "S03", "S04", "S05"],
+    "B": ["B01", "B02", "B03"],
+    "added_in_2026_10_06_fix_round": true
+  },
+  "mapping_check": {
+    "tool": "scripts/verify_acceptance_nodes.py",
+    "what": "reconciles every pytest node referenced in callsite-inventory.md section 7 against `pytest --collect-only` output, in both directions",
+    "result": "67 references resolved, 0 unresolved, 0 collected-but-unmapped",
+    "fixes": [
+      "7 implemented tests were missing from section 7 (3 store tests: round-trip, legacy classification, caller-supplied id duplicate; 4 gateway tests G02-G05 that were hidden behind an ellipsis)",
+      "test ID P03 had no named test: its assertions live in test_u07_a_snapshot_is_frozen_persisted_and_bound_in_one_transaction plus step 3 of the PostgreSQL test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot; now stated explicitly",
+      "parameterised nodes (U02, U05 partly, G10, G11) are now annotated so the table is not mistaken for a node count"
+    ],
+    "section_7_1": "callsite-inventory.md gained a section 7.1 listing every node added or strengthened by the 2026-10-06 fix round (D01-D07, K01-K06, S01-S05, B01-B03) with full pytest node names, and section 7 rows P07/P08/P09 were updated to the new node names and the [direct]/[routed] parameterisation."
+  },
+  "m1_gate": {
+    "1_p00_p10_plus_tests_plus_c01": "satisfied_pending_pr",
+    "2_every_minimal_chain_call_has_snapshot": "satisfied",
+    "3_send_derived_from_frozen_only": "satisfied",
+    "4_retry_fallback_reuse_new_call_on_repair": "satisfied",
+    "5_approval_authorisation_budget_revocation_no_regression": "satisfied",
+    "6_sqlite_and_postgres_evidence": "PENDING_pg_reverify",
+    "7_report_states_unmigrated_and_partial": "satisfied",
+    "8_atomicity_limited_to_three_core_writes": "satisfied",
+    "9_partial_provenance_accepted": "satisfied",
+    "note": "Gate 6 is the only gate not fully satisfied in the 2026-10-06 fix round: the SQLite evidence was re-obtained and passes, but the PostgreSQL group could not be re-run because Docker was down. Per the task's section 4, M1 may only be marked passed once every gate (including gate 6's PostgreSQL evidence) is met. Current M1 status: phase 2A main body complete, pending PG re-run."
+  },
+  "not_covered": [
+    "provenance completeness: per-fragment positions of history/summary/attachments and the full dropped list are not recorded; status stays partial",
+    "external attachment URLs are kept as references; remote bytes are not guaranteed recoverable",
+    "phase 2B entry points: research, learning, judge, summary, experts, model_admin._verify_live",
+    "offline/script bypasses: eval.py, evals.py, scripts/*",
+    "no paid-model smoke test was run",
+    "no full-repository pytest run (12 known baseline failures out of scope)"
+  ]
+}

@@ -249,9 +249,13 @@ class _RecordingStore:
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
-    def begin_invocation(self, profile, request, context, route_snapshot=None):
+    def begin_invocation(self, profile, request, context, route_snapshot=None, **kwargs):
+        # ``**kwargs`` on purpose: the store gained a ``snapshot`` keyword in
+        # phase 2 and this recorder only cares about the context.  Passing them
+        # through keeps the double honest instead of silently dropping a
+        # binding the caller asked for.
         self.contexts.append(context)
-        return self._inner.begin_invocation(profile, request, context, route_snapshot)
+        return self._inner.begin_invocation(profile, request, context, route_snapshot, **kwargs)
 
 
 @pytest.mark.asyncio

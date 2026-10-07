@@ -1,0 +1,192 @@
+START 2026-10-06T22:43:45+08:00
+EEEEEEEEEEEEEE                                                           [100%]
+=================================== ERRORS ====================================
+_ ERROR at setup of test_p01_upgrade_from_the_previous_head_keeps_historical_calls_unbackfilled _
+D:\pycharm\Lib\site-packages\pytest_asyncio\plugin.py:924: in pytest_fixture_setup
+    return (yield)
+            ^^^^^
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p02_empty_database_upgrade_matches_the_declared_head _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p02_snapshot_table_carries_its_constraints_and_binding_trigger _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p02_the_declared_head_is_reachable_without_rewriting_history _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+__ ERROR at setup of test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot __
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+___ ERROR at setup of test_p04_store_refuses_corrupt_and_impersonating_rows ___
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p06_concurrent_calls_on_one_idempotency_key_have_exactly_one_winner _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p06_a_reused_key_with_different_input_or_identity_is_a_conflict _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_k05_concurrent_writers_with_the_same_identity_have_one_winner _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_k06_concurrent_writers_with_different_execution_identities_conflict _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+__ ERROR at setup of test_p08_identical_input_shares_a_digest_but_not_a_row ___
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p05_a_failed_snapshot_write_rolls_back_the_invocation _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p05_a_failed_execution_context_write_rolls_back_snapshot_and_invocation _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+_ ERROR at setup of test_p05_a_committed_call_can_be_read_back_through_the_snapshot _
+tests\integration\conftest.py:96: in migrated_postgres_url
+    result = subprocess.run(
+D:\pycharm\Lib\subprocess.py:556: in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1219: in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\subprocess.py:1640: in _communicate
+    raise TimeoutExpired(self.args, orig_timeout)
+E   subprocess.TimeoutExpired: Command '['D:\\pycharm\\python.exe', '-m', 'alembic', '-c', 'D:\\RAG\\better\\backend\\alembic.ini', 'upgrade', 'head']' timed out after 60 seconds
+=========================== short test summary info ===========================
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p01_upgrade_from_the_previous_head_keeps_historical_calls_unbackfilled
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p02_empty_database_upgrade_matches_the_declared_head
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p02_snapshot_table_carries_its_constraints_and_binding_trigger
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p02_the_declared_head_is_reachable_without_rewriting_history
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p04_store_refuses_corrupt_and_impersonating_rows
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p06_concurrent_calls_on_one_idempotency_key_have_exactly_one_winner
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p06_a_reused_key_with_different_input_or_identity_is_a_conflict
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_k05_concurrent_writers_with_the_same_identity_have_one_winner
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_k06_concurrent_writers_with_different_execution_identities_conflict
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p08_identical_input_shares_a_digest_but_not_a_row
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_snapshot_write_rolls_back_the_invocation
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_execution_context_write_rolls_back_snapshot_and_invocation
+ERROR tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_committed_call_can_be_read_back_through_the_snapshot
+14 errors in 62.20s (0:01:02)
+EXIT=1
+END 2026-10-06T22:44:51+08:00

@@ -1,0 +1,37 @@
+..........................F...............                               [100%]
+================================== FAILURES ===================================
+_________________ test_first_artifact_race_on_postgres[True] __________________
+tests\integration\test_chat_goal_tools_postgres.py:25: in test_first_artifact_race_on_postgres
+    await _assert_artifact_creation_race(chat_runtime(_artifact_gateway()), monkeypatch, deleted=deleted)
+tests\test_chat_goal_tools.py:115: in _assert_artifact_creation_race
+    assert await runtime.turn_worker.run_once()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\conversation.py:3828: in run_once
+    return await self.primary.run_once()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\conversation.py:1673: in run_once
+    await self._process(turn_id)
+app\conversation.py:2247: in _process
+    self._finish_success(turn, message_id, generation, decoder.header, plan_context)
+app\conversation.py:2908: in _finish_success
+    document_version = self.conversation.plan_documents.save_model_revision(
+tests\test_chat_goal_tools.py:110: in interleave
+    runtime.plan_documents.delete_document(version.plan_document_id,
+app\plan_documents.py:571: in delete_document
+    self.projector.remove(document_id, expected_file_hash=expected_file_hash)
+app\plan_files.py:146: in remove
+    path.unlink()
+D:\develop\WorkBuddyAI\resources\app.asar.unpacked\cli\vendor\shim\sitecustomize.py:1168: in _safe_path_unlink
+    _try_trash(abs_path)
+D:\develop\WorkBuddyAI\resources\app.asar.unpacked\cli\vendor\shim\sitecustomize.py:967: in _try_trash
+    _check_bulk_delete_guard(abs_path)
+D:\develop\WorkBuddyAI\resources\app.asar.unpacked\cli\vendor\shim\sitecustomize.py:851: in _check_bulk_delete_guard
+    _exit_bulk_guard_control(
+D:\develop\WorkBuddyAI\resources\app.asar.unpacked\cli\vendor\shim\sitecustomize.py:826: in _exit_bulk_guard_control
+    raise SystemExit(1)
+E   SystemExit: 1
+---------------------------- Captured stderr call -----------------------------
+[safe-delete][SAFE_DELETE_BULK_CONFIRM_REQUIRED] {"count":2165,"threshold":50,"scope":"turn","targets":["C:\\tmp\\pytest-evi-g2-postgres-integration-878\\test_first_artifact_race_on_po1\\plans\\plan_35f15fc5eb6342a1aba90aeb0f487a83\\plan.md"],"targetCount":1}
+=========================== short test summary info ===========================
+FAILED tests/integration/test_chat_goal_tools_postgres.py::test_first_artifact_race_on_postgres[True]
+1 failed, 41 passed in 210.13s (0:03:30)

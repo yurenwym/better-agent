@@ -1998,6 +1998,21 @@ class ManagedTurnWorker:
                     "_context_required": False, "_context_priority": 60,
                     "_context_group": "memory-context",
                 }, *history]
+            # What the memory layer selected for this turn, handed to the model
+            # call so its input snapshot can name the versions that were offered
+            # rather than only the text that ended up in the prompt.  Whether each
+            # one actually reached the final input is decided at the send
+            # boundary, where packing has already run.
+            context_sources = None
+            if memory_bundle is not None:
+                context_sources = {"memory": {
+                    "rendered": memory_context_content,
+                    "revision_ids": list(memory_bundle.revision_ids),
+                    "episode_ids": list(memory_bundle.episode_ids),
+                    "content_digest": memory_bundle.bundle_hash,
+                    "dropped": int(memory_bundle.dropped),
+                    "retrieval_mode": memory_bundle.trace.get("retrieval_mode"),
+                }}
             if memory_bundle is not None and memory_bundle.continuation_rendered:
                 history = [{
                     "role": "system",
@@ -2089,6 +2104,7 @@ class ManagedTurnWorker:
                     branch_state=branch_state,
                     tool_loop=tool_runner,
                     harness=turn_harness,
+                    context_sources=None if context_incomplete else context_sources,
                 ),
                 name=f"conversation-turn-{turn_id}",
             )

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20260930_0024"
+POSTGRES_SCHEMA_HEAD = "20260930_0025"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1604,6 +1604,45 @@ MIGRATIONS = (
     -- SQLite mirror never did, so the column the writer already targets was
     -- missing and only the routed-PostgreSQL path ever exercised it.
     ALTER TABLE model_invocations ADD COLUMN root_budget_id TEXT;
+    """),
+)
+
+# The frozen logical input of one model call.  `content_json` is the canonical
+# JSON text and is the authority; `content_digest` is SHA-256 over its UTF-8
+# bytes.  Both are written once and never updated, so the row is append-only:
+# an UPDATE would silently rewrite what the model was actually shown.  The
+# digest length check catches truncation at the storage layer, and the version
+# check keeps an unknown envelope shape out of the table.
+MIGRATIONS = (
+    *MIGRATIONS,
+    (47, """
+    CREATE TABLE model_input_snapshots (
+      id TEXT PRIMARY KEY,
+      owner_id TEXT NOT NULL,
+      schema_version TEXT NOT NULL CHECK(schema_version = 'model-input-snapshot-v1'),
+      content_json TEXT NOT NULL,
+      content_digest TEXT NOT NULL CHECK(length(content_digest) = 64),
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_model_input_snapshots_owner ON model_input_snapshots(owner_id,created_at);
+    CREATE INDEX idx_model_input_snapshots_digest ON model_input_snapshots(content_digest);
+    CREATE TRIGGER model_input_snapshots_no_update BEFORE UPDATE ON model_input_snapshots
+    BEGIN SELECT RAISE(ABORT,'model input snapshot is immutable'); END;
+    CREATE TRIGGER model_input_snapshots_no_delete BEFORE DELETE ON model_input_snapshots
+    BEGIN SELECT RAISE(ABORT,'model input snapshot is immutable'); END;
+    -- Nullable: historical invocations predate the snapshot and stay readable
+    -- as incomplete records.  The migration does not back-fill them, and the
+    -- binding is never written as a follow-up UPDATE, so an empty binding can
+    -- only ever be filled by the invocation's own INSERT.
+    ALTER TABLE model_invocations ADD COLUMN context_snapshot_id TEXT REFERENCES model_input_snapshots(id);
+    -- The binding is part of the invocation's INSERT and is immutable from then
+    -- on.  Any UPDATE of either column is refused - replacing the pair, clearing
+    -- it, or back-filling a call that was created without one.  `UPDATE OF`
+    -- fires on the columns being assigned, so ordinary status, budget and
+    -- attempt updates are unaffected.
+    CREATE TRIGGER model_invocations_snapshot_binding_immutable
+    BEFORE UPDATE OF context_snapshot_id, context_snapshot_digest ON model_invocations
+    BEGIN SELECT RAISE(ABORT,'model invocation snapshot binding is immutable'); END;
     """),
 )
 

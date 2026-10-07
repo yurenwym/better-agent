@@ -1026,11 +1026,12 @@ class GoalProgramService:
             # A compile triggered by a tool call keeps that tool's trace, budget
             # root and bundle.  It must not mint a ``goal_operation`` budget root
             # or fall back to the current stable bundle.
-            from .execution_context import create_child_context
-
-            return ModelCallContext.from_harness(
-                create_child_context(harness), role=role, purpose=purpose,
-            )
+            #
+            # The tool's context is the *parent*, not a pre-made span: each
+            # logical call the compiler makes derives its own child span from it
+            # (``new_logical_call``), so "first compile" and "JSON repair" are
+            # siblings under the tool span instead of a nested chain.
+            return ModelCallContext.from_harness(harness, role=role, purpose=purpose)
 
         with self.db.connection() as connection:
             row = connection.execute(

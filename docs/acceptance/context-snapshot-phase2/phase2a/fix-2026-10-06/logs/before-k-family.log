@@ -1,0 +1,112 @@
+.FFFFFFFFFF....FF.                                                       [100%]
+================================== FAILURES ===================================
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[run_id-value] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_92b33bb9c2804ed083d88e49e8349695 (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[run_id-null] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_bb4db7b800dc40719d8930858377c8aa (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[thread_id-value] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_a1054f508ab04ffe85775108191485fa (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[thread_id-null] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_b2628653f457439080fb854f63cdb3a9 (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[turn_id-value] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_826366bd799341a3a6fcf85b44dc8721 (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[turn_id-null] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_6e245e9c8e0142f4b81493045f4f5166 (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[agent_task_id-value] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_904dd806ec364c9ca565ba56b24edacd (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[agent_task_id-null] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_27030414c21e4fcf8400b8aebc386071 (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[root_budget_id-value] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_ff1043d977674a52b960efa37b7c5bad (RUNNING)
+_ test_k02_without_a_harness_every_public_identity_field_is_compared[root_budget_id-null] _
+tests\test_model_input_snapshot_store.py:586: in test_k02_without_a_harness_every_public_identity_field_is_compared
+    control.begin_invocation(
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_3a1693ebb03a419eb7ae85b3858522ee (RUNNING)
+__ test_k03_a_one_sided_harness_is_never_the_same_call[harness-then-legacy] ___
+tests\test_model_input_snapshot_store.py:609: in test_k03_a_one_sided_harness_is_never_the_same_call
+    control.begin_invocation(_profile(), _request(), second)
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_f0001ce3aea44e94ad27c93764e510ea (RUNNING)
+__ test_k03_a_one_sided_harness_is_never_the_same_call[legacy-then-harness] ___
+tests\test_model_input_snapshot_store.py:609: in test_k03_a_one_sided_harness_is_never_the_same_call
+    control.begin_invocation(_profile(), _request(), second)
+app\model_control.py:351: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:482: in _resolve_existing_invocation
+    raise InvocationReplayError(existing["id"], existing["status"])
+E   app.model_control.InvocationReplayError: model invocation already exists: model_invocation_13665eb5272e484a9d7110a6fbc20822 (RUNNING)
+=========================== short test summary info ===========================
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[run_id-value]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[run_id-null]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[thread_id-value]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[thread_id-null]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[turn_id-value]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[turn_id-null]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[agent_task_id-value]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[agent_task_id-null]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[root_budget_id-value]
+FAILED tests/test_model_input_snapshot_store.py::test_k02_without_a_harness_every_public_identity_field_is_compared[root_budget_id-null]
+FAILED tests/test_model_input_snapshot_store.py::test_k03_a_one_sided_harness_is_never_the_same_call[harness-then-legacy]
+FAILED tests/test_model_input_snapshot_store.py::test_k03_a_one_sided_harness_is_never_the_same_call[legacy-then-harness]
+12 failed, 6 passed, 16 deselected in 14.44s

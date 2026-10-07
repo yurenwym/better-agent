@@ -157,6 +157,192 @@ def _supports_intent_classification(gateway: Any) -> bool:
     return isinstance(gateway, ModelGateway) or getattr(gateway, "supports_intent_classification", False) is True
 
 
+_SKILL_CONTEXT_PREFIX = "以下是本会话固定版本的 Skill 指令："
+_SKILL_CONTEXT_PREFIX_TASK = "以下是本任务固定版本的 Skill 指令："
+
+
+def _memory_candidates(
+    memory: dict[str, Any], digest: str | None, block_location: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    """Every memory reference this turn's call site knows about.
+
+    Two shapes are accepted.  ``candidates`` is the precise one: the caller
+    already decided which offered item reached the text and which did not, so
+    each entry keeps its own verdict.  ``revision_ids``/``episode_ids`` is the
+    coarser one the memory layer produces today: the ids are named but their fate
+    is only known for the rendered block as a whole, so they all inherit it.
+    """
+    entries: list[dict[str, Any]] = []
+    declared = memory.get("candidates")
+    if declared:
+        for candidate in declared:
+            entry = dict(candidate)
+            entry.setdefault("content_digest", digest)
+            if entry.get("included") and entry.get("location") is None:
+                entry["location"] = block_location
+            if not entry.get("included") and not entry.get("dropped_reason"):
+                entry["dropped_reason"] = "not_in_final_input"
+            entries.append(entry)
+        return entries
+    for kind, ids in (
+        ("memory", memory.get("revision_ids") or ()),
+        ("summary", memory.get("episode_ids") or ()),
+    ):
+        for source_id in ids:
+            entries.append({
+                "kind": kind,
+                "id": str(source_id),
+                "content_digest": digest,
+                "included": block_location is not None,
+                "location": block_location,
+                "dropped_reason": None if block_location is not None else "not_in_final_input",
+            })
+    return entries
+
+
+def _validated_source(
+    entry: dict[str, Any], messages: list[dict[str, Any]], fallback_location: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Refuse a source reference that contradicts the input it claims to be in.
+
+    A reference saying ``included`` must point at a message the final input
+    actually has.  Recording a located-but-absent source would let a snapshot
+    claim provenance the prompt cannot support, which is exactly the failure this
+    phase exists to prevent.
+    """
+    from .model_input_snapshot import SnapshotError
+
+    source = dict(entry)
+    if source.get("kind") not in SOURCE_KINDS_FOR_TRACE:
+        source["kind"] = "other"
+    location = source.get("location")
+    if source.get("included") and location is None:
+        location = fallback_location
+        source["location"] = location
+    if source.get("included"):
+        index = location.get("message_index") if isinstance(location, dict) else None
+        if not isinstance(index, int) or not 0 <= index < len(messages):
+            raise SnapshotError(
+                f"source {source.get('id')!r} claims to be in the final input but no "
+                "matching message exists"
+            )
+        if location.get("field") not in (None, "content"):
+            raise SnapshotError(
+                f"source {source.get('id')!r} claims a location the final input has no field for"
+            )
+    return source
+
+
+#: Mirror of :data:`app.model_input_snapshot.SOURCE_KINDS`; kept local so this
+#: module does not import the snapshot package at import time.
+SOURCE_KINDS_FOR_TRACE = frozenset({
+    "bundle", "prompt", "memory", "revision", "skill", "tool", "attachment",
+    "history", "summary", "other",
+})
+
+
+def _conversation_provenance(
+    *,
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    context_sources: dict[str, Any] | None,
+    memory_context_content: str | None,
+    continuation_body: str | None,
+    continuation_hash: str | None,
+    skill_trace: tuple | None,
+    purpose: str,
+    packing_applied: bool,
+):
+    """Describe where this turn's final input came from, as far as it is known.
+
+    The rule that matters: ``included`` is decided by whether the whole assembled
+    block is present in the *final* messages, not by whether some fragment of it
+    happens to appear in the text.  A block that packing dropped is recorded as
+    dropped with a reason, so the snapshot never claims to have sent something it
+    did not.
+
+    The status stays ``partial``.  Phase 2A can name the memory revisions, skill
+    versions and tool schemas, but not the per-fragment positions of history,
+    summaries and attachments, nor the identity of every dropped candidate - so
+    the record says what it knows instead of asserting completeness.
+    """
+    from .model_input_snapshot import build_provenance
+
+    def locate(content: str | None) -> dict[str, Any] | None:
+        if not content:
+            return None
+        for index, message in enumerate(messages):
+            if message.get("role") == "system" and message.get("content") == content:
+                return {"message_index": index, "field": "content"}
+        return None
+
+    def locate_prefix(prefix: str) -> dict[str, Any] | None:
+        for index, message in enumerate(messages):
+            if message.get("role") == "system" and str(message.get("content", "")).startswith(prefix):
+                return {"message_index": index, "field": "content"}
+        return None
+
+    declared = context_sources or {}
+    memory = declared.get("memory") or {}
+    rendered = memory.get("rendered") or memory_context_content
+    memory_location = locate(rendered)
+    memory_digest = memory.get("content_digest")
+
+    sources: list[dict[str, Any]] = []
+    for entry in _memory_candidates(memory, memory_digest, memory_location):
+        sources.append(_validated_source(entry, messages, memory_location))
+
+    continuation_location = locate(continuation_body)
+    if continuation_body:
+        sources.append(_validated_source({
+            "kind": "summary",
+            "id": str(continuation_hash or "conversation-continuation"),
+            "content_digest": hashlib.sha256(continuation_body.encode("utf-8")).hexdigest(),
+            "included": continuation_location is not None,
+            "location": continuation_location,
+            "dropped_reason": None if continuation_location is not None else "not_in_final_input",
+        }, messages, continuation_location))
+
+    if skill_trace is not None:
+        _turn_id, included_versions, dropped_versions, snapshot_digest = skill_trace
+        skill_location = locate_prefix(_SKILL_CONTEXT_PREFIX) or locate_prefix(_SKILL_CONTEXT_PREFIX_TASK)
+        for version_id in included_versions:
+            sources.append({
+                "kind": "skill", "id": str(version_id), "content_digest": snapshot_digest,
+                "included": skill_location is not None,
+                "location": skill_location,
+                "dropped_reason": None if skill_location is not None else "not_in_final_input",
+            })
+        for version_id in dropped_versions:
+            sources.append({
+                "kind": "skill", "id": str(version_id), "content_digest": snapshot_digest,
+                "included": False, "location": None, "dropped_reason": "not_in_final_input",
+            })
+
+    if tools:
+        schema_digest = hashlib.sha256(
+            json.dumps(tools, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        sources.append({
+            "kind": "tool",
+            "id": f"tool_schemas:{schema_digest[:16]}",
+            "content_digest": schema_digest,
+            "included": True,
+            "location": {"field": "tools", "tool_count": len(tools)},
+            "dropped_reason": None,
+        })
+
+    assembly = {
+        "purpose": purpose,
+        "message_count": len(messages),
+        "tool_count": len(tools or ()),
+        "packing_applied": bool(packing_applied),
+        "dropped_candidate_count": int(memory.get("dropped") or 0),
+        "memory_retrieval_mode": memory.get("retrieval_mode"),
+    }
+    return build_provenance(sources, assembly=assembly)
+
+
 def _packing_budget(
     gateway: Any, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None, **kwargs: Any,
 ) -> int | None:
@@ -869,6 +1055,7 @@ class LiveConversationModel:
         branch_state: ConversationBranchState | None = None,
         tool_loop=None,
         harness=None,
+        context_sources: dict[str, Any] | None = None,
     ) -> Any:
         continuation_messages = [
             item for item in history
@@ -1014,6 +1201,7 @@ class LiveConversationModel:
             bounded_messages = request_messages
             request_tools = list(CONVERSATION_TOOL_SCHEMAS) if tools is None else tools
             limit = _packing_budget(self.gateway, request_messages, request_tools, owner_id=owner_id)
+            packing_applied = limit is not None
             if limit is not None:
                 from .token_budget import pack_messages_newest
                 try:
@@ -1080,6 +1268,22 @@ class LiveConversationModel:
                                 raise GatewayError("Skill changed before dispatch", "context_invalidated")
                             (included if hit else dropped).append(version_id)
                         skill_trace = (source["turn_id"], included, dropped, binding["snapshot_digest"])
+            # The frozen input is ``bounded_messages``/``request_tools`` as they
+            # stand right now - post-packing, post-audit.  The sources below are
+            # metadata about that exact content, so they are built after every
+            # step that can still change it and handed to the gateway together
+            # with the request it freezes.
+            provenance = _conversation_provenance(
+                messages=bounded_messages,
+                tools=request_tools,
+                context_sources=context_sources,
+                memory_context_content=memory_context_content,
+                continuation_body=continuation_body,
+                continuation_hash=continuation_hash,
+                skill_trace=skill_trace,
+                purpose=purpose,
+                packing_applied=packing_applied,
+            )
             response = await self.gateway.complete(
                 ModelRequest(
                     messages=bounded_messages,
@@ -1093,6 +1297,7 @@ class LiveConversationModel:
                 on_text_delta=emit,
                 on_text_reset=reset,
                 context=call_context("conversation", purpose),
+                provenance=provenance,
             )
             if skill_trace is not None:
                 from .events import ThreadEventStore

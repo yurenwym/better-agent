@@ -215,6 +215,14 @@ class ModelGateway:
     def reset_call_context(self, token: Any) -> None:
         self._call_context.reset(token)
 
+    def current_call_context(self) -> Any | None:
+        """The ambient context, or ``None`` when the caller set none.
+
+        Read-only: a caller that needs a *new* logical call derives one with
+        ``model_control.new_logical_call`` rather than mutating this in place.
+        """
+        return self._call_context.get()
+
     def input_limit(self, **_: Any) -> int:
         from .token_budget import request_budget
         return request_budget(self.profile).input_limit
@@ -301,7 +309,11 @@ class ModelGateway:
         payload: dict[str, Any] = {
             "model": self.profile.model,
             "messages": messages,
-            "max_tokens": request.max_tokens or 1024,
+            # Anthropic requires the field, so a null logical value resolves to
+            # the profile's declared output limit - not to a hard-coded number
+            # that would ignore what the frozen profile version says.  The
+            # snapshot still records null; only this attempt resolves it.
+            "max_tokens": request.max_tokens or self.profile.max_output_tokens,
             "stream": True,
         }
         if system:
@@ -362,13 +374,10 @@ class ModelGateway:
         on_attempt_finished: AttemptFinishedCallback | None = None,
         on_output_started: OutputStartedCallback | None = None,
         context: Any | None = None,
+        provenance: Any | None = None,
     ) -> ModelResponse:
         from .token_budget import ContextOverflow, assert_request_fits
 
-        try:
-            assert_request_fits(request.messages, request.tools, self.profile)
-        except ContextOverflow as exc:
-            raise GatewayError(str(exc), "context_overflow") from exc
         effective_context = context or self._call_context.get()
         if self.control_store is not None:
             from .model_control import ModelCallContext, child_call_context
@@ -382,7 +391,39 @@ class ModelGateway:
                 if effective_context is not None
                 else ModelCallContext(role=request.role or "conversation", purpose=request.purpose or "complete")
             )
-        handle = self.control_store.begin_invocation(self.profile, request, effective_context) if self.control_store is not None else None
+
+        def admit(frozen_request: ModelRequest) -> None:
+            try:
+                assert_request_fits(frozen_request.messages, frozen_request.tools, self.profile)
+            except ContextOverflow as exc:
+                raise GatewayError(str(exc), "context_overflow") from exc
+
+        handle = None
+        snapshot = None
+        if self.control_store is not None:
+            from .model_control import open_model_invocation
+
+            # The same freeze-then-admit-then-open path the routed gateway uses.
+            handle, snapshot, frozen = open_model_invocation(
+                self.control_store, self.profile, request, effective_context, admit=admit,
+                provenance=provenance,
+            )
+        else:
+            # No control store: a low-level tool for tests and probes that
+            # persists nothing.  It therefore cannot claim a frozen input either,
+            # and must not be used as a production bypass.  A ``provenance``
+            # argument is refused rather than dropped: silently discarding the
+            # caller's source record would make the call look better documented
+            # than it is.
+            if provenance is not None:
+                raise GatewayError(
+                    "provenance requires a control store to freeze it", "configuration"
+                )
+            try:
+                assert_request_fits(request.messages, request.tools, self.profile)
+            except ContextOverflow as exc:
+                raise GatewayError(str(exc), "context_overflow") from exc
+            frozen = request
         if cancel_event and cancel_event.is_set():
             if handle is not None:
                 self.control_store.finish_invocation(handle, "cancelled")
@@ -397,13 +438,31 @@ class ModelGateway:
         network_retry_count = 0
         structure_retry_used = False
         context_retry_used = False
-        while attempt_count < (1 if request.single_attempt else max(self.profile.max_attempts, 1)):
+        while attempt_count < (1 if frozen.single_attempt else max(self.profile.max_attempts, 1)):
             attempt_count += 1
             reason = "primary" if attempt_count == 1 else "retry"
+            # Each attempt sends its own copy of the frozen input, so a retry can
+            # never inherit an object a previous attempt mutated.
+            attempt_request = snapshot.to_request() if snapshot is not None else frozen
             if attempt_count > 1 and on_text_reset is not None:
                 on_text_reset()
             if on_attempt_started is not None:
                 on_attempt_started(attempt_count, reason)
+            if handle is not None:
+                # The send-time asset check.  It runs *after* every caller
+                # callback and immediately before the wire, so a callback that
+                # revokes an asset cannot be followed by a send of the frozen
+                # input; and it runs on every attempt, because an asset can also
+                # be revoked between two attempts.  The routed gateway runs the
+                # same check through the same store method, so the two cannot
+                # drift into different revocation rules.
+                try:
+                    self.control_store.assert_request_active(handle.invocation_id, effective_context)
+                except Exception:
+                    # A refusal is not a repair: no retry, no fallback, no new
+                    # snapshot - and no invocation left RUNNING behind.
+                    self.control_store.finish_invocation(handle, "failed")
+                    raise
             if handle is not None:
                 try:
                     self.control_store.start_attempt(handle, attempt_count, reason)
@@ -421,8 +480,8 @@ class ModelGateway:
                         on_text_delta(value)
 
                 if handle is not None:
-                    self.control_store.record_request_estimate(handle, attempt_count, self.profile, request)
-                response = await self._attempt(request, api_key, cancel_event, emit_delta, on_output_started)
+                    self.control_store.record_request_estimate(handle, attempt_count, self.profile, attempt_request)
+                response = await self._attempt(attempt_request, api_key, cancel_event, emit_delta, on_output_started)
                 response = ModelResponse(**{**response.__dict__, "attempts": attempt_count})
                 if handle is not None:
                     self.control_store.finish_attempt(handle, attempt_count, "succeeded", None, response)
@@ -469,7 +528,7 @@ class ModelGateway:
                     raise GatewayError(str(error), error.kind, attempt_count) from error
                 else:
                     network_retry_count += 1
-                if request.single_attempt or attempt_count >= self.profile.max_attempts:
+                if frozen.single_attempt or attempt_count >= self.profile.max_attempts:
                     if handle is not None:
                         self.control_store.finish_invocation(handle, "failed")
                     raise GatewayError("retry budget exhausted", error.kind, attempt_count) from error

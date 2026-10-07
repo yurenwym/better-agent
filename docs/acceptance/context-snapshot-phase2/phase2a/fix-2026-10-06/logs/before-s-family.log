@@ -1,0 +1,15 @@
+F.F.                                                                     [100%]
+================================== FAILURES ===================================
+__________ test_s01_a_real_compiler_repair_is_a_second_logical_call ___________
+tests\test_snapshot_flow.py:461: in test_s01_a_real_compiler_repair_is_a_second_logical_call
+    assert contexts[0]["span_id"] != contexts[1]["span_id"]
+E   AssertionError: assert 'a49c8ab4363f49bc8329a90b55f00278' != 'a49c8ab4363f49bc8329a90b55f00278'
+____________ test_s03_a_repair_that_retries_keeps_its_own_identity ____________
+tests\test_snapshot_flow.py:596: in test_s03_a_repair_that_retries_keeps_its_own_identity
+    assert len({context["span_id"] for context in contexts}) == 2
+E   AssertionError: assert 1 == 2
+E    +  where 1 = len({'f7c0530404474382aee80a675da095f1'})
+=========================== short test summary info ===========================
+FAILED tests/test_snapshot_flow.py::test_s01_a_real_compiler_repair_is_a_second_logical_call
+FAILED tests/test_snapshot_flow.py::test_s03_a_repair_that_retries_keeps_its_own_identity
+2 failed, 2 passed, 6 deselected in 56.49s

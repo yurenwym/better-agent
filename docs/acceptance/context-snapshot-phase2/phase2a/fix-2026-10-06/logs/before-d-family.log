@@ -1,0 +1,36 @@
+FF..FFF                                                                  [100%]
+================================== FAILURES ===================================
+_____ test_d01_a_direct_gateway_refuses_the_first_send_after_a_revocation _____
+tests\test_snapshot_gateway.py:958: in test_d01_a_direct_gateway_refuses_the_first_send_after_a_revocation
+    with pytest.raises(LearningConflict):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE LearningConflict
+_________ test_d02_a_direct_gateway_does_not_retry_past_a_revocation __________
+tests\test_snapshot_gateway.py:1005: in test_d02_a_direct_gateway_does_not_retry_past_a_revocation
+    with pytest.raises(LearningConflict):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE LearningConflict
+___ test_d05_a_failing_required_check_leaves_no_open_attempt_or_reservation ___
+tests\test_snapshot_gateway.py:1096: in test_d05_a_failing_required_check_leaves_no_open_attempt_or_reservation
+    with pytest.raises(LearningConflict, match="revoked"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE LearningConflict
+_________ test_d06_a_callback_that_revokes_is_caught_before_the_wire __________
+tests\test_snapshot_gateway.py:1139: in test_d06_a_callback_that_revokes_is_caught_before_the_wire
+    with pytest.raises(LearningConflict):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE LearningConflict
+___________ test_d07_the_routed_gateway_keeps_its_per_attempt_check ___________
+tests\test_snapshot_gateway.py:1176: in test_d07_the_routed_gateway_keeps_its_per_attempt_check
+    assert _invocation_row(db, _only_invocation_id(db))["status"] == "FAILED"
+E   AssertionError: assert 'RUNNING' == 'FAILED'
+E
+E     - FAILED
+E     + RUNNING
+=========================== short test summary info ===========================
+FAILED tests/test_snapshot_gateway.py::test_d01_a_direct_gateway_refuses_the_first_send_after_a_revocation
+FAILED tests/test_snapshot_gateway.py::test_d02_a_direct_gateway_does_not_retry_past_a_revocation
+FAILED tests/test_snapshot_gateway.py::test_d05_a_failing_required_check_leaves_no_open_attempt_or_reservation
+FAILED tests/test_snapshot_gateway.py::test_d06_a_callback_that_revokes_is_caught_before_the_wire
+FAILED tests/test_snapshot_gateway.py::test_d07_the_routed_gateway_keeps_its_per_attempt_check
+5 failed, 2 passed, 19 deselected in 23.60s

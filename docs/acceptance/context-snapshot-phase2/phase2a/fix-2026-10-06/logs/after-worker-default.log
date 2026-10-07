@@ -1,0 +1,21 @@
+START 2026-10-06T22:36:49+08:00
+...............FF.......................                                 [100%]
+================================== FAILURES ===================================
+_ test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode _
+tests\test_conversation_worker.py:498: in test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+    assert model.calls == 1
+E   assert 0 == 1
+E    +  where 0 = <test_conversation_worker.HistoryRecordingConversationModel object at 0x0000000005F22E40>.calls
+____ test_worker_does_not_generate_when_required_archive_permanently_fails ____
+tests\test_conversation_worker.py:565: in test_worker_does_not_generate_when_required_archive_permanently_fails
+    assert job["status"] == "DEAD_LETTER"
+E   AssertionError: assert 'RUNNING' == 'DEAD_LETTER'
+E
+E     - DEAD_LETTER
+E     + RUNNING
+=========================== short test summary info ===========================
+FAILED tests/test_conversation_worker.py::test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+FAILED tests/test_conversation_worker.py::test_worker_does_not_generate_when_required_archive_permanently_fails
+2 failed, 38 passed, 1 deselected in 197.46s (0:03:17)
+EXIT=1
+END 2026-10-06T22:40:10+08:00

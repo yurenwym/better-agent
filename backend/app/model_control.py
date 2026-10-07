@@ -19,6 +19,14 @@ from .execution_context import (
     check_context_alignment,
     rebind,
 )
+from .model_input_snapshot import (
+    ModelInputSnapshot,
+    SnapshotBindingConflict,
+    SnapshotError,
+    SnapshotIntegrityError,
+    freeze_model_input,
+)
+from .model_input_snapshot_store import SNAPSHOT_ID_PREFIX, ModelInputSnapshotStore
 
 
 class RoutingError(ValueError):
@@ -71,6 +79,10 @@ class ModelCallContext:
     routing_policy_id: str | None = None
     routing_policy_digest: str = "direct"
     context_snapshot_digest: str = ""
+    # The frozen input this logical call is bound to.  A caller may point at an
+    # already-frozen snapshot, but the value is never trusted: it is read back and
+    # verified against this call's identity before it is used.
+    input_snapshot_id: str | None = None
     idempotency_key: str | None = None
     invocation_id: str | None = None
     price_snapshot_id: str | None = None
@@ -103,6 +115,7 @@ class ModelCallContext:
         routing_policy_id: str | None = None,
         routing_policy_digest: str = "direct",
         context_snapshot_digest: str = "",
+        input_snapshot_id: str | None = None,
         price_snapshot_id: str | None = None,
     ) -> "ModelCallContext":
         """Convert a harness context into a model call identity.
@@ -126,6 +139,7 @@ class ModelCallContext:
             routing_policy_id=routing_policy_id,
             routing_policy_digest=routing_policy_digest,
             context_snapshot_digest=context_snapshot_digest,
+            input_snapshot_id=input_snapshot_id,
             idempotency_key=idempotency_key,
             invocation_id=invocation_id,
             price_snapshot_id=price_snapshot_id,
@@ -153,6 +167,12 @@ def child_call_context(
         context,
         role=child_role,
         purpose=child_purpose,
+        # A nested purpose is a new logical call, so it must freeze its own input
+        # rather than inherit the parent's.  A role/purpose adaptation that keeps
+        # the same purpose stays inside the *same* logical call — that is the
+        # retry case — and keeps the input it was already bound to.
+        input_snapshot_id=None if nested else context.input_snapshot_id,
+        context_snapshot_digest="" if nested else context.context_snapshot_digest,
         invocation_id=(
             f"{context.invocation_id}:{child_purpose}"
             if nested and context.invocation_id
@@ -166,11 +186,103 @@ def child_call_context(
     )
 
 
+def new_logical_call(
+    context: ModelCallContext,
+    *,
+    role: str | None = None,
+    purpose: str | None = None,
+) -> ModelCallContext:
+    """Derive an independent logical call from a parent context.
+
+    A new logical call has its own span, its own invocation and its own frozen
+    input.  It inherits the parent's owner, trace, budget root, runtime bundle and
+    task association, but never the parent's invocation id, idempotency key or
+    bound snapshot: those identify the *parent's* call, and reusing them would
+    merge two calls' ledgers.
+
+    The new span hangs directly off the parent context, so two calls derived from
+    the same parent are *siblings* rather than a chain.  That is what makes "first
+    compile" and "JSON repair" two calls at one boundary instead of one call whose
+    identity was assembled out of a previous attempt.
+
+    Callers must pass the **parent** context on every derivation.  Deriving from a
+    previously derived context would nest the spans and make the second call look
+    like a child of the first — the very confusion this API exists to prevent.
+
+    ``child_call_context`` remains the *same-call* adapter: it keeps the input a
+    call was already bound to when only the role is adapted.  This function is the
+    explicit statement "this is a different logical call", and it does not depend
+    on the purpose changing.
+    """
+    child_role = role or context.role
+    child_purpose = purpose or context.purpose
+    harness = context.harness
+    if harness is not None:
+        from .execution_context import create_child_context
+
+        derived = ModelCallContext.from_harness(
+            create_child_context(harness), role=child_role, purpose=child_purpose,
+        )
+    else:
+        # A legacy caller has no span to derive.  It still gets a new logical
+        # call: the call-scoped identity below is what makes it independent, and
+        # no tool identity is invented on its behalf.
+        derived = replace(context, role=child_role, purpose=child_purpose)
+    return replace(
+        derived,
+        goal_id=context.goal_id,
+        routing_policy_id=context.routing_policy_id,
+        routing_policy_digest=context.routing_policy_digest,
+        price_snapshot_id=context.price_snapshot_id,
+        invocation_id=None,
+        idempotency_key=None,
+        input_snapshot_id=None,
+        context_snapshot_digest="",
+    )
+
+
 @dataclass(frozen=True)
 class ModelCallHandle:
     invocation_id: str
     profile_version_id: str
     context: ModelCallContext
+    input_snapshot_id: str | None = None
+
+
+def open_model_invocation(
+    control_store: "ModelControlStore",
+    profile: Any,
+    request: Any,
+    context: ModelCallContext,
+    route: dict[str, Any] | None = None,
+    *,
+    admit: Any | None = None,
+    provenance: Any | None = None,
+) -> tuple[ModelCallHandle, ModelInputSnapshot, Any]:
+    """Freeze the final logical input, admit it, then open its invocation.
+
+    The order is the contract: nothing is counted, stored or sent that was not
+    frozen first, and the frozen bytes are what admission and the send both read.
+    Both gateways go through here so the rule cannot drift between them — the
+    routed one for its production funnel, the direct one for a top-level call.
+
+    ``admit`` is the capacity check for the profile that will actually be used.
+    It is a callback because the routed gateway admits against every candidate
+    profile while the direct gateway has exactly one.
+
+    ``provenance`` is metadata *about* the input, supplied by the call site that
+    assembled it.  The gateway never goes looking for sources of its own; it only
+    freezes and shape-checks what it was handed.
+
+    Returns ``(handle, snapshot, frozen_request)``.  ``frozen_request`` is a copy
+    made from the frozen bytes; callers must send *that*, never their own object.
+    """
+    snapshot = freeze_model_input(request, context, provenance)
+    frozen = snapshot.to_request()
+    if admit is not None:
+        admit(frozen)
+    handle = control_store.begin_invocation(profile, frozen, context, route, snapshot=snapshot)
+    return handle, snapshot, frozen
 
 
 class ModelControlStore:
@@ -178,11 +290,55 @@ class ModelControlStore:
         self.db = db
         self.events = events
         self.costs = costs
+        self.snapshots = ModelInputSnapshotStore(db)
+        # The optional learning service, wired at startup (see ``startup.py``).
+        # It is an attribute rather than a constructor argument because the
+        # learning service is built after the stores.  When it is absent the
+        # checks that need it are not installed at all, so an installation
+        # without learning keeps sending; when it is present, a check that was
+        # declared required can never be skipped after it has failed.
+        self.learning: Any | None = None
+
+    def assert_request_active(self, invocation_id: str, context: ModelCallContext) -> None:
+        """The one pre-send check, shared by the routed and the direct gateway.
+
+        The inputs are the *already bound* invocation, its owner and its pinned
+        bundle.  It re-checks what this call was frozen against; it never
+        re-resolves the latest stable bundle or the current learning policy, so
+        a refusal cannot silently turn into "use the newer version instead".
+
+        Both gateways call this immediately before every send - the first attempt
+        and every retry and fallback alike - because an asset can be revoked
+        between the freeze and the wire, or between two attempts.
+
+        It raises the asset layer's own domain error.  This is a refusal, not a
+        repair: the caller must not retry, must not fall back, and must not
+        replace the frozen input.
+        """
+        assets = getattr(self, "learning_assets", None)
+        if assets is not None:
+            assets.assert_request_active(invocation_id, context.owner_id)
+        learning = getattr(self, "learning", None)
+        if learning is not None and context.runtime_bundle_id:
+            # The pinned prompt is part of what the call was frozen under, so it
+            # is checked here rather than in each gateway's own copy of the rule.
+            learning.assert_pinned_prompt_active(context.owner_id, context.runtime_bundle_id)
 
     def begin_invocation(
         self, profile: Any, request: Any, context: ModelCallContext,
-        route_snapshot: dict[str, Any] | None = None,
+        route_snapshot: dict[str, Any] | None = None, *, snapshot: Any | None = None,
     ) -> ModelCallHandle:
+        """Open one logical call, freezing its input in the same transaction.
+
+        ``snapshot`` is the frozen input the gateway just built.  When it is
+        given, every derived digest comes from the frozen content rather than
+        from ``request``, and the snapshot row, the invocation row and the
+        execution-context binding all commit together — a failure in any of them
+        leaves nothing behind and no request is sent.
+
+        When it is not given, a pre-bound ``context.input_snapshot_id`` (or
+        digest) is still not trusted: it is read back and verified, or refused.
+        """
         now = _now()
         contract = _budget_contract_columns(profile)
         config = {
@@ -206,6 +362,19 @@ class ModelControlStore:
         # this call emits can be persisted against a known invocation, even when
         # the caller supplied no thread/turn or run/goal ids.
         context = replace(context, invocation_id=invocation_id)
+        snapshot = self._resolve_input_snapshot(context, snapshot)
+        snapshot_id: str | None = None
+        if snapshot is not None:
+            snapshot_id = snapshot.id or f"{SNAPSHOT_ID_PREFIX}{uuid.uuid4().hex}"
+            context = replace(
+                context,
+                input_snapshot_id=snapshot_id,
+                context_snapshot_digest=snapshot.content_digest,
+            )
+            # The frozen bytes are the only source of the derived digests, so a
+            # later mutation of the caller's request cannot change what is
+            # recorded as having been sent.
+            request = snapshot.to_request()
         request_payload = {
             "messages": request.messages,
             "tools": request.tools or [],
@@ -224,6 +393,16 @@ class ModelControlStore:
         }
         profile_version_id = route_snapshot.get("profile_version_id") or route_snapshot.get("profile_sequence", [profile_version_id])[0]
         key = context.idempotency_key or invocation_id
+        if context.idempotency_key is None:
+            # The key here is *derived* from the call's identity (turn + purpose),
+            # not claimed by the caller.  Identity alone must never make two
+            # different inputs share one invocation: the same purpose used twice
+            # in a turn is two logical calls, so the second one gets its own
+            # invocation and its own snapshot instead of replaying or conflicting
+            # with the first.  An explicitly supplied idempotency key is a claim,
+            # and is handled inside the transaction below.
+            invocation_id, key = self._mint_free_identity(invocation_id, key)
+            context = replace(context, invocation_id=invocation_id)
         with self.db.transaction() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO model_profiles(id,owner_id,name,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",
@@ -254,27 +433,63 @@ class ModelControlStore:
                     contract["archive_prefix_reserve"],
                 ),
             )
-            existing = connection.execute(
-                "SELECT id,request_digest,status FROM model_invocations WHERE idempotency_key=?", (key,)
-            ).fetchone()
+            existing = self._existing_invocation(connection, key)
             if existing:
-                if existing["request_digest"] != request_digest:
-                    raise InvocationIdempotencyConflict(
-                        f"idempotency key is already bound to a different request: {key}"
+                self._resolve_existing_invocation(
+                    existing, key=key, request_digest=request_digest,
+                    context=context, snapshot=snapshot,
+                )
+            # The frozen input row is written next, on this same transaction,
+            # because the invocation's own INSERT carries the binding.  A call is
+            # therefore either created together with its input or not created at
+            # all: there is no window where it exists unbound, and no path that
+            # attaches an input to an existing row afterwards.  A snapshot a
+            # caller already persisted is re-read and re-checked here rather than
+            # trusted by id.
+            if snapshot is not None:
+                if snapshot.id is None:
+                    self.snapshots.insert(connection, snapshot, snapshot_id=snapshot_id)
+                else:
+                    stored = self.snapshots.require_bindable(
+                        connection, snapshot_id,
+                        owner_id=context.owner_id,
+                        runtime_bundle_id=context.runtime_bundle_id,
+                        role=context.role,
+                        purpose=context.purpose,
                     )
-                raise InvocationReplayError(existing["id"], existing["status"])
-            connection.execute(
+                    if stored.content_digest != snapshot.content_digest:
+                        raise SnapshotIntegrityError(
+                            "a pre-persisted input snapshot does not match the frozen input"
+                        )
+            # `DO NOTHING` rather than a bare INSERT: two transactions can pass
+            # the existence check above and then race the unique key, and the
+            # loser must get a domain error, not the driver's constraint
+            # violation.  On both backends the conflicting insert waits for the
+            # other transaction to settle, so the re-read below sees a committed
+            # row rather than nothing.
+            inserted = connection.execute(
                 "INSERT INTO model_invocations("
                 "id,owner_id,run_id,thread_id,turn_id,agent_task_id,role,purpose,runtime_bundle_id,routing_policy_id,"
                 "routing_policy_digest,route_snapshot_json,request_digest,tool_schema_digest,context_snapshot_digest,status,"
-                "idempotency_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "idempotency_key,created_at,context_snapshot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(idempotency_key) DO NOTHING",
                 (
                     invocation_id, context.owner_id, context.run_id, context.thread_id, context.turn_id, context.agent_task_id,
                     context.role, context.purpose, context.runtime_bundle_id, context.routing_policy_id,
                     context.routing_policy_digest, _json(route_snapshot), request_digest, tool_schema_digest,
-                    context.context_snapshot_digest, "RUNNING", key, now,
+                    context.context_snapshot_digest, "RUNNING", key, now, snapshot_id,
                 ),
-            )
+            ).rowcount
+            if inserted != 1:
+                raced = self._existing_invocation(connection, key)
+                if raced is None:
+                    raise InvocationIdempotencyConflict(
+                        f"model invocation {invocation_id} could not be created for key {key}"
+                    )
+                self._resolve_existing_invocation(
+                    raced, key=key, request_digest=request_digest,
+                    context=context, snapshot=snapshot,
+                )
             if context.root_budget_id is not None:
                 connection.execute("UPDATE model_invocations SET root_budget_id=? WHERE id=?",
                                    (context.root_budget_id, invocation_id))
@@ -306,7 +521,141 @@ class ModelControlStore:
                 "routing_policy_digest": context.routing_policy_digest,
                 "profile_version_ids": route_snapshot.get("profile_sequence", [profile_version_id]),
             })
-        return ModelCallHandle(invocation_id, profile_version_id, context)
+        return ModelCallHandle(invocation_id, profile_version_id, context, snapshot_id)
+
+    #: The persisted public identity columns, in the order a conflict reports
+    #: them.  ``agent_task_id`` is the ledger's name for the harness ``task_id``.
+    _IDENTITY_COLUMNS: tuple[tuple[str, str], ...] = (
+        ("owner_id", "owner"),
+        ("run_id", "run"),
+        ("thread_id", "thread"),
+        ("turn_id", "turn"),
+        ("agent_task_id", "task"),
+        ("root_budget_id", "budget"),
+        ("runtime_bundle_id", "runtime bundle"),
+    )
+
+    def _existing_invocation(self, connection: Any, key: str) -> Any:
+        return connection.execute(
+            "SELECT id,request_digest,status,owner_id,run_id,thread_id,turn_id,agent_task_id,"
+            "root_budget_id,runtime_bundle_id,role,purpose,"
+            "context_snapshot_id,context_snapshot_digest,execution_context_digest "
+            "FROM model_invocations WHERE idempotency_key=?", (key,)
+        ).fetchone()
+
+    def _resolve_existing_invocation(
+        self, existing: Any, *, key: str, request_digest: str,
+        context: ModelCallContext, snapshot: Any | None,
+    ) -> None:
+        """Answer a re-used idempotency key: replay the same call, refuse a different one.
+
+        An idempotency key claims exactly *one* logical call, so the key alone is
+        not enough to make something a replay.  The request, the frozen input and
+        the execution identity all have to agree; a key reused for a different
+        input, owner, run, thread, turn, task, budget, bundle or span is a
+        conflict, and answering it with the first call's result would silently
+        merge two calls' ledgers.  Both outcomes raise — this never returns.
+
+        The comparison is over the *persisted public columns*, field by field and
+        including nulls, because a controlled direct or legacy caller legitimately
+        has no harness at all.  "No execution identity" is not a reason to skip
+        the identity check; it is one of the values being compared.
+        """
+        conflicts: list[str] = []
+        if existing["request_digest"] != request_digest:
+            conflicts.append("request")
+        for column, label in self._IDENTITY_COLUMNS:
+            # Strict equality, nulls included: "no run" and "run A" are different
+            # calls, and so are "run A" and "run B".
+            if existing[column] != getattr(context, column):
+                conflicts.append(label)
+        if (existing["role"], existing["purpose"]) != (context.role, context.purpose):
+            conflicts.append("role/purpose")
+        if snapshot is not None and existing["context_snapshot_digest"] != snapshot.content_digest:
+            conflicts.append("frozen input")
+        conflicts.extend(_execution_identity_conflicts(existing, context))
+        if conflicts:
+            raise InvocationIdempotencyConflict(
+                f"idempotency key {key} is already bound to a different call: "
+                + ", ".join(conflicts)
+            )
+        raise InvocationReplayError(existing["id"], existing["status"])
+
+    def _mint_free_identity(self, invocation_id: str, key: str) -> tuple[str, str]:
+        """An invocation id and ledger key no existing row already claims.
+
+        Only reached when the caller supplied no idempotency key, so nothing is
+        being overwritten or replayed - the previous holder of this identity is a
+        different logical call that happens to share the turn and purpose.
+        """
+        with self.db.connection() as connection:
+            for _ in range(64):
+                taken = connection.execute(
+                    "SELECT 1 FROM model_invocations WHERE idempotency_key=? OR id=?",
+                    (key, invocation_id),
+                ).fetchone()
+                if taken is None:
+                    return invocation_id, key
+                invocation_id = f"{invocation_id}:{uuid.uuid4().hex[:8]}"
+                key = invocation_id
+        raise InvocationIdempotencyConflict(
+            f"could not allocate a free model invocation identity for {invocation_id}"
+        )
+
+    def _resolve_input_snapshot(self, context: ModelCallContext, snapshot: Any | None) -> Any | None:
+        """Decide which frozen input this call uses, refusing anything unverified.
+
+        Nothing supplied by a caller is trusted as a binding.  A snapshot object is
+        checked against this call's identity, and any pre-bound id or digest on the
+        context has to agree with it — a caller cannot hand over one frozen input
+        while claiming another.  With no snapshot object, a pre-bound reference is
+        read back from storage and checked the same way, and a digest with nothing
+        behind it is refused outright rather than recorded as if it meant something.
+        """
+        bound_id = context.input_snapshot_id
+        bound_digest = context.context_snapshot_digest
+        if snapshot is not None:
+            if not isinstance(snapshot, ModelInputSnapshot):
+                raise SnapshotError("snapshot must be a ModelInputSnapshot")
+            if not self._snapshot_matches_call(snapshot, context):
+                raise SnapshotBindingConflict(
+                    "input snapshot does not describe this model call"
+                )
+            if bound_id is not None and bound_id != snapshot.id:
+                raise SnapshotBindingConflict(
+                    "a pre-bound input snapshot id contradicts the frozen input"
+                )
+            if bound_digest and bound_digest != snapshot.content_digest:
+                raise SnapshotBindingConflict(
+                    "a pre-bound digest contradicts the frozen input"
+                )
+            return snapshot
+        if bound_id:
+            existing = self.snapshots.load(context.owner_id, bound_id)
+            if not self._snapshot_matches_call(existing, context):
+                raise SnapshotBindingConflict(
+                    "pre-bound input snapshot does not describe this model call"
+                )
+            if bound_digest and bound_digest != existing.content_digest:
+                raise SnapshotBindingConflict(
+                    "pre-bound digest does not describe the referenced input snapshot"
+                )
+            return existing
+        if bound_digest:
+            raise SnapshotBindingConflict(
+                "a pre-bound context_snapshot_digest must reference an input snapshot "
+                "that can be verified"
+            )
+        return None
+
+    @staticmethod
+    def _snapshot_matches_call(snapshot: ModelInputSnapshot, context: ModelCallContext) -> bool:
+        return snapshot.bound_to(
+            context.owner_id,
+            runtime_bundle_id=context.runtime_bundle_id,
+            role=context.role,
+            purpose=context.purpose,
+        )
 
     def start_attempt(self, handle: ModelCallHandle, ordinal: int, reason: str) -> str:
         attempt_id = f"{handle.invocation_id}_attempt_{ordinal}"
@@ -506,6 +855,14 @@ class RoutedModelGateway:
     def reset_call_context(self, token: Any) -> None:
         self._call_context.reset(token)
 
+    def current_call_context(self) -> ModelCallContext | None:
+        """The ambient context, or ``None`` when the caller set none.
+
+        Read-only: a caller that needs a *new* logical call derives one from this
+        with :func:`new_logical_call` instead of mutating it in place.
+        """
+        return self._call_context.get()
+
     def prompt_policy(self):
         """Read prompt policy from the same pinned bundle as the current call."""
         context = self._call_context.get()
@@ -586,6 +943,7 @@ class RoutedModelGateway:
     async def complete(
         self, request: Any, cancel_event=None, on_text_delta=None, on_text_reset=None,
         on_attempt_started=None, on_attempt_finished=None, context: ModelCallContext | None = None,
+        provenance: Any | None = None,
     ) -> Any:
         from .model_gateway import GatewayError, ModelResponse
 
@@ -601,11 +959,20 @@ class RoutedModelGateway:
         if getattr(request, "single_attempt", False):
             profiles = profiles[:1]
         from .token_budget import ContextOverflow, assert_request_fits
-        try:
-            assert_request_fits(request.messages, request.tools, profiles[0])
-        except ContextOverflow as exc:
-            raise GatewayError(str(exc), "context_overflow") from exc
-        handle = self.control_store.begin_invocation(profiles[0], request, context, route)
+
+        def admit(frozen_request: Any) -> None:
+            try:
+                assert_request_fits(frozen_request.messages, frozen_request.tools, profiles[0])
+            except ContextOverflow as exc:
+                raise GatewayError(str(exc), "context_overflow") from exc
+
+        # Freeze the final logical input *before* capacity admission, so what is
+        # counted, persisted and sent is one and the same content.  From here on
+        # the frozen bytes are the only input the call consumes.
+        handle, snapshot, frozen = open_model_invocation(
+            self.control_store, profiles[0], request, context, route, admit=admit,
+            provenance=provenance,
+        )
         if cancel_event is not None and cancel_event.is_set():
             self.control_store.finish_invocation(handle, "cancelled")
             raise GatewayError("model request cancelled", "cancelled")
@@ -615,7 +982,7 @@ class RoutedModelGateway:
         last_error = None
         for profile_index, profile in enumerate(profiles):
             try:
-                assert_request_fits(request.messages, request.tools, profile)
+                assert_request_fits(frozen.messages, frozen.tools, profile)
             except ContextOverflow as exc:
                 # H and U_A are recomputed against *this* profile, never reused
                 # from the primary. A fallback whose window cannot hold the
@@ -633,21 +1000,36 @@ class RoutedModelGateway:
                     continue
                 self.control_store.finish_invocation(handle, "failed")
                 raise GatewayError(str(exc), "context_overflow", ordinal) from exc
-            retries = 1 if getattr(request, "single_attempt", False) else max(int(profile.max_attempts), 1)
+            retries = 1 if frozen.single_attempt else max(int(profile.max_attempts), 1)
             for retry in range(retries):
-                if getattr(self.control_store, "learning_assets", None) is not None:
-                    self.control_store.learning_assets.assert_request_active(handle.invocation_id, context.owner_id)
                 if learning_call:
-                    self.learning.assert_learning_call_allowed(context.owner_id, context.root_budget_id)
-                if context.runtime_bundle_id and getattr(self, "learning", None) is not None:
-                    self.learning.assert_pinned_prompt_active(context.owner_id, context.runtime_bundle_id)
+                    # The "is learning allowed for this call at all" gate is
+                    # routed-only; the asset revocation rule itself lives in the
+                    # shared store method below.  A refusal here is terminal too,
+                    # so the invocation is closed rather than left RUNNING.
+                    try:
+                        self.learning.assert_learning_call_allowed(context.owner_id, context.root_budget_id)
+                    except Exception:
+                        self.control_store.finish_invocation(handle, "failed")
+                        raise
                 ordinal += 1
                 reason = "primary" if ordinal == 1 else ("fallback" if retry == 0 else "retry")
                 active = replace(handle, profile_version_id=profile.registered_profile_version_id)
+                # Each attempt deserialises its own copy of the frozen input, so a
+                # retry or a fallback cannot be handed an object a previous
+                # attempt mutated — and the snapshot itself stays the one record.
+                attempt_request = snapshot.to_request()
                 if ordinal > 1 and on_text_reset is not None:
                     on_text_reset()
                 if on_attempt_started is not None:
                     on_attempt_started(ordinal, reason)
+                # The shared send-time asset check, run after every caller
+                # callback and immediately before the wire, on every attempt.
+                try:
+                    self.control_store.assert_request_active(handle.invocation_id, context)
+                except Exception:
+                    self.control_store.finish_invocation(handle, "failed")
+                    raise
                 try:
                     try:
                         self.control_store.start_attempt(active, ordinal, reason)
@@ -675,14 +1057,23 @@ class RoutedModelGateway:
                         nonlocal output_started
                         output_started = True
                         self.control_store.mark_output_started(active, ordinal)
-                    self.control_store.record_request_estimate(active, ordinal, attempt_profile, request)
+                    self.control_store.record_request_estimate(active, ordinal, attempt_profile, attempt_request)
                     response = await self._execute_attempt(
-                        attempt_profile, request, cancel_event=cancel_event,
+                        attempt_profile, attempt_request, cancel_event=cancel_event,
                         on_text_delta=text_delta, on_output_started=output,
                     )
                     response = ModelResponse(**{**response.__dict__, "attempts": ordinal})
                     if getattr(self.control_store, "learning_assets", None) is not None:
-                        self.control_store.learning_assets.assert_request_active(handle.invocation_id, context.owner_id)
+                        # The asset was still active when the attempt started; it
+                        # may have been revoked while the response was in flight.
+                        # The result is not usable, and the call is closed rather
+                        # than left RUNNING for a later retry to pick up.
+                        try:
+                            self.control_store.assert_request_active(handle.invocation_id, context)
+                        except Exception:
+                            self.control_store.finish_attempt(active, ordinal, "failed", "asset_revoked", None)
+                            self.control_store.finish_invocation(active, "failed")
+                            raise
                     self.control_store.finish_attempt(active, ordinal, "succeeded", None, response)
                     self.control_store.finish_invocation(active, "succeeded", ordinal)
                     if on_attempt_finished is not None:
@@ -941,3 +1332,37 @@ def _digest(value: Any) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _execution_identity_digest(context: ModelCallContext) -> str | None:
+    """The first-phase execution identity of this call, when it has one.
+
+    Idempotency is checked against this as well as the request and the frozen
+    input: two calls that agree on every byte of input but were opened under
+    different execution contexts are different calls, and reusing one key for
+    both would silently merge their ledgers.
+    """
+    if context.harness is None:
+        return None
+    from .execution_context import execution_context_digest
+
+    return execution_context_digest(context.harness)
+
+
+def _execution_identity_conflicts(existing: Any, context: ModelCallContext) -> list[str]:
+    """Compare the stored execution identity with the claimed one.
+
+    A call opened under a harness and one opened without are different calls even
+    when every persisted public column agrees, so a *one-sided* harness is a
+    conflict rather than something to skip.  Only when neither side carries an
+    identity is there nothing extra to compare — and then the public columns are
+    the whole contract, which is why they are compared field by field rather than
+    skipped as well.
+    """
+    stored = existing["execution_context_digest"]
+    claimed = _execution_identity_digest(context)
+    if bool(stored) != bool(claimed):
+        return ["execution identity"]
+    if stored and claimed and stored != claimed:
+        return ["execution identity"]
+    return []

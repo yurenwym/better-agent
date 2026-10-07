@@ -244,7 +244,11 @@ def build_runtime(    data_root: str | Path,
     runtime.connectors = connectors
     from .real_evaluation import LiveEvaluationRunner, ManagedEvaluationWorker, RealEvaluator
     runtime.real_evaluator = RealEvaluator(root / "evaluations", db=db)
-    runtime.real_evaluator.runner_factory = LiveEvaluationRunner(runtime.model_admin, ModelControlStore(db, events=events, costs=costs)).runners
+    # The evaluation runner drives the *direct* gateway, so it needs its own
+    # control store - and the same learning wiring, or the send-time asset check
+    # would be silently absent on that path.
+    evaluation_control_store = ModelControlStore(db, events=events, costs=costs)
+    runtime.real_evaluator.runner_factory = LiveEvaluationRunner(runtime.model_admin, evaluation_control_store).runners
     runtime.evaluation_worker = ManagedEvaluationWorker(runtime.real_evaluator)
     from .research.engine import ResearchEngine
     from .research.live import DEFAULT_EVIDENCE_STATEMENT, LiveResearchModel
@@ -259,6 +263,12 @@ def build_runtime(    data_root: str | Path,
     runtime.learning = LearningService(db, runtime.memory_store, costs)
     runtime.memory_store.learning_assets = runtime.learning.assets
     control_store.learning_assets = runtime.learning.assets
+    # The pinned-prompt half of the send-time check reads the learning service
+    # through the control store, so both gateways share one rule.  The evaluation
+    # store is the direct gateway's, and must be wired the same way.
+    control_store.learning = runtime.learning
+    evaluation_control_store.learning = runtime.learning
+    evaluation_control_store.learning_assets = runtime.learning.assets
     runtime.learning.skill_root = runtime.skill_platform.root
     if gateway is not None:
         gateway.learning = runtime.learning

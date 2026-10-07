@@ -278,3 +278,169 @@ def test_database_upgrades_existing_root_budget_schema_with_runtime_bindings(tmp
     assert "root_budget_id" in run_columns
     assert {"runtime_bundle_id", "root_budget_id"} <= archive_columns
 
+
+
+def test_migration_47_creates_the_model_input_snapshot_table_and_binding(tmp_path) -> None:
+    db = Database(tmp_path / "snapshots.db")
+    with db.connection() as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(model_input_snapshots)")}
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(model_input_snapshots)")}
+        triggers = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='trigger' AND "
+                "(tbl_name='model_input_snapshots' OR tbl_name='model_invocations')"
+            )
+        }
+        invocation_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(model_invocations)")
+        }
+        foreign_keys = [tuple(row) for row in connection.execute("PRAGMA foreign_key_list(model_invocations)")]
+
+    assert versions[-1] == 47
+    assert "model_input_snapshots" in tables
+    assert columns == {"id", "owner_id", "schema_version", "content_json", "content_digest", "created_at"}
+    assert {"idx_model_input_snapshots_owner", "idx_model_input_snapshots_digest"} <= indexes
+    assert {"model_input_snapshots_no_update", "model_input_snapshots_no_delete"} <= triggers
+    assert "model_invocations_snapshot_binding_immutable" in triggers
+    # The binding is nullable and points at the snapshot table.
+    assert "context_snapshot_id" in invocation_columns
+    binding = [row for row in foreign_keys if row[3] == "context_snapshot_id"]
+    assert len(binding) == 1
+    assert binding[0][2:5] == ("model_input_snapshots", "context_snapshot_id", "id")
+    assert binding[0][5:7] == ("NO ACTION", "NO ACTION")
+
+
+def test_database_upgrades_from_the_harness_context_schema_without_backfilling(tmp_path, monkeypatch) -> None:
+    import app.db as db_module
+
+    path = tmp_path / "migration-47.db"
+    migrations = db_module.MIGRATIONS
+    # The previous head: execution context exists, the input snapshot does not.
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations[:46])
+    db_module.Database(path)
+    with sqlite3.connect(path) as connection:
+        tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "model_input_snapshots" not in tables
+        connection.execute(
+            "INSERT INTO model_invocations(id,owner_id,role,purpose,routing_policy_digest,"
+            "route_snapshot_json,request_digest,tool_schema_digest,context_snapshot_digest,status,"
+            "idempotency_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "inv-legacy", "local-user", "conversation", "route_and_respond", "direct",
+                "{}", "req", "tools", "legacy-digest", "SUCCEEDED", "legacy-idem",
+                "2026-09-01T00:00:00+00:00",
+            ),
+        )
+
+    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
+    db_module.Database(path)
+    db_module.Database(path)
+
+    with sqlite3.connect(path) as connection:
+        versions = [row[0] for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version")]
+        row = connection.execute(
+            "SELECT context_snapshot_id,context_snapshot_digest FROM model_invocations WHERE id='inv-legacy'"
+        ).fetchone()
+        snapshots = connection.execute("SELECT COUNT(*) FROM model_input_snapshots").fetchone()[0]
+
+    assert versions == list(range(1, len(migrations) + 1))
+    # The historical call is preserved, is not bound to a fabricated snapshot,
+    # and keeps the digest it always had.
+    assert row == (None, "legacy-digest")
+    assert snapshots == 0
+
+
+def test_model_input_snapshot_immutability_is_enforced_by_sqlite(tmp_path) -> None:
+    db = Database(tmp_path / "immutable.db")
+    envelope = (
+        '{"binding":{},"provenance":{},"request":{},"schema_version":"model-input-snapshot-v1"}'
+    )
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO model_input_snapshots(id,owner_id,schema_version,content_json,content_digest,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("snap-1", "local-user", "model-input-snapshot-v1", envelope, "a" * 64, "now"),
+        )
+        connection.execute(
+            "INSERT INTO model_input_snapshots(id,owner_id,schema_version,content_json,content_digest,created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("snap-2", "local-user", "model-input-snapshot-v1", envelope, "b" * 64, "now"),
+        )
+        connection.execute(
+            "INSERT INTO model_invocations(id,owner_id,role,purpose,routing_policy_digest,"
+            "route_snapshot_json,request_digest,tool_schema_digest,context_snapshot_digest,status,"
+            "idempotency_key,created_at,context_snapshot_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "inv-bound", "local-user", "conversation", "route_and_respond", "direct",
+                "{}", "req", "tools", "snap-digest", "RUNNING", "idem-bound", "now", "snap-1",
+            ),
+        )
+
+    for statement, parameters in (
+        ("UPDATE model_input_snapshots SET content_json=? WHERE id='snap-1'", ("{}",)),
+        ("UPDATE model_input_snapshots SET content_digest=? WHERE id='snap-1'", ("c" * 64,)),
+        ("UPDATE model_input_snapshots SET owner_id=? WHERE id='snap-1'", ("someone-else",)),
+        ("UPDATE model_input_snapshots SET schema_version=? WHERE id='snap-1'", ("model-input-snapshot-v9",)),
+        ("DELETE FROM model_input_snapshots WHERE id='snap-1'", ()),
+        ("UPDATE model_invocations SET context_snapshot_id=NULL WHERE id='inv-bound'", ()),
+        ("UPDATE model_invocations SET context_snapshot_id='snap-2' WHERE id='inv-bound'", ()),
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            with db.transaction() as connection:
+                connection.execute(statement, parameters)
+
+    # An empty binding can be filled exactly once — the window the binding is
+    # written in — and never re-pointed afterwards.
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO model_invocations(id,owner_id,role,purpose,routing_policy_digest,"
+            "route_snapshot_json,request_digest,tool_schema_digest,context_snapshot_digest,status,"
+            "idempotency_key,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                "inv-open", "local-user", "conversation", "route_and_respond", "direct",
+                "{}", "req", "tools", "snap-digest", "RUNNING", "idem-open", "now",
+            ),
+        )
+        connection.execute(
+            "UPDATE model_invocations SET context_snapshot_id='snap-2' WHERE id='inv-open'"
+        )
+    with db.connection() as connection:
+        assert connection.execute(
+            "SELECT context_snapshot_id FROM model_invocations WHERE id='inv-open'"
+        ).fetchone()[0] == "snap-2"
+    for statement in (
+        "UPDATE model_invocations SET context_snapshot_id='snap-1' WHERE id='inv-open'",
+        "UPDATE model_invocations SET context_snapshot_id=NULL WHERE id='inv-open'",
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="immutable"):
+            with db.transaction() as connection:
+                connection.execute(statement)
+
+    # The invocation state machine is untouched by the binding trigger.
+    with db.transaction() as connection:
+        connection.execute(
+            "UPDATE model_invocations SET status='SUCCEEDED', finished_at='now' WHERE id='inv-bound'"
+        )
+        connection.execute("UPDATE model_invocations SET root_budget_id=NULL WHERE id='inv-bound'")
+    with db.connection() as connection:
+        row = connection.execute(
+            "SELECT status,context_snapshot_id,context_snapshot_digest FROM model_invocations WHERE id='inv-bound'"
+        ).fetchone()
+
+    assert tuple(row) == ("SUCCEEDED", "snap-1", "snap-digest")
+
+    # Value-level constraints reject envelopes the application could never write.
+    for values in (
+        ("snap-bad-version", "local-user", "model-input-snapshot-v9", envelope, "d" * 64),
+        ("snap-bad-digest", "local-user", "model-input-snapshot-v1", envelope, "short"),
+    ):
+        with pytest.raises(sqlite3.IntegrityError, match="CHECK constraint failed"):
+            with db.transaction() as connection:
+                connection.execute(
+                    "INSERT INTO model_input_snapshots"
+                    "(id,owner_id,schema_version,content_json,content_digest,created_at) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (*values, "now"),
+                )

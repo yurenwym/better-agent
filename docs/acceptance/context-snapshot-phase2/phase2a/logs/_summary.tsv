@@ -1,0 +1,16 @@
+group	started_at	finished_at	exit_code	result	duration_s	log
+g1-specialised-sqlite	2026-10-06T19:19:21+08:00	2026-10-06T19:21:48+08:00	0	70 passed in 144.04s (0:02:24)	148	logs/g1-specialised-sqlite.log
+g2-postgres-integration	2026-10-06T19:22:05+08:00	2026-10-06T19:25:39+08:00	1	1 failed, 41 passed in 211.00s (0:03:30)	215	logs/g2-postgres-integration-polluted.log
+g2-postgres-integration	2026-10-06T19:33:52+08:00	2026-10-06T19:37:26+08:00	1	1 failed, 41 passed in 210.13s (0:03:30)	214	logs/g2-postgres-integration.log
+g2a-snapshot-postgres	2026-10-06T19:39:20+08:00	2026-10-06T19:40:53+08:00	0	12 passed in 89.13s (0:01:29)	93	logs/g2a-snapshot-postgres.log
+g2b-harness-context-postgres	2026-10-06T19:41:02+08:00	2026-10-06T19:42:20+08:00	0	13 passed in 74.60s (0:01:14)	78	logs/g2b-harness-context-postgres.log
+g2c-chat-goal-tools-postgres	2026-10-06T19:42:30+08:00	2026-10-06T19:43:00+08:00	1	1 failed, 4 passed in 26.15s	30	logs/g2c-chat-goal-tools-postgres.log
+g2c-chat-goal-tools-postgres	2026-10-06T19:43:02+08:00	2026-10-06T19:43:28+08:00	0	5 passed in 24.85s	26	logs/g2c-chat-goal-tools-postgres.log
+g2d-goal-tool-recovery-postgres	2026-10-06T19:43:37+08:00	2026-10-06T19:44:13+08:00	0	7 passed in 32.82s	37	logs/g2d-goal-tool-recovery-postgres.log
+g2e-root-task-budgets	2026-10-06T19:44:23+08:00	2026-10-06T19:44:49+08:00	0	5 passed in 22.42s	26	logs/g2e-root-task-budgets.log
+g3-regression-batch1	2026-10-06T19:45:00+08:00	2026-10-06T19:50:52+08:00	0	99 passed in 348.33s (0:05:48)	351	logs/g3-regression-batch1.log
+g4-regression-batch2	2026-10-06T19:51:27+08:00	2026-10-06T19:56:31+08:00	1	1 failed, 84 passed in 300.65s (0:05:00)	304	logs/g4-regression-batch2.log
+g5g6-conversation	2026-10-06T19:57:53+08:00	2026-10-06T19:58:37+08:00	0	42 passed in 40.91s	45	logs/g5g6-conversation.log
+g7-conversation-worker-default-env	2026-10-06T19:59:26+08:00	2026-10-06T20:02:33+08:00	1	1 failed, 39 passed, 1 deselected in 183.12s (0:03:03)	186	logs/g7-conversation-worker-default-env.log
+g8-conversation-worker-enlarged-archive-deadline	2026-10-06T20:03:24+08:00	2026-10-06T20:06:32+08:00	0	40 passed, 1 deselected in 184.51s (0:03:04)	188	logs/g8-conversation-worker-enlarged-archive-deadline.log
+g1-specialised-sqlite	2026-10-06T20:14:29+08:00	2026-10-06T20:16:54+08:00	0	72 passed in 141.60s (0:02:21)	145	logs/g1-specialised-sqlite.log

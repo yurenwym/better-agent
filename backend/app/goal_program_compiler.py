@@ -6,6 +6,7 @@ from datetime import date, timedelta
 from typing import Any, Protocol
 
 from .model_gateway import GatewayError, ModelGateway, ModelRequest
+from .model_control import new_logical_call
 from .goal_calendar import calendar_days
 
 
@@ -160,6 +161,11 @@ class GoalProgramCompiler:
         policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
         route = {"role": role, "purpose": purpose} if getattr(self.gateway, "supports_role_routing", False) else {}
         messages = self._fitted_messages(instruction, data, policy, route=route)
+        # The parent context, read once.  Every logical call below is derived from
+        # *this*, never from the previous attempt's context: a derivation from a
+        # derived context would nest the spans and make the repair look like a
+        # child of the call it is repairing.
+        parent = self._parent_context()
         for attempt in range(2):
             try:
                 output_limit_method = getattr(self.gateway, "output_limit", None)
@@ -171,11 +177,24 @@ class GoalProgramCompiler:
                     attempt_tokens = min(max_tokens, output_limit, repair_reserve)
                 else:
                     attempt_tokens = min(max_tokens, output_limit) if attempt == 0 else output_limit
-                response = await self.gateway.complete(ModelRequest(
+                # "Repair once" is a *second logical call*, not a retry: its input
+                # differs from the first attempt's, so it gets its own span, its
+                # own invocation and its own frozen input.  A transport retry
+                # inside the gateway stays inside that call.
+                call_context = new_logical_call(parent, role=role, purpose=purpose) if parent is not None else None
+                request = ModelRequest(
                     messages=messages, temperature=0, max_tokens=attempt_tokens,
                     role=role, purpose=purpose,
                     thinking=False if role == "reflector" else None,
-                ))
+                )
+                # With no parent there is no identity to hand over, and the call
+                # keeps the exact shape it had before this phase: a legacy
+                # gateway that never learned about call contexts still works.
+                response = (
+                    await self.gateway.complete(request)
+                    if call_context is None
+                    else await self.gateway.complete(request, context=call_context)
+                )
                 if getattr(response, "finish_reason", None) in {"length", "max_tokens", "MAX_TOKENS"}:
                     truncated_attempts += 1
                 value = _parse_json_object(response.message)
@@ -194,6 +213,17 @@ class GoalProgramCompiler:
         if truncated_attempts == 2:
             raise GoalCompilationError("MODEL_OUTPUT_TRUNCATED", "goal compiler output exceeded the configured limit") from last_error
         raise GoalCompilationError("INVALID_MODEL_OUTPUT", "goal compiler returned invalid structured output") from last_error
+
+    def _parent_context(self):
+        """The context every logical call in this compile is derived from.
+
+        The gateway's ambient context is the *parent*: for a tool-triggered
+        compile it is the tool's own context, so each logical call gets a sibling
+        child span under it.  ``None`` means there is no control plane and no
+        identity to derive from, which is the legacy no-store path.
+        """
+        reader = getattr(self.gateway, "current_call_context", None)
+        return reader() if callable(reader) else None
 
     def _messages(self, instruction: str, data: dict[str, Any], policy: Any) -> list[dict[str, Any]]:
         prefix = "" if policy is None or policy == "" or policy == "live-model-v1" else "应用以下已经批准的 Better Agent 运行时提示词策略：\n" + json.dumps(policy, ensure_ascii=False) + "\n\n"

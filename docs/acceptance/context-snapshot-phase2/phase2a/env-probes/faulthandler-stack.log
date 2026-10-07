@@ -1,0 +1,50 @@
+============================= test session starts =============================
+platform win32 -- Python 3.13.0, pytest-9.1.1, pluggy-1.6.0 -- D:\pycharm\python.exe
+rootdir: D:\RAG\better\backend
+configfile: pyproject.toml
+plugins: anyio-4.14.2, langsmith-0.10.18, asyncio-1.4.0, cov-7.1.0, socket-0.7.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/test_conversation_worker.py::test_active_turn_lease_is_renewed_during_long_model_call Timeout (0:00:25)!
+Thread 0x000099d4 (most recent call first):
+  File "D:\pycharm\Lib\asyncio\windows_events.py", line 775 in _poll
+  File "D:\pycharm\Lib\asyncio\windows_events.py", line 446 in select
+  File "D:\pycharm\Lib\asyncio\base_events.py", line 1989 in _run_once
+  File "D:\pycharm\Lib\asyncio\base_events.py", line 679 in run_forever
+  File "D:\pycharm\Lib\asyncio\base_events.py", line 708 in run_until_complete
+  File "D:\pycharm\Lib\asyncio\runners.py", line 118 in run
+  File "D:\pycharm\Lib\site-packages\pytest_asyncio\plugin.py", line 905 in inner
+  File "D:\pycharm\Lib\site-packages\_pytest\python.py", line 167 in pytest_pyfunc_call
+  File "D:\pycharm\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "D:\pycharm\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "D:\pycharm\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "D:\pycharm\Lib\site-packages\_pytest\python.py", line 1707 in runtest
+  File "D:\pycharm\Lib\site-packages\pytest_asyncio\plugin.py", line 569 in runtest
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 184 in pytest_runtest_call
+  File "D:\pycharm\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "D:\pycharm\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "D:\pycharm\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 250 in <lambda>
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 361 in from_call
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 249 in call_and_report
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 139 in runtestprotocol
+  File "D:\pycharm\Lib\site-packages\_pytest\runner.py", line 118 in pytest_runtest_protocol
+  File "D:\pycharm\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "D:\pycharm\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "D:\pycharm\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "D:\pycharm\Lib\site-packages\_pytest\main.py", line 408 in pytest_runtestloop
+  File "D:\pycharm\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "D:\pycharm\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "D:\pycharm\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "D:\pycharm\Lib\site-packages\_pytest\main.py", line 384 in _main
+  File "D:\pycharm\Lib\site-packages\_pytest\main.py", line 330 in wrap_session
+  File "D:\pycharm\Lib\site-packages\_pytest\main.py", line 377 in pytest_cmdline_main
+  File "D:\pycharm\Lib\site-packages\pluggy\_callers.py", line 121 in _multicall
+  File "D:\pycharm\Lib\site-packages\pluggy\_manager.py", line 120 in _hookexec
+  File "D:\pycharm\Lib\site-packages\pluggy\_hooks.py", line 512 in __call__
+  File "D:\pycharm\Lib\site-packages\_pytest\config\__init__.py", line 229 in _main
+  File "D:\pycharm\Lib\site-packages\_pytest\config\__init__.py", line 253 in _console_main
+  File "D:\pycharm\Lib\site-packages\pytest\__main__.py", line 9 in <module>
+  File "<frozen runpy>", line 88 in _run_code
+  File "<frozen runpy>", line 198 in _run_module_as_main

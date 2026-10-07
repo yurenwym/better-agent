@@ -1,0 +1,31 @@
+# R01 regression batch 3 - raw results (2026-10-06)
+
+## tests/test_conversation.py (default env)
+```
+.........                                                                [100%]
+9 passed in 2.64s
+```
+
+## tests/test_conversation_protocol_v2.py (default env)
+```
+33 passed in 51.31s
+```
+
+## tests/test_conversation_worker.py (default env, lease test deselected)
+```
+================================== FAILURES ===================================
+_ test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode _
+tests\test_conversation_worker.py:498: in test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+    assert model.calls == 1
+E   assert 0 == 1
+E    +  where 0 = <test_conversation_worker.HistoryRecordingConversationModel object at 0x0000000005F32E40>.calls
+=========================== short test summary info ===========================
+FAILED tests/test_conversation_worker.py::test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode
+=========== 1 failed, 39 passed, 1 deselected in 179.00s (0:02:58) ============
+```
+
+## tests/test_conversation_worker.py (AGENT_ARCHIVE_WAIT_MS=30000, lease test deselected)
+```
+........................................                                 [100%]
+40 passed, 1 deselected in 183.32s (0:03:03)
+```
