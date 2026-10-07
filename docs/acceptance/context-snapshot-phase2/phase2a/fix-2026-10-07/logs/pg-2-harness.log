@@ -1,0 +1,6 @@
+START 2026-10-07T19:11:43+08:00
+CMD pytest tests/integration/test_harness_context_postgres.py -q --tb=short -rfE
+.............                                                            [100%]
+13 passed in 76.87s (0:01:16)
+EXIT=0
+END 2026-10-07T19:13:03+08:00

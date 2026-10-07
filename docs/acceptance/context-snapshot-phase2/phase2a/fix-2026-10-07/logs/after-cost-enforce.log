@@ -1,0 +1,6 @@
+START 2026-10-07T19:28:11+08:00
+CMD BETTER_AGENT_COST_MODE=enforce pytest tests/test_cost_control.py tests/test_m5_release_gates.py
+.................................                                        [100%]
+33 passed in 31.99s
+EXIT=0
+END 2026-10-07T19:28:46+08:00

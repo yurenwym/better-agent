@@ -1,17 +1,28 @@
 # ContextSnapshot 第二阶段（Phase 2A / M1）验收报告
 
 - 日期：2026-10-06
-- 代码状态：**工作区改动，未提交**；HEAD 仍为 `dcfc54e`（本次修复全部落在未提交的工作区）
+- 代码状态：**2026-10-07 起 Phase 2A 主体已提交为 `9992533`**；2026-10-07 的 F04 修复仍在工作区未提交（本文原始轮次为 `dcfc54e` 上的未提交工作区）
 - schema head：`20260930_0025`（PostgreSQL）/ SQLite migration 47
 - 解释器：`D:\pycharm\python.exe`（Python 3.13）
 - 数据库：SQLite（单元/存储/网关/链路/恢复）；PostgreSQL 16 + pgvector（`better-postgres-1`，隔离测试库 `better_agent_v4_test`，经 `db_target_guard` 校验）
-- 结论：**Phase 2A 主体完成，M1 待复验。**
+- 结论：**Phase 2A 范围已全部通过；M1 仍记为「待复验」。**
 
 > **2026-10-06 更新（追加，不覆盖上文）**：独立复核（`review-2026-10-06.md`）在本文之后发现 F01/F02/F03 三处缺口，并指出 I05/I06/A05/A06 的覆盖差异。修复与复验记录见 `fix-2026-10-06/acceptance-fix-report.md`。
 > 修复后：D/K/S/B 场景与 SQLite 回归批次全部取得通过证据（专项 107 passed；回归 99 + 85 + 42 passed）；
 > **PostgreSQL 集成本轮未取得证据**（Docker 引擎未能启动，环境受限）。
 > 因此 M1 由本文原先的「具备门禁条件」下调为 **「待复验（PG 待补）」**，在 PG 组重跑前不宣布通过。
 > 另：§2.5 与 §2.7 关于租约用例「在本机无法执行」的表述已被本轮实测修正，见下方 §2.9。
+
+> **2026-10-07 更新（追加，不覆盖上文）**：修复复核（`review-2026-10-07.md`）发现 F04（响应被拒绝时丢弃已知 usage）。
+> 修复与复验记录见 `fix-2026-10-07/acceptance-fix-report.md`。要点：
+> - F04 已修：响应后检查拒绝时把**已收到的 response** 交给结算函数，保留真实 usage 并按实际使用量结算；
+>   `finish_attempt` 增加 `STARTED` 守卫，使「同一 attempt 只结算一次」不依赖调用路径。新增 **D08–D12**。
+> - **PostgreSQL 五组已复跑通过**（Docker 恢复；新建隔离库 `better_snapshot_usage_20261007_test`，head `20260930_0025`）：
+>   14 + 13 + 5 + 7 + 5 = **44 passed**，逐文件退出码 0。**门禁 6 的 PG 证据已补齐。**
+> - SQLite 侧：专项 **113 passed**；回归 99 / 85 / 42 passed；成本与发布门禁 enforce 下 **33 passed**。
+> - **代码版本**：Phase 2A 主体（含 2026-10-06 修复轮）已提交为 **`9992533`**；**本轮 F04 修复仍在工作区未提交**。
+> - M1 仍记为 **「待复验」**：Phase 2A 范围内已无阻塞项，未清除的是仓库默认环境下 `test_m5_release_gates.py` 的
+>   2 项既有基线失败（enforce 下 18 passed）与本机延迟受限用例（本轮未重跑），均不在 Phase 2A 代码路径上。见 §2.10。
 
 ## 1. 本次修复（对应核对结论中的三处阻断/缺口）
 
@@ -170,7 +181,8 @@ PG 组按文件拆分后合计 **42 passed**（12+13+5+7+5），与 19:22 之前
 python scripts/verify_acceptance_nodes.py
 ```
 
-结果：**67 条引用全部解析成功，0 条无法解析，0 条已实现但未登记**。
+结果：原始轮次 **67 条引用全部解析成功，0 条无法解析，0 条已实现但未登记**；
+2026-10-06 追加 §7.1 后为 87 条；2026-10-07 追加 D08–D12 后为 **92 条，0 未解析，0 未登记**（6 文件 / 127 采集节点）。
 
 对账过程中查出并修掉的真问题（不是脚本误报）：
 
@@ -201,20 +213,48 @@ python scripts/verify_acceptance_nodes.py
 准确表述是「本机延迟下（0.2s 租约 < 实测 190–340ms 的 claim→断言延迟）该用例无法完成；
 独立复核记录的单跑通过本轮未能复现」。它不在 Phase 2A 触及的代码路径上。
 
+### 2.10 修复轮复跑（2026-10-07，追加）
+
+完整记录见 `fix-2026-10-07/acceptance-fix-report.md`。要点：
+
+| 组 | 结果 |
+|---|---|
+| 修复前复现（F04） | D08 `assert None == 1000`；D09[usage-partial] `UNAVAILABLE != ESTIMATED_PARTIAL`；D12（守卫临时关闭）事件 2 条 |
+| 专项五文件（修复后） | **113 passed**，330.89s（107 + 新增 6 个节点） |
+| 回归批次 1（6 文件） | **99 passed**，347.68s |
+| 回归批次 2（5 文件） | **85 passed**，291.49s |
+| 对话 + 协议 | **42 passed**，43.32s |
+| 成本与发布门禁（仓库默认 observe） | 2 failed / 31 passed ← 既有基线（未声明 `enforce`） |
+| 成本与发布门禁（`BETTER_AGENT_COST_MODE=enforce`） | **33 passed**，31.99s |
+| PostgreSQL 1/5 快照 | **14 passed**，72.65s（含 K05/K06） |
+| PostgreSQL 2/5 harness | **13 passed**，76.87s |
+| PostgreSQL 3/5 chat goal tools | **5 passed**，27.62s |
+| PostgreSQL 4/5 goal tool recovery | **7 passed**，32.98s |
+| PostgreSQL 5/5 root task budgets | **5 passed**，22.99s |
+| **PostgreSQL 合计** | **44 passed**，逐文件退出码 0 |
+
+PostgreSQL 前置：Docker 引擎可用（`better-postgres-1` healthy）；新建隔离库 `better_snapshot_usage_20261007_test`
+（经 `db_target_guard` 校验，未用开发库）；`alembic upgrade head` 后 `alembic current` = `20260930_0025 (head)`。
+上一轮「Docker 不可用」的记录保留在 `fix-2026-10-06/` 与 `evidence.json` 的 `environment_limited_tests`，本轮已补齐。
+
+**代码版本**：Phase 2A 主体（含 2026-10-06 修复轮）已提交为 `9992533fac42f19b9e1dbe321612d94912e6e8b3`
+（2026-10-07，68 文件）；**本轮 F04 修复仍在工作区未提交**。
+
 ## 3. M1 门禁逐条核对
 
-> 下表是本文原始轮次的核对结果。**2026-10-06 修复轮**的对照见 §2.9：门禁 1、2、3、4、5、7、8、9 的 SQLite 侧证据在本轮重新取得并通过；
-> **门禁 6 的 PostgreSQL 证据为本轮之前的历史记录，修复轮未重新取得**（Docker 引擎未运行），因此门禁 6 当前状态为「待补 PG 复跑」。
-> 依任务书第 4 节，全部门禁（含门禁 6 的 PG 证据）满足后方可把 M1 更新为通过——当前 M1 为「待复验」。
+> 下表是本文原始轮次的核对结果。**2026-10-06 / 2026-10-07 修复轮**的对照见 §2.9 / §2.10：
+> 门禁 1–9 的证据现已在两轮中重新取得并全部通过（门禁 6 的 PostgreSQL 证据由 2026-10-07 轮补齐，44 passed）。
+> M1 仍记为「待复验」，理由不是门禁未满足，而是仓库默认环境下仍有 2 项**既有基线**失败
+> （`test_m5_release_gates.py`，enforce 下通过）与 2 项本机延迟受限用例本轮未重跑——均不在 Phase 2A 代码路径上。见 §2.10。
 
 | 门禁 | 状态 | 依据 |
 |---|---|---|
-| 1. P00–P10 完成；U/P/G/I/A 通过；R01 通过；C01 完成 2A 范围登记 | ✅（待 PR） | P00 见 `callsite-inventory.md`；U/P/G/I/A 见 §2.1；R01 见 §2.3（批次 2/3 有 3 项本机环境受限，已逐项归因并单列，§2.4）；C01 的 2A 范围核对见清单 §4；任务 ID → 测试 ID → pytest 节点映射经 §2.8 双向机械校验（0 未解析 / 0 未登记） |
+| 1. P00–P10 完成；U/P/G/I/A 通过；R01 通过；C01 完成 2A 范围登记 | ✅（待 PR） | P00 见 `callsite-inventory.md`；U/P/G/I/A 见 §2.1；R01 见 §2.3（批次 2/3 有 3 项本机环境受限，已逐项归因并单列，§2.4）；C01 的 2A 范围核对见清单 §4；任务 ID → 测试 ID → pytest 节点映射经 §2.8 与 §7.1 双向机械校验（最新一轮 **92 引用 / 0 未解析 / 0 未登记**，含 D08–D12） |
 | 2. 最小链路 invocation 全部有快照 ID、非空 digest、可读且校验一致的完整输入 | ✅ | G01、I01–I06、A01、A03 |
 | 3. 网络发送只从冻结内容派生；改写外部对象 / attempt 副本 / 并发绑定不能改变输入 | ✅ | G02、G03、P07、P06、I02 |
 | 4. retry/fallback 复用快照；工具续接 / 修复 / 重压建立新调用 | ✅ | G03、G04、G05、I02、I03、I04 |
 | 5. 审批恢复、当前授权、预算与资产撤销行为无退化 | ✅ | A01、A02、A05、A06；第一阶段审批回归 99 passed |
-| 6. SQLite 与隔离 PostgreSQL 的迁移 / 并发 / 不可变约束均有证据 | ✅（历史）/ ⏳（修复轮待补 PG） | §2.1 + §2.2（原始轮 PG 42 passed；沙箱删除守卫干扰已单列）。修复轮未重取 PG 证据，见 §2.9 |
+| 6. SQLite 与隔离 PostgreSQL 的迁移 / 并发 / 不可变约束均有证据 | ✅ | §2.1 + §2.2（原始轮 PG 42 passed）；**2026-10-07 复跑 44 passed**（隔离库 `better_snapshot_usage_20261007_test`，head `20260930_0025`），见 §2.10 |
 | 7. 报告明确未迁移入口、partial 来源、外部附件引用限制 | ✅ | 见 §4 |
 | 8. 原子性硬门禁仅覆盖 snapshot + invocation + execution context binding | ✅ | A08（资产步骤失败 → 核心三者整体回滚、零网络请求）；P05 |
 | 9. `provenance=partial` 可通过门禁 | ✅ | I01 断言 `status == "partial"` 且冻结/持久化/发送正常；U08/U09 由 `test_model_input_snapshot.py` 的 provenance 断言覆盖 |
@@ -225,4 +265,10 @@ python scripts/verify_acceptance_nodes.py
 2. **外部附件引用**：引用远程 URL 的附件只保留引用，不保证外部字节可复原；需要可复原的附件应使用已有不可变 artifact。
 3. **2B 入口未迁移**：Research、Learning、Judge、摘要、专家、管理端模型验证（`model_admin._verify_live` 仍是无 control_store 的 direct 网关）。这些入口经同一 `RoutedModelGateway` 的调用会**顺带**获得快照绑定，但**未验收、不宣称覆盖**。
 4. **离线/脚本旁路**：`eval.py`、`evals.py` 及 `scripts/*` 仍为无存储路径，2B 的 P13 收口。
-5. **交付状态**：改动仍在工作区，尚未形成独立 PR；`git` 写操作在本仓库不可用（`.git/objects` 曾损坏），提交需另行处理。
+5. **交付状态**：Phase 2A 主体（含 2026-10-06 修复轮）已提交为 `9992533`（2026-10-07，68 文件）；
+   **2026-10-07 的 F04 修复仍在工作区，未提交、未形成 PR**。本仓库此前 `git` 写操作不可用（`.git/objects` 曾损坏），
+   现已恢复可用（`git log`/`git status` 正常）。**不得把未提交描述为已交付。**
+6. **direct 网关的响应后资产检查缺失**（2026-10-07 发现，未修改）：routed 网关在响应返回后会再查一次资产，
+   direct 网关只有发送前检查。`app/real_evaluation.py:1238` 构造的 direct 网关带有已装配 `learning_assets` 的
+   `control_store`，因此「在途撤销」时 direct 路径会成功采用该响应，而 routed 路径会失败。属行为变更，需单独决策。
+   详见 `fix-2026-10-07/acceptance-fix-report.md` §6.1。

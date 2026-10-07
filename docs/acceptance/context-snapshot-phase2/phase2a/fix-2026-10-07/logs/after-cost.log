@@ -1,0 +1,21 @@
+START 2026-10-07T19:26:16+08:00
+CMD pytest tests/test_cost_control.py tests/test_m5_release_gates.py
+.........................F.F.....                                        [100%]
+================================== FAILURES ===================================
+_ test_restart_maintenance_stops_invalid_canary_without_changing_stable[budget] _
+tests\test_m5_release_gates.py:118: in test_restart_maintenance_stops_invalid_canary_without_changing_stable
+    assert restored.maintain_canaries() == 1
+E   assert 0 == 1
+E    +  where 0 = maintain_canaries()
+E    +    where maintain_canaries = <app.evolution.EvolutionService object at 0x0000000007552B30>.maintain_canaries
+___________ test_budget_rejects_before_attempt_and_stop_is_durable ____________
+tests\test_m5_release_gates.py:164: in test_budget_rejects_before_attempt_and_stop_is_durable
+    with pytest.raises(BudgetExceeded, match="canary"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE BudgetExceeded
+=========================== short test summary info ===========================
+FAILED tests/test_m5_release_gates.py::test_restart_maintenance_stops_invalid_canary_without_changing_stable[budget]
+FAILED tests/test_m5_release_gates.py::test_budget_rejects_before_attempt_and_stop_is_durable
+2 failed, 31 passed in 35.96s
+EXIT=1
+END 2026-10-07T19:26:56+08:00

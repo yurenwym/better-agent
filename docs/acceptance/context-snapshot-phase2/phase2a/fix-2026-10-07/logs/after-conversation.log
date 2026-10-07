@@ -1,0 +1,6 @@
+START 2026-10-07T19:28:52+08:00
+CMD pytest tests/test_conversation.py tests/test_conversation_protocol_v2.py
+..........................................                               [100%]
+42 passed in 43.32s
+EXIT=0
+END 2026-10-07T19:29:39+08:00

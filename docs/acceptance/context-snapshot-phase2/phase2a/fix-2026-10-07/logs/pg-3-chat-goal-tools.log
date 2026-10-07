@@ -1,0 +1,6 @@
+START 2026-10-07T19:13:12+08:00
+CMD pytest tests/integration/test_chat_goal_tools_postgres.py -q --tb=short -rfE
+.....                                                                    [100%]
+5 passed in 27.62s
+EXIT=0
+END 2026-10-07T19:13:42+08:00

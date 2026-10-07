@@ -1,0 +1,7 @@
+START 2026-10-07T19:21:14+08:00
+CMD pytest tests/test_goal_program_compiler.py tests/test_goal_programs.py tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py
+........................................................................ [ 84%]
+.............                                                            [100%]
+85 passed in 291.49s (0:04:51)
+EXIT=0
+END 2026-10-07T19:26:09+08:00

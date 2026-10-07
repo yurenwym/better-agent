@@ -1,0 +1,6 @@
+START 2026-10-07T19:13:49+08:00
+CMD pytest tests/integration/test_goal_tool_recovery_postgres.py -q --tb=short -rfE
+.......                                                                  [100%]
+7 passed in 32.98s
+EXIT=0
+END 2026-10-07T19:14:26+08:00

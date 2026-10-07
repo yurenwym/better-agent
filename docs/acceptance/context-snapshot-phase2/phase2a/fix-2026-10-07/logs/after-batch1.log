@@ -1,0 +1,7 @@
+START 2026-10-07T19:15:16+08:00
+CMD pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py
+........................................................................ [ 72%]
+...........................                                              [100%]
+99 passed in 347.68s (0:05:47)
+EXIT=0
+END 2026-10-07T19:21:06+08:00

@@ -1,7 +1,8 @@
 # ContextSnapshot 第二阶段 · 真实模型调用入口清单（P00）
 
-- 日期：2026-09-30
-- 代码基线：`dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7`
+- 日期：2026-09-30（§7.1 于 2026-10-06 / 2026-10-07 追加）
+- 代码基线：`dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7`（2026-10-07 起，Phase 2A 主体已提交为
+  `9992533fac42f19b9e1dbe321612d94912e6e8b3`；2026-10-07 的 F04 修复仍在工作区）
 - 核对方式：只读检索 `startup.py` 的网关装配、全部 `.complete(` 调用点、全部 `ModelGateway(` 构造点、
   `ModelControlStore.begin_invocation` 调用点，以及 HTTP 路由到服务的可达性。**没有只搜一个网关类就下结论。**
 - 本清单是 Phase 2A（M1）与 Phase 2B（M2）的共享入口台账。
@@ -99,7 +100,8 @@ R01 在 P10 用**当次实测**重跑，不照搬上表数量。
 
 ## 7. Phase 2A 任务 → 测试 ID → pytest 节点映射
 
-核对日期：2026-10-06（工作区改动，HEAD 仍为 `dcfc54e`）。
+核对日期：2026-10-06 首次核对（HEAD `dcfc54e`）；2026-10-07 追加 §7.1 的 F04 行并复核。
+最新一次机械对账：**§7 + §7.1 共 92 条引用，0 未解析，0 已实现但未登记**（6 个文件，127 个采集节点）。
 
 | 任务 | 交付 | 测试 ID | pytest 节点 |
 |---|---|---|---|
@@ -127,6 +129,7 @@ R01 在 P10 用**当次实测**重跑，不照搬上表数量。
 | R04 | F03 PostgreSQL 并发（同语义 replay / 异身份冲突） | K05、K06 | `tests/integration/test_model_input_snapshot_postgres.py::test_k05_concurrent_writers_with_the_same_identity_have_one_winner`、`::test_k06_concurrent_writers_with_different_execution_identities_conflict` |
 | R05 | F02 编译器真实逻辑调用边界（编译 / 修复两个 span；retry 同调用） | S01–S05 | `tests/test_snapshot_flow.py::test_s01_a_real_compiler_repair_is_a_second_logical_call`、`::test_s02_a_network_retry_stays_inside_one_logical_call`、`::test_s03_a_repair_that_retries_keeps_its_own_identity`、`::test_s04_the_ambient_context_is_restored_after_a_compile`、`::test_s05_a_resumed_compile_keeps_its_tool_identity_and_pinned_bundle` |
 | R06 | 真实来源与证据（Memory 版本、Skill 版本绑定与撤销、partial provenance） | B01–B03 | `tests/test_snapshot_flow.py::test_b01_a_memory_update_is_reselected_and_recorded_by_the_next_turn`、`::test_b02_a_skill_update_binds_a_new_version_and_a_revoked_one_stops_the_send`、`::test_b03_a_partial_input_with_a_known_reference_freezes_sends_and_stays_honest` |
+| R09（2026-10-07） | F04 响应后撤销的 usage 保留与结算（含无/部分 usage、无重试、成功路径不变、单次结算） | D08–D12 | `tests/test_snapshot_gateway.py::test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it`、`::test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens`（参数化 2：`[usage-absent]`/`[usage-partial]`）、`::test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot`、`::test_d11_a_valid_response_after_the_check_still_succeeds_and_settles`、`::test_d12_a_settled_attempt_cannot_be_settled_a_second_time` |
 
 
 补充说明：I02 与 I06 在网关层表达"首次 LLM → 工具 → 下一次 LLM"与"工具内部编译"，因为该层就是冻结点所在；

@@ -1,13 +1,22 @@
 {
   "phase": "2A",
   "gate": "M1",
-  "date": "2026-10-06",
-  "status": "phase2a_main_complete_m1_pending_pg_reverify",
-  "status_note": "The original round reported ready_for_m1_review. The 2026-10-06 fix round (fixes_2026_10_06) fixed F01/F02/F03 and re-ran every SQLite group, but the PostgreSQL integration group could not be re-run (Docker engine down). M1 is therefore NOT declared passed until the PG group is re-run.",
+  "date": "2026-10-07",
+  "status": "phase2a_scope_complete_m1_pending_reverify",
+  "status_note": "2026-10-06 fix round fixed F01/F02/F03 and re-ran every SQLite group but could not re-run PostgreSQL (Docker down). 2026-10-07 fix round (fixes_2026_10_07) fixed F04 (usage dropped when the post-response asset check refuses a real response), re-ran every group AND completed the PostgreSQL re-run (44 passed) on a fresh isolated database. Every Phase 2A gate is now satisfied. M1 is still recorded as pending re-verification because the repository's default environment still shows the 2 known-baseline test_m5_release_gates.py budget failures (they pass under BETTER_AGENT_COST_MODE=enforce) and two machine-latency-limited worker cases were not re-run; none of them is on a Phase 2A code path.",
   "code": {
-    "head_commit": "dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7",
+    "head_commit": "9992533fac42f19b9e1dbe321612d94912e6e8b3",
+    "head_commit_date": "2026-10-07",
+    "head_commit_subject": "feat: freeze model input snapshots for Phase 2A",
+    "head_commit_files": 68,
     "worktree_dirty": true,
-    "note": "all phase 2A work is uncommitted; git write operations are unavailable in this repository",
+    "worktree_changes": [
+      "backend/app/model_control.py",
+      "backend/tests/test_snapshot_gateway.py",
+      "docs/acceptance/context-snapshot-phase2/callsite-inventory.md"
+    ],
+    "note": "Phase 2A (including the 2026-10-06 fix round) was committed as 9992533 on 2026-10-07. The 2026-10-07 F04 fix is NOT committed yet -- it lives in the working tree. Do not describe uncommitted work as delivered.",
+    "previous_head_commit": "dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7",
     "postgres_schema_head": "20260930_0025",
     "sqlite_migration_max": 47,
     "previous_postgres_head": "20260930_0024"
@@ -16,7 +25,7 @@
     "python": "3.13 (D:\\pycharm\\python.exe)",
     "sqlite": "stdlib sqlite3, WAL",
     "postgres": "pgvector/pgvector:pg16, container better-postgres-1, 127.0.0.1:5432",
-    "test_database": "better_agent_v4_test",
+    "test_database": "better_agent_v4_test (2026-10-06 rounds); better_snapshot_usage_20261007_test (2026-10-07 round, created fresh and migrated from empty)",
     "test_database_isolation": "db_target_guard.assert_isolated_test_database; name must end with _test/_tests/_pgtest and host must be loopback"
   },
   "fixes_this_round": [
@@ -98,6 +107,35 @@
       "before_symptom": "the second call raised InvocationReplayError where InvocationIdempotencyConflict was expected",
       "fix": "added _IDENTITY_COLUMNS (owner_id, run_id, thread_id, turn_id, agent_task_id, root_budget_id, runtime_bundle_id; agent_task_id is the harness task_id). _existing_invocation now SELECTs those columns. _resolve_existing_invocation compares them field by field (including nulls) plus role/purpose, and keeps the request_digest and context_snapshot_digest comparisons. Added _execution_identity_conflicts: a one-sided harness is always refused as a replay, and when both sides carry a harness the execution_context_digest is compared too.",
       "after_result": "K01-K06 pass (K05/K06 on isolated PostgreSQL when Docker was up)"
+    }
+  ],
+  "fixes_2026_10_07": [
+    {
+      "id": "F04",
+      "severity": "P2",
+      "title": "a refused response dropped its already-billed usage",
+      "file": "app/model_control.py",
+      "line": 1074,
+      "found_by": "phase2a/review-2026-10-07.md",
+      "issue": "when the post-response asset check refused a response, the routed gateway passed None to finish_attempt instead of the response it had just received. The provider had already run and already billed that attempt, but the known token usage was written as empty (usage_status UNAVAILABLE) and cost settlement could not use the real usage.",
+      "reproduced_by": ["test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it", "test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens", "test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot", "test_d11_a_valid_response_after_the_check_still_succeeds_and_settles", "test_d12_a_settled_attempt_cannot_be_settled_a_second_time"],
+      "before_repro": {
+        "how": "temporarily reverted the fix (and, for D12, the guard); the marker was removed afterwards -- the worktree carries no leftover",
+        "d08": "failed: assert None == 1000 (usage dropped)",
+        "d09_partial": "failed: assert 'UNAVAILABLE' == 'ESTIMATED_PARTIAL'",
+        "d12": "failed: two model.attempt.finished events for one attempt, expected one"
+      },
+      "fix": [
+        "pass the received response to finish_attempt in the post-response refusal branch, keeping FAILED/asset_revoked and still not selecting the attempt",
+        "make one-attempt-one-settlement structural: finish_attempt now confirms the attempt row is still STARTED before calling settle_attempt (the cost settlement runs before the guarded UPDATE, so a second call would otherwise re-charge the ledger and re-emit the audit events)"
+      ],
+      "constraint_check": {
+        "attempt_and_invocation_stay_failed_and_no_selected_attempt": "D08, D10 (selected_attempt_id IS NULL)",
+        "real_usage_persisted_and_cost_settled_from_it": "D08 (usage_status COMPLETE, cost_status ESTIMATED_COMPLETE, 2000 micro-USD)",
+        "no_retry_no_fallback_snapshot_unchanged": "D10 (max_attempts=3, one send, snapshot digest unchanged)",
+        "one_attempt_settled_once": "D12; plus static review: LearningConflict extends ValueError, not GatewayError, so the re-raise is not re-caught by the attempt's own except GatewayError"
+      },
+      "after_result": "D08-D12 pass; D family 32 passed; specialty 113 passed"
     }
   ],
   "test_runs": [
@@ -238,7 +276,75 @@
       "duration_s": 67.0,
       "log": "fix-2026-10-06/logs/after-pg-snapshot.log",
       "cause": "environment: Docker Desktop was not running, so better-postgres-1 was absent and the session-scoped alembic upgrade head hit its 60 s timeout. Evidence that the code is fine: the same file with -k 'k05 or k06' reported 2 passed earlier in the same round while Docker was still up.",
-      "action_required": "re-run this 5-file group once Docker Desktop is up; this is the only outstanding item before M1 can be marked passed"
+      "action_required": "re-run this 5-file group once Docker Desktop is up; this is the only outstanding item before M1 can be marked passed",
+      "resolved": "2026-10-07: Docker Desktop was up (better-postgres-1 healthy); the group was re-run per file on a fresh isolated database and reported 44 passed (14+13+5+7+5). See the 2026-10-07 entries below."
+    },
+    {
+      "name": "fix-round-2026-10-07-specialised-sqlite",
+      "round": "2026-10-07",
+      "command": "python -m pytest tests/test_model_input_snapshot.py tests/test_model_input_snapshot_store.py tests/test_snapshot_gateway.py tests/test_snapshot_flow.py tests/test_snapshot_recovery.py -q --tb=short -rfE",
+      "result": "113 passed",
+      "duration_s": 330.89,
+      "note": "113 = 107 from the 2026-10-06 round + the 6 new F04 nodes (D08, D09[usage-absent], D09[usage-partial], D10, D11, D12)",
+      "log": "fix-2026-10-07/logs/after-specialty.log"
+    },
+    {
+      "name": "fix-round-2026-10-07-regression-batch-1",
+      "round": "2026-10-07",
+      "command": "python -m pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py -q --tb=short -rfE",
+      "result": "99 passed",
+      "duration_s": 347.68,
+      "log": "fix-2026-10-07/logs/after-batch1.log"
+    },
+    {
+      "name": "fix-round-2026-10-07-regression-batch-2",
+      "round": "2026-10-07",
+      "command": "python -m pytest tests/test_goal_program_compiler.py tests/test_goal_programs.py tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py -q --tb=short -rfE",
+      "result": "85 passed",
+      "duration_s": 291.49,
+      "log": "fix-2026-10-07/logs/after-batch2.log"
+    },
+    {
+      "name": "fix-round-2026-10-07-conversation-and-protocol",
+      "round": "2026-10-07",
+      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_protocol_v2.py -q --tb=short -rfE",
+      "result": "42 passed",
+      "duration_s": 43.32,
+      "log": "fix-2026-10-07/logs/after-conversation.log"
+    },
+    {
+      "name": "fix-round-2026-10-07-cost-and-release-gates-default-env",
+      "round": "2026-10-07",
+      "command": "python -m pytest tests/test_cost_control.py tests/test_m5_release_gates.py -q --tb=short -rfE",
+      "result": "2 failed / 31 passed",
+      "duration_s": 35.96,
+      "log": "fix-2026-10-07/logs/after-cost.log",
+      "failed": ["test_m5_release_gates.py::test_restart_maintenance_stops_invalid_canary_without_changing_stable[budget]", "test_m5_release_gates.py::test_budget_rejects_before_attempt_and_stop_is_durable"],
+      "cause": "KNOWN BASELINE, not a Phase 2A regression: these two assert budget enforcement but do not declare BETTER_AGENT_COST_MODE=enforce, and the default observe mode records limits without blocking. test_cost_control.py alone reports 15 passed.",
+      "isolation": "same file: 2 failed / 16 passed in observe mode, 18 passed with BETTER_AGENT_COST_MODE=enforce (see the next entry)"
+    },
+    {
+      "name": "fix-round-2026-10-07-cost-and-release-gates-enforce",
+      "round": "2026-10-07",
+      "command": "BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_cost_control.py tests/test_m5_release_gates.py -q --tb=short -rfE",
+      "result": "33 passed",
+      "duration_s": 31.99,
+      "log": "fix-2026-10-07/logs/after-cost-enforce.log",
+      "purpose": "prove the two default-env failures are the mode declaration, not the code under test"
+    },
+    {
+      "name": "fix-round-2026-10-07-postgres-group",
+      "round": "2026-10-07",
+      "env": "TEST_DATABASE_URL=postgresql://better_agent:***@127.0.0.1:5432/better_snapshot_usage_20261007_test",
+      "setup": "Docker Desktop up; better-postgres-1 healthy; fresh database better_snapshot_usage_20261007_test created with the vector and pg_trgm extensions; alembic upgrade head; alembic current = 20260930_0025 (head) == alembic heads",
+      "result": "44 passed",
+      "detail": [
+        {"file": "tests/integration/test_model_input_snapshot_postgres.py", "result": "14 passed", "duration_s": 72.65, "log": "fix-2026-10-07/logs/pg-1-snapshot.log", "highlights": ["historical calls are not back-filled (test_p01)", "direct SQL cannot rewrite or unbind a snapshot (test_p07)", "core transaction rollback (test_p05)", "K05/K06 idempotency concurrency"]},
+        {"file": "tests/integration/test_harness_context_postgres.py", "result": "13 passed", "duration_s": 76.87, "log": "fix-2026-10-07/logs/pg-2-harness.log"},
+        {"file": "tests/integration/test_chat_goal_tools_postgres.py", "result": "5 passed", "duration_s": 27.62, "log": "fix-2026-10-07/logs/pg-3-chat-goal-tools.log"},
+        {"file": "tests/integration/test_goal_tool_recovery_postgres.py", "result": "7 passed", "duration_s": 32.98, "log": "fix-2026-10-07/logs/pg-4-goal-tool-recovery.log"},
+        {"file": "tests/integration/test_root_task_budgets.py", "result": "5 passed", "duration_s": 22.99, "log": "fix-2026-10-07/logs/pg-5-root-task-budgets.log", "highlights": ["approval recovery and budget inheritance"]}
+      ]
     }
   ],
   "environment_limited_tests": [
@@ -285,7 +391,8 @@
       "root_cause": "Docker Desktop was not running (docker ps: failed to connect to the docker API ... dockerDesktopLinuxEngine); better-postgres-1 was absent. The sandbox recycles GUI processes, so starting Docker Desktop.exe did not keep it alive (Get-Process count 0).",
       "evidence": "fix-2026-10-06/logs/after-pg-snapshot.log; docker_start.txt records the process count of 0",
       "isolation": "NOT a product defect: earlier in the same round, while Docker was still up, -k 'k05 or k06' on the same file reported 2 passed; the original acceptance-report round recorded 42 passed across the 5 files. The Phase 2A diff does not touch the migration harness.",
-      "treatment": "declared environment-limited; this is the ONE outstanding item before M1 can be marked passed. Re-run the 5-file group through db_target_guard against the isolated test database once Docker Desktop is up."
+      "treatment": "declared environment-limited; this is the ONE outstanding item before M1 can be marked passed. Re-run the 5-file group through db_target_guard against the isolated test database once Docker Desktop is up.",
+      "resolved_2026_10_07": "Docker Desktop was running on 2026-10-07 (better-postgres-1 healthy). A fresh isolated database better_snapshot_usage_20261007_test was created and migrated (head 20260930_0025), and the five files were re-run one at a time: 14 + 13 + 5 + 7 + 5 = 44 passed, exit code 0 for each. Logs: fix-2026-10-07/logs/pg-1..5-*.log. The 2026-10-06 environment record is kept above, unchanged."
     }
   ],
   "failed_rounds": [
@@ -361,22 +468,35 @@
     "A": ["A01", "A02", "A03", "A04", "A05", "A06", "A07", "A08"],
     "C": ["C01 (2A scope only)"],
     "R": ["R01"],
-    "D": ["D01", "D02", "D03", "D04", "D05", "D06", "D07"],
+    "D": ["D01", "D02", "D03", "D04", "D05", "D06", "D07", "D08", "D09", "D10", "D11", "D12"],
     "K": ["K01", "K02", "K03", "K04", "K05 (PostgreSQL)", "K06 (PostgreSQL)"],
     "S": ["S01", "S02", "S03", "S04", "S05"],
     "B": ["B01", "B02", "B03"],
-    "added_in_2026_10_06_fix_round": true
+    "added_in_2026_10_06_fix_round": true,
+    "added_in_2026_10_07_fix_round": ["D08", "D09 (2 params)", "D10", "D11", "D12"]
   },
   "mapping_check": {
     "tool": "scripts/verify_acceptance_nodes.py",
     "what": "reconciles every pytest node referenced in callsite-inventory.md section 7 against `pytest --collect-only` output, in both directions",
-    "result": "67 references resolved, 0 unresolved, 0 collected-but-unmapped",
+    "result": "92 references resolved, 0 unresolved, 0 collected-but-unmapped (latest run, 2026-10-07, after adding D08-D12; 6 files, 127 collected node ids)",
+    "result_history": [
+      {"round": "original", "references": 67, "unresolved": 0, "unmapped": 0},
+      {"round": "2026-10-06", "references": 87, "unresolved": 0, "unmapped": 0},
+      {"round": "2026-10-07", "references": 92, "unresolved": 0, "unmapped": 0}
+    ],
     "fixes": [
       "7 implemented tests were missing from section 7 (3 store tests: round-trip, legacy classification, caller-supplied id duplicate; 4 gateway tests G02-G05 that were hidden behind an ellipsis)",
       "test ID P03 had no named test: its assertions live in test_u07_a_snapshot_is_frozen_persisted_and_bound_in_one_transaction plus step 3 of the PostgreSQL test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot; now stated explicitly",
       "parameterised nodes (U02, U05 partly, G10, G11) are now annotated so the table is not mistaken for a node count"
     ],
-    "section_7_1": "callsite-inventory.md gained a section 7.1 listing every node added or strengthened by the 2026-10-06 fix round (D01-D07, K01-K06, S01-S05, B01-B03) with full pytest node names, and section 7 rows P07/P08/P09 were updated to the new node names and the [direct]/[routed] parameterisation."
+    "section_7_1": "callsite-inventory.md section 7.1 lists every node added or strengthened by the fix rounds. 2026-10-06 added D01-D07, K01-K06, S01-S05, B01-B03 and updated section 7 rows P07/P08/P09; 2026-10-07 added D08-D12 for F04. Latest mechanical run: 92 references resolved, 0 unresolved, 0 collected-but-unmapped.",
+    "section_7_1_2026_10_07": "re-ran scripts/verify_acceptance_nodes.py after adding D08-D12: 92 references, 0 unresolved, 0 collected-but-unmapped (6 files, 127 collected node ids)."
+  },
+  "known_asymmetry_2026_10_07": {
+    "what": "the routed gateway runs the asset check again after the response; the direct gateway only runs it before the send",
+    "where": "app/real_evaluation.py:1238 builds a direct ModelGateway with a control_store whose learning_assets is wired at startup",
+    "effect": "for a direct-gateway call whose asset is revoked while the response is in flight, the call succeeds and the response is used, whereas the same call through the routed gateway fails with asset_revoked",
+    "status": "reported, NOT changed: the 2026-10-07 task scoped the work to F04 (preserving the usage). Adding a post-response check to the direct gateway is a behaviour change and needs its own decision."
   },
   "m1_gate": {
     "1_p00_p10_plus_tests_plus_c01": "satisfied_pending_pr",
@@ -384,11 +504,11 @@
     "3_send_derived_from_frozen_only": "satisfied",
     "4_retry_fallback_reuse_new_call_on_repair": "satisfied",
     "5_approval_authorisation_budget_revocation_no_regression": "satisfied",
-    "6_sqlite_and_postgres_evidence": "PENDING_pg_reverify",
+    "6_sqlite_and_postgres_evidence": "satisfied",
     "7_report_states_unmigrated_and_partial": "satisfied",
     "8_atomicity_limited_to_three_core_writes": "satisfied",
     "9_partial_provenance_accepted": "satisfied",
-    "note": "Gate 6 is the only gate not fully satisfied in the 2026-10-06 fix round: the SQLite evidence was re-obtained and passes, but the PostgreSQL group could not be re-run because Docker was down. Per the task's section 4, M1 may only be marked passed once every gate (including gate 6's PostgreSQL evidence) is met. Current M1 status: phase 2A main body complete, pending PG re-run."
+    "note": "Every Phase 2A gate is satisfied as of 2026-10-07: the 2026-10-06 round supplied the SQLite evidence and the 2026-10-07 round supplied the PostgreSQL evidence (44 passed on a fresh isolated database) plus the F04 fix and its D08-D12 nodes. M1 is nonetheless still recorded as PENDING RE-VERIFICATION, because two items remain outside the Phase 2A code paths: (a) under the repository's default environment, tests/test_m5_release_gates.py reports 2 failures (known baseline -- the tests assert budget enforcement without declaring BETTER_AGENT_COST_MODE=enforce; the same file reports 18 passed under enforce), and (b) tests/test_conversation_worker.py was not re-run this round (its two machine-latency-limited cases are recorded from the 2026-10-06 round). No Phase 2A-scope blocker is open."
   },
   "not_covered": [
     "provenance completeness: per-fragment positions of history/summary/attachments and the full dropped list are not recorded; status stays partial",
@@ -396,6 +516,8 @@
     "phase 2B entry points: research, learning, judge, summary, experts, model_admin._verify_live",
     "offline/script bypasses: eval.py, evals.py, scripts/*",
     "no paid-model smoke test was run",
-    "no full-repository pytest run (12 known baseline failures out of scope)"
+    "no full-repository pytest run (12 known baseline failures out of scope)",
+    "the direct gateway has no post-response asset check (see known_asymmetry_2026_10_07); not changed in this round",
+    "tests/test_conversation_worker.py was not re-run in the 2026-10-07 round"
   ]
 }

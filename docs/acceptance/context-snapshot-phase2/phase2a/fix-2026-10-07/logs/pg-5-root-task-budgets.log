@@ -1,0 +1,6 @@
+START 2026-10-07T19:14:33+08:00
+CMD pytest tests/integration/test_root_task_budgets.py -q --tb=short -rfE
+.....                                                                    [100%]
+5 passed in 22.99s
+EXIT=0
+END 2026-10-07T19:14:59+08:00

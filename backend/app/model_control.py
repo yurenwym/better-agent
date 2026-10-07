@@ -741,6 +741,15 @@ class ModelControlStore:
         usage_digest = _digest(values) if usage is not None else None
         db_status = {"succeeded": "SUCCEEDED", "failed": "FAILED", "cancelled": "CANCELLED"}[status]
         with self.db.transaction() as connection:
+            # Serialize settlement and its audit events with the state check.
+            # SQLite transactions already use BEGIN IMMEDIATE; PostgreSQL needs
+            # a row lock held until the settlement transaction commits/rolls back.
+            lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            current = connection.execute(
+                "SELECT status FROM model_attempts WHERE id=?" + lock, (attempt_id,)
+            ).fetchone()
+            if current is None or current["status"] != "STARTED":
+                return
             cost = self.costs.settle_attempt(connection, handle, attempt_id, usage) if self.costs is not None else None
             connection.execute(
                 "UPDATE model_attempts SET status=?,error_kind=?,uncached_input_tokens=?,cache_read_tokens=?,cache_write_tokens=?,"
@@ -1066,12 +1075,17 @@ class RoutedModelGateway:
                     if getattr(self.control_store, "learning_assets", None) is not None:
                         # The asset was still active when the attempt started; it
                         # may have been revoked while the response was in flight.
-                        # The result is not usable, and the call is closed rather
-                        # than left RUNNING for a later retry to pick up.
+                        # The result is not usable and the call is closed rather
+                        # than left RUNNING for a later retry to pick up -- but
+                        # the provider *did* run and bill this attempt, so the
+                        # response is handed to the settlement path: its usage is
+                        # persisted and its cost is charged as incurred. Passing
+                        # None here would silently drop a real, already-billed
+                        # usage record.
                         try:
                             self.control_store.assert_request_active(handle.invocation_id, context)
                         except Exception:
-                            self.control_store.finish_attempt(active, ordinal, "failed", "asset_revoked", None)
+                            self.control_store.finish_attempt(active, ordinal, "failed", "asset_revoked", response)
                             self.control_store.finish_invocation(active, "failed")
                             raise
                     self.control_store.finish_attempt(active, ordinal, "succeeded", None, response)

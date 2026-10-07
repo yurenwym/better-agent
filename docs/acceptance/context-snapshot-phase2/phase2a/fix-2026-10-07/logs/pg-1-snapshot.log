@@ -1,0 +1,6 @@
+START 2026-10-07T19:10:19+08:00
+CMD pytest tests/integration/test_model_input_snapshot_postgres.py -q --tb=short -rfE
+..............                                                           [100%]
+14 passed in 72.65s (0:01:12)
+EXIT=0
+END 2026-10-07T19:11:35+08:00

@@ -1174,3 +1174,305 @@ async def test_d07_the_routed_gateway_keeps_its_per_attempt_check(tmp_path, monk
 
     assert len(sent) == 1
     assert _invocation_row(db, _only_invocation_id(db))["status"] == "FAILED"
+
+
+# --------------------------------------------------------------------------- #
+# D08-D11: a revocation that lands *after* the response
+#
+# The provider has already run and already billed the attempt when the asset is
+# found revoked.  The result may not be used, but the usage is real: dropping it
+# would erase a record the invoice will contradict.
+# --------------------------------------------------------------------------- #
+
+_METERED_USAGE = (1000, 0, 0, 500, 0)  # uncached in, cache read, cache write, out, reasoning
+# price: 1e6 micro-USD per million uncached input tokens, 2e6 per million output
+# -> 1000 in * 1e6/1e6 + 500 out * 2e6/1e6 = 2000 micro-USD
+_METERED_COST_MICROUSD = 2000
+
+
+def _metered_response(usage=_METERED_USAGE):
+    """A response carrying an explicit usage record.
+
+    ``usage`` is the five-token tuple; ``None`` means the provider returned no
+    usage block at all.
+    """
+    from app.model_gateway import ModelResponse, Timing, UsageBuckets
+
+    buckets = None if usage is None else UsageBuckets(*usage)
+    return ModelResponse("好的", [], "stop", buckets, Timing(0, 0, 1), 1)
+
+
+def _priced_chat_plane(tmp_path, monkeypatch, *, max_attempts=1):
+    """A routed control plane with a real price for the chat profile.
+
+    Registering a price is what turns the settled cost into a *real* number
+    derived from the reported usage, instead of an unavailable placeholder --
+    which is the whole point of the post-response settlement path.
+    """
+    from app.costs import CostService, PriceSnapshot
+    from app.model_control import ModelControlStore
+
+    db, bundle, versions = _configured_control_plane(
+        tmp_path, monkeypatch, max_attempts={"chat": max_attempts},
+    )
+    costs = CostService(db)
+    costs.register_price(
+        versions["chat"], PriceSnapshot("price-chat", 1_000_000, 0, 0, 2_000_000, 0),
+    )
+    control = ModelControlStore(db, costs=costs)
+    control.learning_assets = _learning_assets(db, tmp_path)
+    return db, bundle, versions, control, costs
+
+
+def _settled_attempt(db, invocation_id, ordinal=1):
+    with db.connection() as connection:
+        return connection.execute(
+            "SELECT status,error_kind,uncached_input_tokens,output_tokens,usage_status,"
+            "usage_digest,cost_status,cost_microusd FROM model_attempts WHERE id=?",
+            (f"{invocation_id}_attempt_{ordinal}",),
+        ).fetchone()
+
+
+def _invocation_state(db, invocation_id):
+    with db.connection() as connection:
+        return connection.execute(
+            "SELECT status,selected_attempt_id,context_snapshot_id,context_snapshot_digest "
+            "FROM model_invocations WHERE id=?", (invocation_id,),
+        ).fetchone()
+
+
+def _charges(db, invocation_id, ordinal=1):
+    with db.connection() as connection:
+        return connection.execute(
+            "SELECT amount_microusd FROM cost_ledger WHERE attempt_id=? AND entry_type='CHARGE'",
+            (f"{invocation_id}_attempt_{ordinal}",),
+        ).fetchall()
+
+
+def _attempt_finished_events(db, invocation_id):
+    """How many ``model.attempt.finished`` audit events this invocation has.
+
+    Settlement is observable here as well as in the ledger: a second settlement
+    of one attempt re-emits these even though the guarded row update is a no-op.
+    """
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT data_json FROM model_invocation_events "
+            "WHERE invocation_id=? AND event_type='model.attempt.finished'",
+            (invocation_id,),
+        ).fetchall()
+    return [
+        json.loads(row["data_json"]) for row in rows
+    ]
+
+
+@pytest.mark.asyncio
+async def test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it(
+    tmp_path, monkeypatch,
+) -> None:
+    """F04: the attempt really happened, so its usage must not be thrown away.
+
+    The asset is revoked while the response is in flight.  The result is not
+    usable and the call fails -- but the provider already ran and already billed
+    this attempt, so the usage is persisted and the cost is charged as incurred.
+    """
+    from app.learning_assets import LearningConflict
+    from app.model_control import RoutedModelGateway
+
+    db, bundle, _, control, costs = _priced_chat_plane(tmp_path, monkeypatch)
+    assets = control.learning_assets
+    sent: list = []
+
+    async def execute(profile, request, **_):
+        sent.append(request)
+        # In flight: revoked after the send-time check passed, before the
+        # response is accepted.
+        assets.revoke("local-user", "bundle", bundle.id, "revoked_in_flight")
+        return _metered_response()
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    with pytest.raises(LearningConflict):
+        await gateway.complete(_request(), context=_context(bundle))
+
+    assert len(sent) == 1, "a refusal after the response is not a repair"
+    invocation_id = _only_invocation_id(db)
+    state = _invocation_state(db, invocation_id)
+    assert state["status"] == "FAILED"
+    assert state["selected_attempt_id"] is None, "the response must not be selected"
+
+    row = _settled_attempt(db, invocation_id)
+    assert (row["status"], row["error_kind"]) == ("FAILED", "asset_revoked")
+    # The real usage survives, and is marked as real rather than estimated.
+    assert row["uncached_input_tokens"] == _METERED_USAGE[0]
+    assert row["output_tokens"] == _METERED_USAGE[3]
+    assert row["usage_status"] == "COMPLETE"
+    assert row["usage_digest"]
+    # ...and it is exactly what the cost was computed from.
+    assert (row["cost_status"], row["cost_microusd"]) == ("ESTIMATED_COMPLETE", _METERED_COST_MICROUSD)
+    charges = [charge["amount_microusd"] for charge in _charges(db, invocation_id)]
+    assert charges and set(charges) == {_METERED_COST_MICROUSD}
+    assert costs.summary("local-user", "DAILY", costs.today_period())["charged_microusd"] == _METERED_COST_MICROUSD
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "usage, expected_cost_status",
+    [
+        (None, "UNAVAILABLE"),
+        ((None, None, None, None, None), "ESTIMATED_PARTIAL"),
+    ],
+    ids=["usage-absent", "usage-partial"],
+)
+async def test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens(
+    tmp_path, monkeypatch, usage, expected_cost_status,
+) -> None:
+    """A response that carries no usable usage must not invent one.
+
+    The existing estimate rules still apply: the attempt is recorded, the cost
+    stays explicitly partial (or unavailable), and no token counts are made up.
+    """
+    from app.learning_assets import LearningConflict
+    from app.model_control import RoutedModelGateway
+
+    db, bundle, _, control, _ = _priced_chat_plane(tmp_path, monkeypatch)
+    assets = control.learning_assets
+
+    async def execute(profile, request, **_):
+        assets.revoke("local-user", "bundle", bundle.id, "revoked_in_flight")
+        return _metered_response(usage)
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    with pytest.raises(LearningConflict):
+        await gateway.complete(_request(), context=_context(bundle))
+
+    invocation_id = _only_invocation_id(db)
+    row = _settled_attempt(db, invocation_id)
+    assert (row["status"], row["error_kind"]) == ("FAILED", "asset_revoked")
+    assert row["usage_status"] == "UNAVAILABLE"
+    assert row["uncached_input_tokens"] is None
+    assert row["output_tokens"] is None
+    # No fabricated amount: the cost keeps the existing estimate rule.
+    assert row["cost_status"] == expected_cost_status
+    assert row["cost_microusd"] is None
+
+
+@pytest.mark.asyncio
+async def test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot(
+    tmp_path, monkeypatch,
+) -> None:
+    """A refusal is terminal: no retry, no fallback, and the input is untouched."""
+    from app.learning_assets import LearningConflict
+    from app.model_control import RoutedModelGateway
+
+    # Three attempts are available, so a retry would happen if the code retried.
+    db, bundle, _, control, _ = _priced_chat_plane(tmp_path, monkeypatch, max_attempts=3)
+    assets = control.learning_assets
+    sent: list = []
+
+    async def execute(profile, request, **_):
+        sent.append(request)
+        assets.revoke("local-user", "bundle", bundle.id, "revoked_in_flight")
+        return _metered_response()
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    with pytest.raises(LearningConflict):
+        await gateway.complete(_request(), context=_context(bundle))
+
+    assert len(sent) == 1, "no retry past a revocation"
+    invocation_id = _only_invocation_id(db)
+    state = _invocation_state(db, invocation_id)
+    assert state["status"] == "FAILED"
+    assert state["selected_attempt_id"] is None
+    # Exactly one attempt was opened, and it was settled once.
+    assert len(_attempt_rows(db)) == 1
+    # The frozen input is byte-for-byte what it was: a refusal is not a repair.
+    assert _snapshot_count(db) == 1
+    stored = _stored_snapshot(db, state["context_snapshot_id"])
+    assert stored.content_digest == state["context_snapshot_digest"]
+    assert stored.to_request().messages[-1] == {"role": "user", "content": "今天要做什么？"}
+
+
+@pytest.mark.asyncio
+async def test_d11_a_valid_response_after_the_check_still_succeeds_and_settles(
+    tmp_path, monkeypatch,
+) -> None:
+    """The guard must not leak into the success path.
+
+    With the asset still valid the call succeeds, the attempt is selected, and
+    the settlement is exactly the metered one.
+    """
+    from app.model_control import RoutedModelGateway
+
+    db, bundle, _, control, costs = _priced_chat_plane(tmp_path, monkeypatch)
+    sent: list = []
+
+    async def execute(profile, request, **_):
+        sent.append(request)
+        return _metered_response()
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    response = await gateway.complete(_request(), context=_context(bundle))
+
+    assert response.message == "好的"
+    assert len(sent) == 1
+    invocation_id = _only_invocation_id(db)
+    state = _invocation_state(db, invocation_id)
+    assert state["status"] == "SUCCEEDED"
+    assert state["selected_attempt_id"] == f"{invocation_id}_attempt_1"
+
+    row = _settled_attempt(db, invocation_id)
+    assert (row["status"], row["error_kind"]) == ("SUCCEEDED", None)
+    assert row["usage_status"] == "COMPLETE"
+    assert row["uncached_input_tokens"] == _METERED_USAGE[0]
+    assert (row["cost_status"], row["cost_microusd"]) == ("ESTIMATED_COMPLETE", _METERED_COST_MICROUSD)
+    assert costs.summary("local-user", "DAILY", costs.today_period())["charged_microusd"] == _METERED_COST_MICROUSD
+
+
+@pytest.mark.asyncio
+async def test_d12_a_settled_attempt_cannot_be_settled_a_second_time(
+    tmp_path, monkeypatch,
+) -> None:
+    """Constraint: one attempt is settled exactly once.
+
+    The post-response refusal settles the attempt itself and then re-raises.  If
+    that exception were ever caught by the attempt's own error handler, the
+    settlement would run a second time.  The ledger itself would not double-charge
+    (``_settle`` caches an existing CHARGE per period), but the attempt would be
+    announced finished twice and the second announcement would describe a state
+    the row no longer has.  The store must refuse the second settlement no matter
+    which caller path reaches it.
+    """
+    from app.learning_assets import LearningConflict
+    from app.model_control import ModelCallHandle, RoutedModelGateway
+
+    db, bundle, versions, control, _ = _priced_chat_plane(tmp_path, monkeypatch)
+    assets = control.learning_assets
+
+    async def execute(profile, request, **_):
+        assets.revoke("local-user", "bundle", bundle.id, "revoked_in_flight")
+        return _metered_response()
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    with pytest.raises(LearningConflict):
+        await gateway.complete(_request(), context=_context(bundle))
+
+    invocation_id = _only_invocation_id(db)
+    charges_once = [charge["amount_microusd"] for charge in _charges(db, invocation_id)]
+    assert charges_once, "the first settlement must have charged the ledger"
+    events_once = _attempt_finished_events(db, invocation_id)
+    assert len(events_once) == 1, events_once
+
+    handle = ModelCallHandle(
+        invocation_id=invocation_id,
+        profile_version_id=versions["chat"],
+        # ``begin_invocation`` rebinds the context with the invocation id, and
+        # ``finish_attempt`` reads it back from there to write its audit event.
+        context=_context(bundle, invocation_id=invocation_id),
+    )
+    # A second settlement -- whatever the caller's reason -- changes nothing.
+    control.finish_attempt(handle, 1, "failed", "asset_revoked", _metered_response())
+
+    assert [charge["amount_microusd"] for charge in _charges(db, invocation_id)] == charges_once
+    assert _attempt_finished_events(db, invocation_id) == events_once
+    row = _settled_attempt(db, invocation_id)
+    assert (row["status"], row["error_kind"]) == ("FAILED", "asset_revoked")
