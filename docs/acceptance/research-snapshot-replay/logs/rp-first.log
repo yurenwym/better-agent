@@ -1,0 +1,69 @@
+.................FFF.FF...F...                                           [100%]
+================================== FAILURES ===================================
+_ test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[lost] _
+tests\test_research_snapshot_replay.py:223: in test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend
+    await gateway.complete(snapshot.to_request(), context=ModelCallContext(snapshot.role, snapshot.purpose, owner_id="operator",
+app\model_control.py:1080: in complete
+    response = await self._execute_attempt(
+app\research_replay.py:246: in __call__
+    raise ReplayError("INVALID_COMMITTED_BINDING")
+E   app.research_replay.ReplayError: INVALID_COMMITTED_BINDING
+_ test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[cancelled] _
+app\model_control.py:1080: in complete
+    response = await self._execute_attempt(
+app\research_replay.py:254: in __call__
+    raise MissingFixture()
+E   app.research_replay.MissingFixture: MISSING_FIXTURE
+
+The above exception was the direct cause of the following exception:
+tests\test_research_snapshot_replay.py:223: in test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend
+    await gateway.complete(snapshot.to_request(), context=ModelCallContext(snapshot.role, snapshot.purpose, owner_id="operator",
+app\model_control.py:1161: in complete
+    raise GatewayError(str(error), error.kind, ordinal) from error
+E   app.model_gateway.GatewayError: MISSING_FIXTURE
+______ test_rp11_missing_fixtures_fail_without_external_fallback[model] _______
+tests\test_research_snapshot_replay.py:242: in test_rp11_missing_fixtures_fail_without_external_fallback
+    assert result["outcome"] == "invalid" and result["reason"] == "MISSING_FIXTURE"
+E   AssertionError: assert ('invalid' == 'invalid'
+E     
+E       invalid and 'configuration' == 'MISSING_FIXTURE'
+E     
+E     - MISSING_FIXTURE
+E     + configuration)
+_________ test_rp12_new_arms_and_dual_judges_preserve_original_state __________
+tests\test_research_snapshot_replay.py:291: in test_rp12_new_arms_and_dual_judges_preserve_original_state
+    report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:99: in evaluate
+    baseline = _research_arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:356: in invoke
+    self._record_bindings(identities)
+app\research_replay.py:372: in _record_bindings
+    self.bindings.append(dict(connection.execute("SELECT id,owner_id,role,purpose,context_snapshot_id,"
+E   sqlite3.OperationalError: no such column: price_snapshot_id
+________ test_rp13_only_allowed_fragment_changes_and_judges_are_blind _________
+tests\test_research_snapshot_replay.py:306: in test_rp13_only_allowed_fragment_changes_and_judges_are_blind
+    ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:99: in evaluate
+    baseline = _research_arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:356: in invoke
+    self._record_bindings(identities)
+app\research_replay.py:372: in _record_bindings
+    self.bindings.append(dict(connection.execute("SELECT id,owner_id,role,purpose,context_snapshot_id,"
+E   sqlite3.OperationalError: no such column: price_snapshot_id
+________ test_rp16_known_regression_is_detected_and_ties_never_release ________
+tests\test_research_snapshot_replay.py:354: in test_rp16_known_regression_is_detected_and_ties_never_release
+    assert comparison["planned_cases"] == 8 and comparison["outcome"] == "INSUFFICIENT_EVIDENCE" and not comparison["release_eligible"]
+E   AssertionError: assert (8 == 8 and 'FAIL' == 'INSUFFICIENT_EVIDENCE'
+E     
+E     - INSUFFICIENT_EVIDENCE
+E     + FAIL)
+=========================== short test summary info ===========================
+FAILED tests/test_research_snapshot_replay.py::test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[lost]
+FAILED tests/test_research_snapshot_replay.py::test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[cancelled]
+FAILED tests/test_research_snapshot_replay.py::test_rp11_missing_fixtures_fail_without_external_fallback[model]
+FAILED tests/test_research_snapshot_replay.py::test_rp12_new_arms_and_dual_judges_preserve_original_state
+FAILED tests/test_research_snapshot_replay.py::test_rp13_only_allowed_fragment_changes_and_judges_are_blind
+FAILED tests/test_research_snapshot_replay.py::test_rp16_known_regression_is_detected_and_ties_never_release
+6 failed, 24 passed in 35.69s

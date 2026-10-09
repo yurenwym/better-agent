@@ -1,0 +1,39 @@
+F...                                                                     [100%]
+================================== FAILURES ===================================
+__________ test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost ___________
+app\model_control.py:1054: in complete
+    self.control_store.start_attempt(active, ordinal, reason)
+app\model_control.py:686: in start_attempt
+    self.costs.reserve_attempt(connection, handle, attempt_id)
+app\costs.py:386: in reserve_attempt
+    raise BudgetExceeded("model price is unavailable")
+E   app.costs.BudgetExceeded: model price is unavailable
+
+The above exception was the direct cause of the following exception:
+app\model_control.py:1058: in complete
+    raise GatewayError(str(exc), "budget", ordinal) from exc
+E   app.model_gateway.GatewayError: model price is unavailable
+
+The above exception was the direct cause of the following exception:
+tests\integration\test_snapshot_entrypoints_postgres.py:27: in test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost
+    report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:106: in evaluate
+    decision = judge({"case": case, "baseline": baseline["text"], "candidate": candidate["text"]}) if judge else {"winner": "tie", "candidate_safe": False}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:389: in invoke
+    response = asyncio.run(gateway.complete(ModelRequest(
+D:\pycharm\Lib\asyncio\runners.py:194: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\asyncio\base_events.py:721: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+app\model_control.py:1121: in complete
+    raise GatewayError(str(error), error.kind, ordinal) from error
+E   app.model_gateway.GatewayError: model price is unavailable
+=========================== short test summary info ===========================
+FAILED tests/integration/test_snapshot_entrypoints_postgres.py::test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost
+1 failed, 3 passed, 8 deselected in 8.74s

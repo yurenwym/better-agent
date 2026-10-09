@@ -14,6 +14,95 @@ from snapshot_entrypoint_helpers import CommittedSnapshotTransport
 from test_snapshot_gateway import _answer, _configured_control_plane
 
 
+def test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost(migrated_postgres_url, tmp_path, monkeypatch):
+    """Real Research writes + dual Judge on a guarded PG ledger; no network."""
+    from test_research_snapshot_replay import paired_setup
+    from app.real_evaluation import ResearchRoleReplayEvaluator
+    from app.model_input_snapshot_store import ModelInputSnapshotStore, ModelInvocationMissing
+    from app.research_replay import authoritative_cost
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        db, base, candidate, runner, config, observers, case, stable = paired_setup(tmp_path, monkeypatch, database=db, controlled=True)
+        report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+            baseline_bundle_id=base.id, candidate_bundle_id=candidate.id, cases=[case], runner=runner.runner(config), judge=runner.judge(config))
+        assert report["outcome"] == "INSUFFICIENT_EVIDENCE"
+        assert report["cost_microusd"] == 8 and report["checks"]["cost_known"]
+        assert len(runner.bindings) == 4 and all(row["root_budget_id"] == config["root_budget_id"] for row in runner.bindings)
+        for row in runner.bindings:
+            with pytest.raises(ModelInvocationMissing):
+                ModelInputSnapshotStore(db).load_for_invocation("another-owner", row["id"])
+            assert row["attempt_prices"][0]["price_snapshot_id"]
+        with db.connection() as connection:
+            root = connection.execute("SELECT * FROM task_budget_roots WHERE id=?", (config["root_budget_id"],)).fetchone()
+            assert root["owner_id"] == "operator" and root["attempts_started"] == 4
+            assert connection.execute("SELECT bundle_id FROM runtime_channels WHERE name='stable'").fetchone()[0] == stable.id
+            costs = [row[0] for row in connection.execute("SELECT cost_microusd FROM model_attempts").fetchall()]
+        assert sum(costs) == report["cost_microusd"]
+        trace = [{"invocation_id": row["id"]} for row in runner.bindings]
+        assert authoritative_cost(db, trace, mode="controlled")["cost_microusd"] == 8
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["snapshot", "binding"])
+async def test_rp18_research_pg_atomic_failure_is_zero_send(migrated_postgres_url, tmp_path, monkeypatch, failure):
+    from app.research_replay import offline_plane, policy, DEFAULT_EVIDENCE_STATEMENT, ScriptedProvider
+    from app.research.models import Evidence
+    import asyncio
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        control, bundles, routing, _ = offline_plane(db, "pg-replay-owner")
+        bundle = bundles.ensure({**routing, **policy(DEFAULT_EVIDENCE_STATEMENT)})
+        root = control.costs.create_default_root_budget("pg-replay-owner", "evaluation", "atomic-replay")
+        observer = ScriptedProvider(db, "pg-replay-owner", [], asyncio.Event())
+        gateway = RoutedModelGateway(db, control, execute_attempt=observer)
+        model = LiveResearchModel(gateway)
+        from app.execution_context import create_root_context
+        context = ModelCallContext.from_harness(create_root_context(owner_id="pg-replay-owner", runtime_bundle_id=bundle.id, root_budget_id=root["id"]),
+                                              role="researcher", purpose="research_replay")
+        table = "model_input_snapshots" if failure == "snapshot" else "model_invocations"
+        with db.connection() as connection:
+            connection.execute("CREATE FUNCTION reject_replay_binding() RETURNS trigger AS $$ BEGIN RAISE EXCEPTION 'replay atomic fault'; END; $$ LANGUAGE plpgsql")
+            connection.execute(f"CREATE TRIGGER reject_replay BEFORE INSERT ON {table} FOR EACH ROW EXECUTE FUNCTION reject_replay_binding()")
+        token = gateway.set_call_context(context)
+        try:
+            with pytest.raises(Exception, match="replay atomic fault"):
+                await model.write("Setup", "Measured", [Evidence("e1", "s1", "Evidence.", None, 1)], "")
+        finally:
+            gateway.reset_call_context(token)
+            with db.connection() as connection:
+                connection.execute(f"DROP TRIGGER reject_replay ON {table}")
+                connection.execute("DROP FUNCTION reject_replay_binding()")
+        assert observer.trace == [] and gateway.current_call_context() is None
+        with db.connection() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM model_input_snapshots").fetchone()[0] == 0
+            assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_rp14_pg_exhausted_evaluation_budget_blocks_new_research_send(migrated_postgres_url, tmp_path, monkeypatch):
+    from test_research_snapshot_replay import paired_setup
+    from app.model_gateway import GatewayError
+    from app.research_replay import validate_pair
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        db, base, candidate, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch, database=db, controlled=True)
+        runner.control_store.costs.set_budget("operator", "ROOT", config["root_budget_id"], 0)
+        with pytest.raises(GatewayError, match="budget"):
+            runner.runner(config)(validate_pair(base.manifest, candidate.manifest, case)["base_messages"], base.id, case)
+        assert observers == []
+        with db.connection() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+    finally:
+        db.close()
+
+
 def test_t12_t13_skill_pipeline_generation_selector_replay_and_judge(migrated_postgres_url, tmp_path, monkeypatch):
     from pathlib import Path
     from app.startup import build_runtime

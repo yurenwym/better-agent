@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="4" time="8.437" timestamp="2026-10-09T11:28:44.874579+08:00" hostname="wym"><testcase classname="tests.integration.test_snapshot_entrypoints_postgres" name="test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost" time="5.141"><failure message="app.model_gateway.GatewayError: model price is unavailable">app\model_control.py:1054: in complete
+    self.control_store.start_attempt(active, ordinal, reason)
+app\model_control.py:686: in start_attempt
+    self.costs.reserve_attempt(connection, handle, attempt_id)
+app\costs.py:386: in reserve_attempt
+    raise BudgetExceeded("model price is unavailable")
+E   app.costs.BudgetExceeded: model price is unavailable
+
+The above exception was the direct cause of the following exception:
+app\model_control.py:1058: in complete
+    raise GatewayError(str(exc), "budget", ordinal) from exc
+E   app.model_gateway.GatewayError: model price is unavailable
+
+The above exception was the direct cause of the following exception:
+tests\integration\test_snapshot_entrypoints_postgres.py:27: in test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost
+    report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:106: in evaluate
+    decision = judge({"case": case, "baseline": baseline["text"], "candidate": candidate["text"]}) if judge else {"winner": "tie", "candidate_safe": False}
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:389: in invoke
+    response = asyncio.run(gateway.complete(ModelRequest(
+D:\pycharm\Lib\asyncio\runners.py:194: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\asyncio\runners.py:118: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+D:\pycharm\Lib\asyncio\base_events.py:721: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+app\model_control.py:1121: in complete
+    raise GatewayError(str(error), error.kind, ordinal) from error
+E   app.model_gateway.GatewayError: model price is unavailable</failure></testcase><testcase classname="tests.integration.test_snapshot_entrypoints_postgres" name="test_rp18_research_pg_atomic_failure_is_zero_send[snapshot]" time="0.331" /><testcase classname="tests.integration.test_snapshot_entrypoints_postgres" name="test_rp18_research_pg_atomic_failure_is_zero_send[binding]" time="0.357" /><testcase classname="tests.integration.test_snapshot_entrypoints_postgres" name="test_rp14_pg_exhausted_evaluation_budget_blocks_new_research_send" time="1.747" /></testsuite></testsuites>

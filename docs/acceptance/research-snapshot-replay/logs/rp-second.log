@@ -1,0 +1,18 @@
+.................F............                                           [100%]
+================================== FAILURES ===================================
+_ test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[lost] _
+tests\test_research_snapshot_replay.py:227: in test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend
+    await gateway.complete(snapshot.to_request(), context=ModelCallContext(snapshot.role, snapshot.purpose, owner_id="operator",
+app\model_control.py:991: in complete
+    handle, snapshot, frozen = open_model_invocation(
+app\model_control.py:286: in open_model_invocation
+    handle = control_store.begin_invocation(profile, frozen, context, route, snapshot=snapshot)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\model_control.py:440: in begin_invocation
+    self._resolve_existing_invocation(
+app\model_control.py:580: in _resolve_existing_invocation
+    raise InvocationIdempotencyConflict(
+E   app.model_control.InvocationIdempotencyConflict: idempotency key model_invocation_8e194ba690b14c56bf6824cb5f5ec752 is already bound to a different call: frozen input
+=========================== short test summary info ===========================
+FAILED tests/test_research_snapshot_replay.py::test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[lost]
+1 failed, 29 passed in 40.79s

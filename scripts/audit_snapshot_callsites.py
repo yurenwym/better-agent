@@ -41,6 +41,9 @@ SYMBOLS = {
     "LiveEvaluationRunner._judge.invoke": ["CS-EV-03"],
     "LiveResearchModel._complete": ["CS-RS-01", "CS-RS-02"],
     "ManagedResearchWorker._finish_exposure": ["CS-RS-03"],
+    "ResearchEvaluationRunner.runner.invoke": ["CS-EV-03"],
+    "ResearchEvaluationRunner.judge.invoke": ["CS-EV-03"],
+    "execute_case": ["CS-EV-03"],
     "AgentRuntime._finish_exposure": ["CS-GR-02"],
 }
 
@@ -50,6 +53,8 @@ ASSEMBLY = {
     "build_runtime": "production routed gateway with runtime-owned control_store",
     "ModelAdminService._verify_live": "controlled direct verification, server-owned service identity",
     "LiveEvaluationRunner._gateway": "controlled direct evaluation, persisted evaluation config identity",
+    "run_offline": "CLI-only synthetic Research evaluation; isolated database and explicit scripted provider",
+    "ResearchEvaluationRunner._preflight": "read-only routed profile validation for frozen evaluation configuration",
     "RoutedModelGateway._execute_http_attempt": "internal transport of an already bound invocation",
     "provider_payload": "pure protocol rendering, no I/O",
 }

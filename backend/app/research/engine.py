@@ -35,9 +35,11 @@ class ResearchEngine:
     MODEL_STAGE_TIMEOUT_SECONDS = 90
     REPAIR_TIMEOUT_SECONDS = 90
 
-    def __init__(self, model, retriever) -> None:
+    def __init__(self, model, retriever, *, today=date.today, evidence_identity=None) -> None:
         self.model = model
         self.retriever = retriever
+        self.today = today
+        self.evidence_identity = evidence_identity
 
     @staticmethod
     def _raise_if_permanent_model_error(exc: Exception) -> None:
@@ -60,7 +62,7 @@ class ResearchEngine:
                 plan = self._valid_plan(plan, request)
             except Exception as exc:
                 self._raise_if_permanent_model_error(exc)
-                plan = self._fallback_plan(request.topic, request.limits.max_sections, request.limits.max_queries)
+                plan = self._fallback_plan(request.topic, request.limits.max_sections, request.limits.max_queries, today=self.today())
         yield ResearchEvent("plan", "planning", {"title": plan.title, "sections": list(plan.sections), "queries": list(plan.queries)})
 
         sources: list[Source] = list(request.recovered_sources)
@@ -74,6 +76,8 @@ class ResearchEngine:
         yield ResearchEvent("phase", "distilling", {"detail": "正在逐条提炼证据"})
         recovered_ids={item.id for item in request.recovered_sources}
         evidence = [*request.recovered_evidence, *await self._distill([item for item in sources if item.id not in recovered_ids], request, plan)]
+        if self.evidence_identity is not None:
+            evidence = [replace(item, id=self.evidence_identity(item)) for item in evidence]
         if not evidence:
             failures=diagnostics.get("failure_counts",{})
             priority=("search_auth_failed","search_rate_limited","search_blocked","search_timeout","search_provider_unavailable","search_response_unparseable","search_results_irrelevant","search_results_rejected","search_no_results","search_request_failed")
@@ -117,6 +121,8 @@ class ResearchEngine:
                 yield ResearchEvent("sources", "reflecting", {"count": len(sources), "items": sources})
                 yield ResearchEvent("evidence", "reflecting", {"count": len(evidence), "items": evidence})
         evidence = evidence[:request.limits.max_evidence]
+        if self.evidence_identity is not None:
+            evidence = [replace(item, id=self.evidence_identity(item)) for item in evidence]
 
         yield ResearchEvent("phase", "curating", {"detail": "正在组织证据大纲"})
         try:
@@ -344,7 +350,9 @@ class ResearchEngine:
                     return [replace(item, metadata={**item.metadata, "query": query, "query_index": query_index}) for item in items],None
                 except ResearchCancelled:raise
                 except RetrievalError as exc:return [],exc
-                except Exception:return [],RetrievalError("search_provider_unavailable",retryable=True)
+                except Exception as exc:
+                    self._raise_if_permanent_model_error(exc)
+                    return [],RetrievalError("search_provider_unavailable",retryable=True)
                 finally:
                     if cancel_wait is not None:
                         cancel_wait.cancel()
@@ -430,10 +438,10 @@ class ResearchEngine:
         return ResearchPlan(plan.title.strip(), tuple(plan.sections[:request.limits.max_sections]), tuple(dict.fromkeys(q.strip() for q in plan.queries if q.strip()))[:request.limits.max_queries])
 
     @staticmethod
-    def _fallback_plan(topic: str, max_sections: int, max_queries: int) -> ResearchPlan:
+    def _fallback_plan(topic: str, max_sections: int, max_queries: int, *, today=None) -> ResearchPlan:
         explicit = ResearchEngine._explicit_deliverables(topic)
         sections = explicit[:max_sections] if len(explicit) >= 2 else ("背景与定义", "核心事实与证据", "争议与限制", "结论与建议")[:max_sections]
-        year = date.today().year
+        year = (today or date.today()).year
         queries = tuple(dict.fromkeys([
             topic,
             *(f"{topic} {section} {year}" for section in sections),

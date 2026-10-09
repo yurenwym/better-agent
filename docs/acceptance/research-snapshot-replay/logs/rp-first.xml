@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="6" skipped="0" tests="30" time="35.421" timestamp="2026-10-09T11:26:28.858281+08:00" hostname="wym"><testcase classname="tests.test_research_snapshot_replay" name="test_rp01_owner_is_trusted_and_cross_owner_read_is_body_free" time="0.464" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp02_legacy_corruption_and_unknown_are_classified_without_mutation[legacy-SNAPSHOT_BINDING_MISSING]" time="0.504" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp02_legacy_corruption_and_unknown_are_classified_without_mutation[corrupt-SNAPSHOT_INTEGRITY_ERROR]" time="0.360" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp02_legacy_corruption_and_unknown_are_classified_without_mutation[unknown-UNKNOWN_SNAPSHOT_VERSION]" time="0.339" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp03_request_copies_are_independent_and_null_survives" time="0.318" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp04_export_is_stable_and_every_suite_component_is_frozen[fixture]" time="0.384" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp04_export_is_stable_and_every_suite_component_is_frozen[expected]" time="0.394" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp04_export_is_stable_and_every_suite_component_is_frozen[partition]" time="0.356" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp05_paths_and_derived_cases_do_not_leak_bodies" time="0.339" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp06_sidecar_is_versioned_and_mismatch_never_claims_exact" time="0.328" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp07_real_engine_commits_independent_chapters_and_fixed_inputs[normal]" time="1.122" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp07_real_engine_commits_independent_chapters_and_fixed_inputs[multi_section]" time="1.053" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp08_json_repair_and_network_retry_have_distinct_boundaries[json_repair]" time="1.088" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp08_json_repair_and_network_retry_have_distinct_boundaries[network_retry]" time="1.059" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp09_business_and_safety_rules_reject_violations[insufficient-insufficient_evidence]" time="0.544" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp09_business_and_safety_rules_reject_violations[unknown_citation-unknown_citation]" time="0.956" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp09_business_and_safety_rules_reject_violations[source_instruction-source_instruction_violation]" time="1.011" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[lost]" time="0.889"><failure message="app.research_replay.ReplayError: INVALID_COMMITTED_BINDING">tests\test_research_snapshot_replay.py:223: in test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend
+    await gateway.complete(snapshot.to_request(), context=ModelCallContext(snapshot.role, snapshot.purpose, owner_id="operator",
+app\model_control.py:1080: in complete
+    response = await self._execute_attempt(
+app\research_replay.py:246: in __call__
+    raise ReplayError("INVALID_COMMITTED_BINDING")
+E   app.research_replay.ReplayError: INVALID_COMMITTED_BINDING</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend[cancelled]" time="0.731"><failure message="app.model_gateway.GatewayError: MISSING_FIXTURE">app\model_control.py:1080: in complete
+    response = await self._execute_attempt(
+app\research_replay.py:254: in __call__
+    raise MissingFixture()
+E   app.research_replay.MissingFixture: MISSING_FIXTURE
+
+The above exception was the direct cause of the following exception:
+tests\test_research_snapshot_replay.py:223: in test_rp10_interruption_preserves_records_restores_ambient_and_refuses_resend
+    await gateway.complete(snapshot.to_request(), context=ModelCallContext(snapshot.role, snapshot.purpose, owner_id="operator",
+app\model_control.py:1161: in complete
+    raise GatewayError(str(error), error.kind, ordinal) from error
+E   app.model_gateway.GatewayError: MISSING_FIXTURE</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp11_missing_fixtures_fail_without_external_fallback[model]" time="0.525"><failure message="AssertionError: assert ('invalid' == 'invalid'&#10;  &#10;    invalid and 'configuration' == 'MISSING_FIXTURE'&#10;  &#10;  - MISSING_FIXTURE&#10;  + configuration)">tests\test_research_snapshot_replay.py:242: in test_rp11_missing_fixtures_fail_without_external_fallback
+    assert result["outcome"] == "invalid" and result["reason"] == "MISSING_FIXTURE"
+E   AssertionError: assert ('invalid' == 'invalid'
+E     
+E       invalid and 'configuration' == 'MISSING_FIXTURE'
+E     
+E     - MISSING_FIXTURE
+E     + configuration)</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp11_missing_fixtures_fail_without_external_fallback[retrieval]" time="0.524" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp12_new_arms_and_dual_judges_preserve_original_state" time="0.791"><failure message="sqlite3.OperationalError: no such column: price_snapshot_id">tests\test_research_snapshot_replay.py:291: in test_rp12_new_arms_and_dual_judges_preserve_original_state
+    report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:99: in evaluate
+    baseline = _research_arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:356: in invoke
+    self._record_bindings(identities)
+app\research_replay.py:372: in _record_bindings
+    self.bindings.append(dict(connection.execute("SELECT id,owner_id,role,purpose,context_snapshot_id,"
+E   sqlite3.OperationalError: no such column: price_snapshot_id</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp13_only_allowed_fragment_changes_and_judges_are_blind" time="0.704"><failure message="sqlite3.OperationalError: no such column: price_snapshot_id">tests\test_research_snapshot_replay.py:306: in test_rp13_only_allowed_fragment_changes_and_judges_are_blind
+    ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
+app\real_evaluation.py:99: in evaluate
+    baseline = _research_arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+app\research_replay.py:356: in invoke
+    self._record_bindings(identities)
+app\research_replay.py:372: in _record_bindings
+    self.bindings.append(dict(connection.execute("SELECT id,owner_id,role,purpose,context_snapshot_id,"
+E   sqlite3.OperationalError: no such column: price_snapshot_id</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp14_diagnostic_permission_does_not_authorize_new_send" time="0.914" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp15_missing_arm_or_judge_cost_stays_unknown[None]" time="0.004" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp15_missing_arm_or_judge_cost_stays_unknown[1]" time="0.003" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp16_known_regression_is_detected_and_ties_never_release" time="9.496"><failure message="AssertionError: assert (8 == 8 and 'FAIL' == 'INSUFFICIENT_EVIDENCE'&#10;  &#10;  - INSUFFICIENT_EVIDENCE&#10;  + FAIL)">tests\test_research_snapshot_replay.py:354: in test_rp16_known_regression_is_detected_and_ties_never_release
+    assert comparison["planned_cases"] == 8 and comparison["outcome"] == "INSUFFICIENT_EVIDENCE" and not comparison["release_eligible"]
+E   AssertionError: assert (8 == 8 and 'FAIL' == 'INSUFFICIENT_EVIDENCE'
+E     
+E     - INSUFFICIENT_EVIDENCE
+E     + FAIL)</failure></testcase><testcase classname="tests.test_research_snapshot_replay" name="test_rp17_lineages_and_sealed_partitions_are_enforced" time="0.079" /><testcase classname="tests.test_research_snapshot_replay" name="test_rp18_repeated_offline_suites_have_identical_semantics_and_inputs" time="9.186" /><testcase classname="tests.test_research_snapshot_replay" name="test_cli_default_and_controlled_refusal_are_zero_send" time="0.008" /></testsuite></testsuites>

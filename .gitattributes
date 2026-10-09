@@ -1,0 +1,5 @@
+# Frozen replay byte hashes must survive Windows checkout unchanged.
+backend/tests/fixtures/research-snapshot-replay*/** -text whitespace=cr-at-eol
+docs/acceptance/research-snapshot-replay/** -text whitespace=cr-at-eol
+# Preserve raw pytest failure padding as execution evidence.
+docs/acceptance/research-snapshot-replay/logs/** -text whitespace=-blank-at-eol,cr-at-eol

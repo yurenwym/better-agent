@@ -70,8 +70,9 @@ def relevant_excerpt(source, topic: str, sections: tuple[str, ...], max_chars: i
 
 
 class LiveResearchModel:
-    def __init__(self, gateway: ModelGateway, *, structured_attempts: int = 2) -> None:
+    def __init__(self, gateway: ModelGateway, *, structured_attempts: int = 2, today=date.today) -> None:
         self.gateway = gateway
+        self.today = today
         self.runtime_prompt_policy = None
         if structured_attempts not in {1, 2}:
             raise ValueError("structured_attempts must be 1 or 2")
@@ -135,7 +136,7 @@ class LiveResearchModel:
             "优先使用当前的一手来源；相关时提供可直接操作的链接。用户明确要求官方文档或指定官方域名时，"
             "每条相关查询都要增加 site:DOMAIN 限制；Python 官方文档使用 site:docs.python.org。"
             "sections 每项仅为100字符以内的单行标题，禁止包含正文、建议、引用或换行。",
-            f"当前日期：{date.today().isoformat()}\n主题：{topic}\n返回 title、sections（2-{limits.max_sections} 个简洁字符串，只覆盖用户要求的交付物）、queries（最多 {limits.max_queries} 条，每个 section 至少一条）。",
+            f"当前日期：{self.today().isoformat()}\n主题：{topic}\n返回 title、sections（2-{limits.max_sections} 个简洁字符串，只覆盖用户要求的交付物）、queries（最多 {limits.max_queries} 条，每个 section 至少一条）。",
         )
         return ResearchPlan(str(data["title"]), tuple(str(x) for x in data["sections"]), tuple(str(x) for x in data["queries"]))
 

@@ -78,6 +78,11 @@ page.html
 .reasonix/
 reasonix.toml
 
+# Replay evaluation databases stay local; only synthetic fixtures and redacted
+# reports are committed as acceptance evidence.
+docs/acceptance/research-snapshot-replay/**/evaluation.db
+docs/acceptance/research-snapshot-replay/**/evaluation.db-*
+
 # Ephemeral runtime and e2e test directories
 data-e2e*/
 outputs/

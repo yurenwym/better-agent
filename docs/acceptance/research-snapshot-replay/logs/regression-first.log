@@ -1,0 +1,25 @@
+........................................................................ [ 36%]
+........................................................................ [ 73%]
+.................................F.F..............F..                    [100%]
+================================== FAILURES ===================================
+_ test_restart_maintenance_stops_invalid_canary_without_changing_stable[budget] _
+tests\test_m5_release_gates.py:118: in test_restart_maintenance_stops_invalid_canary_without_changing_stable
+    assert restored.maintain_canaries() == 1
+E   assert 0 == 1
+E    +  where 0 = maintain_canaries()
+E    +    where maintain_canaries = <app.evolution.EvolutionService object at 0x0000000007F8E270>.maintain_canaries
+___________ test_budget_rejects_before_attempt_and_stop_is_durable ____________
+tests\test_m5_release_gates.py:164: in test_budget_rejects_before_attempt_and_stop_is_durable
+    with pytest.raises(BudgetExceeded, match="canary"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE BudgetExceeded
+____________ test_t32_static_candidates_have_explicit_dispositions ____________
+tests\test_snapshot_production_boundary.py:89: in test_t32_static_candidates_have_explicit_dispositions
+    assert all(row["excluded_reason"] or row["callsites"] for row in rows)
+E   assert False
+E    +  where False = all(<generator object test_t32_static_candidates_have_explicit_dispositions.<locals>.<genexpr> at 0x0000000009EEA4D0>)
+=========================== short test summary info ===========================
+FAILED tests/test_m5_release_gates.py::test_restart_maintenance_stops_invalid_canary_without_changing_stable[budget]
+FAILED tests/test_m5_release_gates.py::test_budget_rejects_before_attempt_and_stop_is_durable
+FAILED tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions
+3 failed, 194 passed in 50.20s

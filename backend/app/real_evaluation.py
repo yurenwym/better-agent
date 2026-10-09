@@ -96,8 +96,8 @@ class ResearchRoleReplayEvaluator:
                 "input_digest": pair["input_digest"], "single_allowed_fragment": True,
             }
             if runner is not None:
-                baseline = _arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
-                candidate = _arm_output(runner(pair["candidate_messages"], candidate_bundle_id, case))
+                baseline = _research_arm_output(runner(pair["base_messages"], baseline_bundle_id, case))
+                candidate = _research_arm_output(runner(pair["candidate_messages"], candidate_bundle_id, case))
                 from .research.delivery import deliver_section
                 for arm in (baseline, candidate):
                     delivery = deliver_section(arm["text"], str(case.get("heading") or case.get("input") or "研究章节"), arm.get("finish_reason"))
@@ -108,14 +108,15 @@ class ResearchRoleReplayEvaluator:
                 if winner not in {"baseline", "candidate", "tie"} or not isinstance(decision.get("candidate_safe"), bool):
                     raise EvaluationAccessError("role replay judge returned an invalid decision")
                 judge_cost = decision.get("cost_microusd")
-                cost_known = cost_known and type(judge_cost) is int and judge_cost >= 0
+                case_costs = [baseline["cost_microusd"], candidate["cost_microusd"], judge_cost]
+                cost_known = cost_known and all(type(cost) is int and cost >= 0 for cost in case_costs)
                 record.update({"baseline": baseline, "candidate": candidate, "winner": winner,
                                "candidate_safe": decision["candidate_safe"],
                                "baseline_safe": decision.get("baseline_safe"),
                                "deterministic_pass": _deterministic_check(case.get("rubric", {}), candidate["text"]),
                                "judge_cost_microusd": judge_cost,
                                "judge_profiles": decision.get("judge_profiles", [])})
-                total_cost += baseline["cost_microusd"] + candidate["cost_microusd"] + (judge_cost if type(judge_cost) is int and judge_cost >= 0 else 0)
+                total_cost += sum(cost for cost in case_costs if type(cost) is int and cost >= 0)
             records.append(record)
         executed = runner is not None
         holdout = [item for item in records if item["partition"] == "HOLDOUT"]
@@ -151,7 +152,7 @@ class ResearchRoleReplayEvaluator:
             "delivery_transform_version": "research-section-v1",
             "allowed_path": self.allowed_path, "baseline_bundle_id": baseline_bundle_id,
             "candidate_bundle_id": candidate_bundle_id, "suite_digest": suite_digest or _digest(cases),
-            "checks": checks, "records": records, "cost_microusd": total_cost,
+            "checks": checks, "records": records, "cost_microusd": total_cost if cost_known else None,
             "statistics": statistics,
             "outcome": "PASS" if kind == "role_paired_release_evaluation" else (
                 "FAIL" if executed and any(item.get("candidate_safe") is False or item.get("winner") == "baseline" or item.get("deterministic_pass") is False for item in records)
@@ -1069,6 +1070,19 @@ class RealEvaluator:
     def _correct(case: dict[str, Any], value: Any) -> bool:
         expected = case.get("expected")
         return expected is None or value == expected
+
+
+def _research_arm_output(value: Any) -> dict[str, Any]:
+    """Research diagnostics retain missing cost/timing; release gates reject it."""
+    if not isinstance(value, dict) or not isinstance(value.get("text"), str):
+        raise EvaluationAccessError("evaluation arm must return visible text")
+    for key in ("cost_microusd", "ttft_seconds"):
+        metric = value.get(key)
+        if metric is not None and (type(metric) not in (int, float) or metric < 0 or not math.isfinite(metric)):
+            raise EvaluationAccessError("invalid research arm metric")
+    if value.get("cost_microusd") is not None and type(value["cost_microusd"]) is not int:
+        raise EvaluationAccessError("research cost must be an integer or null")
+    return {**value, "cost_microusd": value.get("cost_microusd"), "ttft_seconds": value.get("ttft_seconds")}
 
 
 def _arm_output(value: Any) -> dict[str, Any]:
