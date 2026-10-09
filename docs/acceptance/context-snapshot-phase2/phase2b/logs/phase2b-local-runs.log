@@ -241,3 +241,21 @@ Command: python -m pytest tests/test_snapshot_goal_runtime_entries.py --collect-
 Exit: 0
 Result: 15 tests collected in 0.19s; all three new callsite mappings resolved.
 No full backend or PostgreSQL database rerun in this minimal follow-up. DB guard tests invoke rejection logic only; no database or Alembic subprocess is started.
+
+Post-checkpoint 8430f3d follow-up, 2026-10-09 (Asia/Shanghai)
+Working directory: D:/RAG/better/backend
+Command: python -m pytest tests/test_snapshot_agent_entries.py tests/test_snapshot_research_entries.py tests/test_snapshot_production_boundary.py tests/test_snapshot_goal_runtime_entries.py tests/test_snapshot_gateway.py tests/test_mainflow_experts.py tests/test_research_service.py -q --tb=short
+Environment: BETTER_AGENT_COST_MODE=observe; initial run BETTER_SNAPSHOT_EVIDENCE_PATH points to observed-bindings.ndjson (append-only); repeat did not append.
+First run: exit 1, 94 passed / 2 failed in 61.88s. New offline test expected GatewayError instead of Routed gateway RoutingError; corrected test expectation.
+Repeat: exit 0, 96 passed in 57.80s.
+Earlier new-test development failures: expert fixture lacked role routing and reused activation key across owners; Research plan missing limits argument; API create expectation was 200 instead of 201. Corrected fixtures, no production edits.
+
+Command: python -m pytest tests/test_snapshot_agent_entries.py tests/test_snapshot_research_entries.py tests/test_snapshot_production_boundary.py -q --tb=short
+Environment: BETTER_AGENT_COST_MODE=enforce
+Result: exit 0, 19 passed in 16.49s.
+Includes two final cases: tool rejects unknown offline_unbound parameter; RUNNING invocation replay never resends.
+Initial drafts of these cases expected ValueError rather than ToolRejected and attempted unsupported UNKNOWN invocation status; fixed tests to actual schema, no claim of business UNKNOWN coverage.
+
+Command (repository root): python scripts/audit_snapshot_callsites.py
+Result: incomplete (exit 1 by design while denominator is unconfirmed); 21 registered, 12 with recorded sends, 9 without. Zero unregistered sends, invalid binding records, unresolved evidence nodes. Three formerly unregistered logical entries now documented. Collection subprocess exits 0.
+No full-backend or PostgreSQL database rerun; no real provider traffic.

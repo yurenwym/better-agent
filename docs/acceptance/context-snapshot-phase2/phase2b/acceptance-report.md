@@ -1,5 +1,17 @@
 # ContextSnapshot Phase 2B 验收报告（阶段性）
 
+## 2026-10-09 检查点后的风险补验（最新状态）
+
+- 检查点 `8430f3d` 已本地提交，57 个文件；未推送。以下为检查点后的增量，未修改生产逻辑。
+- 新增专家 Worker 两分支测试：同库两 owner 交错执行，一专家失败，成功专家各自触发安全 Judge，两种汇总看到各自实际产物；每场景 9 次发送独立绑定，跨 owner 快照读取拒绝。T09 pass；T10 仍缺 PG 预算隔离，partial。
+- 新增 Research Worker 异常/取消后恢复，真实模型 plan 与 Judge 经过受控 gateway，旧快照保留、ambient context 恢复。T08 partial：不将 RUNNING invocation 重放覆盖冒充业务 UNKNOWN 契约。T36 三类 Judge 已有证据，但尚未逐项核实完整门禁，保留 partial。
+- 新增请求 body/query 及工具 offline 参数反向测试；当前证明 Goal API 和 query_goals 工具不能开启旁路，T28 partial，不能外推所有 API。
+- T32 新增只读 `scripts/audit_snapshot_callsites.py`，扫描 AST 候选并明确排除同名业务 complete、CLI 和共享内部 transport，对照注册清单、现有发送记录及 evidence 的实际 pytest 节点。发现并补登记演化 proposer、对话 Judge、Goal Program 初始/工具内编译；注册数从 18 到 21，最终生产分母仍未确认。失效 CLI 测试引用已修正。无孤立发送、无缺字段绑定、无未解析节点；仍有注册入口缺发送记录，脚本应退出 1。
+- 专家夹具增加 expert 路由、stable 激活幂等键按 owner 区分，使同库多租户测试可复用；不改变生产路由。
+- observe 回归：`test_snapshot_agent_entries.py test_snapshot_research_entries.py test_snapshot_production_boundary.py test_snapshot_goal_runtime_entries.py test_snapshot_gateway.py test_mainflow_experts.py test_research_service.py`，96 passed / 57.80s。首次同批 94 passed / 2 failed，原因是新增测试误把 Routed 的 RoutingError 当作 direct GatewayError，修正断言后通过。
+- 最新对账 **16 pass / 21 partial / 1 pending（T23）**。M2 仍未完成；PG 预算隔离、UNKNOWN、全入口分母及各 partial 的余项不以本轮定向结果豁免。未重跑全量后端或隔离 PG。
+- 最终 enforce 专项：专家、Research、production_boundary 三文件 **19 passed / 16.49s / exit 0**（包含新增工具参数拒绝与 RUNNING 重放用例）。当前记录覆盖 12/21 个已登记入口，另 9 个无该日志格式的发送证据；该比值不是生产覆盖率。
+
 ## 2026-10-09 最小补验更新（优先于下方历史状态）
 
 - 按最小改动范围，仅在现有 `test_snapshot_goal_runtime_entries.py` 新增 3 个场景；未新建测试框架或拆分文件，未修改生产代码。T34 通过；T35 从 pending 更新为 partial；T36 根据此前 Runtime 用例更新为 partial。其余历史状态不自动升级。

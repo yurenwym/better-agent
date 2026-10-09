@@ -173,6 +173,11 @@ pytest 允许用基名选择全部参数；实际节点数按 `pytest --collect-
 | CS-MR-01 | `MemoryReferenceResolver.resolve_memory_reference` | 显式授权 owner + 最终候选列表 | T17 部分：`test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list` 验证候选选择、owner 和实际发送冻结；超时/取消与 owner 交错仍待测 |
 | CS-CA-01 | `LiveConversationModel` 分类、澄清、无历史回答及修复 | 已授权 turn/thread owner | T38：两种分类辅助调用和主回答各自绑定唯一 snapshot/span；T18 的澄清、无历史回答及修复分支仍待验 |
 | CS-MD-01 | `ModelAdminService._verify_live` 指定 profile version | 服务端 `ModelAdminService.owner_id` | Direct + control store；B08/T19–T22 验收通过 |
+| CS-EV-04 | `LivePromptCandidateProposer._propose` | `EvolutionCandidateGenerator.generate` 写入 pattern 的授权 owner | 2026-10-09 静态对账补登记；缺 owner 零发送已有回归，正向发送未闭环 |
+| CS-CA-02 | `ManagedTurnWorker._finish_exposure` → `LiveSafetyJudge.judge` | 持久化 thread owner；purpose=judge_conversation_output | 2026-10-09 静态对账补登记；动态全契约待验 |
+| CS-GP-03 | Goal Program preview / 工具内编译 → `GoalProgramCompiler._validated` | program owner 或授权工具 Harness | 2026-10-09 补登记；2A I06 有局部证据，不能遗漏于全入口分母 |
+
+2026-10-09 对账增量：注册入口现为 21 个，**不是最终确认的生产分母**。`scripts/audit_snapshot_callsites.py` 只读扫描 AST，按稳定符号分类候选、排除业务 complete/CLI/内部 transport，并对照发送日志与 evidence 的 pytest 收集结果。动态分派及共享 adapter 的逐分支可达性仍需核实，T32 不因此自动通过。专家新增节点：`tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges`（两种汇总分支）；Research 新增节点：`tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job`（异常/取消）。
 
 ### 8.1 Direct/transport 和排除项
 

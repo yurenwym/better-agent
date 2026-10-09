@@ -59,7 +59,7 @@ def _configured_control_plane(
     policy = admin.create_policy("runtime", {
         "conversation": {"primary": versions["chat"], "fallback": []},
         **{role: {"primary": versions["planner"], "fallback": planner_fallback}
-           for role in ("planner", "reflector", "coordinator", "learning_generator", "learning_judge",
+           for role in ("planner", "reflector", "expert", "coordinator", "learning_generator", "learning_judge",
                         "judge_quality", "judge_safety")},
         "researcher": {"primary": versions["chat"], "fallback": []},
     })
@@ -68,7 +68,7 @@ def _configured_control_plane(
         "model_routing": {"policy_id": policy["id"], "digest": policy["policy_digest"]},
         "model_role_bindings": policy["roles"],
     })
-    bundles.activate("stable", bundle.id, "stable")
+    bundles.activate("stable", bundle.id, f"stable:{owner_id}")
     return db, bundle, versions
 
 

@@ -15,6 +15,88 @@ from test_snapshot_gateway import _answer, _configured_control_plane
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("interruption", ["exception", "cancel"])
+async def test_t08_t36_research_worker_restores_context_and_judges_recovered_job(tmp_path, monkeypatch, interruption):
+    import asyncio
+    from app.conversation import ConversationService
+    from app.evolution import LiveSafetyJudge
+    from app.research.service import ResearchService
+    from app.research.worker import ManagedResearchWorker
+    from test_research_service import CompletingEngine
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="research-owner")
+    conversation = ConversationService(db)
+    recorder = CommittedSnapshotTransport(db, "research-owner", "CS-RS-01", _answer(
+        '{"title":"Research","sections":["Conclusion"],"queries":["query"]}'
+    ))
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=recorder)
+    model = LiveResearchModel(gateway)
+
+    class Engine(CompletingEngine):
+        def __init__(self):
+            self.model = model
+            self.interrupt = True
+
+        async def run_research(self, request):
+            await model.plan(request.topic, request.limits)
+            if self.interrupt:
+                self.interrupt = False
+                if interruption == "cancel":
+                    raise asyncio.CancelledError
+                raise TimeoutError("temporary failure")
+            async for event in super().run_research(request):
+                yield event
+
+    engine = Engine()
+    service = ResearchService(db, conversation.events, engine)
+    thread = conversation.create_thread("Research", owner_id="research-owner")
+    job = service.create_manual(thread.id, "Research", "worker", ("web",), runtime_bundle_id=bundle.id)
+    verdicts = []
+
+    class Evolution:
+        def assign_role_task(self, *args, **kwargs):
+            return bundle.id, None
+
+        def finish_run_exposure(self, *args, **kwargs):
+            verdicts.append(kwargs)
+
+    judge_recorder = CommittedSnapshotTransport(db, "research-owner", "CS-RS-03", _answer("safe"))
+
+    async def execute(profile, request, **kwargs):
+        return await (judge_recorder if request.purpose == "judge_research_output" else recorder)(profile, request, **kwargs)
+
+    monkeypatch.setattr(gateway, "_execute_attempt", execute)
+    worker = ManagedResearchWorker(service, evolution=Evolution(), safety_judge=LiveSafetyJudge(gateway))
+    sentinel = ModelCallContext(role="conversation", purpose="unrelated", owner_id="other-owner")
+    token = gateway.set_call_context(sentinel)
+    try:
+        if interruption == "cancel":
+            with pytest.raises(asyncio.CancelledError):
+                await worker.run_once(job.id)
+        else:
+            assert await worker.run_once(job.id)
+        assert gateway.current_call_context() is sentinel
+        assert len(recorder.observations) == 1
+        old = recorder.observations[0]["snapshot_id"]
+        from app.model_input_snapshot_store import ModelInputSnapshotStore
+        frozen = ModelInputSnapshotStore(db).load("research-owner", old)
+        with db.transaction() as connection:
+            connection.execute("UPDATE research_jobs SET lease_until='2000-01-01T00:00:00+00:00',available_at='2000-01-01T00:00:00+00:00' WHERE id=?", (job.id,))
+        assert await worker.run_once()
+        assert gateway.current_call_context() is sentinel
+        assert service.get(job.id).status == "COMPLETED"
+        assert len(recorder.observations) == 2 and len(judge_recorder.observations) == 1
+        assert ModelInputSnapshotStore(db).load("research-owner", old).content_json == frozen.content_json
+        assert verdicts[-1]["safety_pass"] is True
+        with db.connection() as connection:
+            row = connection.execute("SELECT * FROM model_invocations WHERE purpose='judge_research_output'").fetchone()
+        assert row["role"] == "judge_safety" and row["owner_id"] == "research-owner"
+        assert row["context_snapshot_id"] not in {item["snapshot_id"] for item in recorder.observations}
+    finally:
+        gateway.reset_call_context(token)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("entrypoint", ["plan", "distill", "reflect", "curate", "write", "summarize", "audit", "repair"])
 async def test_research_entrypoint_sends_only_after_committed_snapshot(tmp_path, monkeypatch, entrypoint):
     db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="research-owner")
