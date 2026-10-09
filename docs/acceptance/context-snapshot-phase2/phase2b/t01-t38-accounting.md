@@ -1,44 +1,47 @@
-# Phase 2B T01–T38 对账（2026-10-08）
+# Phase 2B T01–T38 对账（2026-10-09 最终复验）
 
-状态按完整验收契约判断；partial 不计通过。详细已执行节点见 `evidence.json`、`callsite-inventory.md`。
+38 pass / 0 partial / 0 pending。来源 partial 不等于测试 partial。
+节点选择规则见 test-contracts.json；展开的实际通过节点、JUnit 批次见 evidence.json。
+scripts/build_snapshot_m2_report.py 验证收集、实际执行及发送记录；未匹配或失败则退出非零。
+历史状态保留在验收报告历史段与 evidence-checkpoint-1a12532.json。
 
-| ID | 状态 | 证据/缺口 |
-|---|---|---|
-| T01 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T02 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T03 | pass | 参数化注入 snapshot、invocation、execution-context binding 写入失败；三种情况均零发送，事务内 invocation/snapshot/attempt 全回滚 |
-| T04 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T05 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T06 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T07 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T08 | partial | Research Worker 取消/异常后恢复、ambient reset、旧快照保留已测；RUNNING invocation 重放零新增发送已测。UNKNOWN 不属于 model_invocations 状态，业务 UNKNOWN 的完整来源/恢复契约仍需逐项定位 |
-| T09 | pass | `test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges` 两种汇总分支：真实 fan-out、专家、汇总、Judge；每次发送独立快照，汇总包含真实专家产物，任务/owner/bundle 绑定 |
-| T10 | partial | 同上：同库两 owner 交错、一专家异常、上下文复位、跨 owner 读取拒绝均通过；本轮 SQLite，PG 根预算绑定隔离尚未验证 |
-| T11 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T12 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T13 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T14 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T15 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T16 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T17 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T18 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T19 | pass | 管理端验证指定未激活版本；断言绑定目标 profile、可信 owner/purpose、有快照且 stable channel 未创建 |
-| T20 | pass | SQLite 与隔离 PG 均验证跨 owner profile version 拒绝；零 provider 发送 |
-| T21 | pass | 管理端缺凭据、缺 control store、零预算及隔离 PG 快照写失败均拒绝发送；失败状态/错误类别及事务回滚有断言 |
-| T22 | pass | 动态断言 startup 与 API fallback 两个 ModelAdminService 均注入 runtime 的受控 control store |
-| T23 | pending | 尚无满足该用例要求的验收节点 |
-| T24 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T25 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T26 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T27 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T28 | partial | `test_snapshot_production_boundary.py`：Goal API body/query 注入不改变装配、无身份继续拒绝；query_goals 工具拒绝 offline_unbound。全 API/工具构造点可达性审计尚未闭环 |
-| T29 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T30 | pass | 已验证对应调用边界/失败条件；节点详见 evidence.json |
-| T31 | pass | 指定隔离 PG 集合 49 passed；覆盖真实入口绑定、失败零发送、历史行兼容、快照不可篡改、Harness 隔离与并发结算 |
-| T32 | partial | AST + 注册清单 + 发送日志 + pytest 收集的只读对账脚本已落地；补登记 3 类入口，修正失效节点。注册 21 个，不代表最终生产分母；仍有无发送记录入口和动态分派待审计，脚本保持非零退出 |
-| T33 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T34 | pass | 2026-10-09：`tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot`；真实 propose_execution 路径，tenant-b，claim 失败零发送，READY 后中断恢复/幂等重放不再发送，独立连接验证快照，owner/turn/bundle/root 与持久化 turn 相同（SQLite root 可为空） |
-| T35 | partial | 2026-10-09：同文件 `test_t35_daily_and_period_review_restore_context_after_failure`、`test_t35_adjustment_api_repair_has_independent_committed_snapshots`；覆盖真实 daily Worker、period service、adjustment HTTP API，失败/修复独立快照及 ambient 恢复；本轮未复验 PG goal_operation 根预算及非默认 program owner |
-| T36 | partial | 目标 Runtime 的 judge_run_output 正向/缺 owner 零发送已覆盖；专家与 Research Worker Judge 完整契约仍待补 |
-| T37 | partial | 存在局部或底层证据，完整生产来源/故障契约尚未闭环 |
-| T38 | pass | 同一 Harness turn 先后触发两次辅助分类与主回答；三份 invocation、snapshot、span 均独立，owner 一致且 span 为 turn root 的子级 |
+| ID | 状态 | 任务 | 证据边界 |
+|---|---|---|---|
+| T01 | pass | B00/B09 | AST 候选、网关装配及人工动态分派追踪；以 callsite-contracts 的业务组及分支为分母。 |
+| T02 | pass | B01 | 独立连接在 mock provider 边界读已提交绑定；记录器故障注入证明未绑定发送会记失败。 |
+| T03 | pass | B01 | snapshot/invocation/execution binding 三类写入失败原子回滚，零发送。 |
+| T04 | pass | B02 | Research 八方法逐项验证最终输入、role/purpose、owner；excerpt 来源保持 partial。 |
+| T05 | pass | B02 | 非法 JSON 修复新调用、新 child span，原快照不变。 |
+| T06 | pass | B02 | 网络重试两个 attempt 共用原快照，独立还原输入。 |
+| T07 | pass | B03 | 两章节与报告修复三份快照，外部 evidence/stable 修改不改旧输入或 pinned bundle。 |
+| T08 | pass | B03 | Research Worker 异常/取消恢复并 reset；RUNNING 调用不重发；Learning 真实发送后 UNKNOWN 及 Evolution REQUESTING 恢复 UNKNOWN 均不自动重发。 |
+| T09 | pass | B04 | 两种真实专家汇总路径，fan-out/结果汇总/Judge 各自绑定。 |
+| T10 | pass | B04 | 两 owner 交错、一专家异常、跨 owner 拒读；PG 真实根预算分别计数 4/5。 |
+| T11 | pass | B05 | 真实 Learning job 分发 generator/extractor/Prompt；PG job owner/root/bundle 及关键来源引用核对。 |
+| T12 | pass | B05 | 真实 Skill pipeline 生成后独立 Judge，rubric digest 与实际候选/基线输出。 |
+| T13 | pass | B06 | Skill selector/两臂/Judge + Prompt 两固定版本/Judge；冻结离线 case，不污染 Judge。 |
+| T14 | pass | B06 | 组合证据：真实授权批次向 proposer 传非默认 owner；真实 LiveBehaviorRunner/proposer 的受控发送独立绑定该 owner，缺身份零发送。 |
+| T15 | pass | B06 | 真实 evaluation HTTP API/Worker/LiveEvaluationRunner：60 cases、240 次受控 direct 发送；两臂与双 Judge 独立、幂等重放零新增。 |
+| T16 | pass | B07 | 真实归档 claim 摘要后保存失败回滚，授权重试相同消息、新快照、成功后不重发。 |
+| T17 | pass | B07 | 引用解析超时/取消后第二 owner 请求，旧候选输入不变、无 ambient 残留。 |
+| T18 | pass | B07 | 计划文档/已有计划/Research/记忆修复/无历史/依赖拒绝/短路及 ask 澄清；零调用单列。 |
+| T19 | pass | B08 | 管理端指定未激活版本、无 stable、可信 owner，不激活 channel。 |
+| T20 | pass | B08 | 跨 owner version 拒绝且零发送，含 PG。 |
+| T21 | pass | B08 | 缺存储/凭据/预算/PG 写快照失败均零发送、失败状态，未降级离线。 |
+| T22 | pass | B08 | startup 与 API fallback 均保留真实 control store。 |
+| T23 | pass | B10 | 真实 startup learning OFF，Research/对话/管理仍有发送及已提交快照。 |
+| T24 | pass | B10 | partial 正向、已知引用冲突零新增、缺位置拒绝、技能更新与撤销、Learning 源撤销。 |
+| T25 | pass | B09 | 默认无 store direct、无身份 routed 在发送前拒绝；provenance 不提供旁路。 |
+| T26 | pass | B09 | 显式 offline opt-in 实际发送一次；live CLI smoke 显式离线，排除生产分母。 |
+| T27 | pass | B09 | routed 内部 attempt 不二次绑定；controlled direct 单独冻结。 |
+| T28 | pass | B09 | API body/query 与工具注入 offline 无效；全生产构造点不读取用户离线参数。 |
+| T29 | pass | B10 | D08–D12 usage/撤销/无不安全重试/结算保护；单测显式 observe 验证记账，预算 enforce 另测。 |
+| T30 | pass | B10 | PG 并发 finish 各维度扣一次/事件一次；事件失败整笔回滚并可重试。 |
+| T31 | pass | B11 | 真实隔离 PG：新入口、跨 owner、故障、旧快照兼容、不可变与结算；不使用开发库。 |
+| T32 | pass | B12 | 静态枚举+装配追踪+独立发送记录+pytest 收集+JUnit 实际通过，构建报告时全量对账。 |
+| T33 | pass | B06A | HTTP goal/messages/approve 生命周期；普通无源 goal 不反思，测试在 approve 前显式附加真实持久化 source turn 覆盖可信反思；tenant-b 与服务 owner 独立验证。 |
+| T34 | pass | B06A | 真实 propose_execution 投影，claim 失败零发送、READY 保存后中断恢复不重发；身份/版本与 turn 一致。 |
+| T35 | pass | B06A | daily Worker/period service/adjustment API 修复及失败；PG tenant-b 三种操作各自 goal_operation root，同操作修复共享 root。 |
+| T36 | pass | B04/B06A | 专家、Research、Runtime 三种 Judge purpose/owner 独立绑定；另补 conversation Judge。 |
+| T37 | pass | B09 | 无 context/空 owner/悬空 Research source/Behavior owner 缺失均拒绝且零发送；Worker 内部记录失败，不声称异常冒泡 API。 |
+| T38 | pass | B07 | 同一 turn 两辅助调用与主调用的 invocation/snapshot/span 均独立且为 sibling。 |

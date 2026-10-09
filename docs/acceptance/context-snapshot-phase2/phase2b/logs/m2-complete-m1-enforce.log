@@ -1,0 +1,3 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_m5_release_gates.py", "tests/test_m5_controlled_acceptance.py", "tests/test_m5_controlled_evolution.py", "tests/test_eval_scenarios.py", "tests/integration/test_m1_live_harness.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-complete-m1-enforce.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:51:53.550918+00:00", "cost_mode": "enforce", "batch": "m2-complete"}
+.....................................                                    [100%]
+37 passed in 76.87s (0:01:16)

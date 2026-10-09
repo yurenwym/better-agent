@@ -1,0 +1,4 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_model_input_snapshot.py", "tests/test_model_input_snapshot_store.py", "tests/test_snapshot_gateway.py", "tests/test_snapshot_flow.py", "tests/test_snapshot_recovery.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-complete-snapshot-observe.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:51:43.160032+00:00", "cost_mode": "observe", "batch": "m2-complete"}
+........................................................................ [ 59%]
+..................................................                       [100%]
+122 passed in 76.14s (0:01:16)

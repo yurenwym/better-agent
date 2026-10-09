@@ -14,6 +14,212 @@ from snapshot_entrypoint_helpers import CommittedSnapshotTransport
 from test_snapshot_gateway import _answer, _configured_control_plane
 
 
+def test_t12_t13_skill_pipeline_generation_selector_replay_and_judge(migrated_postgres_url, tmp_path, monkeypatch):
+    from pathlib import Path
+    from app.startup import build_runtime
+    from app.learning_agent import LearningAgent
+    from app.learning_eval import LearningJudge
+    from app.learning_replay import RuntimeLearningReplay
+    from app.learning_pipeline import build_pipeline
+    from app.learning_decision import LearningDecision
+    from app.learning import digest
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    from test_learning_pipeline_v3 import StubDecisions
+    from test_learning_targets import skill_draft
+
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
+    monkeypatch.setenv("BETTER_AGENT_LEARNING_V3", "OFF")
+    runtime = build_runtime(tmp_path, database_url=migrated_postgres_url)
+    try:
+        db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, database=runtime.db)
+        gateway = RoutedModelGateway(db, runtime.model_control_store)
+        replay = RuntimeLearningReplay(runtime, gateway, Path(__file__).parents[1] / "fixtures/snapshot-skill-replay.json")
+        runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["skill"],
+            cycle_microusd=100000, daily_microusd=100000, monthly_microusd=100000, max_attempts=20)
+        content = "请固定数据库超时的排查步骤，先检查连接池，再检查慢 SQL。"
+        thread = runtime.conversation.create_thread("Skill learning")
+        runtime.conversation.accept_turn(thread.id, "skill", content)
+        with db.connection() as connection:
+            message = connection.execute("SELECT id FROM thread_messages WHERE thread_id=? AND role='user'", (thread.id,)).fetchone()[0]
+        job_id = runtime.learning.enqueue("local-user", "thread_message", message, digest(content), message)
+        draft = skill_draft(evidence_refs=(message,), experience_ids=(), source_refs=(message,)).to_dict()
+        observer = CommittedSnapshotTransport(db, "local-user", "CS-LN-01", None)
+
+        async def execute(profile, request, **kwargs):
+            if request.purpose == "generate_learning_candidate":
+                body = json.dumps(draft)
+            elif request.purpose == "learning_replay_select":
+                body = json.dumps({"load": "timeout" in request.messages[-1]["content"]})
+            elif request.purpose == "judge_learning_candidate":
+                payload = json.loads(request.messages[-1]["content"])
+                body = json.dumps({"winner":"left" if "improved" in payload["left"] else "right",
+                    "correctness":1,"helpfulness":1,"safety":1,"efficiency":1,"reason_codes":["supported"]})
+            else:
+                body = "supported improved" if len(request.messages) == 3 else "supported baseline"
+            observer.callsite_id = "CS-EV-02" if request.purpose.startswith("learning_replay") else "CS-LN-01"
+            observer.response = _answer(body)
+            return await observer(profile, request, **kwargs)
+
+        gateway._execute_attempt = execute
+        decision = LearningDecision(learn=True, target="SKILL", subtype="", confidence=1, importance=.9,
+            risk="low", reason_codes=("repeatable_workflow",))
+        runtime.learning.pipeline = build_pipeline(runtime, mode="SHADOW", decisions=StubDecisions(db, decision),
+            agent=LearningAgent(gateway), judge=LearningJudge(gateway), replay=replay)
+        assert runtime.learning.run_once()
+        job = next(item for item in runtime.learning.history() if item["id"] == job_id)
+        assert job["status"] == "NO_CHANGE", job["reason"]
+        assert observer.send_count == 7
+        assert len({item["snapshot_id"] for item in observer.observations}) == 7
+        with db.connection() as connection:
+            rows = connection.execute("SELECT * FROM model_invocations ORDER BY created_at,id").fetchall()
+        assert all(row["owner_id"] == job["owner_id"] and row["root_budget_id"] == job["root_budget_id"] and row["runtime_bundle_id"] == bundle.id for row in rows)
+        snapshots = [ModelInputSnapshotStore(db).load(job["owner_id"], row["context_snapshot_id"]) for row in rows]
+        judge = next(item for item in snapshots if item.purpose == "judge_learning_candidate")
+        assert "fixed rubric" in judge.to_request().messages[0]["content"]
+        assert "supported improved" in judge.content_json and "supported baseline" in judge.content_json
+        assert "数据库超时诊断" not in judge.content_json
+        import hashlib
+        rubric = next(source for source in judge.provenance().sources if source.id == "learning-judge-rubric")
+        assert rubric.content_digest == hashlib.sha256(judge.to_request().messages[0]["content"].encode()).hexdigest()
+        assert rubric.location["message_index"] == 0
+        assert gateway.current_call_context() is None
+    finally:
+        runtime.db.close()
+
+
+@pytest.mark.parametrize("entry", ["generator", "extractor"])
+def test_t11_learning_entries_inherit_authorized_job_and_root(migrated_postgres_url, tmp_path, monkeypatch, entry):
+    from app.startup import build_runtime
+    from app.learning_agent import LearningAgent
+    from app.learning_extraction import ConstraintExtractor
+    from app.learning_pipeline import build_pipeline
+    from app.learning import digest
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    from test_learning_pipeline_v3 import StubDecisions
+    from test_learning_targets import memory_draft
+
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
+    monkeypatch.setenv("BETTER_AGENT_LEARNING_V3", "OFF")
+    runtime = build_runtime(tmp_path, database_url=migrated_postgres_url)
+    try:
+        db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, database=runtime.db)
+        runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["memory"],
+            cycle_microusd=100000, daily_microusd=100000, monthly_microusd=100000)
+        content = "以后生产数据库不能由 Agent 自动重启，必须人工批准。" if entry == "generator" else "请记住，日常练习的时长上限是30分钟。"
+        thread = runtime.conversation.create_thread("Learning")
+        runtime.conversation.accept_turn(thread.id, "learning", content)
+        with db.connection() as connection:
+            message = connection.execute("SELECT id FROM thread_messages WHERE thread_id=? AND role='user'", (thread.id,)).fetchone()[0]
+        job_id = runtime.learning.enqueue("local-user", "thread_message", message, digest(content), message)
+        draft = memory_draft(message).to_dict()
+        draft["target"] = "MEMORY"
+        draft["experience_ids"] = []
+        reply = json.dumps(draft) if entry == "generator" else json.dumps({
+            "setting":"action_max_minutes", "value":30, "project_only":False, "evidence":"30分钟"})
+        observer = CommittedSnapshotTransport(db, "local-user", "CS-LN-01", _answer(reply))
+        gateway = RoutedModelGateway(db, runtime.model_control_store, execute_attempt=observer)
+        if entry == "generator":
+            runtime.learning.pipeline = build_pipeline(runtime, mode="SHADOW", decisions=StubDecisions(db), agent=LearningAgent(gateway))
+        else:
+            runtime.learning.constraint_extractor = ConstraintExtractor(gateway)
+        assert runtime.learning.run_once()
+        job = next(item for item in runtime.learning.history() if item["id"] == job_id)
+        assert job["status"] == ("NO_CHANGE" if entry == "generator" else "APPLIED"), job["reason"]
+        assert observer.send_count == 1 and gateway.current_call_context() is None
+        with db.connection() as connection:
+            row = connection.execute("SELECT i.*,r.owner_id AS root_owner,r.root_object_id FROM model_invocations i JOIN task_budget_roots r ON r.id=i.root_budget_id").fetchone()
+        assert row["owner_id"] == row["root_owner"] == job["owner_id"]
+        assert row["root_object_id"] == job_id and row["root_budget_id"] == job["root_budget_id"]
+        assert row["runtime_bundle_id"] == bundle.id
+        frozen = ModelInputSnapshotStore(db).load(job["owner_id"], row["context_snapshot_id"])
+        assert content in json.dumps(frozen.to_request().messages, ensure_ascii=False).replace('\\"', '"')
+        source = next(source for source in frozen.provenance().sources if source.id == message)
+        assert source.included and source.location["message_index"] == 1
+        if entry == "extractor":
+            import hashlib
+            assert source.content_digest == hashlib.sha256(content.encode()).hexdigest()
+        else:
+            assert source.location["scope"] == "available_evidence_reference"
+    finally:
+        runtime.db.close()
+
+
+@pytest.mark.asyncio
+async def test_t10_interleaved_expert_owners_keep_separate_postgres_budgets(migrated_postgres_url, tmp_path, monkeypatch):
+    from test_snapshot_agent_entries import exercise_interleaved_experts
+
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        await exercise_interleaved_experts(tmp_path, monkeypatch, False, database=db)
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_t35_program_owner_and_operation_roots_survive_repair(migrated_postgres_url, tmp_path, monkeypatch):
+    from app.conversation import ConversationService
+    from app.goal_program_compiler import GoalProgramCompiler, FixedGoalProgramCompiler
+    from app.goal_programs import GoalProgramService
+    from app.goal_adjustments import GoalAdjustmentService
+    from app.goal_reviews import GoalReviewService, ManagedGoalReviewWorker
+    from test_goal_program_compiler import fixture
+
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
+    monkeypatch.setattr("app.goal_reviews._local_date", lambda _: "2026-09-01")
+    monkeypatch.setattr("app.goal_adjustments._local_date", lambda _: "2026-09-01")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, database=db, owner_id="tenant-b")
+        conversation = ConversationService(db)
+        thread = conversation.create_thread("Program", owner_id="tenant-b")
+        version = conversation.plan_documents.save_model_revision(thread_id=thread.id, title="Plan", markdown_content="# Plan",
+                    source_turn_id=None, source_message_id=None, actor="user")
+        goals = GoalProgramService(db, FixedGoalProgramCompiler(fixture()), plan_documents=conversation.plan_documents, conversation=conversation)
+        draft = await goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai",
+                                    daily_minutes=60, requested_end_date="2026-09-07", idempotency_key="preview", owner_id="tenant-b")
+        active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate", owner_id="tenant-b")
+        observer = CommittedSnapshotTransport(db, "tenant-b", "CS-GP-01", [
+            _answer("bad JSON"), _answer('{"summary":"Done","encouragement":"Continue","needs_adjustment":false,"adjustment_reason":""}'),
+            _answer('{"summary":"Period complete"}'),
+        ])
+        gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
+        compiler = GoalProgramCompiler(gateway)
+        goals.compiler = compiler
+        adjustments = GoalAdjustmentService(goals, compiler, conversation.plan_documents)
+        reviews = GoalReviewService(goals, compiler, adjustments, queue_delay_seconds=0)
+        goals.reviews = reviews
+        goals.complete_action(active["actions"][0]["id"], expected_version=0, idempotency_key="done", owner_id="tenant-b")
+        goals.close_day(active["id"], "2026-09-01", idempotency_key="close", owner_id="tenant-b")
+        assert await ManagedGoalReviewWorker(reviews).run_once()
+        assert reviews.for_program_date(active["id"], "2026-09-01", "tenant-b")["status"] == "COMPLETED"
+        adjusted = fixture()
+        adjusted["actions"][1]["title"] = "Adjusted task"
+        observer.callsite_id = "CS-GP-02"
+        observer.response = [_answer("bad JSON"), _answer(json.dumps(adjusted))]
+        current = goals.get(active["id"], "tenant-b")
+        proposal = await adjustments.propose(active["id"], reason="Adjust", expected_version=current["version"],
+            idempotency_key="adjust", owner_id="tenant-b")
+        assert proposal["status"] == "PENDING"
+        observer.callsite_id = "CS-GP-01"
+        observer.response = _answer('{"summary":"Period complete"}')
+        for action in active["actions"][1:]:
+            goals.complete_action(action["id"], expected_version=0, idempotency_key=action["id"], owner_id="tenant-b")
+        current = goals.get(active["id"], "tenant-b")
+        goals.transition(active["id"], "complete", expected_version=current["version"], idempotency_key="finish", owner_id="tenant-b")
+        assert await goals.period_summary(active["id"], "tenant-b") == "Period complete"
+        assert gateway.current_call_context() is None
+        with db.connection() as connection:
+            rows = connection.execute("SELECT i.*,r.owner_id AS budget_owner,r.root_kind FROM model_invocations i JOIN task_budget_roots r ON r.id=i.root_budget_id ORDER BY i.created_at,i.id").fetchall()
+        assert len(rows) == 5 and len(observer.observations) == 5
+        assert all(row["owner_id"] == row["budget_owner"] == "tenant-b" and row["root_kind"] == "goal_operation" for row in rows)
+        assert rows[0]["root_budget_id"] == rows[1]["root_budget_id"] != rows[2]["root_budget_id"]
+        assert rows[2]["root_budget_id"] == rows[3]["root_budget_id"] != rows[4]["root_budget_id"]
+        assert len({row["context_snapshot_id"] for row in rows}) == 5
+    finally:
+        db.close()
+
+
 @pytest.mark.asyncio
 async def test_research_plan_is_committed_before_postgres_transport_send(migrated_postgres_url, tmp_path, monkeypatch):
     db = Database(migrated_postgres_url, workspace=tmp_path)
@@ -49,6 +255,7 @@ async def test_model_admin_verification_failure_is_bound_and_owner_scoped_in_pos
     db = Database(migrated_postgres_url, workspace=tmp_path)
     try:
         observations = []
+        recorder = CommittedSnapshotTransport(db, "pg-admin-owner", "CS-MD-01", None)
 
         def fail_after_commit(request: httpx.Request) -> httpx.Response:
             with db.connection() as connection:
@@ -64,6 +271,13 @@ async def test_model_admin_verification_failure_is_bound_and_owner_scoped_in_pos
             assert row["context_snapshot_id"] and row["context_snapshot_digest"]
             assert row["invocation_status"] == "RUNNING"
             assert request.url.path.endswith("/chat/completions")
+            from app.model_input_snapshot_store import ModelInputSnapshotStore
+            from test_snapshot_gateway import _registered_profile
+            with db.connection() as connection:
+                profile_id = connection.execute("SELECT profile_version_id FROM model_attempts WHERE id=?", (row["attempt_id"],)).fetchone()[0]
+            frozen = ModelInputSnapshotStore(db).load("pg-admin-owner", row["context_snapshot_id"])
+            assert json.loads(request.content)["messages"] == frozen.to_request().messages
+            recorder.record(_registered_profile(db, profile_id), frozen.to_request())
             observations.append(dict(row))
             raise httpx.ConnectError("provider unavailable", request=request)
 

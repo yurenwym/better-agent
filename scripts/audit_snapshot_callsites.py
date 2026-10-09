@@ -9,6 +9,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import argparse
+from collections import Counter
 
 ROOT = Path(__file__).resolve().parents[1]
 ACCEPTANCE = ROOT / "docs/acceptance/context-snapshot-phase2"
@@ -40,6 +42,24 @@ SYMBOLS = {
     "LiveResearchModel._complete": ["CS-RS-01", "CS-RS-02"],
     "ManagedResearchWorker._finish_exposure": ["CS-RS-03"],
     "AgentRuntime._finish_exposure": ["CS-GR-02"],
+}
+
+# Construction and wire sites are audited independently of complete() calls.
+# New sites fail closed until their production reachability is reviewed.
+ASSEMBLY = {
+    "build_runtime": "production routed gateway with runtime-owned control_store",
+    "ModelAdminService._verify_live": "controlled direct verification, server-owned service identity",
+    "LiveEvaluationRunner._gateway": "controlled direct evaluation, persisted evaluation config identity",
+    "RoutedModelGateway._execute_http_attempt": "internal transport of an already bound invocation",
+    "provider_payload": "pure protocol rendering, no I/O",
+}
+HTTP = {
+    "model_gateway.py": "provider transport; reachable only through controlled complete or routed internal attempt",
+    "embedding.py": "embedding vector API, not a generative completion",
+    "learning_decision.py": "JEV structured decision service, excluded by Phase 2B scope",
+    "notifications.py": "notification webhook, not model generation",
+    "tavily.py": "source retrieval API, not model generation",
+    "web.py": "search/source retrieval, not model generation",
 }
 
 
@@ -87,13 +107,48 @@ def candidates(root=ROOT):
     return found
 
 
-def audit():
+def assembly_candidates(root=ROOT):
+    found = []
+    for path in sorted((root / "backend/app").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
+        parents = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            name = ast.unparse(node.func)
+            constructor = name in {"ModelGateway", "RoutedModelGateway"}
+            wire = isinstance(node.func, ast.Attribute) and node.func.attr in {"post", "stream", "request", "get"} and (
+                ast.unparse(node.func.value) in {"client", "self._client", "session", "httpx", "requests"})
+            if not constructor and not wire:
+                continue
+            scope, ancestor = [], parents.get(node)
+            while ancestor is not None:
+                if isinstance(ancestor, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    scope.insert(0, ancestor.name)
+                ancestor = parents.get(ancestor)
+            symbol = ".".join(scope)
+            reason = ("explicit CLI/test-only assembly, not reachable from API startup" if path.name in {"eval.py", "evals.py"}
+                      else ASSEMBLY.get(symbol) if constructor else HTTP.get(path.name))
+            keywords = {keyword.arg: ast.unparse(keyword.value) for keyword in node.keywords}
+            found.append({"file":path.relative_to(root).as_posix(), "symbol":symbol,"line":node.lineno,
+                "call":name,"disposition":reason,"keywords":keywords if constructor else {}})
+    return found
+
+
+def audit(records_path=None, batch_id=None, *, return_report=False):
     inventory = (ACCEPTANCE / "callsite-inventory.md").read_text(encoding="utf-8")
     ids = set(re.findall(r"\| (CS-[A-Z]+-\d+) \|", inventory))
-    records = [json.loads(line) for line in (ACCEPTANCE / "phase2b/logs/observed-bindings.ndjson").read_text().splitlines() if line.strip()]
+    paths = records_path if isinstance(records_path, list) else [records_path or ACCEPTANCE / "phase2b/logs/observed-bindings.ndjson"]
+    records = [json.loads(line) for path in paths for line in path.read_text().splitlines() if line.strip()]
+    if batch_id:
+        records = [row for row in records if row.get("batch_id") == batch_id]
     seen = {row["callsite_id"] for row in records}
-    evidence = json.loads((ACCEPTANCE / "phase2b/evidence.json").read_text(encoding="utf-8"))
+    evidence = json.loads((ACCEPTANCE / "phase2b/test-contracts.json").read_text(encoding="utf-8"))
     refs = set(re.findall(r'tests/[\w/]+\.py::[\w]+(?:\[[^"\n]+\])?', json.dumps(evidence)))
+    refs.update(row["pytest_node"] for row in records if row.get("pytest_node"))
     files = sorted({ref.split("::")[0] for ref in refs})
     result = subprocess.run([sys.executable, "-m", "pytest", *files, "--collect-only", "-q"],
                             cwd=ROOT / "backend", capture_output=True, text=True, encoding="utf-8", errors="replace")
@@ -104,18 +159,44 @@ def audit():
     static = candidates()
     unknown = [row for row in static if not row["excluded_reason"] and not row["callsites"]]
     unregistered = sorted({entry for row in static for entry in row["callsites"]} - ids)
+    assembly = assembly_candidates()
+    unknown_assembly = [row for row in assembly if not row["disposition"]]
+    unique = {row["invocation_id"]: row for row in records if row.get("invocation_id")}
+    provenance = Counter(row["provenance_status"] for row in unique.values())
+    invalid = [index for index, row in enumerate(records) if row.get("valid_committed_binding") is not True]
+    reachability = json.loads((ACCEPTANCE / "phase2b/callsite-contracts.json").read_text(encoding="utf-8"))
+    manifest_ids = set(reachability)
+    missing_branches = []
+    for callsite, contract in reachability.items():
+        for branch, required in contract["branches"].items():
+            if not any(row.get("callsite_id") == callsite and any(row.get("pytest_node") == node or row.get("pytest_node", "").startswith(node + "[") for node in required) for row in records):
+                missing_branches.append(f"{callsite}:{branch}")
     report = {"static_candidates": static, "unclassified_candidates": unknown,
               "static_callsites_missing_registration": unregistered, "registered_callsites": sorted(ids),
               "observed_callsites": sorted(seen), "registered_without_recorded_send": sorted(ids - seen),
               "unregistered_sends": sorted(seen - ids), "invalid_binding_records": missing_binding,
               "unresolved_nodes": unresolved, "collection_exit": result.returncode,
-              "production_denominator": None,
-              "status": "incomplete: candidate reachability and complete per-entry evidence still required"}
-    print(json.dumps(report, ensure_ascii=False, indent=2))
+              "assembly_candidates": assembly, "unclassified_assembly": unknown_assembly,
+              "manifest_registration_difference": sorted(manifest_ids ^ ids),
+              "missing_branch_evidence": missing_branches,
+              "production_denominator": len(ids) if not (unknown or unknown_assembly or manifest_ids ^ ids) else None,
+              "observed_sends": len(records), "sends_with_valid_committed_binding": len(records)-len(invalid),
+              "invalid_audits": invalid, "unique_invocations": len(unique),
+              "provenance_complete": provenance["complete"], "provenance_partial": provenance["partial"],
+              "scope": "explicit acceptance capture batch, not long-term production telemetry"}
     incomplete = (report["production_denominator"] is None or unknown or unregistered
-                  or ids - seen or seen - ids or missing_binding or unresolved or result.returncode)
+                  or ids - seen or seen - ids or missing_binding or unresolved or result.returncode
+                  or missing_branches or invalid or not records)
+    report["status"] = "incomplete" if incomplete else "pass"
+    if return_report:
+        return report
+    print(json.dumps(report, ensure_ascii=False, indent=2))
     return int(bool(incomplete))
 
 
 if __name__ == "__main__":
-    raise SystemExit(audit())
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--records", type=Path)
+    parser.add_argument("--batch-id")
+    args = parser.parse_args()
+    raise SystemExit(audit(args.records, args.batch_id))

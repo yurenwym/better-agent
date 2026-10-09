@@ -14,6 +14,100 @@ from test_snapshot_flow import _plane
 from test_snapshot_gateway import _answer
 
 
+@pytest.mark.asyncio
+async def test_goal_preview_compiles_under_persisted_program_owner(tmp_path, monkeypatch):
+    import json
+    from app.goal_program_compiler import GoalProgramCompiler
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    from test_goal_programs import service
+    from test_goal_program_compiler import fixture
+
+    db, _, goals, version = service(tmp_path)
+    _, _, _, _, gateway = _plane(tmp_path, monkeypatch, execute=None, database=db)
+    observer = CommittedSnapshotTransport(db, "local-user", "CS-GP-03", _answer(json.dumps(fixture())))
+    gateway._execute_attempt = observer
+    goals.compiler = GoalProgramCompiler(gateway)
+    kwargs = dict(start_date="2026-09-01", timezone_name="Asia/Shanghai", daily_minutes=60,
+                  requested_end_date="2026-09-07", idempotency_key="snapshot-preview")
+    draft = await goals.preview(version.plan_document_id, **kwargs)
+    assert draft["compile_status"] == "READY"
+    assert (await goals.preview(version.plan_document_id, **kwargs))["id"] == draft["id"]
+    assert observer.send_count == 1 and gateway.current_call_context() is None
+
+
+@pytest.mark.asyncio
+async def test_conversation_output_judge_uses_thread_owner(tmp_path, monkeypatch):
+    from app.evolution import LiveSafetyJudge
+    from app.model_control import ModelCallContext
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+
+    db, bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=None, owner_id="tenant-b")
+    runtime = _runtime(tmp_path, db, gateway, owner_id="tenant-b")
+    thread = runtime.conversation.create_thread("Judge", owner_id="tenant-b")
+    accepted = runtime.conversation.accept_turn(thread.id, "judge", "Task", [], owner_id="tenant-b")
+    turn = runtime.conversation.turn(accepted.turn_id, owner_id="tenant-b")
+    observer = CommittedSnapshotTransport(db, "tenant-b", "CS-CA-02", _answer("safe"))
+    gateway._execute_attempt = observer
+    runtime.safety_judge = LiveSafetyJudge(gateway)
+    verdicts = []
+
+    class Evolution:
+        def finish_run_exposure(self, *args, **kwargs):
+            verdicts.append(kwargs)
+
+    runtime.evolution = Evolution()
+    sentinel = ModelCallContext("conversation", "other", owner_id="other-owner")
+    token = gateway.set_call_context(sentinel)
+    try:
+        await runtime.turn_worker._finish_exposure(turn, success=True, message_id=None, observable={"output":"Delivered"})
+        assert gateway.current_call_context() is sentinel
+    finally:
+        gateway.reset_call_context(token)
+    assert verdicts[0]["safety_pass"] is True and observer.send_count == 1
+    assert _invocations(db)[0]["purpose"] == "judge_conversation_output"
+
+
+def test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection(tmp_path, monkeypatch):
+    import json
+    from fastapi.testclient import TestClient
+    from app.main import create_app
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    from test_api import _headers
+    from test_snapshot_flow import _turn_context
+
+    db, bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=None, owner_id="tenant-b")
+    runtime = _runtime(tmp_path, db, gateway, owner_id="tenant-b")
+    observer = CommittedSnapshotTransport(db, "tenant-b", "CS-GR-01", [
+        _answer('{"needs_clarification":false}'), _answer("invalid JSON"),
+        _answer('{"summary":"Plan","steps":[{"id":"s1","title":"Deliver","description":"Answer"}]}'),
+        _answer('{"action":"complete_step","output":"Delivered"}'), _answer('{"candidates":[]}'),
+    ])
+    monkeypatch.setattr(gateway, "_execute_attempt", observer)
+    app = create_app(runtime=runtime)
+    client = TestClient(app)
+    created = client.post("/api/goals", json={"title":"Deliver", "description":"Answer"}, headers=_headers(app))
+    assert created.status_code == 201
+    run_id, goal_id = created.json()["run_id"], created.json()["id"]
+    planned = client.post(f"/api/goals/{goal_id}/messages", json={"content":"Deliver"}, headers=_headers(app))
+    assert planned.status_code == 200 and planned.json()["state"] == "AWAITING_APPROVAL", planned.text
+    # Reflection requires real user evidence; the service-owner/no-turn path above
+    # has none and correctly short-circuits. Attach a persisted authorized source.
+    source = _turn_context(db, owner_id="tenant-b")
+    with db.transaction() as connection:
+        connection.execute("UPDATE runs SET source_turn_id=? WHERE id=?", (source.turn_id, run_id))
+    approved = client.post(f"/api/runs/{run_id}/plans/1/approve", json={}, headers=_headers(app))
+    assert approved.status_code == 200 and approved.json()["state"] == "COMPLETED", approved.text
+    rows = _invocations(db)
+    assert [row["purpose"] for row in rows] == ["clarification", "planning", "repair_structured_output", "react", "reflection"]
+    assert len(observer.observations) == 5
+    assert len({row["context_snapshot_id"] for row in rows}) == 5
+    assert all(row["owner_id"] == "tenant-b" and row["run_id"] == run_id for row in rows)
+    first, repair = [ModelInputSnapshotStore(db).load("tenant-b", rows[i]["context_snapshot_id"]) for i in (1, 2)]
+    assert first.content_json != repair.content_json
+    assert "上一次响应无效；只返回所要求的 JSON 对象。" in repair.to_request().messages[0]["content"]
+
+
 def _runtime(tmp_path, db, gateway, *, owner_id: str | None = None):
     from app.domain import ApprovalService, CheckpointStore, PlanVersionService
     from app.events import EventStore
@@ -47,6 +141,9 @@ async def test_t33_a_goal_api_run_executes_under_the_service_owner(tmp_path, mon
         return _answer('{"summary":"计划","steps":[{"id":"s1","title":"开始","description":""}]}')
 
     db, _bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=execute, owner_id=owner or "local-user")
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    monkeypatch.setattr(gateway, "_execute_attempt", CommittedSnapshotTransport(db, owner or "local-user", "CS-GR-01",
+        _answer('{"summary":"计划","steps":[{"id":"s1","title":"开始","description":""}]}')))
     runtime = _runtime(tmp_path, db, gateway, owner_id=owner)
 
     run = await runtime.create_goal("目标", "描述")
@@ -91,11 +188,14 @@ async def test_t36_the_run_output_judge_is_an_independent_call_under_the_run_own
     tmp_path, monkeypatch, owner,
 ) -> None:
     from app.evolution import LiveSafetyJudge
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
 
     async def execute(_profile, _request, **_kwargs):
         return _answer("safe")
 
     db, _bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=execute, owner_id=owner or "local-user")
+    recorder = CommittedSnapshotTransport(db, owner or "local-user", "CS-GR-02", _answer("safe"))
+    monkeypatch.setattr(gateway, "_execute_attempt", recorder)
     runtime = _runtime(tmp_path, db, gateway, owner_id=owner)
     verdicts: list[object] = []
 
@@ -216,7 +316,7 @@ async def test_evolution_proposer_without_an_owner_sends_nothing(tmp_path, monke
 
 
 @pytest.mark.asyncio
-async def test_unbound_gateway_needs_an_explicit_offline_opt_in() -> None:
+async def test_unbound_gateway_needs_an_explicit_offline_opt_in(monkeypatch) -> None:
     from app.model_gateway import GatewayError, ModelGateway, ModelProfile, ModelRequest
 
     profile = ModelProfile("https://example.invalid/v1", "m", "KEY", provider_name="openai-compatible", max_attempts=1)
@@ -225,7 +325,14 @@ async def test_unbound_gateway_needs_an_explicit_offline_opt_in() -> None:
     assert refused.value.kind == "configuration"
 
     opted_in = ModelGateway(profile, offline_unbound=True)
-    assert opted_in.offline_unbound is True
+    sends = []
+    async def attempt(*args, **kwargs):
+        sends.append(args[0])
+        return _answer("offline")
+    monkeypatch.setenv("KEY", "offline-test")
+    monkeypatch.setattr(opted_in, "_attempt", attempt)
+    assert (await opted_in.complete(ModelRequest(messages=[{"role":"user","content":"test"}], purpose="offline"))).message == "offline"
+    assert len(sends) == 1
 
 
 @pytest.mark.asyncio
@@ -290,6 +397,7 @@ def test_t35_daily_and_period_review_restore_context_after_failure(tmp_path, mon
     import asyncio
     from app.goal_program_compiler import GoalProgramCompiler
     from app.model_control import ModelCallContext
+    from app.model_gateway import GatewayError
     from app.model_input_snapshot_store import ModelInputSnapshotStore
     from snapshot_entrypoint_helpers import CommittedSnapshotTransport
     from test_goal_programs import preview
@@ -303,7 +411,7 @@ def test_t35_daily_and_period_review_restore_context_after_failure(tmp_path, mon
     compiler = GoalProgramCompiler(gateway)
     goals.compiler = reviews.compiler = compiler
     recorder = CommittedSnapshotTransport(db, "local-user", "CS-GP-01", [
-        RuntimeError("provider interrupted"), _answer("not JSON"),
+        GatewayError("provider interrupted", "protocol"), _answer("not JSON"),
         _answer('{"summary":"Done","encouragement":"Continue","needs_adjustment":false,"adjustment_reason":""}'),
         _answer('{"summary":"Period complete"}'),
     ])

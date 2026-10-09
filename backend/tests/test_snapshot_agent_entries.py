@@ -15,14 +15,26 @@ from test_snapshot_gateway import _answer, _configured_control_plane
 @pytest.mark.asyncio
 @pytest.mark.parametrize("user_task", [False, True])
 async def test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges(tmp_path, monkeypatch, user_task):
-    db, bundle_a, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="owner-a")
+    await exercise_interleaved_experts(tmp_path, monkeypatch, user_task)
+
+
+async def exercise_interleaved_experts(tmp_path, monkeypatch, user_task, database=None):
+    from datetime import datetime, timedelta, timezone
+    from app.costs import CostService
+
+    db, bundle_a, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="owner-a", database=database)
     _, bundle_b, _ = _configured_control_plane(tmp_path, monkeypatch, database=db, owner_id="owner-b")
     pinned = {"owner-a": bundle_a, "owner-b": bundle_b}
+    costs = CostService(db)
+    roots = {owner: costs.create_root_budget(owner, "turn", f"expert-{owner}", max_attempts=20,
+        deadline_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(), limit_microusd=100000)["id"]
+        for owner in pinned} if db.backend == "postgresql" else {}
 
     service = AgentTaskService(db)
     runs = {owner: service.create_run(
         owner, f"Only {owner}", {"private": owner, "task_mode": "user_task" if user_task else "advice"},
         bundle.id, idempotency_key=owner, expert_roles=("planner", "critic"), append_thread_message=False,
+        root_budget_id=roots.get(owner),
     ) for owner, bundle in pinned.items()}
     observations = []
     entered, release = asyncio.Event(), asyncio.Event()
@@ -50,7 +62,7 @@ async def test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges(tmp_
             raise RuntimeError("one expert failed")
         return result
 
-    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    gateway = RoutedModelGateway(db, ModelControlStore(db, costs=costs), execute_attempt=execute)
     workers = [ManagedAgentWorker(service, LiveExpertModel(gateway), safety_judge=LiveSafetyJudge(gateway)) for _ in range(2)]
     assert await workers[0].run_once()  # A fan-out
     assert await workers[1].run_once()  # B fan-out
@@ -84,6 +96,11 @@ async def test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges(tmp_
         ).fetchall()
     assert len(rows) == 9
     assert all(row["owner_id"] == row["run_owner"] and row["runtime_bundle_id"] == row["run_bundle"] for row in rows)
+    if roots:
+        assert all(row["root_budget_id"] == roots[row["owner_id"]] for row in rows)
+        with db.connection() as connection:
+            budgets = connection.execute("SELECT owner_id,id,attempts_started FROM task_budget_roots").fetchall()
+        assert {row["owner_id"]: row["attempts_started"] for row in budgets} == {"owner-a": 4, "owner-b": 5}
     assert sum(row["purpose"] == "judge_expert_output" and row["role"] == "judge_safety" for row in rows) == 3
     for item in observations:
         other = "owner-b" if item["owner_id"] == "owner-a" else "owner-a"

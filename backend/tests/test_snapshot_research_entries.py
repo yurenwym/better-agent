@@ -15,6 +15,63 @@ from test_snapshot_gateway import _answer, _configured_control_plane
 
 
 @pytest.mark.asyncio
+async def test_t37_research_worker_with_missing_source_turn_never_sends(tmp_path, monkeypatch):
+    from app.conversation import ConversationService
+    from app.research.service import ResearchService
+    from app.research.worker import ManagedResearchWorker
+    from test_research_service import CompletingEngine
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="research-owner")
+    observer = CommittedSnapshotTransport(db, "research-owner", "CS-RS-01", _answer("unused"))
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
+    engine = CompletingEngine()
+    engine.model = LiveResearchModel(gateway)
+    conversation = ConversationService(db)
+    service = ResearchService(db, conversation.events, engine)
+    thread = conversation.create_thread("Research", owner_id="research-owner")
+    job = service.create_manual(thread.id, "Research", "worker", ("web",), runtime_bundle_id=bundle.id)
+    with db.connection() as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute("UPDATE research_jobs SET source_turn_id='missing-source' WHERE id=?", (job.id,))
+        connection.commit()
+    await ManagedResearchWorker(service).run_once(job.id)
+    assert observer.send_count == 0 and gateway.current_call_context() is None
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs(tmp_path, monkeypatch):
+    from app.behavior import BehaviorBundleService
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="research-owner")
+    observer = CommittedSnapshotTransport(db, "research-owner", "CS-RS-02", _answer("## Result\nEvidence [[source:s1]]"))
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
+    model = LiveResearchModel(gateway)
+    context = ModelCallContext("researcher", "research", owner_id="research-owner", runtime_bundle_id=bundle.id)
+    token = gateway.set_call_context(context)
+    evidence = [Evidence("e1", "s1", "First evidence", None, .9)]
+    try:
+        await model.write("First", "Supported", evidence, "")
+        first = ModelInputSnapshotStore(db).load("research-owner", observer.observations[0]["snapshot_id"])
+        evidence.append(Evidence("e2", "s1", "Later evidence", None, .8))
+        bundles = BehaviorBundleService(db)
+        changed = bundles.ensure({**bundle.manifest, "prompt": "changed stable"})
+        bundles.activate("stable", changed.id, "change-stable")
+        await model.write("Second", "Supported", evidence, "First summary")
+        await model.repair("Research", ResearchPlan("Research", ("First", "Second"), ("query",)), ("missing",), [("s1", "Evidence")])
+    finally:
+        gateway.reset_call_context(token)
+    assert len(observer.observations) == 3
+    assert len({item["snapshot_id"] for item in observer.observations}) == 3
+    snapshots = [ModelInputSnapshotStore(db).load("research-owner", item["snapshot_id"]) for item in observer.observations]
+    assert all(snapshot.runtime_bundle_id == bundle.id for snapshot in snapshots)
+    assert snapshots[0].content_json == first.content_json and "Later evidence" not in first.content_json
+    assert "Later evidence" in snapshots[1].content_json
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("interruption", ["exception", "cancel"])
 async def test_t08_t36_research_worker_restores_context_and_judges_recovered_job(tmp_path, monkeypatch, interruption):
     import asyncio
@@ -109,7 +166,7 @@ async def test_research_entrypoint_sends_only_after_committed_snapshot(tmp_path,
         "summarize": {"tldr": "完成", "points": ["依据 [[source:s1]]"]},
     }
     response = _answer(json.dumps(responses[entrypoint], ensure_ascii=False) if entrypoint in responses else "## 结论\n\n完成 [[source:s1]]")
-    callsite = "CS-RS-02" if entrypoint == "write" else "CS-RS-01"
+    callsite = "CS-RS-02" if entrypoint in {"write", "repair"} else "CS-RS-01"
     observer = CommittedSnapshotTransport(db, "research-owner", callsite, response)
     gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
     model = LiveResearchModel(gateway)
@@ -146,6 +203,18 @@ async def test_research_entrypoint_sends_only_after_committed_snapshot(tmp_path,
     observed = observer.observations[0]
     assert observed["owner_id"] == "research-owner"
     assert observed["snapshot_id"] and observed["snapshot_digest"]
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    frozen = ModelInputSnapshotStore(db).load("research-owner", observed["snapshot_id"])
+    assert frozen.role == "researcher"
+    assert frozen.purpose == {"write":"write_research_section", "repair":"repair_research_report"}.get(entrypoint, "research_structured_step")
+    if entrypoint in {"distill", "reflect", "curate", "write", "repair"}:
+        import hashlib
+        sources = frozen.provenance().sources
+        text = "证据" if entrypoint == "repair" else "PostgreSQL 使用 MVCC。"
+        assert len(sources) == 1 and sources[0].included
+        assert sources[0].content_digest == hashlib.sha256(text.encode()).hexdigest()
+        assert sources[0].location["scope"] == "excerpt"
+        assert frozen.provenance().status == "partial"
 
 
 @pytest.mark.asyncio

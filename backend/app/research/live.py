@@ -77,7 +77,7 @@ class LiveResearchModel:
             raise ValueError("structured_attempts must be 1 or 2")
         self.structured_attempts = structured_attempts
 
-    async def _complete(self, request: ModelRequest, *, parent_context=None):
+    async def _complete(self, request: ModelRequest, *, parent_context=None, sources=()):
         """Open a fresh logical Research call under the stable worker parent."""
         if getattr(self.gateway, "control_store", None) is not None:
             parent = parent_context or self.gateway.current_call_context()
@@ -86,10 +86,12 @@ class LiveResearchModel:
 
                 raise GatewayError("research execution context is required", "identity")
             from ..model_control import new_logical_call
+            from ..model_input_snapshot import build_provenance
 
             return await self.gateway.complete(
                 request,
                 context=new_logical_call(parent, role=request.role, purpose=request.purpose),
+                provenance=build_provenance(sources),
             )
         return await self.gateway.complete(request)
 
@@ -105,7 +107,7 @@ class LiveResearchModel:
         source_map = [(x.text, x.source_id) for x in evidence]
         return build_research_write_messages(policy, heading, thesis, source_map, prior_summary)
 
-    async def _json(self, system: str, user: str) -> dict[str, Any]:
+    async def _json(self, system: str, user: str, *, sources=()) -> dict[str, Any]:
         messages=[{"role": "system", "content": self._system(system + " 只返回严格 JSON。")}, {"role": "user", "content": user}]
         parent_context = self.gateway.current_call_context() if getattr(self.gateway, "control_store", None) is not None else None
         for attempt in range(self.structured_attempts):
@@ -113,7 +115,7 @@ class LiveResearchModel:
                 messages=messages, temperature=0, max_tokens=4096,
                 role="researcher", purpose="research_structured_step",
                 thinking=False,
-            ), parent_context=parent_context)
+            ), parent_context=parent_context, sources=sources)
             text = response.message.strip()
             if text.startswith("```"): text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
             if getattr(response, "finish_reason", None) == "length":
@@ -139,7 +141,7 @@ class LiveResearchModel:
 
     async def distill(self, source, topic: str, sections: tuple[str, ...]):
         excerpt = relevant_excerpt(source, topic, sections)
-        data = await self._json(UNTRUSTED + "只提取该来源直接支持、且对所请求主题或章节直接有用的事实。text 必须逐字摘录给定原文中的完整句子或段落，不翻译、不改写、不省略、不拼接。忽略导航、标题、链接片段、营销文案和重复模板。优先提取具体行动、阈值、时长、测量、示例和约束，而不是空泛结论。", f"主题：{topic}\n章节：{sections}\n来源标题：{source.title}\n相关来源摘录：\n{excerpt}\n返回 evidence 数组，每项含 text、date_hint、relevance。来源无法支持任何要求时返回空数组。")
+        data = await self._json(UNTRUSTED + "只提取该来源直接支持、且对所请求主题或章节直接有用的事实。text 必须逐字摘录给定原文中的完整句子或段落，不翻译、不改写、不省略、不拼接。忽略导航、标题、链接片段、营销文案和重复模板。优先提取具体行动、阈值、时长、测量、示例和约束，而不是空泛结论。", f"主题：{topic}\n章节：{sections}\n来源标题：{source.title}\n相关来源摘录：\n{excerpt}\n返回 evidence 数组，每项含 text、date_hint、relevance。来源无法支持任何要求时返回空数组。", sources=[_excerpt_source(source.id, excerpt)])
         result = []
         for item in data.get("evidence", [])[:6]:
             text = str(item.get("text", "")).strip()
@@ -179,18 +181,18 @@ class LiveResearchModel:
         ]
 
     async def reflect(self, topic, plan, evidence, used_queries):
-        data = await self._json("识别具体证据缺口，不要重复查询。", f"主题：{topic}\n章节：{plan.sections}\n已有证据：{[x.text for x in evidence]}\n已用查询：{used_queries}\n返回 queries 数组，最多 3 条。")
+        data = await self._json("识别具体证据缺口，不要重复查询。", f"主题：{topic}\n章节：{plan.sections}\n已有证据：{[x.text for x in evidence]}\n已用查询：{used_queries}\n返回 queries 数组，最多 3 条。", sources=[_excerpt_source(x.id, x.text) for x in evidence])
         return tuple(str(x) for x in data.get("queries", [])[:3])
 
     async def curate(self, plan, evidence):
-        data = await self._json("只能把给定证据 ID 分配给每个要求的报告章节。每个标题准确返回一次，不得遗漏章节。优先选择直接回答标题的具体、可操作证据；已有具体步骤、测量、示例或约束时不要用空泛背景代替。", f"章节（全部必需，保持标题和顺序）：{plan.sections}\n证据：{[(x.id,x.text) for x in evidence]}\n返回 sections 数组，每项含 heading、thesis、evidence_ids。缺少证据的章节也要返回，并使用空 evidence_ids，供调用方拒绝不完整报告。")
+        data = await self._json("只能把给定证据 ID 分配给每个要求的报告章节。每个标题准确返回一次，不得遗漏章节。优先选择直接回答标题的具体、可操作证据；已有具体步骤、测量、示例或约束时不要用空泛背景代替。", f"章节（全部必需，保持标题和顺序）：{plan.sections}\n证据：{[(x.id,x.text) for x in evidence]}\n返回 sections 数组，每项含 heading、thesis、evidence_ids。缺少证据的章节也要返回，并使用空 evidence_ids，供调用方拒绝不完整报告。", sources=[_excerpt_source(x.id, x.text) for x in evidence])
         return [(str(x.get("heading", "")), str(x.get("thesis", "")), tuple(str(i) for i in x.get("evidence_ids", []))) for x in data.get("sections", [])]
 
     async def write(self, heading, thesis, evidence, prior_summary):
         response = await self._complete(ModelRequest(
             messages=self.render_write_messages(heading, thesis, evidence, prior_summary),
             temperature=0, max_tokens=4096, role="researcher", purpose="write_research_section", thinking=False,
-        ))
+        ), sources=[_excerpt_source(x.id, x.text) for x in evidence])
         from .delivery import deliver_section
         delivery = deliver_section(response.message, heading, getattr(response, "finish_reason", None))
         return delivery["delivered"], thesis[:240]
@@ -211,6 +213,16 @@ class LiveResearchModel:
         response = await self._complete(ModelRequest(messages=[
             {"role": "system", "content": self._system(UNTRUSTED + "只使用给定证据撰写一份简洁 Markdown 补充内容，直接覆盖每项缺失要求。每个事实段落都必须按 [[source:SOURCE_ID]] 引用证据。绝不虚构 ID、URL、事实或参考文献表。只返回补充内容，并以二级标题开头。")},
             {"role": "user", "content": f"主题：{topic}\n必需章节：{plan.sections}\n缺失要求：{missing_requirements}\n证据（source_id, text）：{evidence_context}"},
-        ], temperature=0, role="researcher", purpose="repair_research_report", thinking=False))
+        ], temperature=0, role="researcher", purpose="repair_research_report", thinking=False),
+            sources=[_excerpt_source(source_id, text) for source_id, text in evidence_context])
         supplement = re.sub(r"\[\[(source_[^\]\s]+)\]\]", r"[[source:\1]]", response.message.strip())
         return supplement
+
+
+def _excerpt_source(identity: str, text: str) -> dict[str, Any]:
+    """Name only the excerpt sent, never claim that the full source was sent."""
+    import hashlib
+
+    return {"kind": "other", "id": identity, "included": True,
+            "content_digest": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+            "location": {"message_index": 1, "field": "content", "scope": "excerpt"}}

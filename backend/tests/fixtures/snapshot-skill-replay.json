@@ -1,0 +1,1 @@
+{"suites":[{"owner_id":"local-user","target":"SKILL","cases":[{"id":"relevant","task":"Diagnose database timeout","relevant":true,"rubric":{"deterministic_required":["supported"]}},{"id":"unrelated","task":"Explain a rainbow","relevant":false,"rubric":{"deterministic_required":["supported"]}}]}]}

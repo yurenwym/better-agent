@@ -84,3 +84,88 @@ async def test_learning_judge_uses_its_own_committed_call(tmp_path, monkeypatch)
         gateway.reset_call_context(token)
     assert len(observer.observations) == 1
     assert observer.observations[0]["owner_id"] == "learning-owner"
+
+
+@pytest.mark.asyncio
+async def test_t14_nondefault_evolution_owner_and_independent_judge(tmp_path, monkeypatch):
+    from app.evolution import LiveBehaviorRunner, LivePromptCandidateProposer
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="evolution-owner")
+    arm = CommittedSnapshotTransport(db, "evolution-owner", "CS-EV-01", [_answer("Actual candidate output"), _answer("helpful")])
+    proposal = CommittedSnapshotTransport(db, "evolution-owner", "CS-EV-04", _answer(
+        '{"prompt":"new prompt","reason":"evidence","root_cause_hypothesis":"wording","confidence_limitations":"small sample"}'
+    ))
+
+    async def execute(profile, request, **kwargs):
+        return await (proposal if request.purpose == "propose_evolution_candidate" else arm)(profile, request, **kwargs)
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    runner, proposer = LiveBehaviorRunner(gateway), LivePromptCandidateProposer(gateway)
+    assert await runner._run({"prompt": "candidate policy"}, "Task", bundle.id, "evolution-owner") == "helpful"
+    assert (await proposer._propose("old prompt", {"owner_id":"evolution-owner"}, bundle.id))["prompt"] == "new prompt"
+    observations = arm.observations + proposal.observations
+    assert len({item["invocation_id"] for item in observations}) == 3
+    snapshots = [ModelInputSnapshotStore(db).load("evolution-owner", item["snapshot_id"]) for item in observations]
+    assert all(snapshot.runtime_bundle_id == bundle.id for snapshot in snapshots)
+    assert "Actual candidate output" in snapshots[1].content_json
+    assert "candidate policy" not in snapshots[1].content_json
+    for owner in (None, ""):
+        with pytest.raises(PermissionError):
+            await runner._run({}, "Task", bundle.id, owner)
+        with pytest.raises(PermissionError):
+            await proposer._propose("old", {"owner_id": owner}, bundle.id)
+    assert arm.send_count == 2 and proposal.send_count == 1
+    assert gateway.current_call_context() is None
+
+
+@pytest.mark.asyncio
+async def test_t23_learning_off_does_not_disable_other_snapshot_entries(tmp_path, monkeypatch):
+    import httpx
+    from app.startup import build_runtime
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    from app.research.models import ResearchLimits
+    from test_snapshot_gateway import _openai_stream, _registered_profile
+    from test_snapshot_flow import _drive, _header
+
+    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("BETTER_AGENT_TEST_ALLOW_SQLITE", "1")
+    monkeypatch.setenv("BETTER_AGENT_LEARNING_V3", "OFF")
+    db, _, versions = _configured_control_plane(tmp_path, monkeypatch)
+    runtime = build_runtime(tmp_path, profile=_registered_profile(db, versions["chat"]), activate_stable=False)
+    assert runtime.learning.pipeline is None
+    gateway = runtime.model.gateway
+    research = CommittedSnapshotTransport(runtime.db, "local-user", "CS-RS-01", _answer(
+        '{"title":"Research","sections":["Result"],"queries":["query"]}'
+    ))
+    chat = CommittedSnapshotTransport(runtime.db, "local-user", "CS-CA-01", _answer(_header()))
+
+    async def execute(profile, request, **kwargs):
+        return await (research if request.role == "researcher" else chat)(profile, request, **kwargs)
+
+    monkeypatch.setattr(gateway, "_execute_attempt", execute)
+    token = gateway.set_call_context(ModelCallContext("researcher", "plan_research", owner_id="local-user"))
+    try:
+        await runtime.research.engine.model.plan("Research", ResearchLimits())
+    finally:
+        gateway.reset_call_context(token)
+    await _drive(runtime.conversation_model, "Hello")
+    admin_sends = []
+    admin_observer = CommittedSnapshotTransport(runtime.db, "local-user", "CS-MD-01", None)
+
+    def verify(request):
+        with runtime.db.connection() as connection:
+            row = connection.execute("SELECT i.* FROM model_invocations i JOIN model_attempts a ON a.invocation_id=i.id WHERE a.status='STARTED'").fetchone()
+        assert row["owner_id"] == "local-user" and row["purpose"] == "verify_model_profile_version"
+        frozen = ModelInputSnapshotStore(runtime.db).load("local-user", row["context_snapshot_id"])
+        assert frozen.content_digest == row["context_snapshot_digest"]
+        assert json.loads(request.content)["messages"] == frozen.to_request().messages
+        admin_observer.record(_registered_profile(runtime.db, versions["chat"]), frozen.to_request())
+        admin_sends.append(row["id"])
+        return httpx.Response(200, content=_openai_stream())
+
+    runtime.model_admin.verification_transport = httpx.MockTransport(verify)
+    assert (await runtime.model_admin.verify(versions["chat"]))["verification_status"] == "VERIFIED"
+    assert research.send_count == chat.send_count == len(admin_sends) == 1
+    assert gateway.current_call_context() is None

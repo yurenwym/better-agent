@@ -1,0 +1,6 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_learning_agent.py", "tests/test_learning_eval.py", "tests/test_learning_judge_reliability.py", "tests/test_learning_pipeline_v3.py", "tests/test_learning_v3_wiring.py", "tests/test_learning_v3_fixes.py", "tests/test_evolution.py", "tests/test_evolution_api.py", "tests/test_real_evaluation.py", "tests/test_evaluation_api.py", "tests/test_memory_archive.py", "tests/test_memory_reference.py", "tests/test_memory_reference_gateway.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-fixed-learning-observe.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:49:14.401425+00:00", "cost_mode": "observe", "batch": "m2-fixed"}
+........................................................................ [ 30%]
+........................................................................ [ 61%]
+........................................................................ [ 91%]
+....................                                                     [100%]
+236 passed in 232.76s (0:03:52)

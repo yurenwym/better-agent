@@ -1,0 +1,6 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_research_engine.py", "tests/test_research_service.py", "tests/test_research_api.py", "tests/test_agent_tasks.py", "tests/test_agent_worker.py", "tests/test_agent_api.py", "tests/test_model_admin_api.py", "tests/test_startup_contract.py", "tests/test_runtime.py", "tests/test_runtime_prompt_policy.py", "tests/test_materializer.py", "tests/test_plan_execution_projection.py", "tests/test_goal_reviews.py", "tests/test_goal_period_review.py", "tests/test_goal_adjustments.py", "tests/test_goal_adjustment_api.py", "tests/test_live_model.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-r1-business-observe.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:42:03.843861+00:00", "cost_mode": "observe", "batch": "m2-r1"}
+........................................................................ [ 26%]
+........................................................................ [ 52%]
+........................................................................ [ 79%]
+.........................................................                [100%]
+273 passed in 167.43s (0:02:47)

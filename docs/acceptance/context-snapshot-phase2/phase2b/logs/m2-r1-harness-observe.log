@@ -1,0 +1,6 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_execution_context.py", "tests/test_harness_context_flow.py", "tests/test_harness_context_approval.py", "tests/test_model_control.py", "tests/test_model_gateway.py", "tests/test_routed_model_gateway.py", "tests/test_chat_goal_tools.py", "tests/test_goal_tools.py", "tests/test_goal_tool_recovery.py", "tests/test_conversation.py", "tests/test_conversation_worker.py", "tests/test_conversation_protocol_v2.py", "tests/test_goal_programs.py", "tests/test_goal_program_compiler.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-r1-harness-observe.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:40:48.874591+00:00", "cost_mode": "observe", "batch": "m2-r1"}
+........................................................................ [ 26%]
+........................................................................ [ 53%]
+........................................................................ [ 80%]
+...................................................                      [100%]
+267 passed in 288.36s (0:04:48)

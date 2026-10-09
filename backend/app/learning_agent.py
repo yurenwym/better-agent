@@ -424,7 +424,15 @@ class LearningAgent:
                                   constraints=constraints, evidence_ids=evidence_ids, source_refs=source_refs)
         request = ModelRequest(messages=messages, tools=self.tools, temperature=0, max_tokens=self.max_tokens,
                                role=self.role, purpose=self.purpose, thinking=False)
-        response = await self.gateway.complete(request, context=context)
+        metadata = {}
+        if getattr(self.gateway, "control_store", None) is not None:
+            from .model_input_snapshot import build_provenance
+            metadata["provenance"] = build_provenance([
+                {"kind":"other", "id":str(identity), "included":True,
+                 "location":{"message_index":1,"field":"content","scope":"available_evidence_reference"}}
+                for identity in dict.fromkeys([*evidence_ids, *source_refs])
+            ])
+        response = await self.gateway.complete(request, context=context, **metadata)
         text = response.message if hasattr(response, "message") else str(response)
         payload = _extract_json(text)
         return parse_draft(decision, payload, experience_ids=evidence_ids, source_refs=source_refs,

@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 import os
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -29,26 +30,70 @@ class CommittedSnapshotTransport:
     callsite_id: str
     response: Any
     observations: list[dict[str, Any]] = field(default_factory=list)
+    send_count: int = 0
 
+    def record(self, profile: Any, request: Any) -> None:
+        self.send_count += 1
+        observation = {
+            "send_id": uuid.uuid4().hex,
+            "batch_id": os.getenv("BETTER_SNAPSHOT_BATCH_ID", "unbatched"),
+            "pytest_node": os.getenv("PYTEST_CURRENT_TEST", "").removesuffix(" (call)"),
+            "callsite_id": self.callsite_id,
+            "valid_committed_binding": False,
+        }
+        try:
+            observation.update(self._audit(profile, request))
+            observation["valid_committed_binding"] = True
+            self.observations.append(observation)
+        finally:
+            # Include failed audits in the denominator, never only valid rows.
+            evidence_path = os.getenv("BETTER_SNAPSHOT_EVIDENCE_PATH")
+            if evidence_path:
+                path = Path(evidence_path)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                with path.open("a", encoding="utf-8") as stream:
+                    stream.write(json.dumps(observation, ensure_ascii=False, sort_keys=True) + "\n")
     async def __call__(self, profile: Any, request: Any, **_kwargs: Any) -> Any:
+        self.record(profile, request)
+        if isinstance(self.response, list):
+            if not self.response:
+                raise AssertionError("scripted transport ran out of responses")
+            response = self.response.pop(0)
+        else:
+            response = self.response
+        if isinstance(response, BaseException):
+            raise response
+        return response
+
+    def _audit(self, profile: Any, request: Any) -> dict[str, Any]:
+        from app.model_input_snapshot_store import ModelInputSnapshotStore
+
         with self.db.connection() as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 "SELECT a.id AS attempt_id,a.invocation_id,a.profile_version_id,a.status AS attempt_status,"
                 "i.owner_id,i.status AS invocation_status,i.context_snapshot_id,i.context_snapshot_digest,"
                 "i.execution_context_digest "
                 "FROM model_attempts a JOIN model_invocations i ON i.id=a.invocation_id "
-                "WHERE a.status='STARTED' ORDER BY a.started_at DESC,a.id DESC LIMIT 1",
-            ).fetchone()
-        if row is None:
+                "WHERE a.status='STARTED' AND i.owner_id=? AND a.profile_version_id=?",
+                (self.owner_id, getattr(profile, "registered_profile_version_id", None)),
+            ).fetchall()
+        if not rows:
             raise AssertionError("provider send has no committed attempt/invocation")
+        matches = []
+        for candidate in rows:
+            if not candidate["context_snapshot_id"]:
+                continue
+            frozen = ModelInputSnapshotStore(self.db).load(self.owner_id, candidate["context_snapshot_id"])
+            if frozen.role == request.role and frozen.purpose == request.purpose and _same_logical_request(frozen, request):
+                matches.append((candidate, frozen))
+        if len(matches) != 1:
+            raise AssertionError("provider send binding is missing or ambiguous")
+        row, snapshot = matches[0]
         if row["owner_id"] != self.owner_id or row["invocation_status"] != "RUNNING":
             raise AssertionError("provider send has an unexpected execution binding")
         if not row["context_snapshot_id"] or not row["context_snapshot_digest"]:
             raise AssertionError("provider send has no committed input snapshot binding")
 
-        from app.model_input_snapshot_store import ModelInputSnapshotStore
-
-        snapshot = ModelInputSnapshotStore(self.db).load(self.owner_id, row["context_snapshot_id"])
         if snapshot.content_digest != row["context_snapshot_digest"]:
             raise AssertionError("provider send snapshot digest differs from invocation binding")
         if not _same_logical_request(snapshot, request):
@@ -71,19 +116,4 @@ class CommittedSnapshotTransport:
             ],
             "profile_version_id": row["profile_version_id"],
         }
-        self.observations.append(observation)
-        evidence_path = os.getenv("BETTER_SNAPSHOT_EVIDENCE_PATH")
-        if evidence_path:
-            path = Path(evidence_path)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            with path.open("a", encoding="utf-8") as stream:
-                stream.write(json.dumps(observation, ensure_ascii=False, sort_keys=True) + "\n")
-        if isinstance(self.response, list):
-            if not self.response:
-                raise AssertionError("scripted transport ran out of responses")
-            response = self.response.pop(0)
-        else:
-            response = self.response
-        if isinstance(response, BaseException):
-            raise response
-        return response
+        return observation

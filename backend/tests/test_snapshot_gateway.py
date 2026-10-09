@@ -37,7 +37,7 @@ def _configured_control_plane(
     attempts = max_attempts or {}
     names = ["chat", "planner", "fallback"] + (["fallback2"] if chained_fallback else [])
     for name in names:
-        capabilities = {"text": True, "streaming": True} if name == "chat" else {"text": True, "json_object": True}
+        capabilities = {"text": True, "streaming": True} if name == "chat" else {"text": True, "json_object": True, "tool_calling": True}
         env = f"{name.upper()}_KEY"
         monkeypatch.setenv(env, "secret")
         versions[name] = admin.create_profile({
@@ -59,7 +59,7 @@ def _configured_control_plane(
     policy = admin.create_policy("runtime", {
         "conversation": {"primary": versions["chat"], "fallback": []},
         **{role: {"primary": versions["planner"], "fallback": planner_fallback}
-           for role in ("planner", "reflector", "expert", "coordinator", "learning_generator", "learning_judge",
+           for role in ("ask", "executor", "planner", "reflector", "expert", "coordinator", "learning_generator", "learning_judge",
                         "judge_quality", "judge_safety")},
         "researcher": {"primary": versions["chat"], "fallback": []},
     })
@@ -782,7 +782,7 @@ async def test_t02_transport_recorder_reads_the_committed_binding_before_send(tm
 
 
 @pytest.mark.asyncio
-async def test_t02_transport_recorder_fails_on_an_unbound_send(tmp_path) -> None:
+async def test_t02_transport_recorder_fails_on_an_unbound_send(tmp_path, monkeypatch) -> None:
     from app.db import Database
     from app.model_gateway import ModelRequest
     from snapshot_entrypoint_helpers import CommittedSnapshotTransport
@@ -791,8 +791,12 @@ async def test_t02_transport_recorder_fails_on_an_unbound_send(tmp_path) -> None
         db=Database(tmp_path / "no-binding.db"), owner_id="local-user",
         callsite_id="unmapped", response=None,
     )
+    log = tmp_path / "negative-bindings.ndjson"
+    monkeypatch.setenv("BETTER_SNAPSHOT_EVIDENCE_PATH", str(log))
     with pytest.raises(AssertionError, match="no committed attempt/invocation"):
         await recorder(None, ModelRequest(messages=[]))
+    assert recorder.send_count == 1
+    assert json.loads(log.read_text())["valid_committed_binding"] is False
 
 
 @pytest.mark.asyncio
@@ -1339,6 +1343,10 @@ def _priced_chat_plane(tmp_path, monkeypatch, *, max_attempts=1):
     """
     from app.costs import CostService, PriceSnapshot
     from app.model_control import ModelControlStore
+
+    # These tests assert settlement, not admission limits. Enforcement has its
+    # own budget suites and must not be selected by a developer's shell.
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "observe")
 
     db, bundle, versions = _configured_control_plane(
         tmp_path, monkeypatch, max_attempts={"chat": max_attempts},

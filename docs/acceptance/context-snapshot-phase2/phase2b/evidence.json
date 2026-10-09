@@ -1,445 +1,2272 @@
 {
-  "status": "incomplete",
-  "post_checkpoint_2026_10_09": {
-    "checkpoint": "8430f3d",
-    "accounting": {"pass": 16, "partial": 21, "pending": 1},
-    "registered_callsites": 21,
-    "production_denominator": null,
-    "regression": "observe: 96 passed in 57.80s; exit 0",
-    "final_targeted": "enforce: snapshot_agent_entries + snapshot_research_entries + snapshot_production_boundary: 19 passed in 16.49s; exit 0",
-    "audit": "21 registered, 12 with recorded sends, 9 without; zero unregistered sends, missing binding fields or unresolved pytest nodes; incomplete, exit 1",
-    "nodes": [
-      "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges",
-      "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job",
-      "tests/test_snapshot_production_boundary.py::test_t28_request_cannot_enable_offline_gateway",
-      "tests/test_snapshot_production_boundary.py::test_t28_tool_parameters_cannot_enable_offline",
-      "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
-      "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
-    ],
-    "limits": "PG budgets, business UNKNOWN, dynamic-dispatch denominator and remaining partial contracts not closed; no production edits or full-suite rerun"
-  },
-  "minimal_followup_2026_10_09": {
-    "scope": "3 tests appended to existing runtime entry suite; session-cache-dependent DB guard test corrected; no production edits",
-    "supersedes_historical_accounting": {"pass": 15, "partial": 17, "pending": 6},
-    "nodes": {
-      "CS-GR-03": "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot",
-      "CS-GP-01": "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure",
-      "CS-GP-02": "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots"
-    },
-    "t34": "pass (SQLite)",
-    "t35": "partial: PG goal_operation root and non-default program owner not reverified",
-    "t36": "partial: Runtime covered; expert and Research Worker paths remain pending",
-    "b12": "incomplete; mappings above are incremental, not a full transport denominator",
-    "regression_command": "python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/test_plan_execution_projection.py tests/test_goal_reviews.py tests/test_goal_period_review.py tests/test_goal_program_api.py tests/integration/test_db_target_guard.py -q --tb=short",
-    "regression_result": "83 passed in 38.92s; exit 0; BETTER_AGENT_COST_MODE unset",
-    "enforce_command": "BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/integration/test_db_target_guard.py -q --tb=short",
-    "enforce_result": "39 passed in 10.49s; exit 0; includes final first/repair message-count assertions",
-    "collection_result": "python -m pytest tests/test_snapshot_goal_runtime_entries.py --collect-only -q: 15 collected; exit 0; all three new mapped nodes resolve",
-    "full_suite": "not rerun; user-reported 2106 passed / 7 skipped / 8 failed is not new execution evidence"
-  },
-  "date": "2026-10-08",
-  "baseline_commit": "37a4e9af39faa781a92db1227e444173e13c2db0",
-  "branch": "front0920",
-  "dirty": true,
-  "schema": {
-    "workspace_sqlite_agent_db_max_version": 24,
-    "alembic_declared_head": "20260930_0025",
-    "isolated_postgres_tested": true,
-    "isolated_postgres_acceptance_count": 49,
-    "isolated_postgres_acceptance_result": "passed"
-  },
+  "date": "2026-10-09",
+  "m2_status": "pass",
+  "code_base_commit": "1a12532e162be7ded3114ddb4b28ea19fc7d0a9e",
+  "dirty_at_execution": true,
+  "version_note": "Tests ran against the M2 working-tree delta on this checkpoint; deliver with its enclosing commit.",
+  "m1_status": "pass; prior closure retained, current snapshot/Harness/PG/M5 regression revalidated",
   "environment": {
     "python": "3.13.0",
-    "cost_mode": "default observe (specialized adapter tests)",
-    "database_url_logged": false
+    "database": "temporary SQLite and guarded ephemeral Docker PostgreSQL",
+    "alembic_head": "20260930_0025",
+    "paid_model_calls": 0
   },
-  "m1_status": "通过本轮复验",
-  "entrypoint_coverage": {
-    "production_entrypoints": 18,
-    "tested_entrypoints": 1,
-    "coverage_percent": 5.56,
-    "note": "1 of 18 callsites (CS-MD-01) satisfies its complete acceptance contract; 7 other callsite groups have partial dynamic evidence. Remaining production entrypoints are partial or pending.",
-    "partial_dynamic_callsite_groups": 7
-  },
-  "transport_coverage": {
-    "observed_sends": 18,
-    "sends_with_valid_committed_binding": 18,
-    "unique_invocations": 17,
-    "provenance_complete": 0,
-    "provenance_partial": 18,
-    "unmapped_nodes": 0,
-    "note": "Counts cover the dedicated Research/Learning/Memory capture batch. Each send was checked before transport using an independent DB connection; network retry is a second send sharing one invocation/snapshot. This is not the complete production-entrypoint denominator."
-  },
-  "mapped_partial_nodes": [
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[write]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]",
-    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]",
-    "tests/test_snapshot_learning_entries.py::test_learning_agent_generation_freezes_authorized_job_input",
-    "tests/test_snapshot_learning_entries.py::test_learning_constraint_extraction_freezes_source_excerpt",
-    "tests/test_snapshot_learning_entries.py::test_learning_judge_uses_its_own_committed_call",
-    "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
-    "tests/test_snapshot_auxiliary_entries.py::test_archive_worker_summary_uses_claim_owner_and_committed_snapshot",
-    "tests/test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list",
-    "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call",
-    "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call"
-  ],
   "test_batches": [
     {
-      "command": "python -m pytest tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short",
-      "result": "36 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_gateway.py -q --tb=short",
-      "result": "36 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_flow.py tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short",
-      "result": "52 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_worker.py tests/test_live_model.py tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short",
-      "result": "133 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_research_api.py tests/test_research_service.py tests/test_research_engine.py tests/test_agent_worker.py tests/test_goal_reviews.py tests/test_goal_adjustments.py tests/test_memory_archive.py tests/test_memory_reference_gateway.py -q --tb=short",
-      "result": "159 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_cost_control.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py tests/test_context_wire_gate.py tests/test_runtime_prompt_policy.py -q --tb=short",
-      "result": "80 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short",
-      "result": "21 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_real_evaluation.py -q --tb=short",
-      "result": "35 passed",
+      "group": "entries",
+      "batch": "m2-complete",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "environment": {
-        "BETTER_AGENT_COST_MODE": "enforce"
-      }
+      "started_at": "2026-10-09T02:51:32.653221+00:00",
+      "finished_at": "2026-10-09T02:53:09.122340+00:00",
+      "log": "m2-complete-entries-observe.log",
+      "junit": "m2-complete-entries-observe.xml",
+      "tests": 61,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
-      "command": "python -m pytest tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short",
-      "result": "34 passed on rerun; first run had 2 owner-default test failures before test fixtures were migrated",
+      "group": "snapshot",
+      "batch": "m2-complete",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
+      "started_at": "2026-10-09T02:51:43.160032+00:00",
+      "finished_at": "2026-10-09T02:53:01.588783+00:00",
+      "log": "m2-complete-snapshot-observe.log",
+      "junit": "m2-complete-snapshot-observe.xml",
+      "tests": 122,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
-      "command": "python -m pytest tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py -q --tb=short",
-      "result": "12 passed",
+      "group": "postgres",
+      "batch": "m2-complete",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
+      "started_at": "2026-10-09T02:53:07.574149+00:00",
+      "finished_at": "2026-10-09T02:54:39.124989+00:00",
+      "log": "m2-complete-postgres-observe.log",
+      "junit": "m2-complete-postgres-observe.xml",
+      "tests": 93,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
-      "command": "python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short",
-      "result": "1 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_flow.py::test_t33_runtime_json_repair_gets_a_new_snapshot_and_child_span -q --tb=short",
-      "result": "1 passed",
-      "exit_code": 0
-    },
-    {
-      "command": "python -m pytest tests/test_real_evaluation.py::test_judge_cost_is_included_in_release_budget tests/test_real_evaluation.py::test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls -q --tb=short",
-      "result": "2 failed",
-      "exit_code": 1
-    },
-    {
-      "database": "temporary SQLite per test",
+      "group": "m1",
+      "batch": "m2-complete",
+      "cost_mode": "enforce",
       "exit_code": 0,
-      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py -q --tb=short",
-      "result": "11 passed",
-      "environment": {
-        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled",
-        "cost_mode": "default observe"
-      }
+      "started_at": "2026-10-09T02:51:53.550918+00:00",
+      "finished_at": "2026-10-09T02:53:13.180976+00:00",
+      "log": "m2-complete-m1-enforce.log",
+      "junit": "m2-complete-m1-enforce.xml",
+      "tests": 37,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
-      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset",
+      "group": "harness",
+      "batch": "m2-r1",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short",
-      "result": "49 passed in 33.59s"
+      "started_at": "2026-10-09T02:40:48.874591+00:00",
+      "finished_at": "2026-10-09T02:45:39.569032+00:00",
+      "log": "m2-r1-harness-observe.log",
+      "junit": "m2-r1-harness-observe.xml",
+      "tests": 267,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
+      "group": "business",
+      "batch": "m2-r1",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/integration/test_snapshot_entrypoints_postgres.py --collect-only -q",
-      "result": "12 tests collected"
+      "started_at": "2026-10-09T02:42:03.843861+00:00",
+      "finished_at": "2026-10-09T02:44:53.433486+00:00",
+      "log": "m2-r1-business-observe.log",
+      "junit": "m2-r1-business-observe.xml",
+      "tests": 273,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     },
     {
+      "group": "learning",
+      "batch": "m2-fixed",
+      "cost_mode": "observe",
       "exit_code": 0,
-      "result": "13 passed",
-      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/test_snapshot_auxiliary_entries.py -q --tb=short",
-      "database": "temporary SQLite per test",
-      "environment": {
-        "cost_mode": "default observe",
-        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled"
-      }
-    },
-    {
-      "exit_code": 0,
-      "result": "1 passed",
-      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py -q --tb=short",
-      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
-    },
-    {
-      "exit_code": 0,
-      "result": "71 passed",
-      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_research_engine.py -q --tb=short"
-    },
-    {
-      "database": "temporary SQLite per test",
-      "exit_code": 0,
-      "result": "15 passed",
-      "environment": {
-        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled"
-      },
-      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/test_snapshot_auxiliary_entries.py -q --tb=short"
-    },
-    {
-      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset",
-      "exit_code": 0,
-      "result": "1 passed",
-      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py -q --tb=short"
-    },
-    {
-      "command": "python -m pytest tests/test_model_admin_api.py -q --tb=short",
-      "result": "10 passed in 8.36s",
-      "exit_code": 0,
-      "database": "temporary SQLite per test",
-      "acceptance_nodes": [
-        "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version",
-        "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
-        "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store",
-        "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send"
-      ]
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing -q --tb=short",
-      "result": "3 passed in 2.17s",
-      "exit_code": 0,
-      "database": "temporary SQLite per parameterized case",
-      "acceptance_nodes": [
-        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[snapshot]",
-        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[invocation]",
-        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[execution_context_binding]"
-      ]
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_gateway.py -q --tb=short",
-      "result": "39 passed in 22.55s",
-      "exit_code": 0,
-      "database": "temporary SQLite per test",
-      "acceptance_nodes": [
-        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing"
-      ]
-    },
-    {
-      "command": "python -m pytest tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http -q --tb=short",
-      "result": "3 passed in 1.85s",
-      "exit_code": 0,
-      "acceptance_nodes": [
-        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
-      ]
-    },
-    {
-      "command": "python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short",
-      "result": "1 passed in 1.41s",
-      "exit_code": 0,
-      "database": "temporary SQLite per test",
-      "acceptance_nodes": [
-        "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
-      ]
-    },
-    {
-      "command": "python -m pytest tests/test_eval_scenarios.py -q --tb=short",
-      "result": "3 passed in 37.39s",
-      "exit_code": 0,
-      "database": "temporary SQLite/eval fixtures",
-      "acceptance_nodes": [
-        "tests/test_eval_scenarios.py::test_live_cli_smoke_is_an_explicit_offline_path"
-      ]
+      "started_at": "2026-10-09T02:49:14.401425+00:00",
+      "finished_at": "2026-10-09T02:53:09.201250+00:00",
+      "log": "m2-fixed-learning-observe.log",
+      "junit": "m2-fixed-learning-observe.xml",
+      "tests": 236,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0
     }
   ],
-  "known_unresolved_failures": [],
-  "configuration_sensitive_observation": "Two real-evaluation budget tests fail under the default observe mode; both pass with the required BETTER_AGENT_COST_MODE=enforce acceptance configuration.",
-  "binding_examples_file": "binding-examples.json",
-  "binding_examples_collected": true,
-  "t01_t38_accounting": {
-    "details_file": "t01-t38-accounting.md",
-    "partial": [
-      "T01",
-      "T04",
-      "T07",
-      "T11",
-      "T12",
-      "T13",
-      "T14",
-      "T15",
-      "T16",
-      "T17",
-      "T18",
-      "T24",
-      "T26",
-      "T33",
-      "T37"
-    ],
-    "pending": [
-      "T08",
-      "T09",
-      "T10",
-      "T23",
-      "T28",
-      "T32",
-      "T34",
-      "T35",
-      "T36"
-    ],
-    "pass": [
-      "T02",
-      "T03",
-      "T05",
-      "T06",
-      "T19",
-      "T20",
-      "T21",
-      "T22",
-      "T25",
-      "T27",
-      "T29",
-      "T30",
-      "T31",
-      "T38"
-    ],
-    "total": 38
+  "selected_test_executions": 1089,
+  "unique_passed_nodes": 1089,
+  "t01_t38": {
+    "T01": {
+      "task": "B00/B09",
+      "note": "AST 候选、网关装配及人工动态分派追踪；以 callsite-contracts 的业务组及分支为分母。",
+      "nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "status": "pass"
+    },
+    "T02": {
+      "task": "B01",
+      "note": "独立连接在 mock provider 边界读已提交绑定；记录器故障注入证明未绑定发送会记失败。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send",
+        "tests/test_snapshot_gateway.py::test_t02_transport_recorder_fails_on_an_unbound_send"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_gateway.py::test_t02_transport_recorder_fails_on_an_unbound_send",
+        "tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send"
+      ],
+      "status": "pass"
+    },
+    "T03": {
+      "task": "B01",
+      "note": "snapshot/invocation/execution binding 三类写入失败原子回滚，零发送。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[execution_context_binding]",
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[invocation]",
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[snapshot]"
+      ],
+      "status": "pass"
+    },
+    "T04": {
+      "task": "B02",
+      "note": "Research 八方法逐项验证最终输入、role/purpose、owner；excerpt 来源保持 partial。",
+      "nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[write]"
+      ],
+      "status": "pass"
+    },
+    "T05": {
+      "task": "B02",
+      "note": "非法 JSON 修复新调用、新 child span，原快照不变。",
+      "nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call"
+      ],
+      "status": "pass"
+    },
+    "T06": {
+      "task": "B02",
+      "note": "网络重试两个 attempt 共用原快照，独立还原输入。",
+      "nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call"
+      ],
+      "status": "pass"
+    },
+    "T07": {
+      "task": "B03",
+      "note": "两章节与报告修复三份快照，外部 evidence/stable 修改不改旧输入或 pinned bundle。",
+      "nodes": [
+        "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+      ],
+      "status": "pass"
+    },
+    "T08": {
+      "task": "B03",
+      "note": "Research Worker 异常/取消恢复并 reset；RUNNING 调用不重发；Learning 真实发送后 UNKNOWN 及 Evolution REQUESTING 恢复 UNKNOWN 均不自动重发。",
+      "nodes": [
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job",
+        "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+        "tests/test_m5_controlled_evolution.py::test_requesting_batch_recovers_unknown_and_never_replays"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+        "tests/test_m5_controlled_evolution.py::test_requesting_batch_recovers_unknown_and_never_replays",
+        "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[exception]"
+      ],
+      "status": "pass"
+    },
+    "T09": {
+      "task": "B04",
+      "note": "两种真实专家汇总路径，fan-out/结果汇总/Judge 各自绑定。",
+      "nodes": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]"
+      ],
+      "status": "pass"
+    },
+    "T10": {
+      "task": "B04",
+      "note": "两 owner 交错、一专家异常、跨 owner 拒读；PG 真实根预算分别计数 4/5。",
+      "nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets"
+      ],
+      "status": "pass"
+    },
+    "T11": {
+      "task": "B05",
+      "note": "真实 Learning job 分发 generator/extractor/Prompt；PG job owner/root/bundle 及关键来源引用核对。",
+      "nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[generator]"
+      ],
+      "status": "pass"
+    },
+    "T12": {
+      "task": "B05",
+      "note": "真实 Skill pipeline 生成后独立 Judge，rubric digest 与实际候选/基线输出。",
+      "nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ],
+      "status": "pass"
+    },
+    "T13": {
+      "task": "B06",
+      "note": "Skill selector/两臂/Judge + Prompt 两固定版本/Judge；冻结离线 case，不污染 Judge。",
+      "nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ],
+      "status": "pass"
+    },
+    "T14": {
+      "task": "B06",
+      "note": "组合证据：真实授权批次向 proposer 传非默认 owner；真实 LiveBehaviorRunner/proposer 的受控发送独立绑定该 owner，缺身份零发送。",
+      "nodes": [
+        "tests/test_m5_controlled_evolution.py::test_generation_batch_propagates_its_owner_to_the_paid_proposer",
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge",
+        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
+      ],
+      "executed_nodes": [
+        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call",
+        "tests/test_m5_controlled_evolution.py::test_generation_batch_propagates_its_owner_to_the_paid_proposer",
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+      ],
+      "status": "pass"
+    },
+    "T15": {
+      "task": "B06",
+      "note": "真实 evaluation HTTP API/Worker/LiveEvaluationRunner：60 cases、240 次受控 direct 发送；两臂与双 Judge 独立、幂等重放零新增。",
+      "nodes": [
+        "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+      ],
+      "status": "pass"
+    },
+    "T16": {
+      "task": "B07",
+      "note": "真实归档 claim 摘要后保存失败回滚，授权重试相同消息、新快照、成功后不重发。",
+      "nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+      ],
+      "status": "pass"
+    },
+    "T17": {
+      "task": "B07",
+      "note": "引用解析超时/取消后第二 owner 请求，旧候选输入不变、无 ambient 残留。",
+      "nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[timeout]"
+      ],
+      "status": "pass"
+    },
+    "T18": {
+      "task": "B07",
+      "note": "计划文档/已有计划/Research/记忆修复/无历史/依赖拒绝/短路及 ask 澄清；零调用单列。",
+      "nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[dependent]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[existing_plan]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[memory_repair]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[no_history]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[plan]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[research]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[short_circuit]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding"
+      ],
+      "status": "pass"
+    },
+    "T19": {
+      "task": "B08",
+      "note": "管理端指定未激活版本、无 stable、可信 owner，不激活 channel。",
+      "nodes": [
+        "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding",
+        "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version"
+      ],
+      "executed_nodes": [
+        "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version",
+        "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding"
+      ],
+      "status": "pass"
+    },
+    "T20": {
+      "task": "B08",
+      "note": "跨 owner version 拒绝且零发送，含 PG。",
+      "nodes": [
+        "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres",
+        "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied"
+      ],
+      "status": "pass"
+    },
+    "T21": {
+      "task": "B08",
+      "note": "缺存储/凭据/预算/PG 写快照失败均零发送、失败状态，未降级离线。",
+      "nodes": [
+        "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send",
+        "tests/test_model_admin_api.py::test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+        "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send",
+        "tests/test_model_admin_api.py::test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe"
+      ],
+      "status": "pass"
+    },
+    "T22": {
+      "task": "B08",
+      "note": "startup 与 API fallback 均保留真实 control store。",
+      "nodes": [
+        "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store"
+      ],
+      "executed_nodes": [
+        "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store"
+      ],
+      "status": "pass"
+    },
+    "T23": {
+      "task": "B10",
+      "note": "真实 startup learning OFF，Research/对话/管理仍有发送及已提交快照。",
+      "nodes": [
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+      ],
+      "status": "pass"
+    },
+    "T24": {
+      "task": "B10",
+      "note": "partial 正向、已知引用冲突零新增、缺位置拒绝、技能更新与撤销、Learning 源撤销。",
+      "nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t24_known_reference_change_cannot_rebind_a_logical_call",
+        "tests/test_snapshot_production_boundary.py::test_t24_included_reference_with_missing_location_refuses_send",
+        "tests/test_snapshot_flow.py::test_b02_a_skill_update_binds_a_new_version_and_a_revoked_one_stops_the_send",
+        "tests/test_snapshot_flow.py::test_b03_a_partial_input_with_a_known_reference_freezes_sends_and_stays_honest",
+        "tests/test_learning_pipeline_v3.py::test_a_revoked_source_is_refused_before_dispatch"
+      ],
+      "executed_nodes": [
+        "tests/test_learning_pipeline_v3.py::test_a_revoked_source_is_refused_before_dispatch",
+        "tests/test_snapshot_flow.py::test_b02_a_skill_update_binds_a_new_version_and_a_revoked_one_stops_the_send",
+        "tests/test_snapshot_flow.py::test_b03_a_partial_input_with_a_known_reference_freezes_sends_and_stays_honest",
+        "tests/test_snapshot_production_boundary.py::test_t24_included_reference_with_missing_location_refuses_send",
+        "tests/test_snapshot_production_boundary.py::test_t24_known_reference_change_cannot_rebind_a_logical_call"
+      ],
+      "status": "pass"
+    },
+    "T25": {
+      "task": "B09",
+      "note": "默认无 store direct、无身份 routed 在发送前拒绝；provenance 不提供旁路。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http"
+      ],
+      "status": "pass"
+    },
+    "T26": {
+      "task": "B09",
+      "note": "显式 offline opt-in 实际发送一次；live CLI smoke 显式离线，排除生产分母。",
+      "nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_unbound_gateway_needs_an_explicit_offline_opt_in",
+        "tests/test_eval_scenarios.py::test_live_cli_smoke_is_an_explicit_offline_path"
+      ],
+      "executed_nodes": [
+        "tests/test_eval_scenarios.py::test_live_cli_smoke_is_an_explicit_offline_path",
+        "tests/test_snapshot_goal_runtime_entries.py::test_unbound_gateway_needs_an_explicit_offline_opt_in"
+      ],
+      "status": "pass"
+    },
+    "T27": {
+      "task": "B09",
+      "note": "routed 内部 attempt 不二次绑定；controlled direct 单独冻结。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_g06_the_routed_internal_attempt_adds_no_second_invocation_or_snapshot",
+        "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span",
+        "tests/test_snapshot_gateway.py::test_g06_a_direct_gateway_binds_exactly_one_invocation_and_snapshot"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span",
+        "tests/test_snapshot_gateway.py::test_g06_a_direct_gateway_binds_exactly_one_invocation_and_snapshot",
+        "tests/test_snapshot_gateway.py::test_g06_the_routed_internal_attempt_adds_no_second_invocation_or_snapshot"
+      ],
+      "status": "pass"
+    },
+    "T28": {
+      "task": "B09",
+      "note": "API body/query 与工具注入 offline 无效；全生产构造点不读取用户离线参数。",
+      "nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t28_request_cannot_enable_offline_gateway",
+        "tests/test_snapshot_production_boundary.py::test_t28_tool_parameters_cannot_enable_offline",
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t28_request_cannot_enable_offline_gateway[body]",
+        "tests/test_snapshot_production_boundary.py::test_t28_request_cannot_enable_offline_gateway[query]",
+        "tests/test_snapshot_production_boundary.py::test_t28_tool_parameters_cannot_enable_offline",
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "status": "pass"
+    },
+    "T29": {
+      "task": "B10",
+      "note": "D08–D12 usage/撤销/无不安全重试/结算保护；单测显式 observe 验证记账，预算 enforce 另测。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it",
+        "tests/test_snapshot_gateway.py::test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens",
+        "tests/test_snapshot_gateway.py::test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot",
+        "tests/test_snapshot_gateway.py::test_d11_a_valid_response_after_the_check_still_succeeds_and_settles",
+        "tests/test_snapshot_gateway.py::test_d12_a_settled_attempt_cannot_be_settled_a_second_time"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_gateway.py::test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it",
+        "tests/test_snapshot_gateway.py::test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens[usage-absent]",
+        "tests/test_snapshot_gateway.py::test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens[usage-partial]",
+        "tests/test_snapshot_gateway.py::test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot",
+        "tests/test_snapshot_gateway.py::test_d11_a_valid_response_after_the_check_still_succeeds_and_settles",
+        "tests/test_snapshot_gateway.py::test_d12_a_settled_attempt_cannot_be_settled_a_second_time"
+      ],
+      "status": "pass"
+    },
+    "T30": {
+      "task": "B10",
+      "note": "PG 并发 finish 各维度扣一次/事件一次；事件失败整笔回滚并可重试。",
+      "nodes": [
+        "tests/integration/test_attempt_settlement_postgres.py::test_concurrent_finish_has_one_settlement_and_one_event",
+        "tests/integration/test_attempt_settlement_postgres.py::test_failed_finish_rolls_back_settlement_and_can_be_retried"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_attempt_settlement_postgres.py::test_concurrent_finish_has_one_settlement_and_one_event",
+        "tests/integration/test_attempt_settlement_postgres.py::test_failed_finish_rolls_back_settlement_and_can_be_retried"
+      ],
+      "status": "pass"
+    },
+    "T31": {
+      "task": "B11",
+      "note": "真实隔离 PG：新入口、跨 owner、故障、旧快照兼容、不可变与结算；不使用开发库。",
+      "nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+        "tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send"
+      ],
+      "status": "pass"
+    },
+    "T32": {
+      "task": "B12",
+      "note": "静态枚举+装配追踪+独立发送记录+pytest 收集+JUnit 实际通过，构建报告时全量对账。",
+      "nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+      ],
+      "status": "pass"
+    },
+    "T33": {
+      "task": "B06A",
+      "note": "HTTP goal/messages/approve 生命周期；普通无源 goal 不反思，测试在 approve 前显式附加真实持久化 source turn 覆盖可信反思；tenant-b 与服务 owner 独立验证。",
+      "nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[None]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[tenant-b]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection"
+      ],
+      "status": "pass"
+    },
+    "T34": {
+      "task": "B06A",
+      "note": "真实 propose_execution 投影，claim 失败零发送、READY 保存后中断恢复不重发；身份/版本与 turn 一致。",
+      "nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+      ],
+      "status": "pass"
+    },
+    "T35": {
+      "task": "B06A",
+      "note": "daily Worker/period service/adjustment API 修复及失败；PG tenant-b 三种操作各自 goal_operation root，同操作修复共享 root。",
+      "nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+      ],
+      "executed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure"
+      ],
+      "status": "pass"
+    },
+    "T36": {
+      "task": "B04/B06A",
+      "note": "专家、Research、Runtime 三种 Judge purpose/owner 独立绑定；另补 conversation Judge。",
+      "nodes": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner",
+        "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[None]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[tenant-b]",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[exception]"
+      ],
+      "status": "pass"
+    },
+    "T37": {
+      "task": "B09",
+      "note": "无 context/空 owner/悬空 Research source/Behavior owner 缺失均拒绝且零发送；Worker 内部记录失败，不声称异常冒泡 API。",
+      "nodes": [
+        "tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send",
+        "tests/test_snapshot_research_entries.py::test_t37_research_worker_with_missing_source_turn_never_sends",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t37_a_run_whose_source_turn_has_no_owner_sends_nothing",
+        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
+      ],
+      "executed_nodes": [
+        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call",
+        "tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t37_a_run_whose_source_turn_has_no_owner_sends_nothing",
+        "tests/test_snapshot_research_entries.py::test_t37_research_worker_with_missing_source_turn_never_sends"
+      ],
+      "status": "pass"
+    },
+    "T38": {
+      "task": "B07",
+      "note": "同一 turn 两辅助调用与主调用的 invocation/snapshot/span 均独立且为 sibling。",
+      "nodes": [
+        "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
+      ],
+      "executed_nodes": [
+        "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
+      ],
+      "status": "pass"
+    }
   },
   "callsite_matrix": [
     {
-      "status": "partial",
-      "callsite_id": "CS-RS-01"
+      "callsite_id": "CS-RS-01",
+      "reachable": "startup ResearchService -> ManagedResearchWorker -> LiveResearchModel; source turn/thread owner",
+      "branches": {
+        "structured": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot"
+        ],
+        "repair_retry": [
+          "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call"
+        ],
+        "worker": [
+          "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job"
+        ],
+        "plan": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]"
+        ],
+        "distill": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]"
+        ],
+        "reflect": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]"
+        ],
+        "curate": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]"
+        ],
+        "audit": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]"
+        ],
+        "summarize": [
+          "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]",
+        "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call",
+        "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[exception]"
+      ],
+      "tests": [
+        "T04",
+        "T05",
+        "T06",
+        "T08",
+        "T23",
+        "T31",
+        "T36"
+      ],
+      "tasks": [
+        "B02",
+        "B03",
+        "B04/B06A",
+        "B10",
+        "B11"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-RS-02"
+      "callsite_id": "CS-RS-02",
+      "reachable": "Research engine chapter writer and report repair; pinned worker context",
+      "branches": {
+        "chapters_repair": [
+          "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]",
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[write]",
+        "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+      ],
+      "tests": [
+        "T04",
+        "T07"
+      ],
+      "tasks": [
+        "B02",
+        "B03"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-LN-01"
+      "callsite_id": "CS-RS-03",
+      "reachable": "ManagedResearchWorker._finish_exposure -> LiveSafetyJudge; persisted source owner",
+      "branches": {
+        "judge": [
+          "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]",
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[exception]"
+      ],
+      "tests": [
+        "T08",
+        "T36"
+      ],
+      "tasks": [
+        "B03",
+        "B04/B06A"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-GR-01"
+      "callsite_id": "CS-AG-01",
+      "reachable": "agent API/advisory -> AgentTaskService -> ManagedAgentWorker -> LiveExpertModel; run owner",
+      "branches": {
+        "advice": [
+          "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]"
+        ],
+        "user_task": [
+          "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]"
+        ],
+        "pg_budget": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]"
+      ],
+      "tests": [
+        "T09",
+        "T10",
+        "T36"
+      ],
+      "tasks": [
+        "B04",
+        "B04/B06A"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-MA-01"
+      "callsite_id": "CS-AG-02",
+      "reachable": "ManagedAgentWorker -> LiveSafetyJudge; run owner and task root",
+      "branches": {
+        "judge": [
+          "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]",
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]"
+      ],
+      "tests": [
+        "T09",
+        "T10",
+        "T36"
+      ],
+      "tasks": [
+        "B04",
+        "B04/B06A"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-MR-01"
+      "callsite_id": "CS-LN-01",
+      "reachable": "LearningService authorized job -> pipeline/legacy extraction/generation/judge; independent learning root",
+      "branches": {
+        "generator": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[generator]"
+        ],
+        "extractor": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]"
+        ],
+        "judge": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[generator]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge",
+        "tests/test_snapshot_learning_entries.py::test_learning_agent_generation_freezes_authorized_job_input",
+        "tests/test_snapshot_learning_entries.py::test_learning_constraint_extraction_freezes_source_excerpt",
+        "tests/test_snapshot_learning_entries.py::test_learning_judge_uses_its_own_committed_call"
+      ],
+      "tests": [
+        "T11",
+        "T12",
+        "T13"
+      ],
+      "tasks": [
+        "B05",
+        "B06"
+      ]
     },
     {
-      "status": "partial",
-      "callsite_id": "CS-CA-01"
+      "callsite_id": "CS-EV-01",
+      "reachable": "EvolutionService.evaluate_builtin -> LiveBehaviorRunner; explicit authorized owner",
+      "branches": {
+        "arms_judge": [
+          "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+      ],
+      "tests": [
+        "T14"
+      ],
+      "tasks": [
+        "B06"
+      ]
     },
     {
-      "status": "complete",
-      "callsite_id": "CS-MD-01"
+      "callsite_id": "CS-EV-02",
+      "reachable": "LearningPipeline -> RuntimeLearningReplay or PromptLearning -> LearningReplay; persisted learning job/root",
+      "branches": {
+        "selector": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+        ],
+        "prompt_arms_judges": [
+          "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]",
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ],
+      "tests": [
+        "T08",
+        "T11",
+        "T12",
+        "T13"
+      ],
+      "tasks": [
+        "B03",
+        "B05",
+        "B06"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-RS-03"
+      "callsite_id": "CS-EV-03",
+      "reachable": "evaluation API -> durable evaluator worker -> LiveEvaluationRunner -> controlled direct gateway",
+      "branches": {
+        "api_arms_judges": [
+          "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+      ],
+      "tests": [
+        "T15"
+      ],
+      "tasks": [
+        "B06"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-AG-01"
+      "callsite_id": "CS-EV-04",
+      "reachable": "authorized Evolution generation batch -> proposer; pattern owner supplied by generator, not case input",
+      "branches": {
+        "nondefault": [
+          "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+        ],
+        "job": [
+          "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]",
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+      ],
+      "tests": [
+        "T08",
+        "T11",
+        "T13",
+        "T14"
+      ],
+      "tasks": [
+        "B03",
+        "B05",
+        "B06"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-AG-02"
+      "callsite_id": "CS-GR-01",
+      "reachable": "goal/run HTTP API -> AgentRuntime._model_call -> LiveRuntimeModel; source owner or explicit startup service owner",
+      "branches": {
+        "http_lifecycle": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[None]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[tenant-b]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection"
+      ],
+      "tests": [
+        "T33"
+      ],
+      "tasks": [
+        "B06A"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-EV-01"
+      "callsite_id": "CS-GR-02",
+      "reachable": "AgentRuntime._finish_exposure -> LiveSafetyJudge; run-authorized owner",
+      "branches": {
+        "judge": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[None]",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[tenant-b]"
+      ],
+      "tests": [
+        "T36"
+      ],
+      "tasks": [
+        "B04/B06A"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-EV-02"
+      "callsite_id": "CS-GR-03",
+      "reachable": "conversation propose_execution -> ExecutionMaterializer -> PlanExecutionCompiler; turn owner/bundle/root",
+      "branches": {
+        "projection": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+      ],
+      "tests": [
+        "T34"
+      ],
+      "tasks": [
+        "B06A"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-EV-03"
+      "callsite_id": "CS-GP-01",
+      "reachable": "daily review worker / period service -> GoalProgramCompiler; program owner, goal_operation root",
+      "branches": {
+        "failure": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure"
+        ],
+        "pg_nondefault": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure"
+      ],
+      "tests": [
+        "T35"
+      ],
+      "tasks": [
+        "B06A"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-GR-02"
+      "callsite_id": "CS-GP-02",
+      "reachable": "adjustment API -> GoalAdjustmentService -> compiler; program owner, goal_operation root",
+      "branches": {
+        "api": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots"
+        ],
+        "pg_nondefault": [
+          "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair",
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots"
+      ],
+      "tests": [
+        "T35"
+      ],
+      "tasks": [
+        "B06A"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-GR-03"
+      "callsite_id": "CS-GP-03",
+      "reachable": "program preview API / goal tools -> GoalProgramService -> compiler; program or tool Harness owner",
+      "branches": {
+        "preview": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_goal_preview_compiles_under_persisted_program_owner"
+        ],
+        "tool": [
+          "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span",
+        "tests/test_snapshot_goal_runtime_entries.py::test_goal_preview_compiles_under_persisted_program_owner"
+      ],
+      "tests": [
+        "T27"
+      ],
+      "tasks": [
+        "B09"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-GP-01"
+      "callsite_id": "CS-MA-01",
+      "reachable": "archive worker -> ConversationArchiver -> LiveEpisodeSummarizer; archive claim owner",
+      "branches": {
+        "retry": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_archive_worker_summary_uses_claim_owner_and_committed_snapshot",
+        "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+      ],
+      "tests": [
+        "T16"
+      ],
+      "tasks": [
+        "B07"
+      ]
     },
     {
-      "status": "pending",
-      "callsite_id": "CS-GP-02"
+      "callsite_id": "CS-MR-01",
+      "reachable": "turn worker -> ConversationReferenceResolver -> resolve; authorized thread owner",
+      "branches": {
+        "timeout": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[timeout]"
+        ],
+        "cancel": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list",
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[timeout]"
+      ],
+      "tests": [
+        "T17"
+      ],
+      "tasks": [
+        "B07"
+      ]
+    },
+    {
+      "callsite_id": "CS-CA-01",
+      "reachable": "turn worker -> LiveConversationModel; turn owner; helpers derive fresh logical children",
+      "branches": {
+        "main": [
+          "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+        ],
+        "auxiliary": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings"
+        ],
+        "ask": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding"
+        ],
+        "plan": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[plan]"
+        ],
+        "existing_plan": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[existing_plan]"
+        ],
+        "research": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[research]"
+        ],
+        "memory_repair": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[memory_repair]"
+        ],
+        "no_history": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[no_history]"
+        ],
+        "dependent": [
+          "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[dependent]"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[dependent]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[existing_plan]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[memory_repair]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[no_history]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[plan]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[research]",
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding",
+        "tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send",
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries",
+        "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
+        "tests/test_snapshot_production_boundary.py::test_t24_known_reference_change_cannot_rebind_a_logical_call"
+      ],
+      "tests": [
+        "T02",
+        "T08",
+        "T18",
+        "T23",
+        "T24"
+      ],
+      "tasks": [
+        "B01",
+        "B03",
+        "B07",
+        "B10"
+      ]
+    },
+    {
+      "callsite_id": "CS-CA-02",
+      "reachable": "ManagedTurnWorker._finish_exposure -> LiveSafetyJudge; persisted thread owner",
+      "branches": {
+        "judge": [
+          "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner"
+        ]
+      },
+      "observed_nodes": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner"
+      ],
+      "tests": [
+        "T36"
+      ],
+      "tasks": [
+        "B04/B06A"
+      ]
+    },
+    {
+      "callsite_id": "CS-MD-01",
+      "reachable": "model admin verification API -> startup/fallback ModelAdminService -> controlled direct gateway; server owner",
+      "branches": {
+        "verify": [
+          "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding"
+        ]
+      },
+      "observed_nodes": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres",
+        "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding",
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+      ],
+      "tests": [
+        "T19",
+        "T20",
+        "T23"
+      ],
+      "tasks": [
+        "B08",
+        "B10"
+      ]
     }
   ],
-  "m1_evidence": [
-    "Phase 2A SQLite specialized: 119 passed",
-    "M5 gate + offline PG live harness under BETTER_AGENT_COST_MODE=enforce: 25 passed",
-    "Real evaluation full module under default shell environment: 35 passed; budget tests set enforce internally",
-    "Conversation worker full module with AGENT_ARCHIVE_WAIT_MS=30000: 41 passed",
-    "Isolated PostgreSQL Phase 2B set: 47 passed"
+  "coverage": {
+    "observed_sends": 598,
+    "sends_with_valid_committed_binding": 598,
+    "unique_invocations": 596,
+    "provenance_complete": 0,
+    "provenance_partial": 596,
+    "production_entrypoints": 21,
+    "tested_entrypoints": 21,
+    "unmapped_nodes": 0,
+    "required_branches": 47
+  },
+  "capture_nodes": {
+    "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]": 2,
+    "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]": 241,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres": 2,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send": 1,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets": 9,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]": 1,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[generator]": 1,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge": 7,
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair": 5,
+    "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding": 1,
+    "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]": 9,
+    "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]": 9,
+    "tests/test_snapshot_auxiliary_entries.py::test_archive_worker_summary_uses_claim_owner_and_committed_snapshot": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages": 2,
+    "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]": 2,
+    "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[timeout]": 2,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[dependent]": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[existing_plan]": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[memory_repair]": 2,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[no_history]": 2,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[plan]": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[research]": 1,
+    "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding": 2,
+    "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges": 240,
+    "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span": 1,
+    "tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_goal_preview_compiles_under_persisted_program_owner": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[None]": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[tenant-b]": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection": 5,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots": 2,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure": 4,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[None]": 1,
+    "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[tenant-b]": 1,
+    "tests/test_snapshot_learning_entries.py::test_learning_agent_generation_freezes_authorized_job_input": 1,
+    "tests/test_snapshot_learning_entries.py::test_learning_constraint_extraction_freezes_source_excerpt": 1,
+    "tests/test_snapshot_learning_entries.py::test_learning_judge_uses_its_own_committed_call": 1,
+    "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge": 3,
+    "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries": 3,
+    "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends": 1,
+    "tests/test_snapshot_production_boundary.py::test_t24_known_reference_change_cannot_rebind_a_logical_call": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[write]": 1,
+    "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call": 2,
+    "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call": 2,
+    "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs": 3,
+    "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]": 3,
+    "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[exception]": 3
+  },
+  "issues": [],
+  "artifact_sha256": {
+    "m2-complete-bindings.ndjson": "89f1beedfa2ff2b65660d7954177e07ad6ae3ea9f9b6ce38efaa5783f8626cd8",
+    "m2-complete-entries-observe.xml": "aeb50814b93c76aa73aa48e60368e4810b903836131f08a294e462d6c9db5635",
+    "m2-complete-snapshot-observe.xml": "be0f2ae85a6ae8fcbb16f0fbcc87fe55e42d3eb5c7fca70ec66b687b5eaf64c5",
+    "m2-complete-postgres-observe.xml": "90c1b25af281ecee03f12932bc1664fda6a8cca51c303f25bd71e50e52ad4bd2",
+    "m2-complete-m1-enforce.xml": "edb7d2e95ecf2aa1ff47b26a6dac04b153fb818391412fb924575af919866db8",
+    "m2-r1-harness-observe.xml": "760749587c95a2318fe8453c183e4ac77aae175f028508cb176bd929ffe15fb7",
+    "m2-r1-business-observe.xml": "f98be7145229372f6ca822b294be4c48e601366c7b0d7bf410e495fb0d05a00a",
+    "m2-fixed-learning-observe.xml": "fd31a59cf2523cc098c98ec319ea57f6a03f0102921b2d4940c5163b51e79868",
+    "m2-complete-entries-observe.log": "a3f01727958364be2f866e8a89a496baf6957bfe77fd34998434b021a30b1488",
+    "m2-complete-snapshot-observe.log": "4da8dc936cbebaeae156d903191d6cbd23d613bba5d681934f27d5710e6fc724",
+    "m2-complete-postgres-observe.log": "23508d6d6f05f8a3473679f7109c88af6c0d25ce9ca5b104768641d3215c8dfc",
+    "m2-complete-m1-enforce.log": "52ca120609cabbcd31e31e00abbb6d92a08c086fd81aa34fd121476c7bcc8d2d",
+    "m2-r1-harness-observe.log": "5ff0026391b2f61b5778730535596e9e618c08f67c17436e6c3b78ad9ed49939",
+    "m2-r1-business-observe.log": "3796666332c3a94a12d80a04eab1314e0725fb3ab1b3cf25576776806f3fda77",
+    "m2-fixed-learning-observe.log": "2645524ae01202585412038edc529f5f9edf6f203e21a60702614e68f5956174"
+  },
+  "reconciliation": {
+    "static_candidates": [
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "ManagedAgentWorker._execute_claimed",
+        "line": 631,
+        "call": "self.safety_judge.judge",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-AG-02"
+        ]
+      },
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "ManagedAgentWorker._execute_claimed",
+        "line": 638,
+        "call": "self.service.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "ManagedAgentWorker._coordinate",
+        "line": 731,
+        "call": "self.service.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "LiveExpertModel.execute_bundle",
+        "line": 808,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-AG-01"
+        ]
+      },
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "LiveExpertModel.synthesize_user_task",
+        "line": 833,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-AG-01"
+        ]
+      },
+      {
+        "file": "backend/app/agents.py",
+        "symbol": "LiveExpertModel.synthesize",
+        "line": 851,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-AG-01"
+        ]
+      },
+      {
+        "file": "backend/app/conversation.py",
+        "symbol": "ManagedTurnWorker._finish_exposure",
+        "line": 2408,
+        "call": "judge.judge",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-CA-02"
+        ]
+      },
+      {
+        "file": "backend/app/eval.py",
+        "symbol": "_run_live_smoke",
+        "line": 75,
+        "call": "ModelGateway(profile, offline_unbound=True).complete",
+        "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/evals.py",
+        "symbol": "_normal_loop",
+        "line": 73,
+        "call": "ModelDecision.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/evals.py",
+        "symbol": "_rate_limit_retry",
+        "line": 145,
+        "call": "gateway.complete",
+        "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/evals.py",
+        "symbol": "_authentication_blocked",
+        "line": 156,
+        "call": "gateway.complete",
+        "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/evolution.py",
+        "symbol": "LiveBehaviorRunner._run",
+        "line": 63,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-01"
+        ]
+      },
+      {
+        "file": "backend/app/evolution.py",
+        "symbol": "LiveBehaviorRunner._run",
+        "line": 75,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-01"
+        ]
+      },
+      {
+        "file": "backend/app/evolution.py",
+        "symbol": "LivePromptCandidateProposer._propose",
+        "line": 1726,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-04"
+        ]
+      },
+      {
+        "file": "backend/app/evolution.py",
+        "symbol": "LiveSafetyJudge.judge",
+        "line": 1757,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-AG-02",
+          "CS-RS-03",
+          "CS-GR-02",
+          "CS-CA-02"
+        ]
+      },
+      {
+        "file": "backend/app/goal_program_compiler.py",
+        "symbol": "GoalProgramCompiler._validated",
+        "line": 194,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-GP-01",
+          "CS-GP-02",
+          "CS-GP-03"
+        ]
+      },
+      {
+        "file": "backend/app/goal_program_compiler.py",
+        "symbol": "GoalProgramCompiler._validated",
+        "line": 196,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-GP-01",
+          "CS-GP-02",
+          "CS-GP-03"
+        ]
+      },
+      {
+        "file": "backend/app/goal_reviews.py",
+        "symbol": "ManagedGoalReviewWorker._process",
+        "line": 456,
+        "call": "self.service.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/goal_reviews.py",
+        "symbol": "ManagedGoalReviewWorker._process",
+        "line": 471,
+        "call": "self.service.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/learning_agent.py",
+        "symbol": "LearningAgent.generate_async",
+        "line": 435,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-LN-01"
+        ]
+      },
+      {
+        "file": "backend/app/learning_eval.py",
+        "symbol": "LearningJudge.compare_async",
+        "line": 197,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-LN-01"
+        ]
+      },
+      {
+        "file": "backend/app/learning_extraction.py",
+        "symbol": "ConstraintExtractor.extract",
+        "line": 28,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-LN-01"
+        ]
+      },
+      {
+        "file": "backend/app/learning_prompt.py",
+        "symbol": "LearningReplay.call",
+        "line": 155,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-02"
+        ]
+      },
+      {
+        "file": "backend/app/learning_replay.py",
+        "symbol": "RuntimeLearningReplay.__call__.call",
+        "line": 92,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-02"
+        ]
+      },
+      {
+        "file": "backend/app/live_model.py",
+        "symbol": "_complete_logical_call",
+        "line": 174,
+        "call": "gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-CA-01"
+        ]
+      },
+      {
+        "file": "backend/app/live_model.py",
+        "symbol": "LiveRuntimeModel.decide",
+        "line": 529,
+        "call": "ModelDecision.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/live_model.py",
+        "symbol": "LiveRuntimeModel._json",
+        "line": 618,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-GR-01",
+          "CS-GR-03"
+        ]
+      },
+      {
+        "file": "backend/app/live_model.py",
+        "symbol": "LiveRuntimeModel._json",
+        "line": 639,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-GR-01",
+          "CS-GR-03"
+        ]
+      },
+      {
+        "file": "backend/app/live_model.py",
+        "symbol": "LiveConversationModel._complete",
+        "line": 803,
+        "call": "_complete_logical_call",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-CA-01"
+        ]
+      },
+      {
+        "file": "backend/app/memory_archive.py",
+        "symbol": "LiveEpisodeSummarizer.__call__",
+        "line": 955,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-MA-01"
+        ]
+      },
+      {
+        "file": "backend/app/memory_reference.py",
+        "symbol": "resolve",
+        "line": 127,
+        "call": "gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-MR-01"
+        ]
+      },
+      {
+        "file": "backend/app/model_admin.py",
+        "symbol": "ModelAdminService._verify_live",
+        "line": 361,
+        "call": "ModelGateway(profile, transport=self.verification_transport, control_store=self.control_store).complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-MD-01"
+        ]
+      },
+      {
+        "file": "backend/app/model_control.py",
+        "symbol": "RoutedModelGateway._execute_http_attempt",
+        "line": 1302,
+        "call": "ModelGateway(profile)._attempt",
+        "excluded_reason": "shared internal transport; counted at logical caller",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/model_gateway.py",
+        "symbol": "ModelGateway.complete",
+        "line": 492,
+        "call": "self._attempt",
+        "excluded_reason": "shared internal transport; counted at logical caller",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/real_evaluation.py",
+        "symbol": "LiveEvaluationRunner._arm.invoke",
+        "line": 1247,
+        "call": "gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-03"
+        ]
+      },
+      {
+        "file": "backend/app/real_evaluation.py",
+        "symbol": "LiveEvaluationRunner._judge.invoke",
+        "line": 1277,
+        "call": "gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-EV-03"
+        ]
+      },
+      {
+        "file": "backend/app/research/live.py",
+        "symbol": "LiveResearchModel._complete",
+        "line": 91,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-RS-01",
+          "CS-RS-02"
+        ]
+      },
+      {
+        "file": "backend/app/research/live.py",
+        "symbol": "LiveResearchModel._complete",
+        "line": 96,
+        "call": "self.gateway.complete",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-RS-01",
+          "CS-RS-02"
+        ]
+      },
+      {
+        "file": "backend/app/research/worker.py",
+        "symbol": "ManagedResearchWorker.run_once",
+        "line": 129,
+        "call": "self.service.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/research/worker.py",
+        "symbol": "ManagedResearchWorker._finish_exposure",
+        "line": 189,
+        "call": "self.safety_judge.judge",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-RS-03"
+        ]
+      },
+      {
+        "file": "backend/app/runtime.py",
+        "symbol": "MockModelGateway.decide",
+        "line": 110,
+        "call": "ModelDecision.complete",
+        "excluded_reason": "state/artifact completion, not a provider call",
+        "callsites": []
+      },
+      {
+        "file": "backend/app/runtime.py",
+        "symbol": "AgentRuntime._finish_exposure",
+        "line": 900,
+        "call": "judge.judge",
+        "excluded_reason": null,
+        "callsites": [
+          "CS-GR-02"
+        ]
+      }
+    ],
+    "unclassified_candidates": [],
+    "static_callsites_missing_registration": [],
+    "registered_callsites": [
+      "CS-AG-01",
+      "CS-AG-02",
+      "CS-CA-01",
+      "CS-CA-02",
+      "CS-EV-01",
+      "CS-EV-02",
+      "CS-EV-03",
+      "CS-EV-04",
+      "CS-GP-01",
+      "CS-GP-02",
+      "CS-GP-03",
+      "CS-GR-01",
+      "CS-GR-02",
+      "CS-GR-03",
+      "CS-LN-01",
+      "CS-MA-01",
+      "CS-MD-01",
+      "CS-MR-01",
+      "CS-RS-01",
+      "CS-RS-02",
+      "CS-RS-03"
+    ],
+    "observed_callsites": [
+      "CS-AG-01",
+      "CS-AG-02",
+      "CS-CA-01",
+      "CS-CA-02",
+      "CS-EV-01",
+      "CS-EV-02",
+      "CS-EV-03",
+      "CS-EV-04",
+      "CS-GP-01",
+      "CS-GP-02",
+      "CS-GP-03",
+      "CS-GR-01",
+      "CS-GR-02",
+      "CS-GR-03",
+      "CS-LN-01",
+      "CS-MA-01",
+      "CS-MD-01",
+      "CS-MR-01",
+      "CS-RS-01",
+      "CS-RS-02",
+      "CS-RS-03"
+    ],
+    "registered_without_recorded_send": [],
+    "unregistered_sends": [],
+    "invalid_binding_records": [],
+    "unresolved_nodes": [],
+    "collection_exit": 0,
+    "assembly_candidates": [
+      {
+        "file": "backend/app/embedding.py",
+        "symbol": "OpenAICompatibleEmbeddingClient.embed",
+        "line": 172,
+        "call": "self._client.post",
+        "disposition": "embedding vector API, not a generative completion",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/eval.py",
+        "symbol": "_run_live_smoke",
+        "line": 75,
+        "call": "ModelGateway",
+        "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+        "keywords": {
+          "offline_unbound": "True"
+        }
+      },
+      {
+        "file": "backend/app/evals.py",
+        "symbol": "_rate_limit_retry",
+        "line": 144,
+        "call": "ModelGateway",
+        "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+        "keywords": {
+          "transport": "httpx.MockTransport(handler)"
+        }
+      },
+      {
+        "file": "backend/app/evals.py",
+        "symbol": "_authentication_blocked",
+        "line": 154,
+        "call": "ModelGateway",
+        "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/learning_decision.py",
+        "symbol": "TypesafeClient.ask",
+        "line": 334,
+        "call": "client.post",
+        "disposition": "JEV structured decision service, excluded by Phase 2B scope",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/model_admin.py",
+        "symbol": "ModelAdminService._verify_live",
+        "line": 361,
+        "call": "ModelGateway",
+        "disposition": "controlled direct verification, server-owned service identity",
+        "keywords": {
+          "transport": "self.verification_transport",
+          "control_store": "self.control_store"
+        }
+      },
+      {
+        "file": "backend/app/model_control.py",
+        "symbol": "RoutedModelGateway._execute_http_attempt",
+        "line": 1302,
+        "call": "ModelGateway",
+        "disposition": "internal transport of an already bound invocation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/model_gateway.py",
+        "symbol": "provider_payload",
+        "line": 793,
+        "call": "ModelGateway",
+        "disposition": "pure protocol rendering, no I/O",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/model_gateway.py",
+        "symbol": "ModelGateway._attempt_openai",
+        "line": 597,
+        "call": "client.stream",
+        "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/model_gateway.py",
+        "symbol": "ModelGateway._attempt_anthropic",
+        "line": 679,
+        "call": "client.stream",
+        "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/model_gateway.py",
+        "symbol": "ModelGateway._attempt_gemini",
+        "line": 741,
+        "call": "client.post",
+        "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/notifications.py",
+        "symbol": "NotificationService.send",
+        "line": 64,
+        "call": "client.post",
+        "disposition": "notification webhook, not model generation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/real_evaluation.py",
+        "symbol": "LiveEvaluationRunner._gateway",
+        "line": 1238,
+        "call": "ModelGateway",
+        "disposition": "controlled direct evaluation, persisted evaluation config identity",
+        "keywords": {
+          "control_store": "self.control_store"
+        }
+      },
+      {
+        "file": "backend/app/research/tavily.py",
+        "symbol": "TavilySearchRetriever.retrieve",
+        "line": 22,
+        "call": "client.post",
+        "disposition": "source retrieval API, not model generation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/research/web.py",
+        "symbol": "WebSearchRetriever._retrieve_variant",
+        "line": 161,
+        "call": "client.get",
+        "disposition": "search/source retrieval, not model generation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/research/web.py",
+        "symbol": "WebSearchRetriever._search",
+        "line": 314,
+        "call": "client.get",
+        "disposition": "search/source retrieval, not model generation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/research/web.py",
+        "symbol": "WebSearchRetriever._retrieve_variant",
+        "line": 166,
+        "call": "client.get",
+        "disposition": "search/source retrieval, not model generation",
+        "keywords": {}
+      },
+      {
+        "file": "backend/app/startup.py",
+        "symbol": "build_runtime",
+        "line": 207,
+        "call": "RoutedModelGateway",
+        "disposition": "production routed gateway with runtime-owned control_store",
+        "keywords": {}
+      }
+    ],
+    "unclassified_assembly": [],
+    "manifest_registration_difference": [],
+    "missing_branch_evidence": [],
+    "production_denominator": 21,
+    "observed_sends": 598,
+    "sends_with_valid_committed_binding": 598,
+    "invalid_audits": [],
+    "unique_invocations": 596,
+    "provenance_complete": 0,
+    "provenance_partial": 596,
+    "scope": "explicit acceptance capture batch, not long-term production telemetry",
+    "status": "pass"
+  },
+  "limitations": [
+    "Capture denominator is every observed send in the explicitly instrumented nodes, not all legacy regression sends or production telemetry.",
+    "All provenance remains partial: excerpts/reference IDs/rubric are tracked, not full external bytes or exhaustive dropped spans.",
+    "Default observe batches have explicit per-test enforce/observe overrides for budget and settlement semantics.",
+    "No full repository pytest rerun; historical user-reported 2106/7/8 is not current evidence.",
+    "Direct/routed post-response revocation semantics remain different; pre-send revocation and usage preservation are covered."
   ],
-  "covered_test_nodes": {
-    "T19": [
-      "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version"
-    ],
-    "T20": [
-      "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
-      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres"
-    ],
-    "T22": [
-      "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store"
-    ],
-    "T21": [
-      "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send",
-      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
-      "tests/test_model_admin_api.py::test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe"
-    ],
-    "T03": [
-      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[snapshot]",
-      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[invocation]",
-      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[execution_context_binding]"
-    ],
-    "T31": [
-      "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
-      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres",
-      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
-      "tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_snapshot_write_rolls_back_the_invocation",
-      "tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_execution_context_write_rolls_back_snapshot_and_invocation",
-      "tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot",
-      "tests/integration/test_attempt_settlement_postgres.py::test_concurrent_finish_has_one_settlement_and_one_event"
-    ],
-    "T38": [
-      "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
-    ]
-  }
+  "binding_examples": [
+    {
+      "attempt_id": "model_invocation_ad1ca69486d14ce083ddd5918b886cea_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-RS-02",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_ad1ca69486d14ce083ddd5918b886cea",
+      "owner_id": "research-owner",
+      "profile_version_id": "model_profile_version_89cd7da3ded344fa93ab560ad3d1d8bb",
+      "provenance_sources": [
+        {
+          "dropped_reason": null,
+          "included": true,
+          "kind": "other",
+          "location": {
+            "field": "content",
+            "message_index": 1,
+            "scope": "excerpt"
+          },
+          "version": null
+        }
+      ],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]",
+      "send_id": "8fa18dae5af946059fb5c5919c111f76",
+      "snapshot_digest": "a200dbeee6f25c4718cfdee0f87e9993f1adf7fb5047f56ba937890d59f90995",
+      "snapshot_id": "model_input_snapshot_b1fadc4071a54c6ba9741518e17b398d",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_59cea4c7119b46ec8f1ecc6af9cffe7f_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-RS-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_59cea4c7119b46ec8f1ecc6af9cffe7f",
+      "owner_id": "pg-research-owner",
+      "profile_version_id": "model_profile_version_8160db756f7e4814aef3f45df1ace98d",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+      "send_id": "a9edcaba5879482c97b9461247acb93a",
+      "snapshot_digest": "408361113ad7dae18fbb223344f096e31b5d4fa95e2986a34308d408e0a69903",
+      "snapshot_id": "model_input_snapshot_397cd4ab2a1f40f09e26dc0a2fdc6b9b",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_68f3fa5056cd4c2f99c4b2edb40bfd5d_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-RS-03",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_68f3fa5056cd4c2f99c4b2edb40bfd5d",
+      "owner_id": "research-owner",
+      "profile_version_id": "model_profile_version_cd4c86d13c05466e8f52731eb2c23a1e",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job[cancel]",
+      "send_id": "0ea5fbf033334122bb1d1718b7ac38de",
+      "snapshot_digest": "e19eb947e8ccb1a3b8ebdbb0ae1ba195eace3c0e5325ec85781108296fb194e8",
+      "snapshot_id": "model_input_snapshot_588916137c314d72815e454b2a858508",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_3b1ca1b2427b42a8a7180afea3454f2c_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-AG-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_3b1ca1b2427b42a8a7180afea3454f2c",
+      "owner_id": "owner-a",
+      "profile_version_id": "model_profile_version_72f7ce93497c4fe3a73850dfc28c3050",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets",
+      "send_id": "69ee6774e96d40869c99215769b7c446",
+      "snapshot_digest": "d2afd43c9749c3836314919943035faafd53394115602e9683efc94685844618",
+      "snapshot_id": "model_input_snapshot_44495010addf49bc8bda23d5eb2c6b8a",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_d04c3fdcd41a44a3a319d5dc24c89165_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-AG-02",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_d04c3fdcd41a44a3a319d5dc24c89165",
+      "owner_id": "owner-b",
+      "profile_version_id": "model_profile_version_735c5dcebd574388a016e8786a82a2a2",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets",
+      "send_id": "020ba23d859644dea2230d1c3d8938cc",
+      "snapshot_digest": "b93746de8a6f2c7c82bc8e83a7dcddc432e1ed09b60afea4d9f3235a166f8efa",
+      "snapshot_id": "model_input_snapshot_b42cc0829a2e4451be191af07a410796",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "learning_3aa21142a0beb105d913b866c943d858999a4f2c2d951f8406410be8ac808ef1:extract_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-LN-01",
+      "execution_digest": null,
+      "invocation_id": "learning_3aa21142a0beb105d913b866c943d858999a4f2c2d951f8406410be8ac808ef1:extract",
+      "owner_id": "local-user",
+      "profile_version_id": "model_profile_version_a350a34065594b59b8e07cd215176232",
+      "provenance_sources": [
+        {
+          "dropped_reason": null,
+          "included": true,
+          "kind": "history",
+          "location": {
+            "field": "content",
+            "message_index": 1
+          },
+          "version": null
+        }
+      ],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]",
+      "send_id": "5e3c3f9852b84a898e8221f70064f9a8",
+      "snapshot_digest": "b1d0d5b5c30ed34af159566cee70070573630a5bbb10348476542bf9c0b4090a",
+      "snapshot_id": "model_input_snapshot_67fa1eacfcd640b28e6f8e4e6fa20dd4",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_34921134e05e4bcdb81399306524bd94_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-EV-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_34921134e05e4bcdb81399306524bd94",
+      "owner_id": "evolution-owner",
+      "profile_version_id": "model_profile_version_7be35e875e4f4199b7862ce2129f40bb",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge",
+      "send_id": "ecad98df1931433d88cb9b483f8fce0f",
+      "snapshot_digest": "8d4dec6850c813d2c9345680f746a67f7fcd28a1150c9f2701423b3ace317552",
+      "snapshot_id": "model_input_snapshot_4c68f53958d34e139147e3015643148d",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_2cd04d0bae6049ce9fa8f5f4f8de4981_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-EV-04",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_2cd04d0bae6049ce9fa8f5f4f8de4981",
+      "owner_id": "local-user",
+      "profile_version_id": "model_profile_version_252430662a134330bc735e4ef7599aed",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+      "send_id": "b6ccd385f54c4dc292eeaa412839896c",
+      "snapshot_digest": "05a6501ba950f97a6dbabef4880b4c76576102fba74a3341b58802d1e48db611",
+      "snapshot_id": "model_input_snapshot_135bc02bb05f4061a774b28ea7e09075",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_201f905cd2c040caa3928749cc43c514_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-CA-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_201f905cd2c040caa3928749cc43c514",
+      "owner_id": "local-user",
+      "profile_version_id": "model_profile_version_f5e684002bd74a49b9b22a59b17548f5",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
+      "send_id": "40da9094b0ea4e029dc90034af8cb15e",
+      "snapshot_digest": "50492817692d3a97fff38da923a8dabbcfb0568f0140d36624bdff6b400386c5",
+      "snapshot_id": "model_input_snapshot_93f8454951a54678b91b9e03e437ccb5",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_ea62ee29e920411aa9f3440d188f4d26_attempt_2",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-MD-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_ea62ee29e920411aa9f3440d188f4d26",
+      "owner_id": "pg-admin-owner",
+      "profile_version_id": "model_profile_version_bba3ad64242d494dbf006c4e2ba3475c",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres",
+      "send_id": "7c0ab05c3f4f44c29a04d283c78dc727",
+      "snapshot_digest": "c010fd27b31ace705ca559d1597ea29278883fcdf9ea98649f9ba6a36f7c1cda",
+      "snapshot_id": "model_input_snapshot_76a8f14f64c94d829c04cfa070978b7d",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_11438f74badd4cfe9826d69ae80399e7_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GP-03",
+      "execution_digest": "77041b5515c7e162474a3cdec68d782e7e717baed32a28216d03527dde2d1e37",
+      "invocation_id": "model_invocation_11438f74badd4cfe9826d69ae80399e7",
+      "owner_id": "local-user",
+      "profile_version_id": "model_profile_version_b036c7bef63e4398b31dfb6dfb74758a",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span",
+      "send_id": "165da5e7770d437592a0c975aab8fa37",
+      "snapshot_digest": "e3d2562467bd55ce092eaafca85e538cae0295ccf60682478915383f5aad7337",
+      "snapshot_id": "model_input_snapshot_63276cd2a9be49f18bf6d0f30377d4d9",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_7e1a5d17be9e4ae3a40eddd8f6d6c55c_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-CA-02",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_7e1a5d17be9e4ae3a40eddd8f6d6c55c",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_2f1a24d368fa4573a305d87b7a156dd4",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner",
+      "send_id": "32e5742a67cb4deeb08e1c511d53ccc4",
+      "snapshot_digest": "2d5cb4311b4d2ec71426c7988109059ba27ba9b5b19aa89ac84d3cf13ab89878",
+      "snapshot_id": "model_input_snapshot_91d32c25ab104b82a417d06818553357",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "invocation_041efbfee6894cfeb2cbacc55736129f_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GR-01",
+      "execution_digest": null,
+      "invocation_id": "invocation_041efbfee6894cfeb2cbacc55736129f",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_29715e044d3d40b2b52564e974dab245",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner[tenant-b]",
+      "send_id": "d647dd12cbad41a8989035e8e3b14bed",
+      "snapshot_digest": "bd2a94bd9a21b46cada7f155a1c911df3c7b6b7a1c0c9aa0a8cc48b5f6cd36ba",
+      "snapshot_id": "model_input_snapshot_4498076cdf0d498394b40fc4366b74b8",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_5e5daedd60a841daa94e12e6132d71de_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GR-02",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_5e5daedd60a841daa94e12e6132d71de",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_86071cdee7544a789377ed78e17d8915",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner[tenant-b]",
+      "send_id": "9570a4f037dd4fb583cf845d6e126bbc",
+      "snapshot_digest": "80ce99adb1009108d30ea27c313727618f9210a8750bb992950de0d09e2f9d8a",
+      "snapshot_id": "model_input_snapshot_af9ce3e4945445ddb754ea25574adaac",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_e5e38575cdd1402bb4abb7860e3194f0_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GR-03",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_e5e38575cdd1402bb4abb7860e3194f0",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_d42c814a683d4b7a9d2b00957a619cfd",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot",
+      "send_id": "3740da7f0e624ff0988e73cf57b401de",
+      "snapshot_digest": "cbaf675ed4d55e1f9f9da580074dc1d835defdd3e15685470f00886ff5391b43",
+      "snapshot_id": "model_input_snapshot_cecab375f22e46db91683b5afc52354e",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_365ef0e6416842b19aa5589fcad33f67_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GP-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_365ef0e6416842b19aa5589fcad33f67",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_30c76543761d48ba9e64d2087b7ec4ac",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair",
+      "send_id": "d17ba31876d14b1696a5253b9d0e033e",
+      "snapshot_digest": "74fa860e486a30f0b3eac8bb183869b28779854cf0894aa7e8b59b7dd34941ec",
+      "snapshot_id": "model_input_snapshot_e95abc0b8af84e4dba2d29ac2008b3de",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_ded208cfdaf541678664550b9052c205_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-GP-02",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_ded208cfdaf541678664550b9052c205",
+      "owner_id": "tenant-b",
+      "profile_version_id": "model_profile_version_30c76543761d48ba9e64d2087b7ec4ac",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair",
+      "send_id": "128f4d49ec1c474da750212f19531093",
+      "snapshot_digest": "4a002617d7ac7d6ca64f39c056efdfd50170c179cb2e04c875a6e14c23408c0b",
+      "snapshot_id": "model_input_snapshot_d89e029a8f5048c38e5e0f40eba7e922",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_f5c19e3924644a44b34a5fae639698cc_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-MA-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_f5c19e3924644a44b34a5fae639698cc",
+      "owner_id": "archive-owner",
+      "profile_version_id": "model_profile_version_1adda1097534494e86bf22a2bfb5b30f",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages",
+      "send_id": "a06341d15ae04695bbe2ec1180b907ac",
+      "snapshot_digest": "ad112244843207c79247f95f6f3b400b8f00828f7fc7c0331f89611e3a571d23",
+      "snapshot_id": "model_input_snapshot_e02bd3e97c7240d3a061eebd4294aa1e",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_6a144a5b469c4561afd7c394e6f7fe76_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-MR-01",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_6a144a5b469c4561afd7c394e6f7fe76",
+      "owner_id": "owner-b",
+      "profile_version_id": "model_profile_version_09fa2af2811247759736c6262eaa2a33",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]",
+      "send_id": "8ef507576bf3418c87f1a3e38d8a0f90",
+      "snapshot_digest": "1ba820e03ea1c8ad94ec0b4abab123653a453ab609facf994d412579ae76d708",
+      "snapshot_id": "model_input_snapshot_6e211960da2c4af39f363963a56e633d",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "model_invocation_eval_08bf87d552c14cb7b9403b8369a3627e_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-EV-03",
+      "execution_digest": null,
+      "invocation_id": "model_invocation_eval_08bf87d552c14cb7b9403b8369a3627e",
+      "owner_id": "local-user",
+      "profile_version_id": "eval-model-3",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges",
+      "send_id": "b0d0ee386f504849b7db68ff08f8467e",
+      "snapshot_digest": "562a3574992149beead797c1bb6d33ec3c0e714e6d36a83c759ed12c2decb824",
+      "snapshot_id": "model_input_snapshot_61e31dfb8aa14ee098ac1dcfa5f42d15",
+      "valid_committed_binding": true
+    },
+    {
+      "attempt_id": "learning_8b053cd4ea9a195145a9113f2d3218d5b3a4977e4b1dbea957ce639b2cc5221f:replay:1_attempt_1",
+      "batch_id": "m2-complete",
+      "callsite_id": "CS-EV-02",
+      "execution_digest": null,
+      "invocation_id": "learning_8b053cd4ea9a195145a9113f2d3218d5b3a4977e4b1dbea957ce639b2cc5221f:replay:1",
+      "owner_id": "local-user",
+      "profile_version_id": "model_profile_version_252430662a134330bc735e4ef7599aed",
+      "provenance_sources": [],
+      "provenance_status": "partial",
+      "pytest_node": "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+      "send_id": "d34ead67d2e648f0bfb78ea4fbf9d1c8",
+      "snapshot_digest": "aabdac2bcad48be0fd78970644e721712818d6d0fc6690235b662966f4782091",
+      "snapshot_id": "model_input_snapshot_cbcdb940a2764ebe96af0ed4b13cb8b2",
+      "valid_committed_binding": true
+    }
+  ]
 }

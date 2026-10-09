@@ -1,0 +1,629 @@
+{
+  "static_candidates": [
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "ManagedAgentWorker._execute_claimed",
+      "line": 631,
+      "call": "self.safety_judge.judge",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-AG-02"
+      ]
+    },
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "ManagedAgentWorker._execute_claimed",
+      "line": 638,
+      "call": "self.service.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "ManagedAgentWorker._coordinate",
+      "line": 731,
+      "call": "self.service.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "LiveExpertModel.execute_bundle",
+      "line": 808,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-AG-01"
+      ]
+    },
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "LiveExpertModel.synthesize_user_task",
+      "line": 833,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-AG-01"
+      ]
+    },
+    {
+      "file": "backend/app/agents.py",
+      "symbol": "LiveExpertModel.synthesize",
+      "line": 851,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-AG-01"
+      ]
+    },
+    {
+      "file": "backend/app/conversation.py",
+      "symbol": "ManagedTurnWorker._finish_exposure",
+      "line": 2408,
+      "call": "judge.judge",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-CA-02"
+      ]
+    },
+    {
+      "file": "backend/app/eval.py",
+      "symbol": "_run_live_smoke",
+      "line": 75,
+      "call": "ModelGateway(profile, offline_unbound=True).complete",
+      "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/evals.py",
+      "symbol": "_normal_loop",
+      "line": 73,
+      "call": "ModelDecision.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/evals.py",
+      "symbol": "_rate_limit_retry",
+      "line": 145,
+      "call": "gateway.complete",
+      "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/evals.py",
+      "symbol": "_authentication_blocked",
+      "line": 156,
+      "call": "gateway.complete",
+      "excluded_reason": "CLI-only offline/evaluation entry, not API production assembly",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/evolution.py",
+      "symbol": "LiveBehaviorRunner._run",
+      "line": 63,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-01"
+      ]
+    },
+    {
+      "file": "backend/app/evolution.py",
+      "symbol": "LiveBehaviorRunner._run",
+      "line": 75,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-01"
+      ]
+    },
+    {
+      "file": "backend/app/evolution.py",
+      "symbol": "LivePromptCandidateProposer._propose",
+      "line": 1726,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-04"
+      ]
+    },
+    {
+      "file": "backend/app/evolution.py",
+      "symbol": "LiveSafetyJudge.judge",
+      "line": 1757,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-AG-02",
+        "CS-RS-03",
+        "CS-GR-02",
+        "CS-CA-02"
+      ]
+    },
+    {
+      "file": "backend/app/goal_program_compiler.py",
+      "symbol": "GoalProgramCompiler._validated",
+      "line": 194,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-GP-01",
+        "CS-GP-02",
+        "CS-GP-03"
+      ]
+    },
+    {
+      "file": "backend/app/goal_program_compiler.py",
+      "symbol": "GoalProgramCompiler._validated",
+      "line": 196,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-GP-01",
+        "CS-GP-02",
+        "CS-GP-03"
+      ]
+    },
+    {
+      "file": "backend/app/goal_reviews.py",
+      "symbol": "ManagedGoalReviewWorker._process",
+      "line": 456,
+      "call": "self.service.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/goal_reviews.py",
+      "symbol": "ManagedGoalReviewWorker._process",
+      "line": 471,
+      "call": "self.service.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/learning_agent.py",
+      "symbol": "LearningAgent.generate_async",
+      "line": 435,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-LN-01"
+      ]
+    },
+    {
+      "file": "backend/app/learning_eval.py",
+      "symbol": "LearningJudge.compare_async",
+      "line": 197,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-LN-01"
+      ]
+    },
+    {
+      "file": "backend/app/learning_extraction.py",
+      "symbol": "ConstraintExtractor.extract",
+      "line": 28,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-LN-01"
+      ]
+    },
+    {
+      "file": "backend/app/learning_prompt.py",
+      "symbol": "LearningReplay.call",
+      "line": 155,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-02"
+      ]
+    },
+    {
+      "file": "backend/app/learning_replay.py",
+      "symbol": "RuntimeLearningReplay.__call__.call",
+      "line": 92,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-02"
+      ]
+    },
+    {
+      "file": "backend/app/live_model.py",
+      "symbol": "_complete_logical_call",
+      "line": 174,
+      "call": "gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-CA-01"
+      ]
+    },
+    {
+      "file": "backend/app/live_model.py",
+      "symbol": "LiveRuntimeModel.decide",
+      "line": 529,
+      "call": "ModelDecision.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/live_model.py",
+      "symbol": "LiveRuntimeModel._json",
+      "line": 618,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-GR-01",
+        "CS-GR-03"
+      ]
+    },
+    {
+      "file": "backend/app/live_model.py",
+      "symbol": "LiveRuntimeModel._json",
+      "line": 639,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-GR-01",
+        "CS-GR-03"
+      ]
+    },
+    {
+      "file": "backend/app/live_model.py",
+      "symbol": "LiveConversationModel._complete",
+      "line": 803,
+      "call": "_complete_logical_call",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-CA-01"
+      ]
+    },
+    {
+      "file": "backend/app/memory_archive.py",
+      "symbol": "LiveEpisodeSummarizer.__call__",
+      "line": 955,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-MA-01"
+      ]
+    },
+    {
+      "file": "backend/app/memory_reference.py",
+      "symbol": "resolve",
+      "line": 127,
+      "call": "gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-MR-01"
+      ]
+    },
+    {
+      "file": "backend/app/model_admin.py",
+      "symbol": "ModelAdminService._verify_live",
+      "line": 361,
+      "call": "ModelGateway(profile, transport=self.verification_transport, control_store=self.control_store).complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-MD-01"
+      ]
+    },
+    {
+      "file": "backend/app/model_control.py",
+      "symbol": "RoutedModelGateway._execute_http_attempt",
+      "line": 1302,
+      "call": "ModelGateway(profile)._attempt",
+      "excluded_reason": "shared internal transport; counted at logical caller",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/model_gateway.py",
+      "symbol": "ModelGateway.complete",
+      "line": 492,
+      "call": "self._attempt",
+      "excluded_reason": "shared internal transport; counted at logical caller",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/real_evaluation.py",
+      "symbol": "LiveEvaluationRunner._arm.invoke",
+      "line": 1247,
+      "call": "gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-03"
+      ]
+    },
+    {
+      "file": "backend/app/real_evaluation.py",
+      "symbol": "LiveEvaluationRunner._judge.invoke",
+      "line": 1277,
+      "call": "gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-EV-03"
+      ]
+    },
+    {
+      "file": "backend/app/research/live.py",
+      "symbol": "LiveResearchModel._complete",
+      "line": 91,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-RS-01",
+        "CS-RS-02"
+      ]
+    },
+    {
+      "file": "backend/app/research/live.py",
+      "symbol": "LiveResearchModel._complete",
+      "line": 96,
+      "call": "self.gateway.complete",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-RS-01",
+        "CS-RS-02"
+      ]
+    },
+    {
+      "file": "backend/app/research/worker.py",
+      "symbol": "ManagedResearchWorker.run_once",
+      "line": 129,
+      "call": "self.service.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/research/worker.py",
+      "symbol": "ManagedResearchWorker._finish_exposure",
+      "line": 189,
+      "call": "self.safety_judge.judge",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-RS-03"
+      ]
+    },
+    {
+      "file": "backend/app/runtime.py",
+      "symbol": "MockModelGateway.decide",
+      "line": 110,
+      "call": "ModelDecision.complete",
+      "excluded_reason": "state/artifact completion, not a provider call",
+      "callsites": []
+    },
+    {
+      "file": "backend/app/runtime.py",
+      "symbol": "AgentRuntime._finish_exposure",
+      "line": 900,
+      "call": "judge.judge",
+      "excluded_reason": null,
+      "callsites": [
+        "CS-GR-02"
+      ]
+    }
+  ],
+  "unclassified_candidates": [],
+  "static_callsites_missing_registration": [],
+  "registered_callsites": [
+    "CS-AG-01",
+    "CS-AG-02",
+    "CS-CA-01",
+    "CS-CA-02",
+    "CS-EV-01",
+    "CS-EV-02",
+    "CS-EV-03",
+    "CS-EV-04",
+    "CS-GP-01",
+    "CS-GP-02",
+    "CS-GP-03",
+    "CS-GR-01",
+    "CS-GR-02",
+    "CS-GR-03",
+    "CS-LN-01",
+    "CS-MA-01",
+    "CS-MD-01",
+    "CS-MR-01",
+    "CS-RS-01",
+    "CS-RS-02",
+    "CS-RS-03"
+  ],
+  "observed_callsites": [
+    "CS-AG-01",
+    "CS-AG-02",
+    "CS-CA-01",
+    "CS-CA-02",
+    "CS-EV-01",
+    "CS-EV-02",
+    "CS-EV-03",
+    "CS-EV-04",
+    "CS-GP-01",
+    "CS-GP-02",
+    "CS-GP-03",
+    "CS-GR-01",
+    "CS-GR-02",
+    "CS-GR-03",
+    "CS-LN-01",
+    "CS-MA-01",
+    "CS-MD-01",
+    "CS-MR-01",
+    "CS-RS-01",
+    "CS-RS-02",
+    "CS-RS-03"
+  ],
+  "registered_without_recorded_send": [],
+  "unregistered_sends": [],
+  "invalid_binding_records": [],
+  "unresolved_nodes": [],
+  "collection_exit": 0,
+  "assembly_candidates": [
+    {
+      "file": "backend/app/embedding.py",
+      "symbol": "OpenAICompatibleEmbeddingClient.embed",
+      "line": 172,
+      "call": "self._client.post",
+      "disposition": "embedding vector API, not a generative completion",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/eval.py",
+      "symbol": "_run_live_smoke",
+      "line": 75,
+      "call": "ModelGateway",
+      "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+      "keywords": {
+        "offline_unbound": "True"
+      }
+    },
+    {
+      "file": "backend/app/evals.py",
+      "symbol": "_rate_limit_retry",
+      "line": 144,
+      "call": "ModelGateway",
+      "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+      "keywords": {
+        "transport": "httpx.MockTransport(handler)"
+      }
+    },
+    {
+      "file": "backend/app/evals.py",
+      "symbol": "_authentication_blocked",
+      "line": 154,
+      "call": "ModelGateway",
+      "disposition": "explicit CLI/test-only assembly, not reachable from API startup",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/learning_decision.py",
+      "symbol": "TypesafeClient.ask",
+      "line": 334,
+      "call": "client.post",
+      "disposition": "JEV structured decision service, excluded by Phase 2B scope",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/model_admin.py",
+      "symbol": "ModelAdminService._verify_live",
+      "line": 361,
+      "call": "ModelGateway",
+      "disposition": "controlled direct verification, server-owned service identity",
+      "keywords": {
+        "transport": "self.verification_transport",
+        "control_store": "self.control_store"
+      }
+    },
+    {
+      "file": "backend/app/model_control.py",
+      "symbol": "RoutedModelGateway._execute_http_attempt",
+      "line": 1302,
+      "call": "ModelGateway",
+      "disposition": "internal transport of an already bound invocation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/model_gateway.py",
+      "symbol": "provider_payload",
+      "line": 793,
+      "call": "ModelGateway",
+      "disposition": "pure protocol rendering, no I/O",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/model_gateway.py",
+      "symbol": "ModelGateway._attempt_openai",
+      "line": 597,
+      "call": "client.stream",
+      "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/model_gateway.py",
+      "symbol": "ModelGateway._attempt_anthropic",
+      "line": 679,
+      "call": "client.stream",
+      "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/model_gateway.py",
+      "symbol": "ModelGateway._attempt_gemini",
+      "line": 741,
+      "call": "client.post",
+      "disposition": "provider transport; reachable only through controlled complete or routed internal attempt",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/notifications.py",
+      "symbol": "NotificationService.send",
+      "line": 64,
+      "call": "client.post",
+      "disposition": "notification webhook, not model generation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/real_evaluation.py",
+      "symbol": "LiveEvaluationRunner._gateway",
+      "line": 1238,
+      "call": "ModelGateway",
+      "disposition": "controlled direct evaluation, persisted evaluation config identity",
+      "keywords": {
+        "control_store": "self.control_store"
+      }
+    },
+    {
+      "file": "backend/app/research/tavily.py",
+      "symbol": "TavilySearchRetriever.retrieve",
+      "line": 22,
+      "call": "client.post",
+      "disposition": "source retrieval API, not model generation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/research/web.py",
+      "symbol": "WebSearchRetriever._retrieve_variant",
+      "line": 161,
+      "call": "client.get",
+      "disposition": "search/source retrieval, not model generation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/research/web.py",
+      "symbol": "WebSearchRetriever._search",
+      "line": 314,
+      "call": "client.get",
+      "disposition": "search/source retrieval, not model generation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/research/web.py",
+      "symbol": "WebSearchRetriever._retrieve_variant",
+      "line": 166,
+      "call": "client.get",
+      "disposition": "search/source retrieval, not model generation",
+      "keywords": {}
+    },
+    {
+      "file": "backend/app/startup.py",
+      "symbol": "build_runtime",
+      "line": 207,
+      "call": "RoutedModelGateway",
+      "disposition": "production routed gateway with runtime-owned control_store",
+      "keywords": {}
+    }
+  ],
+  "unclassified_assembly": [],
+  "manifest_registration_difference": [],
+  "missing_branch_evidence": [],
+  "production_denominator": 21,
+  "observed_sends": 598,
+  "sends_with_valid_committed_binding": 598,
+  "invalid_audits": [],
+  "unique_invocations": 596,
+  "provenance_complete": 0,
+  "provenance_partial": 596,
+  "scope": "explicit acceptance capture batch, not long-term production telemetry",
+  "status": "pass"
+}

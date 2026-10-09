@@ -1,0 +1,248 @@
+{
+  "CS-RS-01": {
+    "reachable": "startup ResearchService -> ManagedResearchWorker -> LiveResearchModel; source turn/thread owner",
+    "branches": {
+      "structured": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot"
+      ],
+      "repair_retry": [
+        "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call"
+      ],
+      "worker": [
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job"
+      ],
+      "plan": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]"
+      ],
+      "distill": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]"
+      ],
+      "reflect": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]"
+      ],
+      "curate": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]"
+      ],
+      "audit": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]"
+      ],
+      "summarize": [
+        "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]"
+      ]
+    }
+  },
+  "CS-RS-02": {
+    "reachable": "Research engine chapter writer and report repair; pinned worker context",
+    "branches": {
+      "chapters_repair": [
+        "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+      ]
+    }
+  },
+  "CS-RS-03": {
+    "reachable": "ManagedResearchWorker._finish_exposure -> LiveSafetyJudge; persisted source owner",
+    "branches": {
+      "judge": [
+        "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job"
+      ]
+    }
+  },
+  "CS-AG-01": {
+    "reachable": "agent API/advisory -> AgentTaskService -> ManagedAgentWorker -> LiveExpertModel; run owner",
+    "branches": {
+      "advice": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[False]"
+      ],
+      "user_task": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges[True]"
+      ],
+      "pg_budget": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets"
+      ]
+    }
+  },
+  "CS-AG-02": {
+    "reachable": "ManagedAgentWorker -> LiveSafetyJudge; run owner and task root",
+    "branches": {
+      "judge": [
+        "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges"
+      ]
+    }
+  },
+  "CS-LN-01": {
+    "reachable": "LearningService authorized job -> pipeline/legacy extraction/generation/judge; independent learning root",
+    "branches": {
+      "generator": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[generator]"
+      ],
+      "extractor": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root[extractor]"
+      ],
+      "judge": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ]
+    }
+  },
+  "CS-EV-01": {
+    "reachable": "EvolutionService.evaluate_builtin -> LiveBehaviorRunner; explicit authorized owner",
+    "branches": {
+      "arms_judge": [
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+      ]
+    }
+  },
+  "CS-EV-02": {
+    "reachable": "LearningPipeline -> RuntimeLearningReplay or PromptLearning -> LearningReplay; persisted learning job/root",
+    "branches": {
+      "selector": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+      ],
+      "prompt_arms_judges": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+      ]
+    }
+  },
+  "CS-EV-03": {
+    "reachable": "evaluation API -> durable evaluator worker -> LiveEvaluationRunner -> controlled direct gateway",
+    "branches": {
+      "api_arms_judges": [
+        "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+      ]
+    }
+  },
+  "CS-EV-04": {
+    "reachable": "authorized Evolution generation batch -> proposer; pattern owner supplied by generator, not case input",
+    "branches": {
+      "nondefault": [
+        "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge"
+      ],
+      "job": [
+        "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+      ]
+    }
+  },
+  "CS-GR-01": {
+    "reachable": "goal/run HTTP API -> AgentRuntime._model_call -> LiveRuntimeModel; source owner or explicit startup service owner",
+    "branches": {
+      "http_lifecycle": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection"
+      ]
+    }
+  },
+  "CS-GR-02": {
+    "reachable": "AgentRuntime._finish_exposure -> LiveSafetyJudge; run-authorized owner",
+    "branches": {
+      "judge": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner"
+      ]
+    }
+  },
+  "CS-GR-03": {
+    "reachable": "conversation propose_execution -> ExecutionMaterializer -> PlanExecutionCompiler; turn owner/bundle/root",
+    "branches": {
+      "projection": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+      ]
+    }
+  },
+  "CS-GP-01": {
+    "reachable": "daily review worker / period service -> GoalProgramCompiler; program owner, goal_operation root",
+    "branches": {
+      "failure": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure"
+      ],
+      "pg_nondefault": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+      ]
+    }
+  },
+  "CS-GP-02": {
+    "reachable": "adjustment API -> GoalAdjustmentService -> compiler; program owner, goal_operation root",
+    "branches": {
+      "api": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots"
+      ],
+      "pg_nondefault": [
+        "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+      ]
+    }
+  },
+  "CS-GP-03": {
+    "reachable": "program preview API / goal tools -> GoalProgramService -> compiler; program or tool Harness owner",
+    "branches": {
+      "preview": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_goal_preview_compiles_under_persisted_program_owner"
+      ],
+      "tool": [
+        "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span"
+      ]
+    }
+  },
+  "CS-MA-01": {
+    "reachable": "archive worker -> ConversationArchiver -> LiveEpisodeSummarizer; archive claim owner",
+    "branches": {
+      "retry": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+      ]
+    }
+  },
+  "CS-MR-01": {
+    "reachable": "turn worker -> ConversationReferenceResolver -> resolve; authorized thread owner",
+    "branches": {
+      "timeout": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[timeout]"
+      ],
+      "cancel": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner[cancel]"
+      ]
+    }
+  },
+  "CS-CA-01": {
+    "reachable": "turn worker -> LiveConversationModel; turn owner; helpers derive fresh logical children",
+    "branches": {
+      "main": [
+        "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+      ],
+      "auxiliary": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings"
+      ],
+      "ask": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding"
+      ],
+      "plan": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[plan]"
+      ],
+      "existing_plan": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[existing_plan]"
+      ],
+      "research": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[research]"
+      ],
+      "memory_repair": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[memory_repair]"
+      ],
+      "no_history": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[no_history]"
+      ],
+      "dependent": [
+        "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings[dependent]"
+      ]
+    }
+  },
+  "CS-CA-02": {
+    "reachable": "ManagedTurnWorker._finish_exposure -> LiveSafetyJudge; persisted thread owner",
+    "branches": {
+      "judge": [
+        "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner"
+      ]
+    }
+  },
+  "CS-MD-01": {
+    "reachable": "model admin verification API -> startup/fallback ModelAdminService -> controlled direct gateway; server owner",
+    "branches": {
+      "verify": [
+        "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding"
+      ]
+    }
+  }
+}

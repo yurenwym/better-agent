@@ -7,6 +7,44 @@ from test_snapshot_flow import _plane
 from test_snapshot_goal_runtime_entries import _runtime
 
 
+@pytest.mark.asyncio
+async def test_t24_included_reference_with_missing_location_refuses_send(tmp_path, monkeypatch):
+    from app.model_input_snapshot import SnapshotError
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    from test_snapshot_flow import _drive
+    from test_snapshot_gateway import _answer
+
+    db, _, _, model, gateway = _plane(tmp_path, monkeypatch, execute=None)
+    recorder = CommittedSnapshotTransport(db, "local-user", "CS-CA-01", _answer())
+    gateway._execute_attempt = recorder
+    with pytest.raises(SnapshotError):
+        await _drive(model, context_sources={"memory":{"candidates":[{
+            "kind":"revision","id":"known-revision","included":True,
+            "location":{"message_index":999,"field":"content"}}]}})
+    assert recorder.send_count == 0
+
+
+@pytest.mark.asyncio
+async def test_t24_known_reference_change_cannot_rebind_a_logical_call(tmp_path, monkeypatch):
+    from app.model_input_snapshot import build_provenance, SnapshotBindingConflict
+    from app.model_control import InvocationReplayError, InvocationIdempotencyConflict
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    from test_snapshot_gateway import _context, _request, _answer
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+
+    db, bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=None)
+    recorder = CommittedSnapshotTransport(db, "local-user", "CS-CA-01", _answer())
+    gateway._execute_attempt = recorder
+    context = _context(bundle, idempotency_key="known-reference")
+    source = {"kind":"skill", "id":"known-skill", "version":"v1", "content_digest":"digest-v1", "included":True}
+    await gateway.complete(_request(), context=context, provenance=build_provenance([source]))
+    frozen = ModelInputSnapshotStore(db).load("local-user", recorder.observations[0]["snapshot_id"])
+    with pytest.raises((SnapshotBindingConflict, InvocationReplayError, InvocationIdempotencyConflict)):
+        await gateway.complete(_request(), context=context, provenance=build_provenance([{**source,"version":"v2","content_digest":"digest-v2"}]))
+    assert recorder.send_count == 1
+    assert ModelInputSnapshotStore(db).load("local-user", frozen.id).content_json == frozen.content_json
+
+
 @pytest.mark.parametrize("location", ["body", "query"])
 def test_t28_request_cannot_enable_offline_gateway(tmp_path, monkeypatch, location):
     from app.main import create_app
@@ -50,6 +88,10 @@ def test_t32_static_candidates_have_explicit_dispositions():
     assert rows
     assert all(row["excluded_reason"] or row["callsites"] for row in rows)
     assert {"CS-EV-04", "CS-CA-02", "CS-GP-03"} <= {site for row in rows for site in row["callsites"]}
+    assembly = module.assembly_candidates()
+    assert assembly and all(row["disposition"] for row in assembly)
+    assert all(row["keywords"].get("offline_unbound") in (None, "True") for row in assembly)
+    assert not any(row["keywords"].get("offline_unbound") for row in assembly if not row["file"].endswith("/eval.py"))
 
 
 @pytest.mark.asyncio
@@ -79,6 +121,8 @@ async def test_t08_unfinished_invocation_replay_never_resends(tmp_path, monkeypa
         return _answer()
 
     db, bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=execute)
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    gateway._execute_attempt = CommittedSnapshotTransport(db, "local-user", "CS-CA-01", _answer())
     context = _context(bundle, idempotency_key="unknown-call")
     await gateway.complete(_request(), context=context)
     with db.transaction() as connection:
@@ -87,5 +131,5 @@ async def test_t08_unfinished_invocation_replay_never_resends(tmp_path, monkeypa
     frozen = ModelInputSnapshotStore(db).load("local-user", row["context_snapshot_id"])
     with pytest.raises(InvocationReplayError):
         await gateway.complete(_request(), context=context)
-    assert len(sent) == 1
+    assert gateway._execute_attempt.send_count == 1
     assert ModelInputSnapshotStore(db).load("local-user", frozen.id).content_json == frozen.content_json

@@ -185,7 +185,16 @@ class LearningJudge:
                                          {"role": "user", "content": body}],
                                tools=self.tools, temperature=0, max_tokens=self.max_tokens,
                                role=self.role, purpose=self.purpose, thinking=False)
-        response = await self.gateway.complete(request, context=context)
+        metadata = {}
+        if getattr(self.gateway, "control_store", None) is not None:
+            from .model_input_snapshot import build_provenance
+            metadata["provenance"] = build_provenance([
+                {"kind":"prompt", "id":"learning-judge-rubric", "content_digest":_digest(JUDGE_SYSTEM),
+                 "included":True, "location":{"message_index":0,"field":"content"}},
+                {"kind":"other", "id":str(case_id), "content_digest":_digest(body),
+                 "included":True, "location":{"message_index":1,"field":"content","scope":"blinded_pair"}},
+            ])
+        response = await self.gateway.complete(request, context=context, **metadata)
         text = response.message if hasattr(response, "message") else str(response)
         return parse_verdict(text, flipped=flipped, model_identity=self.identity())
 

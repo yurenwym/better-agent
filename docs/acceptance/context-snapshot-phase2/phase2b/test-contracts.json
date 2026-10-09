@@ -1,0 +1,306 @@
+{
+  "T01": {
+    "task": "B00/B09",
+    "note": "AST 候选、网关装配及人工动态分派追踪；以 callsite-contracts 的业务组及分支为分母。",
+    "nodes": [
+      "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+    ]
+  },
+  "T02": {
+    "task": "B01",
+    "note": "独立连接在 mock provider 边界读已提交绑定；记录器故障注入证明未绑定发送会记失败。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send",
+      "tests/test_snapshot_gateway.py::test_t02_transport_recorder_fails_on_an_unbound_send"
+    ]
+  },
+  "T03": {
+    "task": "B01",
+    "note": "snapshot/invocation/execution binding 三类写入失败原子回滚，零发送。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing"
+    ]
+  },
+  "T04": {
+    "task": "B02",
+    "note": "Research 八方法逐项验证最终输入、role/purpose、owner；excerpt 来源保持 partial。",
+    "nodes": [
+      "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot"
+    ]
+  },
+  "T05": {
+    "task": "B02",
+    "note": "非法 JSON 修复新调用、新 child span，原快照不变。",
+    "nodes": [
+      "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call"
+    ]
+  },
+  "T06": {
+    "task": "B02",
+    "note": "网络重试两个 attempt 共用原快照，独立还原输入。",
+    "nodes": [
+      "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call"
+    ]
+  },
+  "T07": {
+    "task": "B03",
+    "note": "两章节与报告修复三份快照，外部 evidence/stable 修改不改旧输入或 pinned bundle。",
+    "nodes": [
+      "tests/test_snapshot_research_entries.py::test_t07_sections_and_report_repair_pin_bundle_and_preserve_inputs"
+    ]
+  },
+  "T08": {
+    "task": "B03",
+    "note": "Research Worker 异常/取消恢复并 reset；RUNNING 调用不重发；Learning 真实发送后 UNKNOWN 及 Evolution REQUESTING 恢复 UNKNOWN 均不自动重发。",
+    "nodes": [
+      "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job",
+      "tests/test_snapshot_production_boundary.py::test_t08_unfinished_invocation_replay_never_resends",
+      "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[2]",
+      "tests/test_m5_controlled_evolution.py::test_requesting_batch_recovers_unknown_and_never_replays"
+    ]
+  },
+  "T09": {
+    "task": "B04",
+    "note": "两种真实专家汇总路径，fan-out/结果汇总/Judge 各自绑定。",
+    "nodes": [
+      "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges"
+    ]
+  },
+  "T10": {
+    "task": "B04",
+    "note": "两 owner 交错、一专家异常、跨 owner 拒读；PG 真实根预算分别计数 4/5。",
+    "nodes": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_t10_interleaved_expert_owners_keep_separate_postgres_budgets"
+    ]
+  },
+  "T11": {
+    "task": "B05",
+    "note": "真实 Learning job 分发 generator/extractor/Prompt；PG job owner/root/bundle 及关键来源引用核对。",
+    "nodes": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_t11_learning_entries_inherit_authorized_job_and_root",
+      "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots"
+    ]
+  },
+  "T12": {
+    "task": "B05",
+    "note": "真实 Skill pipeline 生成后独立 Judge，rubric digest 与实际候选/基线输出。",
+    "nodes": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge"
+    ]
+  },
+  "T13": {
+    "task": "B06",
+    "note": "Skill selector/两臂/Judge + Prompt 两固定版本/Judge；冻结离线 case，不污染 Judge。",
+    "nodes": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_t12_t13_skill_pipeline_generation_selector_replay_and_judge",
+      "tests/integration/test_learning_v2_postgres.py::test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots[None]"
+    ]
+  },
+  "T14": {
+    "task": "B06",
+    "note": "组合证据：真实授权批次向 proposer 传非默认 owner；真实 LiveBehaviorRunner/proposer 的受控发送独立绑定该 owner，缺身份零发送。",
+    "nodes": [
+      "tests/test_m5_controlled_evolution.py::test_generation_batch_propagates_its_owner_to_the_paid_proposer",
+      "tests/test_snapshot_learning_entries.py::test_t14_nondefault_evolution_owner_and_independent_judge",
+      "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
+    ]
+  },
+  "T15": {
+    "task": "B06",
+    "note": "真实 evaluation HTTP API/Worker/LiveEvaluationRunner：60 cases、240 次受控 direct 发送；两臂与双 Judge 独立、幂等重放零新增。",
+    "nodes": [
+      "tests/test_snapshot_evaluation_entries.py::test_t15_evaluation_api_freezes_both_arms_and_independent_judges"
+    ]
+  },
+  "T16": {
+    "task": "B07",
+    "note": "真实归档 claim 摘要后保存失败回滚，授权重试相同消息、新快照、成功后不重发。",
+    "nodes": [
+      "tests/test_snapshot_auxiliary_entries.py::test_t16_archive_commit_failure_retries_the_same_selected_messages"
+    ]
+  },
+  "T17": {
+    "task": "B07",
+    "note": "引用解析超时/取消后第二 owner 请求，旧候选输入不变、无 ambient 残留。",
+    "nodes": [
+      "tests/test_snapshot_auxiliary_entries.py::test_t17_reference_interruption_does_not_leak_to_next_owner"
+    ]
+  },
+  "T18": {
+    "task": "B07",
+    "note": "计划文档/已有计划/Research/记忆修复/无历史/依赖拒绝/短路及 ask 澄清；零调用单列。",
+    "nodes": [
+      "tests/test_snapshot_auxiliary_entries.py::test_t18_auxiliary_branches_have_independent_bindings",
+      "tests/test_snapshot_auxiliary_entries.py::test_t18_clarification_uses_separate_ask_binding"
+    ]
+  },
+  "T19": {
+    "task": "B08",
+    "note": "管理端指定未激活版本、无 stable、可信 owner，不激活 channel。",
+    "nodes": [
+      "tests/test_snapshot_admin_entries.py::test_admin_verification_records_unactivated_profile_binding",
+      "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version"
+    ]
+  },
+  "T20": {
+    "task": "B08",
+    "note": "跨 owner version 拒绝且零发送，含 PG。",
+    "nodes": [
+      "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres"
+    ]
+  },
+  "T21": {
+    "task": "B08",
+    "note": "缺存储/凭据/预算/PG 写快照失败均零发送、失败状态，未降级离线。",
+    "nodes": [
+      "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send",
+      "tests/test_model_admin_api.py::test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send"
+    ]
+  },
+  "T22": {
+    "task": "B08",
+    "note": "startup 与 API fallback 均保留真实 control store。",
+    "nodes": [
+      "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store"
+    ]
+  },
+  "T23": {
+    "task": "B10",
+    "note": "真实 startup learning OFF，Research/对话/管理仍有发送及已提交快照。",
+    "nodes": [
+      "tests/test_snapshot_learning_entries.py::test_t23_learning_off_does_not_disable_other_snapshot_entries"
+    ]
+  },
+  "T24": {
+    "task": "B10",
+    "note": "partial 正向、已知引用冲突零新增、缺位置拒绝、技能更新与撤销、Learning 源撤销。",
+    "nodes": [
+      "tests/test_snapshot_production_boundary.py::test_t24_known_reference_change_cannot_rebind_a_logical_call",
+      "tests/test_snapshot_production_boundary.py::test_t24_included_reference_with_missing_location_refuses_send",
+      "tests/test_snapshot_flow.py::test_b02_a_skill_update_binds_a_new_version_and_a_revoked_one_stops_the_send",
+      "tests/test_snapshot_flow.py::test_b03_a_partial_input_with_a_known_reference_freezes_sends_and_stays_honest",
+      "tests/test_learning_pipeline_v3.py::test_a_revoked_source_is_refused_before_dispatch"
+    ]
+  },
+  "T25": {
+    "task": "B09",
+    "note": "默认无 store direct、无身份 routed 在发送前拒绝；provenance 不提供旁路。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http"
+    ]
+  },
+  "T26": {
+    "task": "B09",
+    "note": "显式 offline opt-in 实际发送一次；live CLI smoke 显式离线，排除生产分母。",
+    "nodes": [
+      "tests/test_snapshot_goal_runtime_entries.py::test_unbound_gateway_needs_an_explicit_offline_opt_in",
+      "tests/test_eval_scenarios.py::test_live_cli_smoke_is_an_explicit_offline_path"
+    ]
+  },
+  "T27": {
+    "task": "B09",
+    "note": "routed 内部 attempt 不二次绑定；controlled direct 单独冻结。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_g06_the_routed_internal_attempt_adds_no_second_invocation_or_snapshot",
+      "tests/test_snapshot_flow.py::test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span",
+      "tests/test_snapshot_gateway.py::test_g06_a_direct_gateway_binds_exactly_one_invocation_and_snapshot"
+    ]
+  },
+  "T28": {
+    "task": "B09",
+    "note": "API body/query 与工具注入 offline 无效；全生产构造点不读取用户离线参数。",
+    "nodes": [
+      "tests/test_snapshot_production_boundary.py::test_t28_request_cannot_enable_offline_gateway",
+      "tests/test_snapshot_production_boundary.py::test_t28_tool_parameters_cannot_enable_offline",
+      "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+    ]
+  },
+  "T29": {
+    "task": "B10",
+    "note": "D08–D12 usage/撤销/无不安全重试/结算保护；单测显式 observe 验证记账，预算 enforce 另测。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_d08_a_revocation_after_the_response_keeps_the_usage_and_settles_it",
+      "tests/test_snapshot_gateway.py::test_d09_a_revocation_after_the_response_without_usage_does_not_fabricate_tokens",
+      "tests/test_snapshot_gateway.py::test_d10_a_revocation_after_the_response_does_not_retry_or_rewrite_the_snapshot",
+      "tests/test_snapshot_gateway.py::test_d11_a_valid_response_after_the_check_still_succeeds_and_settles",
+      "tests/test_snapshot_gateway.py::test_d12_a_settled_attempt_cannot_be_settled_a_second_time"
+    ]
+  },
+  "T30": {
+    "task": "B10",
+    "note": "PG 并发 finish 各维度扣一次/事件一次；事件失败整笔回滚并可重试。",
+    "nodes": [
+      "tests/integration/test_attempt_settlement_postgres.py::test_concurrent_finish_has_one_settlement_and_one_event",
+      "tests/integration/test_attempt_settlement_postgres.py::test_failed_finish_rolls_back_settlement_and_can_be_retried"
+    ]
+  },
+  "T31": {
+    "task": "B11",
+    "note": "真实隔离 PG：新入口、跨 owner、故障、旧快照兼容、不可变与结算；不使用开发库。",
+    "nodes": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+      "tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot"
+    ]
+  },
+  "T32": {
+    "task": "B12",
+    "note": "静态枚举+装配追踪+独立发送记录+pytest 收集+JUnit 实际通过，构建报告时全量对账。",
+    "nodes": [
+      "tests/test_snapshot_production_boundary.py::test_t32_static_candidates_have_explicit_dispositions"
+    ]
+  },
+  "T33": {
+    "task": "B06A",
+    "note": "HTTP goal/messages/approve 生命周期；普通无源 goal 不反思，测试在 approve 前显式附加真实持久化 source turn 覆盖可信反思；tenant-b 与服务 owner 独立验证。",
+    "nodes": [
+      "tests/test_snapshot_goal_runtime_entries.py::test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection",
+      "tests/test_snapshot_goal_runtime_entries.py::test_t33_a_goal_api_run_executes_under_the_service_owner"
+    ]
+  },
+  "T34": {
+    "task": "B06A",
+    "note": "真实 propose_execution 投影，claim 失败零发送、READY 保存后中断恢复不重发；身份/版本与 turn 一致。",
+    "nodes": [
+      "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot"
+    ]
+  },
+  "T35": {
+    "task": "B06A",
+    "note": "daily Worker/period service/adjustment API 修复及失败；PG tenant-b 三种操作各自 goal_operation root，同操作修复共享 root。",
+    "nodes": [
+      "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure",
+      "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_t35_program_owner_and_operation_roots_survive_repair"
+    ]
+  },
+  "T36": {
+    "task": "B04/B06A",
+    "note": "专家、Research、Runtime 三种 Judge purpose/owner 独立绑定；另补 conversation Judge。",
+    "nodes": [
+      "tests/test_snapshot_agent_entries.py::test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges",
+      "tests/test_snapshot_research_entries.py::test_t08_t36_research_worker_restores_context_and_judges_recovered_job",
+      "tests/test_snapshot_goal_runtime_entries.py::test_t36_the_run_output_judge_is_an_independent_call_under_the_run_owner",
+      "tests/test_snapshot_goal_runtime_entries.py::test_conversation_output_judge_uses_thread_owner"
+    ]
+  },
+  "T37": {
+    "task": "B09",
+    "note": "无 context/空 owner/悬空 Research source/Behavior owner 缺失均拒绝且零发送；Worker 内部记录失败，不声称异常冒泡 API。",
+    "nodes": [
+      "tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send",
+      "tests/test_snapshot_research_entries.py::test_t37_research_worker_with_missing_source_turn_never_sends",
+      "tests/test_snapshot_goal_runtime_entries.py::test_t37_a_run_whose_source_turn_has_no_owner_sends_nothing",
+      "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
+    ]
+  },
+  "T38": {
+    "task": "B07",
+    "note": "同一 turn 两辅助调用与主调用的 invocation/snapshot/span 均独立且为 sibling。",
+    "nodes": [
+      "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
+    ]
+  }
+}

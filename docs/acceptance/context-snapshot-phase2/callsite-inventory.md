@@ -151,6 +151,18 @@ pytest 允许用基名选择全部参数；实际节点数按 `pytest --collect-
 
 ## 8. Phase 2B 稳定入口登记（按符号，不依赖行号）
 
+2026-10-09 最终更新：下表保留迁移时历史状态。当前完整动态映射与通过节点以 `phase2b/callsite-contracts.json`、`phase2b/test-contracts.json`、`phase2b/evidence.json` 为准；21/21 个业务入口组已验证，598/598 次捕获发送具有发送前有效绑定，T01–T38 全通过。分母不包含未插桩的旧回归发送或生产遥测。
+
+当前装配追踪补充：
+
+- `startup.build_runtime` 把同一受控 Routed gateway 注入 Conversation、Runtime、Research、Expert、Learning；四种 Worker/Runtime 的共享 LiveSafetyJudge 按调用方分别登记。
+- `conversation` 的 `respond = model.route_and_respond` 动态别名调用归入 CS-CA-01；其工具执行编译分别归 CS-GP-03/CS-GR-03。AST 不会独立发现这种别名，因此手工装配追踪和对应动态分支共同构成证据。
+- `ModelAdminService._verify_live` 和 `LiveEvaluationRunner._gateway` 是两个受控 direct 装配；startup/API fallback 管理服务均注入实际 store。容量迁移两个 service 仅用于版本操作、不调用 verify。
+- `eval.py --mode live` 现为明确 `offline_unbound=True` 的操作者 CLI 探针，可以主动发网络，不是默认拒绝的 API 生产入口；本轮仅 mock 冒烟。两个离线 CLI 脚本同样显式选择，均不计生产覆盖。
+- generative HTTP seam 仅 model_gateway；embedding、JEV、检索和通知 webhook 单列排除，不冒充生成式输入快照。构造与 HTTP 候选的逐项分类见 `phase2b/logs/m2-reconciliation.json`。
+- 普通无 source turn 的目标 Runtime 使用 startup 明确配置的服务 owner；已绑定却悬空的 source turn 拒绝，不回落。旧 Worker 无 Harness 时允许 null trace/root 字段。
+- 以下“待测”“仅 transport 可离线”“未执行 PG”等字样是历史。最新报告同时保留 explicit transport 和 offline_unbound 两种 opt-in，以及真实隔离 PG 93 passed。
+
 核对基线 `37a4e9a`。下列 ID 是本期稳定 callsite ID；动态测试映射在 2B 验收文件落地后补全。标为“待测”的入口不能计入 M2 覆盖率。
 
 | Callsite ID | 生产入口 / 逻辑调用 | Owner 来源 | 接入与目标验收 |

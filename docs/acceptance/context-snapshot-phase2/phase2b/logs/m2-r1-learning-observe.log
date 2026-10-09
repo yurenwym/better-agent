@@ -1,0 +1,16 @@
+{"command": ["D:\\pycharm\\python.exe", "-m", "pytest", "tests/test_learning_agent.py", "tests/test_learning_eval.py", "tests/test_learning_judge_reliability.py", "tests/test_learning_pipeline_v3.py", "tests/test_learning_v3_wiring.py", "tests/test_learning_v3_fixes.py", "tests/test_evolution.py", "tests/test_evolution_api.py", "tests/test_real_evaluation.py", "tests/test_evaluation_api.py", "tests/test_memory_archive.py", "tests/test_memory_reference.py", "tests/test_memory_reference_gateway.py", "-q", "--tb=short", "--junitxml=D:\\RAG\\better\\docs\\acceptance\\context-snapshot-phase2\\phase2b\\logs\\m2-r1-learning-observe.xml"], "cwd": "D:\\RAG\\better\\backend", "started_at": "2026-10-09T02:42:14.340574+00:00", "cost_mode": "observe", "batch": "m2-r1"}
+........................................................................ [ 30%]
+........................................................................ [ 61%]
+..........................................F............................. [ 91%]
+....................                                                     [100%]
+================================== FAILURES ===================================
+__ test_budget_blocked_evaluation_resumes_through_api_without_repeating_case __
+tests\test_evaluation_api.py:179: in test_budget_blocked_evaluation_resumes_through_api_without_repeating_case
+    assert blocked["status"]=="BUDGET_BLOCKED" and len(calls)==4
+E   AssertionError: assert ('COMPLETED' == 'BUDGET_BLOCKED'
+E
+E     - BUDGET_BLOCKED
+E     + COMPLETED)
+=========================== short test summary info ===========================
+FAILED tests/test_evaluation_api.py::test_budget_blocked_evaluation_resumes_through_api_without_repeating_case
+1 failed, 235 passed in 252.20s (0:04:12)

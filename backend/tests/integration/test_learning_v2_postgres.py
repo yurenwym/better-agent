@@ -29,7 +29,8 @@ def test_postgres_memory_to_new_plan_and_correction(learning_runtime):
     assert runtime.learning.history()[0]["status"] == "APPLIED"
 
 
-def test_postgres_independent_learning_budget_and_unknown_recovery(learning_runtime):
+def test_postgres_independent_learning_budget_and_unknown_recovery(learning_runtime, monkeypatch):
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     runtime = learning_runtime
     runtime.costs.set_budget("local-user", "DAILY", runtime.costs.today_period(), 10000)
     runtime.costs.set_budget("local-user", "MONTHLY", runtime.costs.today_period()[:7], 100000)
@@ -88,6 +89,9 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
     from app.costs import PriceSnapshot
     from test_m5_release_gates import cases
     from test_m5_controlled_evolution import evidence
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    from app.model_input_snapshot_store import ModelInputSnapshotStore
+    observations = []
     for key in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "text,streaming,tool_calling,json_object,json_schema")
@@ -96,9 +100,6 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
     calls = []
     async def execute(profile, request, **kwargs):
         calls.append(request.purpose)
-        if len(calls) == fail_at:
-            from app.model_gateway import GatewayError
-            raise GatewayError("response lost after send", "transport")
         if request.purpose == "propose_evolution_candidate":
             body = json.dumps({"prompt": "Use supported evidence only. improved", "reason": "evidence", "root_cause_hypothesis": "behavior", "confidence_limitations": "offline control test"})
         elif request.purpose == "write_research_section":
@@ -108,7 +109,15 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
             body = json.dumps({"winner": "left" if "improved" in data["left"] else "right"})
         else:
             body = '{"left_safe":true,"right_safe":true}'
-        return ModelResponse(body, [], "stop", UsageBuckets(10, 0, 0, 10, 0), Timing(1, 1.1, 1.2), 1)
+        response = ModelResponse(body, [], "stop", UsageBuckets(10, 0, 0, 10, 0), Timing(1, 1.1, 1.2), 1)
+        observer = CommittedSnapshotTransport(runtime.db, "local-user",
+            "CS-EV-04" if request.purpose == "propose_evolution_candidate" else "CS-EV-02", response)
+        result = await observer(profile, request, **kwargs)
+        observations.extend(observer.observations)
+        if len(calls) == fail_at:
+            from app.model_gateway import GatewayError
+            raise GatewayError("response lost after send", "transport")
+        return result
     gateway._execute_attempt = execute
     profile_id = runtime.behavior.active("stable").manifest["model_role_bindings"]["researcher"]["primary"]
     runtime.costs.register_price(profile_id, PriceSnapshot("learning-fixture-price", 100, 0, 0, 100, 0))
@@ -121,6 +130,15 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
     try:
         runtime.learning.run_once()
         job = runtime.learning.history()[0]
+        assert len(observations) == len(calls)
+        assert len({row["snapshot_id"] for row in observations}) == len(calls)
+        with runtime.db.connection() as connection:
+            rows = connection.execute("SELECT * FROM model_invocations").fetchall()
+        assert all(row["owner_id"] == job["owner_id"] and row["root_budget_id"] == job["root_budget_id"] for row in rows)
+        snapshots = [ModelInputSnapshotStore(runtime.db).load(job["owner_id"], row["context_snapshot_id"]) for row in rows]
+        base_id = job["checkpoint"]["base_bundle_id"]
+        judges = [snapshot for snapshot in snapshots if snapshot.role.startswith("judge_")]
+        assert all(snapshot.runtime_bundle_id == base_id and "supported" in snapshot.content_json for snapshot in judges)
         if fail_at:
             assert job["status"] == "UNKNOWN", job["reason"]
             assert len(calls) == fail_at

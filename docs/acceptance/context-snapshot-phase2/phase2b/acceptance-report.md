@@ -1,4 +1,48 @@
-# ContextSnapshot Phase 2B 验收报告（阶段性）
+# ContextSnapshot Phase 2B 验收报告
+
+## 2026-10-09 M2 最终复验（当前权威结论）
+
+**M1 / M2 验收通过。T01–T38：38 pass / 0 partial / 0 pending。** 下方阶段性状态均为历史，不能覆盖本节。测试基于 `1a12532` 后的工作区增量；本次交付提交包含代码、测试和证据。未执行付费模型调用，无 Runtime 重构或数据库迁移。
+
+### 实际结果
+
+| 最终选用批次 | 模式 | 结果 |
+|---|---|---|
+| m2-complete entries | observe | 61 passed |
+| m2-complete snapshot | observe | 122 passed |
+| m2-complete postgres | observe | 93 passed |
+| m2-complete m1 | enforce | 37 passed |
+| m2-r1 harness | observe | 267 passed |
+| m2-r1 business | observe | 273 passed |
+| m2-fixed learning | observe | 236 passed |
+
+合计 **1089 个不同测试节点通过，0 failed / 0 skipped**。入口和快照另有 enforce 复跑（60 + 122 passed），不混入上述去重总数。测试内按职责显式覆盖模式：纯 usage/结算测试使用 observe，预算拒绝测试使用 enforce；不能把整组描述为每个节点都 enforce。
+
+- B00/B12：21 个已登记生成式**业务入口组**全部有正向发送证据；不是 21 个原始代码调用点。AST 调用候选、HTTP/网关装配、共享 Judge 和动态分派人工追踪，映射见 `callsite-contracts.json`。
+- `m2-complete-bindings.ndjson` 捕获 **598 次发送 / 598 次发送前有效绑定**，**596 个唯一 invocation**。两个额外发送来自 Research 和管理验证的网络重试。没有无效绑定、未登记入口或未匹配的 pytest 节点。
+- 分母限定为 `evidence.json.capture_nodes` 列出的插桩节点的全部 provider seam 调用；在审计前递增，失败审计也写入原始记录。不把其他未插桩的旧回归发送算进来。记录器故意无绑定的自测使用独立临时日志，断言失败记录保留，不属于受控生产调用样本。
+- 所有记录均校验独立连接可见的已提交 attempt/invocation/snapshot、最终逻辑输入、owner/profile/digest；未创建 Harness 的合法旧 Worker execution digest 保持 null，不伪造身份。
+- 来源按唯一 invocation 统计：**complete=0，partial=596**。Research 标识实际摘录 ID/digest；Learning 标识可用 evidence 引用、提取原文、Judge rubric/盲评对。没有声称完整网页、全部历史逐片段或 dropped 清单已覆盖。
+- `build_snapshot_m2_report.py` 同时验证 pytest 收集、JUnit 实际通过、入口分支发送证据、发送节点与 JUnit 交集、重复 send ID；任一缺失即非零退出。原始命令/时间/模式/退出码见 `logs/m2-runs.ndjson` 及各组 log/XML，关键文件 SHA256 见 evidence.json。
+
+### 门禁收口与边界
+
+1. B00–B13/B06A 已按 `test-contracts.json` 逐项映射；M1 原闭环记录保留，本轮快照/Harness/隔离 PG/M5/offline harness 复验通过。
+2. Research/专家异常、取消和恢复不串 owner；PG 验证专家根预算分离、Learning job/root/bundle、非默认 program owner 的 goal_operation 根预算。UNKNOWN 通过真实 Learning 发送后故障及 Evolution 状态恢复验证不重发。
+3. Runtime HTTP 生命周期覆盖澄清、计划、非法 JSON 修复、决策。普通无源 goal 按现有逻辑不反思；测试附加真实持久化 source turn 后验证可信反思，未改业务行为。T14 采用授权批次 owner 传播和真实受控 adapter 发送的组合证据，不宣称一个非默认 owner 全链路 HTTP 测试。
+4. T34 投影 claim 失败零发送、READY 保存后恢复不重发；T35 daily Worker/period service/调整 API 修复和异常后 reset；T36 三种 Judge 和额外 conversation Judge 分别有独立调用。
+5. 无 store/无身份/悬空来源拒绝；离线选项仅服务端明确装配。API body/query/工具参数反向验证，生产网关构造点不读取离线用户参数。管理未激活版本验证仍使用指定 profile，不创建 stable。
+6. 最终选用组覆盖本轮四个生产文件的受影响业务；代码只增加来源元数据，不改 prompts、学习算法或状态机。
+
+### 失败历史与未执行范围
+
+- `m2-r1-learning-observe`：235 passed / 1 failed。`test_budget_blocked_evaluation_resumes_through_api_without_repeating_case` 原依赖 shell 成本模式；显式 enforce 后 `m2-fixed` 整组 236 passed。失败 log/XML 保留，未隐去。
+- 开发中新增夹具曾有修复文案误判、裸 RuntimeError 未结算 STARTED、PG 未注入 CostService、冻结 profile 误更新、FK 故障注入方式、API 幂等键及测试字段拼写错误；修正后以本节完整分组复跑为准，非生产修复豁免。更早失败轮保留于下方历史及旧日志。
+- 未重新执行仓库全量 pytest；用户此前报告的 2106 passed / 7 skipped / 8 failed 不是本轮证据。历史 golden journey/SQLite immutability/Tavily 失败未在本轮另行修复；相关快照数据库约束另有专项及 PG 通过证据，不声称全仓零失败。
+- 本结论是离线自动化验收，不是生产长期观测或真实模型效果验收。direct/routed 响应后撤销语义仍有既有差异；发送前撤销与实际 usage 保留已回归，不声称两者响应后行为统一。
+- 完整来源、线上遥测、策略/prompt A/B 与 Runtime 执行循环统一属于后续 LLM + Harness 工作，不是本轮扩展项。
+
+## 以下为检查点历史记录（不代表当前状态）
 
 ## 2026-10-09 检查点后的风险补验（最新状态）
 

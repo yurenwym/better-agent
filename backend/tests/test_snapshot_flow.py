@@ -418,9 +418,12 @@ async def test_i06_a_compile_inside_a_tool_gets_its_own_call_and_child_span(
     from app.model_control import ModelCallContext
 
     async def execute(profile, request, **_):
+        observer.record(profile, request)
         return _answer(_json.dumps(_program_fixture(), ensure_ascii=False))
 
     db, bundle, _, _model, gateway = _plane(tmp_path, monkeypatch, execute=execute)
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+    observer = CommittedSnapshotTransport(db, "local-user", "CS-GP-03", None)
     tool_harness = _turn_context(db)
 
     # The production binding: the tool's context is the gateway's ambient one.

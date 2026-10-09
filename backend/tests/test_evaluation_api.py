@@ -4,7 +4,7 @@ from test_runtime import make_runtime
 from test_real_evaluation import _release_cases
 
 
-def _control_bindings(runtime):
+def _control_bindings(runtime, *, context_window=1000, max_output_tokens=100):
     from app.behavior import BehaviorBundleService
     from app.costs import CostService, PriceSnapshot
     from app.model_admin import ModelAdminService
@@ -19,8 +19,8 @@ def _control_bindings(runtime):
             model_ids.append(version_id)
             connection.execute(
                 "INSERT INTO model_profile_versions(id,profile_id,version,provider_protocol,provider_name,base_url,model_name,credential_env_ref,capabilities_json,context_window,max_output_tokens,timeout_seconds,max_attempts,config_digest,created_at) "
-                "VALUES (?, 'eval-profile', ?, 'openai_compatible', 'test', 'https://example.test/v1', ?, 'TEST_KEY', '{\"text\":true,\"streaming\":true,\"json_object\":true}', 1000, 100, 30, 1, ?, 'now')",
-                (version_id, index + 1, version_id, f"config-{index}"),
+                "VALUES (?, 'eval-profile', ?, 'openai_compatible', 'test', 'https://example.test/v1', ?, 'TEST_KEY', '{\"text\":true,\"streaming\":true,\"json_object\":true}', ?, ?, 30, 1, ?, 'now')",
+                (version_id, index + 1, version_id, context_window, max_output_tokens, f"config-{index}"),
             )
     admin = ModelAdminService(runtime.db)
     base_policy = admin.create_policy("base", {
@@ -140,6 +140,7 @@ def test_post_evaluation_run_is_queued_worker_completes_and_cancel_is_observed(t
 
 
 def test_budget_blocked_evaluation_resumes_through_api_without_repeating_case(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     import asyncio
     from app.main import create_app
     from app.real_evaluation import ManagedEvaluationWorker, RealEvaluator
