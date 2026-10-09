@@ -1,0 +1,9 @@
+{
+  "description": "代理整理的诊断对照；预期标签未经真人裁定；围绕已知失败构建，不作为泛化成绩。",
+  "cases": [
+    {"id":"original-cost-error","source_case":"meal-waste","a":{"original_arm":"baseline"},"b":{"original_arm":"candidate"},"expected":["fail","fail"]},
+    {"id":"cost-correct-vs-wrong","source_case":"meal-waste","a":{"text":"试用周总支出为210+90=300元。平常260元只含食材，外食未知，因此无法判断两周总支出谁高。40元浪费已包含在210元中，不应重复增加或从已支付支出中扣除。仅食材采购支出减少50元，尚不足以决定是否长期继续集中采购，应补齐同口径记录。[[source:s1]][[source:s2]]"},"b":{"original_arm":"candidate"},"expected":["pass","fail"]},
+    {"id":"arithmetic","source_case":"commute-pass","a":{"text":"预计到岗12天，每天往返8元，单次票总额96元。到岗10至16天对应80至128元，均低于160元月票。20个往返日打平；按给定通勤范围选择单次票。[[source:s1]][[source:s2]]"},"b":{"text":"预计到岗12天，每天往返8元，因此费用192元，高于160元月票，应购买月票。[[source:s1]][[source:s2]]"},"expected":["pass","fail"]},
+    {"id":"double-count","source_case":"meal-waste","a":{"text":"试用周支出210+40+90=340元，浪费应在采购支出之外另计。平常外食未知，无法比较两周总额。[[source:s1]][[source:s2]]"},"b":{"text":"试用周采购210元已含浪费40元，加外食90元共300元。平常外食未知，不能比较总支出；采购单项减少50元，需补齐平常外食记录再决定是否继续。[[source:s1]][[source:s2]]"},"expected":["fail","pass"]}
+  ]
+}

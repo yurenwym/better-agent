@@ -16,6 +16,7 @@ UNTRUSTED = (
 )
 
 RESEARCH_WRITE_ALLOWED_PATH = "prompts.researcher.write_research_section.evidence_statement"
+RESEARCH_WRITE_SIDECAR_VERSION = "research-write-sidecar-v1"
 DEFAULT_EVIDENCE_STATEMENT = (
     "证据支持时，用具体步骤、测量、示例或约束直接回答标题。"
     "每个事实段落都必须使用 [[source:SOURCE_ID]] 引用给定证据。"
@@ -78,7 +79,7 @@ class LiveResearchModel:
             raise ValueError("structured_attempts must be 1 or 2")
         self.structured_attempts = structured_attempts
 
-    async def _complete(self, request: ModelRequest, *, parent_context=None, sources=()):
+    async def _complete(self, request: ModelRequest, *, parent_context=None, sources=(), assembly=None):
         """Open a fresh logical Research call under the stable worker parent."""
         if getattr(self.gateway, "control_store", None) is not None:
             parent = parent_context or self.gateway.current_call_context()
@@ -92,7 +93,7 @@ class LiveResearchModel:
             return await self.gateway.complete(
                 request,
                 context=new_logical_call(parent, role=request.role, purpose=request.purpose),
-                provenance=build_provenance(sources),
+                provenance=build_provenance(sources, assembly=assembly),
             )
         return await self.gateway.complete(request)
 
@@ -190,10 +191,18 @@ class LiveResearchModel:
         return [(str(x.get("heading", "")), str(x.get("thesis", "")), tuple(str(i) for i in x.get("evidence_ids", []))) for x in data.get("sections", [])]
 
     async def write(self, heading, thesis, evidence, prior_summary):
+        # Evaluate the policy once: the sidecar and request describe the same input.
+        policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
+        sidecar = json.loads(json.dumps({
+            "version": RESEARCH_WRITE_SIDECAR_VERSION, "heading": heading, "thesis": thesis,
+            "evidence": [[x.text, x.source_id] for x in evidence], "prior_summary": prior_summary,
+            "prompt_policy": policy,
+        }, ensure_ascii=False))
         response = await self._complete(ModelRequest(
-            messages=self.render_write_messages(heading, thesis, evidence, prior_summary),
+            messages=build_research_write_messages(sidecar["prompt_policy"], heading, thesis,
+                [tuple(item) for item in sidecar["evidence"]], prior_summary),
             temperature=0, max_tokens=4096, role="researcher", purpose="write_research_section", thinking=False,
-        ), sources=[_excerpt_source(x.id, x.text) for x in evidence])
+        ), sources=[_excerpt_source(x.id, x.text) for x in evidence], assembly={"research_write": sidecar})
         from .delivery import deliver_section
         delivery = deliver_section(response.message, heading, getattr(response, "finish_reason", None))
         return delivery["delivered"], thesis[:240]

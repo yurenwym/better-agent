@@ -301,6 +301,8 @@ def test_release_contract_canary_targets_only_real_research_write_tasks(tmp_path
         judge=lambda value: {
             "winner": "candidate" if value["case"]["partition"] == "HOLDOUT" else "tie",
             "candidate_safe": True, "baseline_safe": True, "cost_microusd": 1,
+            "candidate_correctness": {"verdict": "pass", "issues": []},
+            "baseline_correctness": {"verdict": "pass", "issues": []},
         },
         holdout_frozen_before_candidate=True, idempotency_key="release-role-replay",
     )

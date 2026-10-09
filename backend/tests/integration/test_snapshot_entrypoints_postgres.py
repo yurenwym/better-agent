@@ -38,20 +38,56 @@ def test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost(migrated_postgres_u
         report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
             baseline_bundle_id=base.id, candidate_bundle_id=candidate.id, cases=[case], runner=runner.runner(config), judge=runner.judge(config))
         assert report["outcome"] == "INSUFFICIENT_EVIDENCE"
-        assert report["cost_microusd"] == 8 and report["checks"]["cost_known"]
-        assert len(runner.bindings) == 4 and all(row["root_budget_id"] == config["root_budget_id"] for row in runner.bindings)
+        assert report["cost_microusd"] == 12 and report["checks"]["cost_known"]
+        assert len(runner.bindings) == 6 and all(row["root_budget_id"] == config["root_budget_id"] for row in runner.bindings)
         for row in runner.bindings:
             with pytest.raises(ModelInvocationMissing):
                 ModelInputSnapshotStore(db).load_for_invocation("another-owner", row["id"])
             assert row["attempt_prices"][0]["price_snapshot_id"]
         with db.connection() as connection:
             root = connection.execute("SELECT * FROM task_budget_roots WHERE id=?", (config["root_budget_id"],)).fetchone()
-            assert root["owner_id"] == "operator" and root["attempts_started"] == 4
+            assert root["owner_id"] == "operator" and root["attempts_started"] == 6
             assert connection.execute("SELECT bundle_id FROM runtime_channels WHERE name='stable'").fetchone()[0] == stable.id
             costs = [row[0] for row in connection.execute("SELECT cost_microusd FROM model_attempts").fetchall()]
         assert sum(costs) == report["cost_microusd"]
         trace = [{"invocation_id": row["id"]} for row in runner.bindings]
-        assert authoritative_cost(db, trace, mode="controlled")["cost_microusd"] == 8
+        assert authoritative_cost(db, trace, mode="controlled")["cost_microusd"] == 12
+    finally:
+        db.close()
+
+
+def test_pg_judge_checkpoint_restart_preserves_cost_and_sends_only_missing(migrated_postgres_url, tmp_path, monkeypatch):
+    from test_research_snapshot_replay import paired_setup
+    from app.research_judge_checkpoint import JudgeCheckpoint
+    from app.research_replay import ResearchEvaluationRunner
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch, database=db, controlled=True)
+        path = tmp_path / "judge.db"
+        runner.judge_checkpoint = JudgeCheckpoint(path)
+        factory = runner.gateway_factory
+        count = 0
+        def interrupted(version):
+            nonlocal count
+            count += 1
+            if count == 2:
+                raise RuntimeError("process exit before next send")
+            return factory(version)
+        runner.gateway_factory = interrupted
+        payload = {"case": case, "baseline": "A", "candidate": "B"}
+        with pytest.raises(RuntimeError):
+            runner.judge(config)(payload)
+        resumed = ResearchEvaluationRunner(None, runner.control_store, gateway_factory=factory,
+            judge_checkpoint=JudgeCheckpoint(path))
+        result = resumed.judge(config)(payload)
+        assert len(observers) == 4
+        assert result["cost_microusd"] == 8
+        assert resumed.judge(config)(payload)["cost_microusd"] == 8
+        assert len(observers) == 4
+        with db.connection() as connection:
+            assert connection.execute("SELECT attempts_started FROM task_budget_roots WHERE id=?", (config["root_budget_id"],)).fetchone()[0] == 4
+            assert connection.execute("SELECT SUM(cost_microusd) FROM model_attempts").fetchone()[0] == 8
     finally:
         db.close()
 

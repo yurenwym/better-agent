@@ -24,14 +24,14 @@ from .model_input_snapshot import ModelInputSnapshot, SnapshotError, SnapshotPro
 from .model_input_snapshot_store import ModelInputSnapshotStore
 from .model_control import ModelCallContext, ModelControlStore, RoutedModelGateway, new_logical_call
 from .model_gateway import GatewayError, ModelRequest, ModelResponse, Timing, UsageBuckets
-from .real_evaluation import ResearchRoleReplayEvaluator, LiveEvaluationRunner, QUALITY_JUDGE_PROMPT, SAFETY_JUDGE_PROMPT
+from .real_evaluation import ResearchRoleReplayEvaluator, LiveEvaluationRunner, SAFETY_JUDGE_PROMPT
+from .research_judgment import QUALITY_JUDGE_PROMPT, CORRECTNESS_JUDGE_PROMPT, JUDGE_VERSION, validate_quality
 from .research.engine import ResearchEngine, ResearchCancelled, UnknownCitation, InsufficientEvidence
-from .research.live import LiveResearchModel, build_research_write_messages, DEFAULT_EVIDENCE_STATEMENT
+from .research.live import LiveResearchModel, build_research_write_messages, DEFAULT_EVIDENCE_STATEMENT, RESEARCH_WRITE_SIDECAR_VERSION
 from .research.models import ResearchRequest, ResearchLimits, Source
 
 SCHEMA = "research-snapshot-replay-v1"
-CONVERSION = "research-write-sidecar-v1"
-JUDGE_VERSION = "research-replay-judge-v2"
+CONVERSION = RESEARCH_WRITE_SIDECAR_VERSION
 SEED = "research-replay-blind-v1"
 REQUEST_FIELDS = ("messages", "tools", "temperature", "max_tokens", "thinking", "response_format", "single_attempt")
 
@@ -216,6 +216,10 @@ def export_case(store: ModelInputSnapshotStore, owner: str, invocation: str, out
         return loaded
     snapshot = loaded["snapshot"]
     envelope = snapshot.envelope()
+    if sidecar is None:
+        sidecar = (envelope["provenance"].get("assembly") or {}).get("research_write")
+    if manifest is None and sidecar is not None and "prompt_policy" in sidecar:
+        manifest = {"prompts": sidecar["prompt_policy"]}
     derived = bool(replacements)
     if derived:
         # Explicit authorized local transformation; original digest stays separate.
@@ -223,6 +227,9 @@ def export_case(store: ModelInputSnapshotStore, owner: str, invocation: str, out
             if isinstance(message.get("content"), str):
                 for old, new in replacements.items():
                     message["content"] = message["content"].replace(old, new)
+        assembly = envelope["provenance"].get("assembly")
+        if assembly:
+            assembly.pop("research_write", None)
         sidecar = None
     case = {"case_id": "request-" + digest(invocation)[:16], "lineage_id": lineage or "invocation:" + invocation,
             "lineage_status": "task" if lineage else "unknown_task_request_only",
@@ -348,11 +355,12 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
     An injected gateway factory is for offline tests only. This runner does not
     create a live evaluation budget or start a paid evaluation from the CLI.
     """
-    def __init__(self, model_admin, control_store, *, gateway_factory=None, mode="controlled", source_store=None):
+    def __init__(self, model_admin, control_store, *, gateway_factory=None, mode="controlled", source_store=None, judge_checkpoint=None):
         super().__init__(model_admin, control_store)
         self.gateway_factory, self.mode, self.source_store = gateway_factory, mode, source_store
         self.bindings = []
         self.blind_records = []
+        self.judge_checkpoint = judge_checkpoint
 
     def _gateway(self, version_id):
         return self.gateway_factory(version_id) if self.gateway_factory else super()._gateway(version_id)
@@ -474,30 +482,77 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
                 "evidence": case["evidence"], "rubric": case.get("rubric", {}),
             }))
             blind["context"] = context
-            decisions, costs = [], []
-            for label, role, instruction in (("quality_judge", "judge_quality", QUALITY_JUDGE_PROMPT),
-                                             ("safety_judge", "judge_safety", SAFETY_JUDGE_PROMPT)):
+            costs = []
+            def ask(label, role, instruction, body, slot="paired"):
                 gateway = self._gateway(config[label + "_model_id"])
                 gateway = self._bind_source(gateway, config, case)
                 identity = "model_invocation_eval_" + uuid.uuid4().hex
-                response = asyncio.run(gateway.complete(ModelRequest(
-                    [{"role": "system", "content": instruction}, {"role": "user", "content": canonical_json(blind)}],
-                    temperature=0, max_tokens=300, role=role, purpose="paired_evaluation_judgment"),
+                request = ModelRequest(
+                    [{"role": "system", "content": instruction}, {"role": "user", "content": canonical_json(body)}],
+                    temperature=0, max_tokens=config.get("quality_max_tokens", 1800) if label == "quality_judge" else 300,
+                    thinking=config.get("quality_thinking", False) if label == "quality_judge" else False,
+                    response_format={"type": "json_object"}, role=role, purpose="paired_evaluation_judgment")
+                saved = None
+                if self.judge_checkpoint is not None:
+                    key, identity, saved = self.judge_checkpoint.begin({
+                        "owner": config["owner_id"], "case_id": case["id"], "label": label, "slot": slot,
+                        "request": request_payload(request), "profile": config[label + "_model_id"],
+                        "bundle": config["evaluator_bundle_id"], "price": config["price_snapshot_ids"][label],
+                        "source": case.get("source"), "version": JUDGE_VERSION}, identity)
+                if saved is not None:
+                    snapshot = self.control_store.snapshots.load_for_invocation(config["owner_id"], identity)
+                    gateway.control_store.assert_request_active(identity, ModelCallContext(snapshot.role, snapshot.purpose,
+                        owner_id=config["owner_id"], runtime_bundle_id=snapshot.runtime_bundle_id))
+                if saved is None:
+                    response = asyncio.run(gateway.complete(request,
                     context=self._context(role, "paired_evaluation_judgment", identity, config["evaluator_bundle_id"],
                         config["price_snapshot_ids"][label], owner_id=config["owner_id"], root_budget_id=config["root_budget_id"])))
-                decisions.append(json.loads(response.message))
+                    saved = {"message": response.message, "finish_reason": response.finish_reason}
+                    if self.judge_checkpoint is not None:
+                        self.judge_checkpoint.received(key, identity, saved)
                 costs.append(self._cost(identity))
-                self._record_bindings({identity})
-            quality, safety = decisions
-            if quality.get("winner") not in {"left", "right", "tie"} or any(type(safety.get(key)) is not bool for key in ("left_safe", "right_safe")):
+                if not any(row["id"] == identity for row in self.bindings):
+                    self._record_bindings({identity})
+                if saved["finish_reason"] == "length":
+                    raise ReplayError("JUDGE_OUTPUT_TRUNCATED")
+                try:
+                    return json.loads(saved["message"])
+                except (ValueError, TypeError) as exc:
+                    raise ReplayError("INVALID_BLIND_JUDGE") from exc
+            independent = {}
+            for side in ("left", "right"):
+                value = ask("quality_judge", "judge_quality", CORRECTNESS_JUDGE_PROMPT,
+                            {"answer": blind[side], "context": context}, slot=side)
+                try:
+                    validate_quality({"left": value, "right": value, "winner": "tie", "reason": "independent"},
+                                     {"left": blind[side], "right": blind[side]}, case["evidence"])
+                except ValueError as exc:
+                    raise ReplayError("INVALID_BLIND_JUDGE") from exc
+                independent[side] = value
+            passed = [side for side in independent if independent[side]["verdict"] == "pass"]
+            if len(passed) == 2:
+                preference = ask("quality_judge", "judge_quality", QUALITY_JUDGE_PROMPT, blind)
+            else:
+                preference = {"winner": passed[0] if passed else "tie", "reason": "由独立正确性判定决定；均未通过时平局不代表通过"}
+            if not isinstance(preference, dict):
+                raise ReplayError("INVALID_BLIND_JUDGE")
+            quality = {**preference, **independent}
+            safety = ask("safety_judge", "judge_safety", SAFETY_JUDGE_PROMPT, blind)
+            try:
+                validate_quality(quality, blind, case["evidence"])
+            except ValueError as exc:
+                raise ReplayError("INVALID_BLIND_JUDGE") from exc
+            if not isinstance(safety, dict) or any(type(safety.get(key)) is not bool for key in ("left_safe", "right_safe")):
                 raise ReplayError("INVALID_BLIND_JUDGE")
             winner = "tie" if quality["winner"] == "tie" else "baseline" if (quality["winner"] == "left") == left_is_baseline else "candidate"
             self.blind_records.append({"case_id": payload["case"]["id"], "left_is_baseline": left_is_baseline,
                 "seed_digest": digest(SEED), "rubric_digest": digest(context["rubric"]),
                 "task_digest": digest(context["task"]), "evidence_digest": digest(context["evidence"]),
-                "judge_prompt_digest": digest([QUALITY_JUDGE_PROMPT, SAFETY_JUDGE_PROMPT]), "judge_version": JUDGE_VERSION,
-                "blind_input_digest": digest(blind)})
+                "judge_prompt_digest": digest([CORRECTNESS_JUDGE_PROMPT, QUALITY_JUDGE_PROMPT, SAFETY_JUDGE_PROMPT]), "judge_version": JUDGE_VERSION,
+                "blind_input_digest": digest(blind), "quality_decision": quality, "safety_decision": safety})
             return {"winner": winner, "baseline_safe": safety["left_safe" if left_is_baseline else "right_safe"],
+                    "baseline_correctness": quality["left" if left_is_baseline else "right"],
+                    "candidate_correctness": quality["right" if left_is_baseline else "left"],
                     "candidate_safe": safety["right_safe" if left_is_baseline else "left_safe"],
                     "cost_microusd": sum(costs) if self.mode == "controlled" and all(cost is not None for cost in costs) else None,
                     "judge_profiles": [config["quality_judge_model_id"], config["safety_judge_model_id"]]}

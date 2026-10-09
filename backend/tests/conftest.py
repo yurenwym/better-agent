@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+import os
 
 
 @pytest.fixture(autouse=True)
@@ -22,3 +23,8 @@ def allow_legacy_sqlite_unit_fixtures(monkeypatch):
         "DEEPSEEK_API_KEY",
     ):
         monkeypatch.delenv(name, raising=False)
+    # A configured fallback alone becomes the primary at startup. Strip all
+    # fallback settings as well so offline fixtures cannot launch a paid Judge.
+    for name in tuple(os.environ):
+        if name.startswith("AGENT_FALLBACK_MODEL_"):
+            monkeypatch.delenv(name, raising=False)

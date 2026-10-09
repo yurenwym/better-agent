@@ -282,7 +282,7 @@ def paired_setup(tmp_path, monkeypatch, *, database=None, controlled=False):
     def factory(version):
         async def execute(profile, request, **kwargs):
             if request.role == "judge_quality":
-                text = '{"winner":"tie"}'
+                text = '{"verdict":"pass","issues":[]}' if "answer" in json.loads(request.messages[1]["content"]) else '{"winner":"tie","reason":"equivalent"}'
             elif request.role == "judge_safety":
                 text = '{"left_safe":true,"right_safe":true}'
             else:
@@ -307,6 +307,45 @@ def test_rp12_rp13_frozen_model_binding_and_source_request_are_checked(tmp_path,
     with pytest.raises(ReplayError, match="FROZEN_EVALUATION_PROFILE_MISMATCH"):
         runner.runner(invalid)
     assert observers == []
+
+
+def test_online_write_sidecar_exports_exact_without_external_metadata(tmp_path, monkeypatch):
+    from app.research.live import LiveResearchModel
+    from app.research.models import Evidence
+    db, base, _, runner, config, _, case, _ = paired_setup(tmp_path, monkeypatch)
+    gateway = runner._gateway(config["baseline_model_id"])
+    model = LiveResearchModel(gateway)
+    calls = []
+    prompt_policy = base.manifest["prompts"]
+    def current_policy():
+        calls.append(1)
+        return prompt_policy
+    model.runtime_prompt_policy = current_policy
+    parent = ModelCallContext("researcher", "research", owner_id="operator", runtime_bundle_id=base.id)
+    token = gateway.set_call_context(parent)
+    try:
+        asyncio.run(model.write(case["heading"], case["thesis"],
+            [Evidence("ev1", "s1", case["evidence"][0][0], None, 1)], "previous section"))
+    finally:
+        gateway.reset_call_context(token)
+    assert calls == [1]
+    with db.connection() as connection:
+        identity = connection.execute("SELECT id FROM model_invocations").fetchone()[0]
+    store = ModelInputSnapshotStore(db)
+    snapshot = store.load_for_invocation("operator", identity)
+    frozen = snapshot.envelope()["provenance"]["assembly"]["research_write"]
+    assert frozen["evidence"] == [[case["evidence"][0][0], "s1"]]
+    assert frozen["prior_summary"] == "previous section"
+    prompt_policy["researcher"]["write_research_section"]["evidence_statement"] = "later policy"
+    assert export_case(store, "operator", identity, tmp_path / "online")["conversion"]["status"] == "EXACT"
+    _, fixtures = load_suite(tmp_path / "online/case-manifest.json")
+    fixture = next(iter(fixtures.values()))
+    assert fixture["sidecar"] == frozen
+    assert fixture["baseline_manifest"]["prompts"] == frozen["prompt_policy"]
+    result = export_case(store, "operator", identity, tmp_path / "redacted", replacements={"Measured": "Changed"})
+    assert result["conversion"]["status"] == "UNSUPPORTED_MISSING_BUSINESS_SIDECAR"
+    _, redacted = load_suite(tmp_path / "redacted/case-manifest.json")
+    assert "research_write" not in next(iter(redacted.values()))["envelope"]["provenance"]["assembly"]
 
 
 @pytest.mark.asyncio
@@ -335,7 +374,7 @@ def test_rp12_new_arms_and_dual_judges_preserve_original_state(tmp_path, monkeyp
     report = ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
         baseline_bundle_id=base.id, candidate_bundle_id=candidate.id, cases=[case], runner=runner.runner(config), judge=runner.judge(config))
     assert report["outcome"] == "INSUFFICIENT_EVIDENCE" and report["cost_microusd"] is None
-    assert len(runner.bindings) == 4 and len({row["context_snapshot_id"] for row in runner.bindings}) == 4
+    assert len(runner.bindings) == 6 and len({row["context_snapshot_id"] for row in runner.bindings}) == 6
     assert {row["root_budget_id"] for row in runner.bindings} == {config["root_budget_id"]}
     assert {row["role"] for row in runner.bindings} == {"researcher", "judge_quality", "judge_safety"}
     with db.connection() as connection:
@@ -343,8 +382,69 @@ def test_rp12_new_arms_and_dual_judges_preserve_original_state(tmp_path, monkeyp
     assert all(observer.observations[0]["valid_committed_binding"] for _, observer in observers)
 
 
+def test_partial_judge_response_is_reused_after_restart(tmp_path, monkeypatch):
+    from app.research_judge_checkpoint import JudgeCheckpoint
+    _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    path = tmp_path / "judge.db"
+    runner.judge_checkpoint = JudgeCheckpoint(path)
+    factory = runner.gateway_factory
+    calls = []
+    def interrupted(version):
+        calls.append(version)
+        if len(calls) == 2:
+            raise RuntimeError("process stopped before second call")
+        return factory(version)
+    runner.gateway_factory = interrupted
+    payload = {"case": case, "baseline": "A", "candidate": "B"}
+    with pytest.raises(RuntimeError):
+        runner.judge(config)(payload)
+    assert len(observers) == 1
+    runner.gateway_factory = factory
+    runner.judge_checkpoint = JudgeCheckpoint(path)
+    runner.judge(config)(payload)
+    assert len(observers) == 4  # first answer reused; only three missing calls sent
+    runner.judge(config)(payload)
+    assert len(observers) == 4
+
+
+def test_independent_correctness_inputs_do_not_depend_on_other_answer(tmp_path, monkeypatch):
+    _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    judge = runner.judge(config)
+    judge({"case": case, "baseline": "fixed answer", "candidate": "other answer"})
+    first = [json.loads(request.messages[1]["content"]) for request, _ in observers
+             if "answer" in json.loads(request.messages[1]["content"])]
+    observers.clear()
+    judge({"case": case, "baseline": "changed other answer", "candidate": "fixed answer"})
+    second = [json.loads(request.messages[1]["content"]) for request, _ in observers
+              if "answer" in json.loads(request.messages[1]["content"])]
+    assert len(first) == len(second) == 2
+    assert next(x for x in first if x["answer"] == "fixed answer") == next(x for x in second if x["answer"] == "fixed answer")
+    assert all(set(x) == {"answer", "context"} for x in first + second)
+
+
+def test_judge_thinking_configuration_does_not_change_safety_request(tmp_path, monkeypatch):
+    _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    config.update(quality_thinking=True, quality_max_tokens=4096)
+    runner.judge(config)({"case": case, "baseline": "answer", "candidate": "answer"})
+    for request, _ in observers:
+        assert request.thinking is (request.role == "judge_quality")
+        assert request.max_tokens == (4096 if request.role == "judge_quality" else 300)
+
+
+def test_truncated_judge_is_not_a_valid_pass(tmp_path, monkeypatch):
+    _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    original = _answer
+    monkeypatch.setattr(__import__(__name__), "_answer", lambda text: replace(original(text), finish_reason="length"))
+    with pytest.raises(ReplayError, match="JUDGE_OUTPUT_TRUNCATED"):
+        runner.judge(config)({"case": case, "baseline": "answer", "candidate": "answer"})
+    assert len(observers) == 1
+    assert len(runner.bindings) == 1
+    assert not runner.blind_records
+
+
 def test_rp13_only_allowed_fragment_changes_and_judges_are_blind(tmp_path, monkeypatch):
     db, base, candidate, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    case["evidence"] = [list(item) for item in case["evidence"]]
     pair = validate_pair(base.manifest, candidate.manifest, case)
     assert pair["base_messages"][1:] == pair["candidate_messages"][1:]
     ResearchRoleReplayEvaluator().evaluate(base_manifest=base.manifest, candidate_manifest=candidate.manifest,
@@ -352,9 +452,10 @@ def test_rp13_only_allowed_fragment_changes_and_judges_are_blind(tmp_path, monke
     writes = [request for request, _ in observers if request.role == "researcher"]
     assert [(x.temperature, x.max_tokens, x.tools, x.thinking) for x in writes] == [(0, 4096, None, False)] * 2
     judges = [request for request, _ in observers if request.role.startswith("judge")]
-    assert len(judges) == 2
+    assert len(judges) == 4
     for request in judges:
-        assert set(json.loads(request.messages[1]["content"])) == {"left", "right", "context"}
+        assert request.thinking is False and request.response_format == {"type": "json_object"}
+        assert set(json.loads(request.messages[1]["content"])) in ({"answer", "context"}, {"left", "right", "context"})
         assert CANDIDATE not in request.messages[0]["content"]
     assert runner.blind_records[0]["seed_digest"] and runner.blind_records[0]["judge_prompt_digest"]
     invalid = copy.deepcopy(candidate.manifest)
@@ -498,20 +599,21 @@ def test_rp13_judges_receive_frozen_scoring_context_and_digest_it(tmp_path, monk
     else:
         case["rubric"] = {"deterministic_required": ["different required result"]}
     judge(payload)
-    assert len(observers) == 4
-    for index in (0, 1):
+    assert len(observers) == 8
+    for index in (0, 1, 2, 3):
         before = json.loads(observers[index][0].messages[1]["content"])
-        after = json.loads(observers[index + 2][0].messages[1]["content"])
+        after = json.loads(observers[index + 4][0].messages[1]["content"])
         assert before != after
-        assert (before["left"], before["right"]) == (after["left"], after["right"])
+        assert {k: v for k, v in before.items() if k != "context"} == {k: v for k, v in after.items() if k != "context"}
         context = after["context"]
         assert context["task"]["heading"] == case["heading"]
         assert context["evidence"] == json.loads(canonical_json(case["evidence"]))
         assert context["rubric"] == case["rubric"]
-        assert set(after) == {"left", "right", "context"}
+        assert set(after) in ({"answer", "context"}, {"left", "right", "context"})
         assert config["candidate_bundle_id"] not in canonical_json(after) and CANDIDATE not in canonical_json(after)
         record = runner.blind_records[-1]
-        assert record["blind_input_digest"] == digest(after)
+        if "left" in after:
+            assert record["blind_input_digest"] == digest(after)
         assert record["task_digest"] == digest(context["task"])
         assert record["evidence_digest"] == digest(context["evidence"])
         assert record["rubric_digest"] == digest(context["rubric"])

@@ -58,7 +58,8 @@ def _wait_for_terminal(client: TestClient, thread_id: str, timeout_s: float = 10
         ):
             return turn
         time.sleep(0.02)
-    raise AssertionError("turn did not reach a terminal state")
+    events = client.get(f"/api/threads/{thread_id}/events", headers={"host": "127.0.0.1:8000"}).json()
+    raise AssertionError(f"turn did not reach a terminal state: {turn}; events: {events}")
 
 
 def _build_runtime(data_root, database_url):

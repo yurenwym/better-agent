@@ -14,6 +14,7 @@ from typing import Any, Callable
 from .db import Database
 from .config import monetary_limits_enabled
 from .evolution_contract import VERSION as RESEARCH_RELEASE_VERSION, gain_evidence
+from .research_judgment import correctness_summary
 
 
 PARTITIONS = {"DISCOVERY", "DEV", "HOLDOUT", "SAFETY"}
@@ -49,7 +50,9 @@ class ResearchRoleReplayEvaluator:
     def render_pair(base_manifest: dict[str, Any], candidate_manifest: dict[str, Any], case: dict[str, Any]) -> dict[str, Any]:
         from .research.live import build_research_write_messages, research_write_fragment
 
-        evidence = case.get("evidence", [])
+        # JSON sidecars contain lists; production write renders (text, source_id)
+        # tuples. Normalize before freezing/comparing the actual writer input.
+        evidence = [tuple(item) for item in case.get("evidence", [])]
         args = (
             str(case.get("heading") or case.get("input") or "研究章节"),
             str(case.get("thesis") or "仅根据证据作答"), evidence,
@@ -113,6 +116,8 @@ class ResearchRoleReplayEvaluator:
                 record.update({"baseline": baseline, "candidate": candidate, "winner": winner,
                                "candidate_safe": decision["candidate_safe"],
                                "baseline_safe": decision.get("baseline_safe"),
+                               "baseline_correctness": decision.get("baseline_correctness", {"verdict": "unassessed"}),
+                               "candidate_correctness": decision.get("candidate_correctness", {"verdict": "unassessed"}),
                                "deterministic_pass": _deterministic_check(case.get("rubric", {}), candidate["text"]),
                                "judge_cost_microusd": judge_cost,
                                "judge_profiles": decision.get("judge_profiles", [])})
@@ -143,6 +148,7 @@ class ResearchRoleReplayEvaluator:
             "deterministic_pass": executed and all(item.get("deterministic_pass") is True for item in records),
             "deterministic_rubrics": all(case.get("rubric", {}).get("deterministic_required") or case.get("rubric", {}).get("deterministic_forbidden") for case in cases),
             "cost_known": executed and cost_known,
+            "correctness_pass": executed and all(item.get("candidate_correctness", {}).get("verdict") == "pass" for item in records),
             "independent_lineages": independent,
             "holdout_not_leaked": release_shape and independent and holdout_frozen_before_candidate,
         }
@@ -154,8 +160,9 @@ class ResearchRoleReplayEvaluator:
             "candidate_bundle_id": candidate_bundle_id, "suite_digest": suite_digest or _digest(cases),
             "checks": checks, "records": records, "cost_microusd": total_cost if cost_known else None,
             "statistics": statistics,
+            "correctness": correctness_summary(records),
             "outcome": "PASS" if kind == "role_paired_release_evaluation" else (
-                "FAIL" if executed and any(item.get("candidate_safe") is False or item.get("winner") == "baseline" or item.get("deterministic_pass") is False for item in records)
+                "FAIL" if executed and any(item.get("candidate_correctness", {}).get("verdict") == "fail" or item.get("candidate_safe") is False or item.get("winner") == "baseline" or item.get("deterministic_pass") is False for item in records)
                 else "INSUFFICIENT_EVIDENCE"),
         }
         report["report_digest"] = _digest(report)

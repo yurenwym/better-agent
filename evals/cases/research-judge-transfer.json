@@ -1,0 +1,7 @@
+{
+  "description":"修复后新增的代理构造迁移诊断，未用于调整提示；非真人标签。",
+  "cases":[
+    {"id":"unit-conversion","source_case":"commute-pass","context_override":{"heading":"比较流量套餐","thesis":"仅比较价格与给定用量","prior_summary":"","evidence":[["本案例按1GB=1000MB。甲套餐20元含2GB，乙套餐18元含1500MB；用量1800MB。","s1"],["超额按每MB0.02元计费，无其他费用。","s2"]],"rubric":{"quality":"统一单位后计算，比较总价。"}},"a":{"text":"甲包含2000MB，足够使用，总价20元。乙超出300MB，额外6元，总价24元，因此甲便宜4元。[[source:s1]][[source:s2]]"},"b":{"text":"乙套餐18元比甲20元低，所以乙更省钱，无需计算超额费用。[[source:s1]]"},"expected":["pass","fail"]},
+    {"id":"denominator-shift","source_case":"commute-pass","context_override":{"heading":"能否判断方案乙更好","thesis":"比较两个方案的成功率","prior_summary":"","evidence":[["甲处理100个简单任务，成功90个。乙处理20个困难任务，成功19个。","s1"],["任务没有配对，难度不同，审核标准未统一。","s2"]],"rubric":{"quality":"可以计算观测成功率，但不能把不同任务上的差异当作同条件效果提升。"}},"a":{"text":"甲成功率90%，乙95%，因此乙在同等条件下提高5个百分点，应该直接替换甲。[[source:s1]]"},"b":{"text":"观测成功率分别是90%和95%，但任务难度与审核标准不同，不能据此认定乙在同条件下更优；应统一标准后做配对比较。[[source:s1]][[source:s2]]"},"expected":["fail","pass"]}
+  ]
+}

@@ -112,7 +112,7 @@ describe("GoalWorkspacePage", () => {
     expect(window.location.pathname).toBe("/workspace/plan-1");
     expect(window.location.hash).toBe("#goal-review");
     expect(window.history.length).toBe(historyLength);
-    expect(window.document.activeElement).toBe(screen.getByRole("region", { name: "目标复盘" }));
+    await waitFor(() => expect(window.document.activeElement).toBe(screen.getByRole("region", { name: "目标复盘" })));
   });
 
   it("keeps current goal visible when its fallback library fails", async () => {

@@ -145,14 +145,16 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
             assert not runtime.learning.run_once()
             assert len(calls) == fail_at
             return
-        assert job["status"] == "NO_CHANGE", job["reason"]
+        # Legacy learning Judge provides preference only; absent independent
+        # correctness evidence must now reject release eligibility.
+        assert job["status"] == "REJECTED", job["reason"]
         assert len(calls) == 241
         with runtime.db.connection() as connection:
             root = connection.execute("SELECT attempts_started FROM task_budget_roots WHERE id=?", (job["root_budget_id"],)).fetchone()
             assert root[0] == 241
             assert connection.execute("SELECT COUNT(*) FROM learning_snapshots WHERE task_kind='invocation'").fetchone()[0] == 241
         runtime.learning.run_once()
-        assert any(job["status"] == "APPLIED" for job in runtime.learning.history())
+        assert not any(job["status"] == "APPLIED" for job in runtime.learning.history())
         runtime.learning.run_once()
         assert len(calls) == 241
     finally:

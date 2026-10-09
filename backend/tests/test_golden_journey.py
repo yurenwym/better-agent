@@ -50,6 +50,8 @@ def test_golden_goal_journey_runs_through_review_adjustment_and_memory(tmp_path)
         headers=_headers(app, "defer"),
     ).raise_for_status()
 
+    assert __import__("asyncio").run(runtime.goal_review_worker.run_once()) is False
+    runtime.goal_programs.close_day(active["id"], start.isoformat(), idempotency_key="close-day")
     assert __import__("asyncio").run(runtime.goal_review_worker.run_once()) is True
     today_response = client.get(f"/api/today?date={start.isoformat()}", headers={"host": "127.0.0.1:8000"})
     assert today_response.status_code == 200, today_response.text

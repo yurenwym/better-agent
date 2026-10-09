@@ -391,8 +391,7 @@ def test_model_input_snapshot_immutability_is_enforced_by_sqlite(tmp_path) -> No
             with db.transaction() as connection:
                 connection.execute(statement, parameters)
 
-    # An empty binding can be filled exactly once — the window the binding is
-    # written in — and never re-pointed afterwards.
+    # Binding is fixed at INSERT, including a legacy NULL binding.
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO model_invocations(id,owner_id,role,purpose,routing_policy_digest,"
@@ -403,16 +402,15 @@ def test_model_input_snapshot_immutability_is_enforced_by_sqlite(tmp_path) -> No
                 "{}", "req", "tools", "snap-digest", "RUNNING", "idem-open", "now",
             ),
         )
-        connection.execute(
-            "UPDATE model_invocations SET context_snapshot_id='snap-2' WHERE id='inv-open'"
-        )
+    with db.transaction() as connection, pytest.raises(sqlite3.IntegrityError, match="immutable"):
+        connection.execute("UPDATE model_invocations SET context_snapshot_id='snap-2' WHERE id='inv-open'")
     with db.connection() as connection:
         assert connection.execute(
             "SELECT context_snapshot_id FROM model_invocations WHERE id='inv-open'"
-        ).fetchone()[0] == "snap-2"
+        ).fetchone()[0] is None
     for statement in (
         "UPDATE model_invocations SET context_snapshot_id='snap-1' WHERE id='inv-open'",
-        "UPDATE model_invocations SET context_snapshot_id=NULL WHERE id='inv-open'",
+        "UPDATE model_invocations SET context_snapshot_id='snap-2' WHERE id='inv-open'",
     ):
         with pytest.raises(sqlite3.IntegrityError, match="immutable"):
             with db.transaction() as connection:

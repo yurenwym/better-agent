@@ -24,7 +24,9 @@ def runner(messages=None, *_):
 
 
 def judge(_):
-    return {"winner": "candidate", "candidate_safe": True, "baseline_safe": True, "cost_microusd": 1}
+    return {"winner": "candidate", "candidate_safe": True, "baseline_safe": True, "cost_microusd": 1,
+            "candidate_correctness": {"verdict": "pass", "issues": []},
+            "baseline_correctness": {"verdict": "pass", "issues": []}}
 
 
 def prepared(tmp_path, *, freeze=True, start=True, cap=1000):
@@ -60,7 +62,7 @@ def test_one_win_twenty_nine_ties_is_not_release_evidence(tmp_path):
         runtime.evolution.approve_current(candidate["id"], expires_at=future(), idempotency_key="bad")
 
 
-@pytest.mark.parametrize("fault", ["safety", "judge_cost", "deterministic", "duplicate_lineage", "duplicate_body"])
+@pytest.mark.parametrize("fault", ["safety", "judge_cost", "deterministic", "duplicate_lineage", "duplicate_body", "incorrect", "unassessed"])
 def test_release_rejects_missing_or_regressed_evidence(tmp_path, fault):
     runtime, candidate, suite = prepared(tmp_path, start=False)
     base = runtime.behavior.get(candidate["base_bundle_id"]).manifest
@@ -73,6 +75,8 @@ def test_release_rejects_missing_or_regressed_evidence(tmp_path, fault):
         base_manifest=base, candidate_manifest=target, baseline_bundle_id="base", candidate_bundle_id="candidate",
         cases=suite, runner=(lambda *_: {**runner(), "text": "missing"}) if fault == "deterministic" else runner,
         judge=lambda item: {**judge(item), **({"candidate_safe": False} if fault == "safety" else {}),
+                            **({"candidate_correctness": {"verdict": "fail", "issues": []}} if fault == "incorrect" else {}),
+                            **({"candidate_correctness": {"verdict": "unassessed"}} if fault == "unassessed" else {}),
                             **({"cost_microusd": None} if fault == "judge_cost" else {})},
         holdout_frozen_before_candidate=True)
     assert result["outcome"] != "PASS"
@@ -101,7 +105,8 @@ def test_interrupted_release_cannot_repeat_network_requests(tmp_path):
 
 
 @pytest.mark.parametrize("fault", ["expiry", "source", "budget"])
-def test_restart_maintenance_stops_invalid_canary_without_changing_stable(tmp_path, fault):
+def test_restart_maintenance_stops_invalid_canary_without_changing_stable(tmp_path, fault, monkeypatch):
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     runtime, candidate, deployment = prepared(tmp_path)
     stable = runtime.behavior.active("stable").id
     with runtime.db.transaction() as connection:
@@ -156,7 +161,8 @@ def test_prompt_hit_requires_completed_real_request_and_frozen_digest(tmp_path):
         assert row["prompt_hit"] == 1 and len(row["prompt_digest"]) == 64
 
 
-def test_budget_rejects_before_attempt_and_stop_is_durable(tmp_path):
+def test_budget_rejects_before_attempt_and_stop_is_durable(tmp_path, monkeypatch):
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     from app.costs import BudgetExceeded, PriceSnapshot
     runtime, _, deployment = prepared(tmp_path, cap=10)
     control, handle = invocation(runtime, deployment)

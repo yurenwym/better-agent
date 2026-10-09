@@ -110,6 +110,9 @@ npm run build
 
 PostgreSQL 集成测试使用隔离的 Docker pgvector 实例。发布阻断用例 A17 会完整执行：建会话、提交消息、worker 领取、上下文与记忆检索、模型流式回答、消息/事件/四项耗时落库、API 查询和重启后复查，并在运行期禁止 SQLite 访问。
 
+每次提交前运行 `python scripts/test_all.py`：后端全量（含隔离 PostgreSQL）、前端全量和构建均须通过。
+首次克隆后执行 `git config core.hooksPath .githooks` 安装提交门槛；本工作区已安装。需要 Docker、Python 测试依赖和前端依赖。
+
 ## 数据与安全
 
 运行时状态全部位于 `DATABASE_URL` 指向的 PostgreSQL；`data/memory/` 和 `data/artifacts/` 是可重建投影或工作产物。生产启动没有 PostgreSQL 时会明确失败，不会回读或双写 SQLite。默认导出为脱敏 JSONL；密钥仅通过环境变量注入，不进入数据库、事件、轨迹或前端。

@@ -641,7 +641,7 @@ class ModelGateway:
                             finish_reason = choice["finish_reason"]
         except httpx.TimeoutException as exc:
             raise GatewayError("model request timed out", "timeout") from exc
-        except httpx.NetworkError as exc:
+        except (httpx.NetworkError, httpx.RemoteProtocolError) as exc:
             raise GatewayError("model provider unavailable", "provider_unavailable") from exc
         finally:
             if self.http_client is None:

@@ -5,6 +5,34 @@ import httpx
 import pytest
 
 
+@pytest.mark.asyncio
+async def test_broken_openai_stream_finishes_controlled_attempt(tmp_path, monkeypatch):
+    from app.model_gateway import ModelGateway, ModelProfile, ModelRequest, GatewayError
+    from app.model_control import ModelControlStore, ModelCallContext
+    from app.db import Database
+    monkeypatch.setenv("BROKEN_STREAM_KEY", "secret")
+    db = Database(tmp_path / "broken-stream.db")
+    control = ModelControlStore(db)
+    sends = []
+    class BrokenStream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield b'data: {"choices":[{"delta":{"content":"partial"}}]}\n\n'
+            raise httpx.RemoteProtocolError("incomplete chunked read")
+    def handler(request):
+        sends.append(request)
+        return httpx.Response(200, stream=BrokenStream())
+    gateway = ModelGateway(ModelProfile("https://offline.test", "offline", "BROKEN_STREAM_KEY", max_attempts=1),
+        control_store=control, transport=httpx.MockTransport(handler))
+    with pytest.raises(GatewayError) as error:
+        await gateway.complete(ModelRequest([{"role": "user", "content": "x"}]),
+            context=ModelCallContext("researcher", "write_research_section", invocation_id="broken", owner_id="operator"))
+    assert error.value.kind == "provider_unavailable" and len(sends) == 1
+    with db.connection() as connection:
+        attempt = connection.execute("SELECT status,error_kind FROM model_attempts").fetchone()
+        assert tuple(attempt) == ("FAILED", "provider_unavailable")
+        assert connection.execute("SELECT status FROM model_invocations").fetchone()[0] == "FAILED"
+
+
 @pytest.mark.parametrize("required_index", [0, 1])
 def test_required_context_group_cannot_be_partially_packed(required_index):
     from app.token_budget import ContextOverflow, pack_messages_newest

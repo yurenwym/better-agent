@@ -1,4 +1,4 @@
-from types import SimpleNamespace
+import json
 
 import httpx
 import pytest
@@ -8,7 +8,14 @@ from app.research.tavily import TavilySearchRetriever
 
 
 @pytest.mark.asyncio
-async def test_tavily_search_maps_results_without_exposing_key():
+async def test_tavily_search_maps_results_without_exposing_key(monkeypatch):
+    async def public_addresses(host):
+        assert host == "sqlite.org"
+        return ["93.184.216.34"]
+    from app.research.retriever import validate_public_url
+    async def validate(value):
+        return await validate_public_url(value, resolver=public_addresses)
+    monkeypatch.setattr("app.research.tavily.validate_public_url", validate)
     seen={}
     def handler(request:httpx.Request):
         seen["authorization"]=request.headers.get("authorization")
@@ -20,7 +27,7 @@ async def test_tavily_search_maps_results_without_exposing_key():
     assert len(result)==1 and result[0].canonical_url=="https://sqlite.org/wal.html"
     assert result[0].quality_score==.91 and "secret" not in repr(result)
     assert seen["authorization"]=="Bearer secret" and "secret" not in seen["body"]
-    assert '"chunks_per_source":3' in seen["body"]
+    assert json.loads(seen["body"])["chunks_per_source"] == 3
 
 
 @pytest.mark.asyncio
