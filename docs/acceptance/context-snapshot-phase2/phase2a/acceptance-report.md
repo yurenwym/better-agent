@@ -272,3 +272,19 @@ PostgreSQL 前置：Docker 引擎可用（`better-postgres-1` healthy）；新�
    direct 网关只有发送前检查。`app/real_evaluation.py:1238` 构造的 direct 网关带有已装配 `learning_assets` 的
    `control_store`，因此「在途撤销」时 direct 路径会成功采用该响应，而 routed 路径会失败。属行为变更，需单独决策。
    详见 `fix-2026-10-07/acceptance-fix-report.md` §6.1。
+
+## 2026-10-08 Phase 2B 开发期间的 M1 复验（追加，不覆盖历史结论）
+
+本轮在当前脏工作区重新执行了影响 M1 门禁的旧待复验项。此前的失败/环境记录全部保留；以下结果为本次新证据：
+
+| 范围 | 命令/配置 | 结果 |
+|---|---|---|
+| Phase 2A 专项 SQLite | `test_model_input_snapshot.py`、`test_model_input_snapshot_store.py`、`test_snapshot_gateway.py`、`test_snapshot_flow.py`、`test_snapshot_recovery.py` | **119 passed**，58.93s |
+| M5 成本/发布门禁 + PostgreSQL live harness | `test_m5_release_gates.py`、`test_m5_controlled_acceptance.py`、`integration/test_m1_live_harness.py`；`BETTER_AGENT_COST_MODE=enforce` | **25 passed**，21.54s；live harness 全轮不调用外网 |
+| 真实评估成本回归 | 完整 `test_real_evaluation.py`，预算断言各自在测试内显式设 `BETTER_AGENT_COST_MODE=enforce`，运行 shell 默认 unset | **35 passed**，12.91s |
+| Conversation Worker | 完整 `test_conversation_worker.py`；`AGENT_ARCHIVE_WAIT_MS=30000` | **41 passed**，42.76s，含原先超时/未完成的租约续期用例 |
+| Phase 2B 文档指定隔离 PostgreSQL 集合 | 快照、Harness、chat goal tools、goal recovery、root budget、attempt settlement + 新增 Research entrypoint | **47 passed**；临时 Docker Compose 项目，未设置 `TEST_DATABASE_URL` |
+
+修复了验收夹具而非生产行为：`CapturingMemoryContext` 现在委托 `load_continuation()`；其 incomplete-context 场景明确插入超过窗口且可归档的历史，避免小样本未触发归档；租约续期用例从 200ms 调整到 3s，并等待 3.35s 验证心跳；真实评估中依赖成本阻断的两个断言将 `enforce` 声明为测试自身配置。首轮失败均保留在 Phase 2B `logs/phase2b-local-runs.log` 中，修复后定向复验通过。
+
+**M1 结论：本轮复验通过。** Phase 2A 专项、PG 约束/事务与并发结算、enforce 成本门禁、offline live harness 和此前受延迟影响的租约测试均取得当前工作区通过证据。未运行仓库全量 pytest；这不改变 M1 范围内已逐项补齐的门禁结论。

@@ -833,13 +833,16 @@ async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> 
     worker_one = ManagedTurnWorker(
         runtime.conversation,
         owner="worker-one",
-        lease_seconds=0.2,
+        # Leave enough time for the worker to claim the job and start its
+        # heartbeat before the assertion about lease renewal begins. A 200ms
+        # lease expires on slower CI/database hosts before the model starts.
+        lease_seconds=3.0,
         poll_interval=0.005,
     )
     worker_two = ManagedTurnWorker(
         runtime.conversation,
         owner="worker-two",
-        lease_seconds=0.2,
+        lease_seconds=3.0,
         poll_interval=0.005,
     )
     thread = runtime.conversation.create_thread("Chat")
@@ -847,7 +850,7 @@ async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> 
 
     first_task = asyncio.create_task(worker_one.run_once())
     await model.started.wait()
-    await asyncio.sleep(0.45)
+    await asyncio.sleep(3.35)
 
     assert worker_two.claim_next() is None
     with runtime.db.connection() as connection:

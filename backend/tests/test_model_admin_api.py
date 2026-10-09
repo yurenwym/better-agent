@@ -1,4 +1,5 @@
 import os
+import pytest
 
 from fastapi.testclient import TestClient
 
@@ -76,6 +77,7 @@ def test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe(tmp_
 
     missing = client.post(f"/api/model-profile-versions/{version_id}/verify", json={}, headers=_headers(app, "verify-missing"))
     assert missing.status_code == 422 and missing.json()["detail"]["code"] == "EXTERNAL_CREDENTIAL_MISSING"
+    assert runtime.model_admin.version(version_id)["verification_status"] != "VERIFIED"
     monkeypatch.setenv("MODEL_ADMIN_TEST_KEY", "secret-value")
     runtime.model_admin.verifier = lambda item: {"ok": True, "latency_ms": 12}
     verified = client.post(f"/api/model-profile-versions/{version_id}/verify", json={}, headers=_headers(app, "verify-ok"))
@@ -137,3 +139,176 @@ def test_routing_policy_candidate_enters_existing_evolution_loop(tmp_path) -> No
         evidence.append(item["id"])
     candidate=client.post(f"/api/model-routing-policies/{policy['id']}/candidate",json={"experience_ids":evidence,"reason":"规划质量需要改进"},headers=_headers(app,"candidate"))
     assert candidate.status_code==201 and candidate.json()["candidate_type"]=="policy"
+
+
+@pytest.mark.asyncio
+async def test_live_verification_freezes_the_requested_unrouted_profile_version(tmp_path, monkeypatch) -> None:
+    import httpx
+    from app.db import Database
+    from app.model_admin import ModelAdminService
+    from app.model_control import ModelControlStore
+    from test_snapshot_gateway import _openai_stream
+
+    db = Database(tmp_path / "admin-verify.db")
+    requests = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(200, content=_openai_stream())
+
+    service = ModelAdminService(
+        db, owner_id="trusted-admin", control_store=ModelControlStore(db),
+        verification_transport=httpx.MockTransport(handler),
+    )
+    monkeypatch.setenv("MODEL_ADMIN_TEST_KEY", "verification-secret")
+    created = service.create_profile(_profile_payload(), validate_capacity=False)
+    version_id = created["versions"][0]["id"]
+    verified = await service.verify(version_id)
+
+    assert verified["verification_status"] == "VERIFIED"
+    assert len(requests) == 1
+    with db.connection() as connection:
+        invocation = connection.execute(
+            "SELECT owner_id,purpose,context_snapshot_id FROM model_invocations",
+        ).fetchone()
+        attempt = connection.execute(
+            "SELECT profile_version_id FROM model_attempts",
+        ).fetchone()
+        stable = connection.execute(
+            "SELECT bundle_id FROM runtime_channels WHERE name='stable'",
+        ).fetchone()
+    assert invocation["owner_id"] == "trusted-admin"
+    assert invocation["purpose"] == "verify_model_profile_version"
+    assert invocation["context_snapshot_id"]
+    assert attempt["profile_version_id"] == version_id
+    assert stable is None
+
+
+@pytest.mark.asyncio
+async def test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied(tmp_path, monkeypatch) -> None:
+    import httpx
+    from app.db import Database
+    from app.model_gateway import GatewayError
+    from app.model_admin import ModelAdminService
+    from app.model_control import ModelControlStore
+
+    db = Database(tmp_path / "admin-verify-failure.db")
+    try:
+        owner_service = ModelAdminService(db, owner_id="trusted-admin", control_store=ModelControlStore(db))
+        created = owner_service.create_profile(_profile_payload(), validate_capacity=False)
+        version_id = created["versions"][0]["id"]
+
+        other_owner = ModelAdminService(db, owner_id="other-admin", control_store=ModelControlStore(db))
+        with pytest.raises(KeyError):
+            await other_owner.verify(version_id)
+
+        monkeypatch.setenv("MODEL_ADMIN_TEST_KEY", "verification-secret")
+        observations = []
+
+        def fail_after_auditing(request: httpx.Request) -> httpx.Response:
+            with db.connection() as connection:
+                row = connection.execute(
+                    "SELECT a.id AS attempt_id,a.status,i.owner_id,i.purpose,i.context_snapshot_id,"
+                    "i.context_snapshot_digest,i.status AS invocation_status "
+                    "FROM model_attempts a JOIN model_invocations i ON i.id=a.invocation_id "
+                    "WHERE a.status='STARTED' ORDER BY a.started_at DESC,a.id DESC LIMIT 1",
+                ).fetchone()
+            assert row is not None and row["owner_id"] == "trusted-admin"
+            assert row["purpose"] == "verify_model_profile_version"
+            assert row["context_snapshot_id"] and row["context_snapshot_digest"]
+            assert row["invocation_status"] == "RUNNING"
+            assert request.url.path.endswith("/chat/completions")
+            observations.append(dict(row))
+            raise httpx.ConnectError("provider unavailable", request=request)
+
+        owner_service.verification_transport = httpx.MockTransport(fail_after_auditing)
+        with pytest.raises(GatewayError, match="retry budget exhausted"):
+            await owner_service.verify(version_id)
+
+        assert len(observations) == 2
+        assert len({item["context_snapshot_id"] for item in observations}) == 1
+        assert len({item["context_snapshot_digest"] for item in observations}) == 1
+        assert len({item["attempt_id"] for item in observations}) == 2
+        assert owner_service.version(version_id)["verification_status"] == "FAILED"
+        with db.connection() as connection:
+            rows = connection.execute(
+                "SELECT i.owner_id,i.purpose,i.context_snapshot_id,a.status "
+                "FROM model_invocations i JOIN model_attempts a ON a.invocation_id=i.id "
+                "ORDER BY a.started_at,a.id",
+            ).fetchall()
+        assert len(rows) == 2
+        assert all(row["owner_id"] == "trusted-admin" for row in rows)
+        assert all(row["purpose"] == "verify_model_profile_version" and row["context_snapshot_id"] for row in rows)
+        assert all(row["status"] == "FAILED" for row in rows)
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_live_verification_budget_rejection_happens_before_provider_send(tmp_path, monkeypatch) -> None:
+    import httpx
+    from app.costs import CostService, PriceSnapshot
+    from app.db import Database
+    from app.model_admin import ModelAdminError, ModelAdminService
+    from app.model_control import ModelControlStore
+    from app.model_gateway import GatewayError
+
+    db = Database(tmp_path / "admin-verify-budget.db")
+    try:
+        monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+        monkeypatch.setenv("MODEL_ADMIN_TEST_KEY", "verification-secret")
+        costs = CostService(db)
+        service = ModelAdminService(
+            db, owner_id="budget-admin", control_store=ModelControlStore(db, costs=costs),
+            verification_transport=httpx.MockTransport(lambda _: pytest.fail("budget must block before send")),
+        )
+        created = service.create_profile(_profile_payload(), validate_capacity=False)
+        version_id = created["versions"][0]["id"]
+        costs.register_price(version_id, PriceSnapshot("admin-budget-price", 1_000_000, 0, 0, 2_000_000, 0))
+        costs.set_budget("budget-admin", "DAILY", costs.today_period(), 0)
+
+        with pytest.raises(GatewayError) as caught:
+            await service.verify(version_id)
+
+        assert caught.value.kind == "budget"
+        assert service.version(version_id)["verification_status"] == "FAILED"
+        with db.connection() as connection:
+            invocation = connection.execute(
+                "SELECT owner_id,purpose,context_snapshot_id,status FROM model_invocations",
+            ).fetchone()
+            assert invocation["owner_id"] == "budget-admin"
+            assert invocation["purpose"] == "verify_model_profile_version"
+            assert invocation["context_snapshot_id"]
+            assert invocation["status"] == "BUDGET_BLOCKED"
+            assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+
+        uncontrolled = ModelAdminService(db, owner_id="no-store-admin")
+        uncontrolled_version = uncontrolled.create_profile(
+            {**_profile_payload(), "name": "No store verification"}, validate_capacity=False,
+        )["versions"][0]["id"]
+        with pytest.raises(ModelAdminError, match="requires a model control store"):
+            await uncontrolled.verify(uncontrolled_version)
+        with db.connection() as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM model_invocations WHERE owner_id='no-store-admin'",
+            ).fetchone()[0] == 0
+    finally:
+        db.close()
+
+
+def test_model_admin_startup_and_api_fallback_keep_the_control_store(tmp_path) -> None:
+    from app.main import create_app
+    from app.startup import build_runtime
+
+    runtime = build_runtime(tmp_path)
+    assert runtime.model_admin.control_store is runtime.model_control_store
+
+    # Exercise the API dependency's fallback constructor without replacing the
+    # runtime-owned store that production startup supplied.
+    runtime.model_admin = None
+    app = create_app(runtime=runtime)
+    response = TestClient(app).get("/api/model-profiles", headers={"host": "127.0.0.1:8000"})
+
+    assert response.status_code == 200
+    assert runtime.model_admin is not None
+    assert runtime.model_admin.control_store is runtime.model_control_store

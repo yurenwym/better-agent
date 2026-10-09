@@ -39,7 +39,7 @@ async def test_chat_tool_roundtrips_have_distinct_ledger_identities(tmp_path, mo
     token = gateway.set_call_context(ModelCallContext(
         "conversation", "route_and_respond", runtime_bundle_id=bundle.id,
         invocation_id="conversation:tool-loop", idempotency_key="conversation:tool-loop",
-    ))
+     owner_id="local-user"))
     try:
         response = await LiveConversationModel(gateway).route_and_respond(
             content="请用工具查询 UTC 当前时间。", history=[], skill_names=[],
@@ -117,11 +117,11 @@ async def test_routes_roles_from_the_pinned_runtime_bundle(tmp_path, monkeypatch
     gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
     planner = await gateway.complete(
         ModelRequest(messages=[], role="planner"),
-        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
     )
     conversation = await gateway.complete(
         ModelRequest(messages=[], role="conversation"),
-        context=ModelCallContext("conversation", "answer", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("conversation", "answer", runtime_bundle_id=bundle.id, owner_id="local-user"),
     )
 
     assert (planner.message, conversation.message) == ("planner", "chat")
@@ -162,7 +162,7 @@ async def test_conversation_intent_classification_and_answer_use_separate_invoca
         "route_and_respond",
         runtime_bundle_id=bundle.id,
         invocation_id="conversation:turn-cycling",
-    ))
+     owner_id="local-user"))
     try:
         response = await LiveConversationModel(gateway).route_and_respond(
             content="请调查骑行训练方案是否适合新手",
@@ -181,14 +181,11 @@ async def test_conversation_intent_classification_and_answer_use_separate_invoca
         invocations = connection.execute(
             "SELECT id,purpose,status FROM model_invocations ORDER BY created_at,id"
         ).fetchall()
-    assert [tuple(row) for row in invocations] == [
-        (
-            "conversation:turn-cycling:classify_research_request",
-            "classify_research_request",
-            "SUCCEEDED",
-        ),
-        ("conversation:turn-cycling", "route_and_respond", "SUCCEEDED"),
+    assert [row["purpose"] for row in invocations] == [
+        "classify_research_request", "route_and_respond",
     ]
+    assert [row["status"] for row in invocations] == ["SUCCEEDED", "SUCCEEDED"]
+    assert len({row["id"] for row in invocations}) == 2
 
 
 @pytest.mark.asyncio
@@ -209,7 +206,7 @@ async def test_all_frozen_roles_enter_the_unified_invocation_ledger(tmp_path, mo
     async def execute(profile,request,**kwargs):return ModelResponse("ok",[],"stop",UsageBuckets(1,0,0,1,0),Timing(0,0,1),1)
     gateway=RoutedModelGateway(db,ModelControlStore(db),execute_attempt=execute)
     for role in sorted(ROLES):
-        await gateway.complete(ModelRequest(messages=[],role=role),context=ModelCallContext(role,"role-contract",runtime_bundle_id=bundle.id))
+        await gateway.complete(ModelRequest(messages=[],role=role),context=ModelCallContext(role,"role-contract",runtime_bundle_id=bundle.id, owner_id="local-user"))
     with db.connection() as connection:
         rows=connection.execute("SELECT role,runtime_bundle_id,status FROM model_invocations ORDER BY role").fetchall()
     assert {row["role"] for row in rows}==ROLES
@@ -233,7 +230,7 @@ async def test_explicit_fallback_is_one_invocation_with_separate_attempts(tmp_pa
 
     result = await RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute).complete(
         ModelRequest(messages=[], role="planner"),
-        context=ModelCallContext("planner", "plan", thread_id="thread-route", turn_id="turn-route", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("planner", "plan", thread_id="thread-route", turn_id="turn-route", runtime_bundle_id=bundle.id, owner_id="local-user"),
     )
 
     assert result.message == "fallback"
@@ -274,7 +271,7 @@ async def test_never_falls_back_after_any_output_started(tmp_path, monkeypatch, 
     with pytest.raises(GatewayError, match="late failure"):
         await gateway.complete(
             ModelRequest(messages=[], role="planner"),
-            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
         )
     assert calls == [versions["planner"]]
     if started_kind == "tool_call":
@@ -303,7 +300,7 @@ async def test_disabled_primary_routes_to_explicit_eligible_fallback(tmp_path, m
         )
     result = await gateway.complete(
         ModelRequest(messages=[], role="planner"),
-        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
     )
     assert result.message == "fallback"
     assert called == [_["fallback"]]
@@ -360,7 +357,7 @@ async def test_routed_budget_block_is_explainable_and_happens_before_transport(t
         called = True
     gateway = RoutedModelGateway(db, ModelControlStore(db, costs=costs), execute_attempt=execute)
     with pytest.raises(GatewayError) as caught:
-        await gateway.complete(ModelRequest(messages=[], role="planner"), context=ModelCallContext("planner","plan",runtime_bundle_id=bundle.id))
+        await gateway.complete(ModelRequest(messages=[], role="planner"), context=ModelCallContext("planner","plan",runtime_bundle_id=bundle.id, owner_id="local-user"))
     assert caught.value.kind == "budget"
     assert called is False
 
@@ -384,7 +381,7 @@ async def test_routed_context_overflow_before_invocation_does_not_call_transport
     with pytest.raises(GatewayError) as caught:
         await gateway.complete(
             ModelRequest(messages=[{"role": "planner", "content": "x" * 1000}], role="planner"),
-            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
         )
 
     assert caught.value.kind == "context_overflow"
@@ -413,7 +410,7 @@ async def test_routed_fallback_context_overflow_fails_existing_invocation_withou
     with pytest.raises(GatewayError) as caught:
         await gateway.complete(
             ModelRequest(messages=[{"role": "planner", "content": "x" * 1000}], role="planner"),
-            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
         )
 
     assert caught.value.kind == "context_overflow"

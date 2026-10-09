@@ -334,7 +334,7 @@ async def test_review_uses_reflector_profile_and_preserves_pinned_context(tmp_pa
 
     gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
     context = ModelCallContext("planner", "compile_goal_program", runtime_bundle_id=pinned.id,
-                               root_budget_id="preserved-budget")
+                               root_budget_id="preserved-budget", owner_id="local-user")
     token = gateway.set_call_context(context)
     try:
         assert gateway.input_limit(role="reflector", purpose="daily_review") < gateway.input_limit()

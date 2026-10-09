@@ -460,7 +460,7 @@ class ManagedGoalReviewWorker:
                     purpose="review", source_id=review["id"], objective="审阅每日执行证据并提出是否需要调整的建议",
                     context={"daily_evidence": evidence}, roles=("planner", "critic"),
                     thread_id=context.thread_id, runtime_bundle_id=context.runtime_bundle_id,
-                    root_budget_id=context.root_budget_id,
+                    root_budget_id=context.root_budget_id, owner_id=context.owner_id,
                 )
                 if advice is not None:
                     evidence = {**evidence, "expert_advice": advice}

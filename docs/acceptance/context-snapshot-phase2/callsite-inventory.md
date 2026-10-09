@@ -1,8 +1,9 @@
 # ContextSnapshot 第二阶段 · 真实模型调用入口清单（P00）
 
-- 日期：2026-09-30（§7.1 于 2026-10-06 / 2026-10-07 追加）
-- 代码基线：`dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7`（2026-10-07 起，Phase 2A 主体已提交为
-  `9992533fac42f19b9e1dbe321612d94912e6e8b3`；2026-10-07 的 F04 修复仍在工作区）
+- 日期：2026-09-30（§7.1 于 2026-10-06 / 2026-10-07 追加；§8 于 2026-10-08 追加）
+- 2A 历史核对基线：`dcfc54e358bdc8ae92e2ea1a41bf56694ea080f7`（2026-10-07 起，Phase 2A 主体已提交为
+  `9992533fac42f19b9e1dbe321612d94912e6e8b3`；F04 随后在 `37a4e9af39faa781a92db1227e444173e13c2db0` 提交）
+- 2B 开始基线：`37a4e9af39faa781a92db1227e444173e13c2db0`，分支 `front0920`。本次开发尚未形成提交。
 - 核对方式：只读检索 `startup.py` 的网关装配、全部 `.complete(` 调用点、全部 `ModelGateway(` 构造点、
   `ModelControlStore.begin_invocation` 调用点，以及 HTTP 路由到服务的可达性。**没有只搜一个网关类就下结论。**
 - 本清单是 Phase 2A（M1）与 Phase 2B（M2）的共享入口台账。
@@ -54,7 +55,7 @@ control_store.learning_assets = runtime.learning.assets               # :261
 | # | 位置 | 用途 | 有 control_store | 生产可达 | 阶段 | 门禁 |
 |---|---|---|---|---|---|---|
 | 22 | `model_control.py:887` `_execute_http_attempt` | **routed 的内部 attempt 执行**（`ModelGateway(profile)._attempt(...)`） | 是（外层已建 invocation） | ✅ | **2A**：必须**不**创建第二个 invocation/snapshot（P06） | G06 |
-| 23 | `model_admin.py:355` `_verify_live` | 管理端模型版本验证 | ❌ **无 control_store** | ✅ API `POST /model-profiles/versions/{id}/verify` | **2B（P13）** | M2 / C01、C04 |
+| 23 | `model_admin.py::_verify_live` | 管理端指定版本验证 | ✅ 注入 `ModelAdminService.control_store` 与服务 owner | ✅ API `POST /api/model-profile-versions/{id}/verify` | **2B（P13）** | B08、T19–T22 已验收通过；整体 M2 未完成 |
 | 24 | `real_evaluation.py:1238` | 评估用网关构造 | ✅ 传入 `self.control_store` | ✅ | 2A 自动覆盖（走 #21） | G06 |
 | 25 | `model_gateway.py:726` `provider_payload()` | 纯函数：算 body，不发请求 | — | ✅（被评估/管理端调用） | 2A：只读冻结输入派生（P06/G10） | G10、G11 |
 | 26 | `eval.py:75` | 离线评估脚本入口 | ❌ | ❌ 离线 | 2B（P13 收口时明确标记） | C05 |
@@ -147,3 +148,60 @@ R01 在 P10 用**当次实测**重跑，不照搬上表数量。
 pytest 允许用基名选择全部参数；实际节点数按 `pytest --collect-only` 计，与本表项数不是同一个量。
 映射完整性由 `scripts/verify_acceptance_nodes.py` 机械校验（把本节的引用与 `--collect-only` 结果对账，
 含"已实现但未登记"的反向检查）。
+
+## 8. Phase 2B 稳定入口登记（按符号，不依赖行号）
+
+核对基线 `37a4e9a`。下列 ID 是本期稳定 callsite ID；动态测试映射在 2B 验收文件落地后补全。标为“待测”的入口不能计入 M2 覆盖率。
+
+| Callsite ID | 生产入口 / 逻辑调用 | Owner 来源 | 接入与目标验收 |
+|---|---|---|---|
+| CS-RS-01 | `LiveResearchModel.plan/distill/reflect/curate/audit/summarize` 结构化请求 | `ManagedResearchWorker.run_once` 的源 turn/thread owner | Routed；T04 有 8 个方法分支的独立连接正向证据；T05 JSON 修复新 invocation/snapshot/span、T06 网络 retry 复用 invocation/snapshot 已动态通过。Worker job 到 owner/root/bundle 的来源链仍待测 |
+| CS-RS-02 | `LiveResearchModel.write`、报告修复、连续章节 | 源 turn/thread owner；固定 runtime bundle | Routed；T07 部分（write 单次适配器发送），连续章节、报告修复、Worker 恢复待测 |
+| CS-RS-03 | Research Worker → `LiveSafetyJudge.judge`（`judge_research_output`） | 持久化 research job 的源 turn/thread owner | ambient context；T36/T37，待测 |
+| CS-AG-01 | `AgentTaskWorker` 专家执行与汇总（`execute_bundle`、`synthesize`、`synthesize_user_task`） | 持久化 run owner | Routed；T09/T10，待测 |
+| CS-AG-02 | Agent Worker → `LiveSafetyJudge.judge`（`judge_expert_output`） | 持久化 run owner | ambient context；T36，待测 |
+| CS-LN-01 | learning agent/extraction/prompt/eval 生成与 Judge | 已授权 learning job owner、root、bundle | Routed；T11 部分（LearningAgent、ConstraintExtractor、LearningJudge 各单入口），pipeline/job/root/bundle、prompt、来源冲突和撤销待测 |
+| CS-EV-01 | `LiveBehaviorRunner` baseline、candidate、quality Judge | `EvolutionService.evaluate_builtin` 的已授权 owner | Routed；T13/T14，开发中 |
+| CS-EV-02 | `learning_replay` selector/baseline/candidate/Judge | 已授权 replay job owner | Routed；T13/T14，待测 |
+| CS-EV-03 | `RealEvaluationRunner` profile arms 与 paired Judge | evaluation run/config owner、root | Direct + control store；T15，待测 |
+| CS-GR-01 | `AgentRuntime._model_call`：clarification/planning/react/reflection 与结构修复 | run source turn → thread owner；缺失则拒绝 | Routed；T33/T37，开发中 |
+| CS-GR-02 | Agent Runtime → `LiveSafetyJudge.judge`（`judge_run_output`） | run source turn → thread owner；缺失则零发送 | ambient context；T36/T37，开发中 |
+| CS-GR-03 | `ExecutionMaterializer.project_plan_for_execution` → `PlanExecutionCompiler` | 授权 turn/thread owner、pinned bundle/root | T34：`tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot`；tenant-b、失败零发送、READY 恢复不重发（SQLite） |
+| CS-GP-01 | `ManagedGoalReviewWorker.daily_review`、`period_review` 非工具编译 | goal program 行 owner；`goal_operation` root | T35 partial：`tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure`；缺 PG root 与非默认 program owner 补验 |
+| CS-GP-02 | API `adjust_goal_program` 非工具编译与修复 | goal program 行 owner；`goal_operation` root | T35 partial：`tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots`；缺 PG root 与非默认 program owner 补验 |
+| CS-MA-01 | `MemoryArchiveWorker` → `summarize_episode` | 持久化 archive claim owner/thread | T16 部分：`test_snapshot_auxiliary_entries.py::test_archive_worker_summary_uses_claim_owner_and_committed_snapshot` 驱动真实 ConversationArchiver 与 LiveEpisodeSummarizer；恢复重试及 Harness 来源仍待测 |
+| CS-MR-01 | `MemoryReferenceResolver.resolve_memory_reference` | 显式授权 owner + 最终候选列表 | T17 部分：`test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list` 验证候选选择、owner 和实际发送冻结；超时/取消与 owner 交错仍待测 |
+| CS-CA-01 | `LiveConversationModel` 分类、澄清、无历史回答及修复 | 已授权 turn/thread owner | T38：两种分类辅助调用和主回答各自绑定唯一 snapshot/span；T18 的澄清、无历史回答及修复分支仍待验 |
+| CS-MD-01 | `ModelAdminService._verify_live` 指定 profile version | 服务端 `ModelAdminService.owner_id` | Direct + control store；B08/T19–T22 验收通过 |
+
+### 8.1 Direct/transport 和排除项
+
+| Symbol | 分类与依据 |
+|---|---|
+| `RoutedModelGateway._execute_attempt` → `ModelGateway._attempt` | routed 内部 transport。外层已有 invocation/snapshot，不得二次绑定，T27。 |
+| `ModelGateway._attempt` | 低层 HTTP transport。生产只能由受控 direct/routed 路径调用；其余须通过明确 offline API，T25–T28。当前旁路待 B09 收口。 |
+| `ModelGateway.provider_payload` | 纯协议转换，不发网络请求。 |
+| `eval.py::_run_live_smoke` | CLI `--mode live` 当前构造无 store、无 transport 的 gateway；默认 fail-closed 并将 `GatewayError` 记为 smoke 失败，不会打开 HTTP。明确列为非 API 可达脚本入口，不计生产发送覆盖；若恢复真实 smoke 发送，必须注入 `ModelControlStore` 和可信 service owner。 |
+| `evals.py` | 确定性 Runtime 使用 `MockModelGateway`；底层 retry smoke 明确注入 `httpx.MockTransport`，属于测试 transport，未发现生产装配路径。 |
+| `model_capacity_migration.plan_model_capacity_migration` | 只读 profile/version 并生成计划，不调用 verifier；临时 `ModelAdminService` 只执行列表/读取。 |
+| `model_capacity_migration.apply_model_capacity_migration` | 更新容量版本但不调用 verifier；临时 `ModelAdminService` 只执行读取/加版本。当前两处均不可能触发 `_verify_live`，因此不要求注入发送用 control store；若后续增加 live verification，必须注入受控 store。 |
+
+### 8.2 Owner 构造审计及 M1 对账
+
+- 2B 基线 HEAD：`37a4e9a`；工作区初始仅有 Phase 2B 任务书未跟踪。Python `3.13.0`；仓库 `backend/agent.db` 的 SQLite `schema_migrations` max version 为 `24`；Alembic 声明 head 为 `20260930_0025`。本轮未运行隔离 PostgreSQL，因此未复核 M1 的数据库证据。
+- M1：已按 Phase 2A 报告追加记录完成本轮复验；快照/网关/恢复 SQLite 119 passed，M5 gates + 离线 PG harness 25 passed，真实评估 35 passed，对话 worker 41 passed，Phase 2B 指定 PG 集合 49 passed。历史失败记录仍保留；M1 结论基于这些复验，不依赖 HEAD 推断。
+- 生产代码 `ModelCallContext(...)` 审计发现：`runtime.AgentRuntime._model_call`、`runtime.AgentRuntime._finish_exposure`、`research.worker` 两处存在缺 owner/默认回落；`evolution.LiveBehaviorRunner` 缺 owner 且 answer/Judge 共用 ambient identity；`RoutedModelGateway.complete` 无 context 时创建隐式身份；`resolved_profile` / `output_limit` 回落 `local-user`；`model_admin._verify_live` 是无 store direct 调用。这些分别登记到 B06A/B08/B09 与 T19–T22、T33–T37。
+- `ModelCallContext.owner_id` 已改为默认 `None`；Routed 与受控 direct 发送路径在打开 invocation 前拒绝缺失 owner；无存储 `ModelGateway` 仅在显式注入 transport 的离线/测试构造下可运行。定向动态拒绝证据：`tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send` 与 `::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http`。Phase 2A 全量回归仍未完成，不能据此宣称 M1 或 M2 通过。
+- 对 `backend/app/**/*.py` 做 AST 枚举，当前没有未显式写 `owner_id` 的 `ModelCallContext(...)` 直接构造点；仍需人工追踪从服务配置、授权 run/turn/job 到这些构造点的可信性，AST 结果不代替生产可达性审计。
+- 已采集到的部分 pytest node（这些只覆盖表中逻辑的一部分，不代表对应入口完整验收）：
+  - T02：`tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send`、`::test_t02_transport_recorder_fails_on_an_unbound_send`（复用 `tests/snapshot_entrypoint_helpers.py::CommittedSnapshotTransport`）。
+  - T25/T37：`tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send`、`::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http`。
+  - T33：`tests/test_snapshot_flow.py::test_t33_runtime_json_repair_gets_a_new_snapshot_and_child_span`（LiveRuntimeModel adapter，不含 `/api/goals` 端到端 Runtime）。
+  - T38：`tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans`。
+
+#### Phase 2B adapter evidence update (2026-10-08)
+
+- Research adapter partial dynamic nodes (8 collected): `tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan|distill|reflect|curate|write|summarize|audit|repair]`. The transport hook checks committed binding through an independent connection. It does not drive `ManagedResearchWorker`, so it does not prove the job-to-owner source chain.
+- Learning adapter partial dynamic nodes: `tests/test_snapshot_learning_entries.py::test_learning_agent_generation_freezes_authorized_job_input`, `::test_learning_constraint_extraction_freezes_source_excerpt`, `::test_learning_judge_uses_its_own_committed_call`. The transport hook checks binding but does not drive the Learning job pipeline.
+- PostgreSQL entrypoint node: `tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send`. Together with the six listed Phase 2A/budget/settlement integration groups: 47 passed in the isolated PostgreSQL project.
+- Research logical-boundary nodes: `tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call` (T05) and `::test_research_network_retry_reuses_the_frozen_logical_call` (T06). Both send via `CommittedSnapshotTransport`; repair uses separate invocation/snapshot/span, while retry has two attempts under one invocation/snapshot.

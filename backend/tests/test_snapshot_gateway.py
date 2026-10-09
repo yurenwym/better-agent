@@ -16,7 +16,8 @@ import pytest
 # --------------------------------------------------------------------------- #
 
 def _configured_control_plane(
-    tmp_path, monkeypatch, *, context_windows=None, max_attempts=None, chained_fallback=False,
+    tmp_path, monkeypatch, *, context_windows=None, max_attempts=None, chained_fallback=False, owner_id="local-user",
+    database=None,
 ):
     """A routed control plane with chat/planner/fallback profiles.
 
@@ -29,8 +30,8 @@ def _configured_control_plane(
     from app.db import Database
     from app.model_admin import ModelAdminService
 
-    db = Database(tmp_path / "agent.db")
-    admin = ModelAdminService(db)
+    db = database or Database(tmp_path / "agent.db")
+    admin = ModelAdminService(db, owner_id=owner_id)
     versions = {}
     context_windows = context_windows or {}
     attempts = max_attempts or {}
@@ -57,7 +58,10 @@ def _configured_control_plane(
         planner_fallback.append(versions["fallback2"])
     policy = admin.create_policy("runtime", {
         "conversation": {"primary": versions["chat"], "fallback": []},
-        "planner": {"primary": versions["planner"], "fallback": planner_fallback},
+        **{role: {"primary": versions["planner"], "fallback": planner_fallback}
+           for role in ("planner", "reflector", "coordinator", "learning_generator", "learning_judge",
+                        "judge_quality", "judge_safety")},
+        "researcher": {"primary": versions["chat"], "fallback": []},
     })
     bundles = BehaviorBundleService(db)
     bundle = bundles.ensure({
@@ -91,7 +95,8 @@ def _request(messages=None, tools=None, **overrides):
 def _context(bundle, **overrides):
     from app.model_control import ModelCallContext
 
-    values = {"role": "conversation", "purpose": "route_and_respond", "runtime_bundle_id": bundle.id}
+    values = {"role": "conversation", "purpose": "route_and_respond", "owner_id": "local-user",
+              "runtime_bundle_id": bundle.id}
     values.update(overrides)
     return ModelCallContext(**values)
 
@@ -484,6 +489,51 @@ async def test_g07_a_failed_snapshot_write_sends_nothing(tmp_path, monkeypatch) 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("failure_point", ["snapshot", "invocation", "execution_context_binding"])
+async def test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing(
+    tmp_path, monkeypatch, failure_point,
+) -> None:
+    from app.execution_context import create_root_context
+    from app.harness_context_store import HarnessContextStore
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    harness = create_root_context(owner_id="local-user", runtime_bundle_id=bundle.id)
+    context = ModelCallContext.from_harness(harness, role="conversation", purpose="t03_failure_injection")
+    calls = []
+
+    async def execute(profile, attempt_request, **_):
+        calls.append(attempt_request)
+        return _answer()
+
+    control = ModelControlStore(db)
+    if failure_point == "snapshot":
+        def reject_snapshot(*_args, **_kwargs):
+            raise RuntimeError("injected snapshot write failure")
+        monkeypatch.setattr(control.snapshots, "insert", reject_snapshot)
+    elif failure_point == "invocation":
+        with db.transaction() as connection:
+            connection.execute("""
+                CREATE TRIGGER reject_model_invocation BEFORE INSERT ON model_invocations
+                BEGIN SELECT RAISE(FAIL, 'injected invocation write failure'); END
+            """)
+    else:
+        def reject_binding(*_args, **_kwargs):
+            raise RuntimeError("injected execution binding write failure")
+        monkeypatch.setattr(HarnessContextStore, "save_invocation_context", reject_binding)
+
+    gateway = RoutedModelGateway(db, control, execute_attempt=execute)
+    with pytest.raises(Exception, match="injected .* write failure"):
+        await gateway.complete(_request(), context=context)
+
+    assert calls == []
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM model_input_snapshots").fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
 async def test_g07_a_binding_conflict_sends_nothing_and_does_not_fall_back(
     tmp_path, monkeypatch,
 ) -> None:
@@ -673,6 +723,79 @@ async def test_g06_a_direct_gateway_binds_exactly_one_invocation_and_snapshot(
 
 
 @pytest.mark.asyncio
+async def test_routed_gateway_refuses_missing_execution_identity_before_any_send(tmp_path, monkeypatch) -> None:
+    from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway, RoutingError
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    sends = []
+
+    async def execute(*_args, **_kwargs):
+        sends.append(True)
+        return _answer()
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    with pytest.raises(RoutingError, match="owner"):
+        await gateway.complete(_request())
+    with pytest.raises(RoutingError, match="owner"):
+        await gateway.complete(_request(), context=_context(bundle, owner_id=""))
+    assert sends == []
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_direct_gateway_rejects_missing_identity_and_uncontrolled_http(tmp_path, monkeypatch) -> None:
+    from app.db import Database
+    from app.model_control import ModelCallContext, ModelControlStore
+    from app.model_gateway import GatewayError, ModelGateway
+
+    db = Database(tmp_path / "identity.db")
+    profile = _protocol_profile(db, monkeypatch, "openai_compatible")
+    direct = ModelGateway(profile, control_store=ModelControlStore(db))
+    with pytest.raises(GatewayError, match="owner"):
+        await direct.complete(_request(), context=ModelCallContext("conversation", "missing_owner"))
+    with pytest.raises(GatewayError, match="control store"):
+        await ModelGateway(profile).complete(_request())
+    with db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM model_invocations").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_t02_transport_recorder_reads_the_committed_binding_before_send(tmp_path, monkeypatch) -> None:
+    from app.model_control import ModelControlStore, RoutedModelGateway
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    recorder = CommittedSnapshotTransport(
+        db=db, owner_id="local-user", callsite_id="CS-CA-01", response=_answer(),
+    )
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=recorder)
+    await gateway.complete(_request(), context=_context(bundle))
+
+    assert len(recorder.observations) == 1
+    observation = recorder.observations[0]
+    assert observation["callsite_id"] == "CS-CA-01"
+    assert observation["owner_id"] == "local-user"
+    assert observation["invocation_id"] and observation["attempt_id"]
+    assert observation["snapshot_id"] and observation["snapshot_digest"]
+    assert observation["profile_version_id"]
+
+
+@pytest.mark.asyncio
+async def test_t02_transport_recorder_fails_on_an_unbound_send(tmp_path) -> None:
+    from app.db import Database
+    from app.model_gateway import ModelRequest
+    from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+
+    recorder = CommittedSnapshotTransport(
+        db=Database(tmp_path / "no-binding.db"), owner_id="local-user",
+        callsite_id="unmapped", response=None,
+    )
+    with pytest.raises(AssertionError, match="no committed attempt/invocation"):
+        await recorder(None, ModelRequest(messages=[]))
+
+
+@pytest.mark.asyncio
 async def test_g06_the_routed_internal_attempt_adds_no_second_invocation_or_snapshot(
     tmp_path, monkeypatch,
 ) -> None:
@@ -734,7 +857,7 @@ async def test_g10_the_sent_body_is_the_adapter_output_of_the_frozen_input(
     import httpx
 
     from app.db import Database
-    from app.model_control import ModelControlStore
+    from app.model_control import ModelCallContext, ModelControlStore
     from app.model_gateway import ModelGateway, provider_payload
 
     db = Database(tmp_path / f"{protocol}.db")
@@ -755,7 +878,9 @@ async def test_g10_the_sent_body_is_the_adapter_output_of_the_frozen_input(
                          "parameters": {"type": "object", "properties": {}}},
         }],
     )
-    await gateway.complete(request)
+    await gateway.complete(request, context=ModelCallContext(
+        role="conversation", purpose="test_protocol_adapter", owner_id="local-user",
+    ))
 
     with db.connection() as connection:
         snapshot_id = connection.execute(
@@ -793,7 +918,7 @@ async def test_g11_a_null_max_tokens_is_resolved_per_protocol_without_touching_t
     import httpx
 
     from app.db import Database
-    from app.model_control import ModelControlStore
+    from app.model_control import ModelCallContext, ModelControlStore
     from app.model_gateway import ModelGateway, provider_payload
 
     db = Database(tmp_path / f"null-{protocol}.db")
@@ -808,7 +933,10 @@ async def test_g11_a_null_max_tokens_is_resolved_per_protocol_without_touching_t
 
     store = ModelControlStore(db)
     gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=store)
-    await gateway.complete(_request(max_tokens=None))
+    await gateway.complete(
+        _request(max_tokens=None),
+        context=ModelCallContext(role="conversation", purpose="test_null_max_tokens", owner_id="local-user"),
+    )
 
     with db.connection() as connection:
         # ``model_invocations`` carries no profile version; the attempt is where

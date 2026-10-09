@@ -200,7 +200,14 @@ class ModelGateway:
         random_source: Callable[[], float] = random.random,
         control_store: Any | None = None,
         http_client: httpx.AsyncClient | None = None,
+        offline_unbound: bool = False,
     ) -> None:
+        # Explicit opt-in for offline CLI tools and probes that send without a
+        # control store.  It is a constructor argument chosen in code by those
+        # tools; no request body, query or tool parameter can set it, and the
+        # production assembly never does.  Such calls persist no snapshot and
+        # are not counted as production coverage.
+        self.offline_unbound = offline_unbound
         self.profile = profile
         self.transport = transport
         self.sleep = sleep
@@ -378,19 +385,20 @@ class ModelGateway:
     ) -> ModelResponse:
         from .token_budget import ContextOverflow, assert_request_fits
 
+        if self.control_store is None and self.transport is None and not self.offline_unbound:
+            raise GatewayError(
+                "model gateway without a control store requires an injected offline transport "
+                "or an explicit offline_unbound=True",
+                "configuration",
+            )
+
         effective_context = context or self._call_context.get()
         if self.control_store is not None:
             from .model_control import ModelCallContext, child_call_context
 
-            effective_context = (
-                child_call_context(
-                    effective_context,
-                    role=request.role,
-                    purpose=request.purpose,
-                )
-                if effective_context is not None
-                else ModelCallContext(role=request.role or "conversation", purpose=request.purpose or "complete")
-            )
+            if effective_context is None or not isinstance(effective_context.owner_id, str) or not effective_context.owner_id.strip():
+                raise GatewayError("model execution owner is required", "identity")
+            effective_context = child_call_context(effective_context, role=request.role, purpose=request.purpose)
 
         def admit(frozen_request: ModelRequest) -> None:
             try:

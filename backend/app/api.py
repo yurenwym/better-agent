@@ -227,8 +227,13 @@ def register_routes(app) -> None:
         value = getattr(runtime(request), "model_admin", None)
         if value is None:
             from .model_admin import ModelAdminService
-            value = ModelAdminService(runtime(request).db)
-            runtime(request).model_admin = value
+            active_runtime = runtime(request)
+            value = ModelAdminService(
+                active_runtime.db,
+                owner_id="local-user",
+                control_store=getattr(active_runtime, "model_control_store", None),
+            )
+            active_runtime.model_admin = value
         return value
 
     @app.get("/api/model-profiles")

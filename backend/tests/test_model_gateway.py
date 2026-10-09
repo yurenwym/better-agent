@@ -166,7 +166,7 @@ async def test_gateway_context_overflow_happens_before_transport_and_invocation(
     with pytest.raises(GatewayError) as caught:
         await gateway.complete(
             ModelRequest(messages=[{"role": "user", "content": "x" * 2000}]),
-            context=ModelCallContext("conversation", "answer"),
+            context=ModelCallContext("conversation", "answer", owner_id="local-user"),
         )
 
     assert caught.value.kind == "context_overflow"

@@ -52,24 +52,26 @@ class ManagedResearchWorker:
                     "SELECT t.runtime_bundle_id,th.owner_id FROM turns t "
                     "JOIN threads th ON th.id=t.thread_id WHERE t.id=?", (job.source_turn_id,)
                 ).fetchone()
+            if turn is None or not turn["owner_id"]:
+                raise PermissionError("research source turn is missing an authorized owner")
             runtime_bundle_id = turn["runtime_bundle_id"] if turn else None
             if self.evolution is not None:
                 runtime_bundle_id, _ = self.evolution.assign_role_task(
                     job.id, job.thread_id, role="researcher", purpose="write_research_section",
-                    owner_id=turn["owner_id"] if turn else "local-user",
+                    owner_id=turn["owner_id"],
                 )
             if getattr(self, "learning", None) is not None:
                 with self.service.db.connection() as connection:
                     project = connection.execute("SELECT project_id FROM threads WHERE id=?", (job.thread_id,)).fetchone()
-                runtime_bundle_id = self.learning.resolve_prompt(turn["owner_id"] if turn else "local-user", "researcher", "write_research_section", runtime_bundle_id)
-                runtime_bundle_id = self.learning.resolve_research_policy(turn["owner_id"] if turn else "local-user", project[0] if project else None, runtime_bundle_id)
+                runtime_bundle_id = self.learning.resolve_prompt(turn["owner_id"], "researcher", "write_research_section", runtime_bundle_id)
+                runtime_bundle_id = self.learning.resolve_research_policy(turn["owner_id"], project[0] if project else None, runtime_bundle_id)
             if getattr(gateway, "control_store", None) is not None:
                 from ..model_control import ModelCallContext
                 context_token = gateway.set_call_context(ModelCallContext(
                     role="researcher", purpose="research", run_id=job.id, thread_id=job.thread_id,
                     turn_id=job.source_turn_id, runtime_bundle_id=runtime_bundle_id,
                     root_budget_id=self._root_budget_id(job.id),
-                    owner_id=turn["owner_id"] if turn else "local-user",
+                    owner_id=turn["owner_id"],
                 ))
             sections,sources,evidence,plan=self.service.recovery_context(job.id)
             limits = self.limits
@@ -103,11 +105,13 @@ class ManagedResearchWorker:
                         "SELECT t.runtime_bundle_id,th.owner_id FROM turns t "
                         "JOIN threads th ON th.id=t.thread_id WHERE t.id=?", (job.source_turn_id,),
                     ).fetchone()
+                if source_turn is None or not source_turn["owner_id"]:
+                    raise PermissionError("research source turn is missing an authorized owner")
                 advice = await self.expert_advisor.advise(
                     purpose="research", source_id=job.id, objective="审阅研究报告的证据覆盖、结论边界和关键风险",
                     context={"topic": job.topic, "report": report["markdown"]}, roles=("researcher", "critic"),
-                    thread_id=job.thread_id, runtime_bundle_id=source_turn["runtime_bundle_id"] if source_turn else None,
-                    owner_id=source_turn["owner_id"] if source_turn else "local-user",
+                    thread_id=job.thread_id, runtime_bundle_id=source_turn["runtime_bundle_id"],
+                    owner_id=source_turn["owner_id"],
                     root_budget_id=self._root_budget_id(job.id),
                 )
                 if advice is not None:
@@ -178,7 +182,7 @@ class ManagedResearchWorker:
                 token = gateway.set_call_context(ModelCallContext(
                     role="judge_safety", purpose="judge_research_output", run_id=job.id, thread_id=job.thread_id,
                     turn_id=job.source_turn_id, runtime_bundle_id=runtime_bundle_id or (turn["runtime_bundle_id"] if turn else None),
-                    owner_id=turn["owner_id"] if turn else "local-user",
+                    owner_id=turn["owner_id"] if turn else "",
                     root_budget_id=self._root_budget_id(job.id),
                 ))
             try:

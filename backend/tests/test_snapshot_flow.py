@@ -37,7 +37,8 @@ def _plane(tmp_path, monkeypatch, *, execute, **kwargs):
 def _context(bundle, **overrides):
     from app.model_control import ModelCallContext
 
-    values = {"role": "conversation", "purpose": "route_and_respond", "runtime_bundle_id": bundle.id}
+    values = {"role": "conversation", "purpose": "route_and_respond", "owner_id": "local-user",
+              "runtime_bundle_id": bundle.id}
     values.update(overrides)
     return ModelCallContext(**values)
 
@@ -76,15 +77,25 @@ def _snapshot_count(db) -> int:
 
 async def _drive(model, content: str = "今天要做什么？", **kwargs):
     deltas: list[str] = []
-    return await model.route_and_respond(
-        content=content,
-        history=[{"role": "user", "content": content}],
-        skill_names=[],
-        on_text_delta=deltas.append,
-        on_text_reset=lambda: None,
-        cancel_event=asyncio.Event(),
-        **kwargs,
-    )
+    token = None
+    gateway = getattr(model, "gateway", None)
+    if getattr(gateway, "control_store", None) is not None and gateway.current_call_context() is None:
+        token = gateway.set_call_context(ModelCallContext(
+            role="conversation", purpose="test_turn", owner_id="local-user",
+        ))
+    try:
+        return await model.route_and_respond(
+            content=content,
+            history=[{"role": "user", "content": content}],
+            skill_names=[],
+            on_text_delta=deltas.append,
+            on_text_reset=lambda: None,
+            cancel_event=asyncio.Event(),
+            **kwargs,
+        )
+    finally:
+        if token is not None:
+            gateway.reset_call_context(token)
 
 
 def _echo_answer():
@@ -329,6 +340,7 @@ async def test_i05_a_memory_update_reaches_a_new_turn_and_leaves_the_old_snapsho
     async def _one_turn() -> str:
         rendered, sources = _turn_inputs()
         await model.route_and_respond(
+            owner_id="local-user",
             content="今天要做什么？",
             history=[
                 {"role": "system", "content": rendered, "_context_priority": 60,
@@ -726,7 +738,7 @@ async def test_s04_the_ambient_context_is_restored_after_a_compile(tmp_path, mon
     assert failing.gateway._call_context.get() is None, "a failed compile leaked its context"
 
     # And a later call gets a fresh identity of its own.
-    fresh = ModelCallContext("conversation", "route_and_respond")
+    fresh = ModelCallContext("conversation", "route_and_respond", owner_id="local-user")
     assert fresh.invocation_id is None and fresh.input_snapshot_id is None
 
 
@@ -868,23 +880,23 @@ async def test_s05_a_resumed_compile_keeps_its_tool_identity_and_pinned_bundle(
         ),
         control_store=control2,
     )
-    # No ``set_call_context``: there is no tool to be a child of, and none is invented.
+    # A persisted invocation requires an authorized owner, even for a standalone
+    # compiler with no HarnessExecutionContext.
     assert gateway2.current_call_context() is None
-    result = await GoalProgramCompiler(gateway2).compile("# 计划\n每天跑步。", {
-        "start_date": "2026-09-01", "end_date": "2026-09-05", "daily_minutes": 60,
-    })
-    assert result["objective_title"]
+    with pytest.raises(Exception):
+        await GoalProgramCompiler(gateway2).compile("# 计划\n每天跑步。", {
+            "start_date": "2026-09-01", "end_date": "2026-09-05", "daily_minutes": 60,
+        })
 
     standalone_rows = _planner_rows(db2)
-    assert len(standalone_rows) == 1, standalone_rows
+    assert len(standalone_rows) == 0, standalone_rows
     with db2.connection() as connection:
         stored = connection.execute(
             "SELECT execution_context_digest, execution_context_json FROM model_invocations "
             "WHERE role='planner'"
         ).fetchone()
-    # The legacy path carries no execution identity, and none was fabricated.
-    assert stored["execution_context_digest"] is None
-    assert stored["execution_context_json"] is None
+    # Missing identity fails before any invocation or execution binding exists.
+    assert stored is None
     assert gateway2.current_call_context() is None, "the standalone compile leaked a context"
 
 
@@ -943,6 +955,7 @@ async def test_b01_a_memory_update_is_reselected_and_recorded_by_the_next_turn(
     async def _one_turn():
         rendered, sources, digest, version = _turn_inputs()
         await model.route_and_respond(
+            owner_id="local-user",
             content="今天要做什么？",
             history=[
                 {"role": "system", "content": rendered, "_context_priority": 60,
@@ -1027,6 +1040,7 @@ async def test_b02_a_skill_update_binds_a_new_version_and_a_revoked_one_stops_th
 
     async def _skill_turn(*, thread_id, message_id, skill_text):
         await model.route_and_respond(
+            owner_id="local-user",
             content="今天要做什么？",
             history=[
                 {"role": "system",
@@ -1124,3 +1138,94 @@ async def test_b03_a_partial_input_with_a_known_reference_freezes_sends_and_stay
     unknown = next(source for source in record.sources if source.id == "memory-X")
     assert unknown.kind == "other"
     assert unknown.fully_tracked is False
+
+
+@pytest.mark.asyncio
+async def test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans(tmp_path, monkeypatch) -> None:
+    """Two helper calls and the main reply each open an independent call/span."""
+    from test_harness_context_flow import stored_context
+
+    calls = []
+
+    async def execute(_profile, request, **_kwargs):
+        purpose = request.purpose
+        calls.append(purpose)
+        if purpose == "classify_plan_document_request":
+            message = '{"plan_document_request":false}'
+        elif purpose == "classify_research_request":
+            message = '{"start_research":false,"topic":""}'
+        else:
+            message = _header()
+        return _answer(message)
+
+    db, _bundle, _, model, gateway = _plane(tmp_path, monkeypatch, execute=execute)
+    harness = _turn_context(db)
+    parent = ModelCallContext.from_harness(harness, role="conversation", purpose="conversation_turn")
+    token = gateway.set_call_context(parent)
+    try:
+        await model._classify_explicit_plan_document_request(
+            "你能帮我安排一下吗？", [], asyncio.Event(),
+        )
+        await model._classify_explicit_research_request("请说明相关资料", asyncio.Event())
+        await model.route_and_respond(
+            owner_id="local-user", content="你好", history=[{"role": "user", "content": "你好"}],
+            skill_names=[], on_text_delta=lambda _text: None, on_text_reset=lambda: None,
+            cancel_event=asyncio.Event(),
+        )
+    finally:
+        gateway.reset_call_context(token)
+
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id,owner_id,purpose,context_snapshot_id,execution_context_json "
+            "FROM model_invocations ORDER BY created_at,id",
+        ).fetchall()
+    assert len(calls) == 3 and len(rows) == 3
+    assert len({row["id"] for row in rows}) == 3
+    assert all(row["owner_id"] == harness.owner_id and row["context_snapshot_id"] for row in rows)
+    assert len({row["context_snapshot_id"] for row in rows}) == 3
+    assert {row["purpose"] for row in rows} == {
+        "classify_plan_document_request", "classify_research_request", "route_and_respond",
+    }
+    contexts = [stored_context(row) for row in rows]
+    spans = [item["span_id"] for item in contexts]
+    assert len(set(spans)) == 3
+    assert all(item["parent_span_id"] == harness.span_id for item in contexts)
+
+
+@pytest.mark.asyncio
+async def test_t33_runtime_json_repair_gets_a_new_snapshot_and_child_span(tmp_path, monkeypatch) -> None:
+    from app.execution_context import create_root_context
+    from app.live_model import LiveRuntimeModel
+    from test_harness_context_flow import stored_context
+
+    responses = iter(["not JSON", '{"summary":"计划","steps":[{"id":"s1","title":"开始","description":""}]}'])
+
+    async def execute(_profile, _request, **_kwargs):
+        return _answer(next(responses))
+
+    db, bundle, _, _, gateway = _plane(tmp_path, monkeypatch, execute=execute)
+    model = LiveRuntimeModel(gateway)
+    harness = create_root_context(owner_id="local-user", runtime_bundle_id=bundle.id)
+    parent = ModelCallContext.from_harness(harness, role="planner", purpose="planning")
+    token = gateway.set_call_context(parent)
+    try:
+        result = await model.plan({"goal": "生成计划"}, [])
+    finally:
+        gateway.reset_call_context(token)
+
+    assert result.steps and len(result.steps) == 1
+    with db.connection() as connection:
+        rows = connection.execute(
+            "SELECT id,purpose,context_snapshot_id,execution_context_json FROM model_invocations ORDER BY created_at,id",
+        ).fetchall()
+    assert len(rows) == 2
+    assert rows[0]["purpose"] == "planning"
+    assert rows[1]["purpose"] == "repair_structured_output"
+    assert rows[0]["id"] != rows[1]["id"]
+    first = _stored(db, rows[0]["context_snapshot_id"])
+    repair = _stored(db, rows[1]["context_snapshot_id"])
+    assert first.content_json != repair.content_json
+    contexts = [stored_context(row) for row in rows]
+    assert contexts[0]["span_id"] != contexts[1]["span_id"]
+    assert contexts[1]["parent_span_id"] == harness.span_id

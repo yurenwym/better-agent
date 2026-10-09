@@ -32,7 +32,7 @@ def test_actual_control_prompt_digest_matches_replay_builder(tmp_path):
     from app.startup import build_runtime
     runtime = build_runtime(tmp_path)
     request = ModelRequest(messages=[{"role":"system","content":"真实中文提示词"},{"role":"user","content":"hi"}])
-    handle = ModelControlStore(runtime.db).begin_invocation(ModelProfile("https://offline.invalid", "offline", "UNUSED"), request, ModelCallContext("researcher","write_research_section"))
+    handle = ModelControlStore(runtime.db).begin_invocation(ModelProfile("https://offline.invalid", "offline", "UNUSED"), request, ModelCallContext("researcher","write_research_section", owner_id="local-user"))
     with runtime.db.connection() as connection:
         value = connection.execute("SELECT system_prompt_digest FROM model_invocations WHERE id=?",(handle.invocation_id,)).fetchone()[0]
     assert value == _digest(request.messages[0]["content"])

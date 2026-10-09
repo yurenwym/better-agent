@@ -171,7 +171,8 @@ def build_runtime(    data_root: str | Path,
         if os.getenv("AGENT_FALLBACK_MODEL_BASE_URL") else None
     )
     costs = CostService(db)
-    model_admin = ModelAdminService(db)
+    control_store = ModelControlStore(db, events=events, costs=costs)
+    model_admin = ModelAdminService(db, owner_id="local-user", control_store=control_store)
     registered_profile = model_admin.ensure_profile(configured_profile) if configured_profile else None
     registered_fallback = model_admin.ensure_profile(
         configured_fallback, capabilities_env="AGENT_FALLBACK_MODEL_CAPABILITIES",
@@ -203,7 +204,6 @@ def build_runtime(    data_root: str | Path,
             price.effective_at,
             price.source_url,
         )
-    control_store = ModelControlStore(db, events=events, costs=costs)
     gateway = RoutedModelGateway(db, control_store) if registered_profile else None
     settings = SettingsService(db)
     model = LiveRuntimeModel(gateway, tools.describe()) if gateway else MockModelGateway()
@@ -220,6 +220,9 @@ def build_runtime(    data_root: str | Path,
         tools=tools,
         model=model,
         conversation_model=conversation_model,
+        # Single-user deployment identity for goal runs created without a
+        # conversation turn; chosen here by the service assembly, never per request.
+        owner_id="local-user",
     )
     # MCP is built here but not connected: connecting is I/O and belongs to the
     # application lifespan, so a slow or dead optional server delays the first
@@ -240,6 +243,7 @@ def build_runtime(    data_root: str | Path,
         registered_profile.api_key_env if registered_profile is not None else "AGENT_MODEL_API_KEY"
     )
     runtime.costs = costs
+    runtime.model_control_store = control_store
     runtime.model_admin = model_admin
     runtime.connectors = connectors
     from .real_evaluation import LiveEvaluationRunner, ManagedEvaluationWorker, RealEvaluator

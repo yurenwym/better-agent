@@ -28,11 +28,11 @@ def test_mainflow_advisor_reuses_persistent_agent_tasks_and_is_idempotent(tmp_pa
         try:
             first = await advisor.advise(
                 purpose="plan", source_id="plan-version-1", objective="review plan",
-                context={"plan": "bounded"}, roles=("planner", "critic"),
+                context={"plan": "bounded"}, roles=("planner", "critic"), owner_id="local-user",
             )
             second = await advisor.advise(
                 purpose="plan", source_id="plan-version-1", objective="review plan",
-                context={"plan": "bounded"}, roles=("planner", "critic"),
+                context={"plan": "bounded"}, roles=("planner", "critic"), owner_id="local-user",
             )
         finally:
             await worker.stop()
@@ -59,7 +59,7 @@ def test_mainflow_advisor_fails_open_when_experts_are_unavailable(tmp_path):
         try:
             return await advisor.advise(
                 purpose="review", source_id="review-1", objective="review day",
-                context={}, roles=("planner", "critic"),
+                context={}, roles=("planner", "critic"), owner_id="local-user",
             )
         finally:
             await worker.stop()

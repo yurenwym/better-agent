@@ -152,7 +152,14 @@ class AgentRuntime:
         conversation_model: Any | None = None,
         config: RuntimeConfig | None = None,
         skill_catalog: SkillCatalog | None = None,
+        owner_id: str = "local-user",
     ) -> None:
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise ValueError("runtime service owner must be a non-empty string")
+        # Trusted deployment identity for goal runs that have no source turn
+        # (``/api/goals``).  It is set by the service assembly, never by a
+        # request body; runs that do have a source turn use that turn's owner.
+        self.owner_id = owner_id
         self.db = db
         self.events = events
         self.plans = plans
@@ -217,7 +224,7 @@ class AgentRuntime:
             costs = getattr(self, "costs", None)
             if self.db.backend == "postgresql" and costs is not None:
                 root_budget_id = costs.create_default_root_budget(
-                    "local-user", "run", run_id, connection=connection,
+                    self.owner_id, "run", run_id, connection=connection,
                 )["id"]
             connection.execute(
                 "INSERT INTO goals(id, title, description, project_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -873,20 +880,29 @@ class AgentRuntime:
             gateway = getattr(judge, "gateway", None)
             token = None
             run = self.get_run(run_id)
+            owner_id = None
             if getattr(gateway, "control_store", None) is not None:
-                from .model_control import ModelCallContext
-                token = gateway.set_call_context(ModelCallContext(
-                    role="judge_safety", purpose="judge_run_output", run_id=run.id,
-                    goal_id=run.goal_id, runtime_bundle_id=run.runtime_bundle_id,
-                    root_budget_id=run.root_budget_id,
-                ))
-            try:
-                safety_pass = await judge.judge({"run_id": run_id, "output": "\n\n".join(messages[-8:])})
-            except Exception:
-                safety_pass = None
-            finally:
-                if token is not None:
-                    gateway.reset_call_context(token)
+                try:
+                    owner_id, _ = self._run_scope(run)
+                except PermissionError:
+                    # No authorized owner: the judge request is not sent and
+                    # the exposure is recorded without a safety verdict.
+                    owner_id = None
+                if owner_id:
+                    from .model_control import ModelCallContext
+                    token = gateway.set_call_context(ModelCallContext(
+                        role="judge_safety", purpose="judge_run_output", run_id=run.id,
+                        goal_id=run.goal_id, runtime_bundle_id=run.runtime_bundle_id,
+                        root_budget_id=run.root_budget_id, owner_id=owner_id,
+                    ))
+            if getattr(gateway, "control_store", None) is None or owner_id:
+                try:
+                    safety_pass = await judge.judge({"run_id": run_id, "output": "\n\n".join(messages[-8:])})
+                except Exception:
+                    safety_pass = None
+                finally:
+                    if token is not None:
+                        gateway.reset_call_context(token)
         evolution.finish_run_exposure(exposure_id, success=success, safety_pass=safety_pass)
 
     def _block(
@@ -1010,6 +1026,25 @@ class AgentRuntime:
                 (*values.values(), run_id),
             )
 
+    def _run_scope(self, run: RunSnapshot) -> tuple[str, str | None]:
+        """The authorized ``(owner_id, thread_id)`` a run's model calls execute under.
+
+        A run started from a conversation turn belongs to that thread's owner;
+        a missing turn or owner is refused rather than guessed.  A run created
+        directly through the goal API has no source turn, so it executes under
+        the trusted service owner configured on this runtime.
+        """
+        if not run.source_turn_id:
+            return self.owner_id, None
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT t.thread_id,th.owner_id FROM turns t JOIN threads th ON th.id=t.thread_id WHERE t.id=?",
+                (run.source_turn_id,),
+            ).fetchone()
+        if row is None or not row["owner_id"]:
+            raise PermissionError("run has no authorized source owner for model execution")
+        return row["owner_id"], row["thread_id"]
+
     async def _model_call(self, run: RunSnapshot, kind: str, method, *args):
         if self._is_cancelled(run.id):
             return None
@@ -1025,11 +1060,7 @@ class AgentRuntime:
             from .model_control import ModelCallContext
 
             role = {"clarification": "ask", "planning": "planner", "react": "executor", "reflection": "reflector"}.get(kind, kind)
-            thread_id = None
-            if run.source_turn_id:
-                with self.db.connection() as connection:
-                    source_turn = connection.execute("SELECT thread_id FROM turns WHERE id=?", (run.source_turn_id,)).fetchone()
-                thread_id = source_turn["thread_id"] if source_turn else None
+            run_owner_id, thread_id = self._run_scope(run)
             call_context_token = gateway.set_call_context(ModelCallContext(
                 role=role,
                 purpose=kind,
@@ -1040,6 +1071,7 @@ class AgentRuntime:
                 turn_id=run.source_turn_id,
                 runtime_bundle_id=run.runtime_bundle_id,
                 root_budget_id=run.root_budget_id,
+                owner_id=run_owner_id,
             ))
         snapshot = self._prepare_model_context(run, kind, args, invocation_id)
         message_id = self._create_model_message(run)

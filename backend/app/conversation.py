@@ -1805,8 +1805,12 @@ class ManagedTurnWorker:
                 # The ambient context carries the turn's auxiliary model calls
                 # (branch resolution, reference resolution).  Each logical
                 # ``route_and_respond`` call gets its own child span below.
+                # Keep the turn root as the derivation parent. Each auxiliary
+                # request and each route/repair request mints its own child
+                # span; using a pre-minted ambient child made those calls
+                # grandchildren and broke sibling-call correlation.
                 context_token = gateway.set_call_context(ModelCallContext.from_harness(
-                    create_child_context(turn_harness),
+                    turn_harness,
                     role="conversation", purpose="route_and_respond",
                     invocation_id=model_invocation_id,
                 ))
@@ -2383,26 +2387,30 @@ class ManagedTurnWorker:
                 observable = {"turn_id": turn.id, "output": row["content"]} if row is not None else None
             gateway = getattr(judge, "gateway", None)
             token = None
+            authorized_owner = None
             if observable is not None and getattr(gateway, "control_store", None) is not None:
                 from .model_control import ModelCallContext
                 with self.db.connection() as connection:
                     owner = connection.execute(
                         "SELECT owner_id FROM threads WHERE id=?", (turn.thread_id,),
                     ).fetchone()
-                token = gateway.set_call_context(ModelCallContext(
-                    role="judge_safety", purpose="judge_conversation_output", thread_id=turn.thread_id,
-                    turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
-                    root_budget_id=getattr(turn, "root_budget_id", None),
-                    owner_id=owner["owner_id"] if owner else "local-user",
-                ))
-            try:
-                if observable is not None:
-                    safety_pass = await judge.judge(observable)
-            except Exception:
-                safety_pass = None
-            finally:
-                if token is not None:
-                    gateway.reset_call_context(token)
+                if owner is not None and owner["owner_id"]:
+                    authorized_owner = owner["owner_id"]
+                    token = gateway.set_call_context(ModelCallContext(
+                        role="judge_safety", purpose="judge_conversation_output", thread_id=turn.thread_id,
+                        turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
+                        root_budget_id=getattr(turn, "root_budget_id", None),
+                        owner_id=owner["owner_id"],
+                    ))
+            if getattr(gateway, "control_store", None) is None or authorized_owner:
+                try:
+                    if observable is not None:
+                        safety_pass = await judge.judge(observable)
+                except Exception:
+                    safety_pass = None
+                finally:
+                    if token is not None:
+                        gateway.reset_call_context(token)
         evolution.finish_run_exposure(exposure_id, success=success, safety_pass=safety_pass)
 
     async def _heartbeat(
@@ -3404,7 +3412,9 @@ class ManagedTurnWorker:
             row = connection.execute(
                 "SELECT owner_id FROM threads WHERE id=?", (turn.thread_id,),
             ).fetchone()
-        return self._hot_window(turn, row["owner_id"] if row is not None else "local-user")
+        if row is None or not row["owner_id"]:
+            raise PermissionError("turn has no authorized owner for model window resolution")
+        return self._hot_window(turn, row["owner_id"])
 
     async def _archive_history_before_generation(
         self, turn: TurnSnapshot, *, scope: Any = None, window: Any = None,

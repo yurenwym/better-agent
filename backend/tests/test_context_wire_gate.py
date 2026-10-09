@@ -178,7 +178,7 @@ def test_capacity_rejection_records_evidence_invalidation(tmp_path, monkeypatch)
     with pytest.raises(GatewayError) as caught:
         asyncio.run(gateway.complete(
             ModelRequest(messages=[{"role": "planner", "content": "x" * 100}], role="planner"),
-            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+            context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
         ))
 
     assert caught.value.kind == "context_overflow"
@@ -255,7 +255,7 @@ def test_unfittable_fallback_is_skipped_so_a_later_profile_can_serve(tmp_path, m
     gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
     response = asyncio.run(gateway.complete(
         ModelRequest(messages=[{"role": "planner", "content": "x" * 1000}], role="planner"),
-        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("planner", "plan", runtime_bundle_id=bundle.id, owner_id="local-user"),
     ))
 
     assert response.message == "served by the roomy fallback"

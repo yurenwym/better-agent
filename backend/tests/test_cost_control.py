@@ -129,7 +129,7 @@ def test_three_level_attempt_reservation_is_atomic_and_unconfigured_levels_are_u
 
     db = Database(tmp_path / "agent.db")
     service = CostService(db)
-    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer", owner_id="local-user"))
     daily = service.today_period()
     monthly = daily[:7]
     service.set_budget("local-user", "INVOCATION", handle.invocation_id, 1_000)
@@ -194,7 +194,7 @@ def test_three_level_settlement_and_release_are_append_only_idempotent_and_repla
 
     db = Database(tmp_path / "agent.db")
     service = CostService(db)
-    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer", owner_id="local-user"))
     periods = {
         "INVOCATION": handle.invocation_id,
         "DAILY": service.today_period(),
@@ -242,7 +242,7 @@ def test_missing_usage_conservatively_charges_all_configured_levels(tmp_path) ->
 
     db = Database(tmp_path / "agent.db")
     service = CostService(db)
-    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+    handle = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer", owner_id="local-user"))
     periods = {
         "INVOCATION": handle.invocation_id,
         "DAILY": service.today_period(),
@@ -316,7 +316,7 @@ async def test_budget_block_happens_before_network(tmp_path, monkeypatch, period
     with pytest.raises(GatewayError) as caught:
         await gateway.complete(
             ModelRequest(messages=[]),
-            context=ModelCallContext("conversation", "answer", invocation_id=invocation_id),
+            context=ModelCallContext("conversation", "answer", invocation_id=invocation_id, owner_id="local-user"),
         )
     assert caught.value.kind == "budget"
     with db.connection() as connection:
@@ -355,7 +355,7 @@ async def test_gateway_charges_each_retry_attempt_without_double_counting(tmp_pa
     )
     control = ModelControlStore(db, costs=costs)
     gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=control)
-    await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "unmetered_setup"))
+    await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "unmetered_setup", owner_id="local-user"))
     with db.connection() as connection:
         profile_version_id = connection.execute("SELECT id FROM model_profile_versions").fetchone()[0]
         # `model_invocation_events` (migration 37) also references `model_invocations`,
@@ -367,7 +367,7 @@ async def test_gateway_charges_each_retry_attempt_without_double_counting(tmp_pa
     costs.register_price(profile_version_id, PriceSnapshot("price-1", 1_000_000, 0, 0, 2_000_000, 0))
     costs.set_budget("local-user", "DAILY", costs.today_period(), 1_000)
 
-    result = await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "metered_answer"))
+    result = await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "metered_answer", owner_id="local-user"))
     assert result.message == "ok"
     with db.connection() as connection:
         attempts = connection.execute("SELECT ordinal,status,cost_status,cost_microusd,price_snapshot_id FROM model_attempts ORDER BY ordinal").fetchall()
@@ -404,7 +404,7 @@ def test_default_invocation_budget_is_materialized_for_each_real_invocation(tmp_
     from app.model_control import ModelCallContext, ModelCallHandle
     db = Database(tmp_path / "agent.db")
     service = CostService(db)
-    base = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer"))
+    base = _registered_cost_handle(db, service, ModelCallContext("conversation", "answer", owner_id="local-user"))
     service.set_budget("local-user", "INVOCATION", "default", 1_000)
     handle = ModelCallHandle("inv-from-template", base.profile_version_id, base.context)
     with db.transaction() as connection:

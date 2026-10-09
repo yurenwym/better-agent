@@ -77,6 +77,22 @@ class LiveResearchModel:
             raise ValueError("structured_attempts must be 1 or 2")
         self.structured_attempts = structured_attempts
 
+    async def _complete(self, request: ModelRequest, *, parent_context=None):
+        """Open a fresh logical Research call under the stable worker parent."""
+        if getattr(self.gateway, "control_store", None) is not None:
+            parent = parent_context or self.gateway.current_call_context()
+            if parent is None:
+                from ..model_gateway import GatewayError
+
+                raise GatewayError("research execution context is required", "identity")
+            from ..model_control import new_logical_call
+
+            return await self.gateway.complete(
+                request,
+                context=new_logical_call(parent, role=request.role, purpose=request.purpose),
+            )
+        return await self.gateway.complete(request)
+
     def _system(self, instruction: str) -> str:
         policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
         if policy is None or policy == "" or policy == "live-model-v1": return instruction
@@ -91,12 +107,13 @@ class LiveResearchModel:
 
     async def _json(self, system: str, user: str) -> dict[str, Any]:
         messages=[{"role": "system", "content": self._system(system + " 只返回严格 JSON。")}, {"role": "user", "content": user}]
+        parent_context = self.gateway.current_call_context() if getattr(self.gateway, "control_store", None) is not None else None
         for attempt in range(self.structured_attempts):
-            response = await self.gateway.complete(ModelRequest(
+            response = await self._complete(ModelRequest(
                 messages=messages, temperature=0, max_tokens=4096,
                 role="researcher", purpose="research_structured_step",
                 thinking=False,
-            ))
+            ), parent_context=parent_context)
             text = response.message.strip()
             if text.startswith("```"): text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.I)
             if getattr(response, "finish_reason", None) == "length":
@@ -170,7 +187,7 @@ class LiveResearchModel:
         return [(str(x.get("heading", "")), str(x.get("thesis", "")), tuple(str(i) for i in x.get("evidence_ids", []))) for x in data.get("sections", [])]
 
     async def write(self, heading, thesis, evidence, prior_summary):
-        response = await self.gateway.complete(ModelRequest(
+        response = await self._complete(ModelRequest(
             messages=self.render_write_messages(heading, thesis, evidence, prior_summary),
             temperature=0, max_tokens=4096, role="researcher", purpose="write_research_section", thinking=False,
         ))
@@ -191,7 +208,7 @@ class LiveResearchModel:
         return data.get("passes") is True and not missing, missing
 
     async def repair(self, topic: str, plan: ResearchPlan, missing_requirements: tuple[str, ...], evidence_context):
-        response = await self.gateway.complete(ModelRequest(messages=[
+        response = await self._complete(ModelRequest(messages=[
             {"role": "system", "content": self._system(UNTRUSTED + "只使用给定证据撰写一份简洁 Markdown 补充内容，直接覆盖每项缺失要求。每个事实段落都必须按 [[source:SOURCE_ID]] 引用证据。绝不虚构 ID、URL、事实或参考文献表。只返回补充内容，并以二级标题开头。")},
             {"role": "user", "content": f"主题：{topic}\n必需章节：{plan.sections}\n缺失要求：{missing_requirements}\n证据（source_id, text）：{evidence_context}"},
         ], temperature=0, role="researcher", purpose="repair_research_report", thinking=False))

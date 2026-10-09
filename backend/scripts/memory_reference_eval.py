@@ -24,7 +24,7 @@ DATA = ROOT / "docs/evaluation/memory-reference-v1"
 class RecordedGateway:
     def __init__(self, live, out):
         self.gateway = ModelGateway(ModelProfile(live.base, live.model, "DEEPSEEK_API_KEY",
-            provider_name="deepseek", max_attempts=1, timeout_seconds=2))
+            provider_name="deepseek", max_attempts=1, timeout_seconds=2), offline_unbound=True)
         self.calls, self.out, self.case_id = [], out, None
 
     async def complete(self, request, **kwargs):

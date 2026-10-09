@@ -1,0 +1,243 @@
+Phase 2B staged development and acceptance log
+Date: 2026-10-08 Asia/Shanghai
+Baseline: 37a4e9af39faa781a92db1227e444173e13c2db0
+
+Command: python -m pytest tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 36 passed in 18.29s
+
+Command: python -m pytest tests/test_snapshot_flow.py tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 52 passed in 35.21s
+
+Command: python -m pytest tests/test_conversation.py tests/test_conversation_worker.py tests/test_live_model.py tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 133 passed in 53.56s
+
+Command: python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 1 passed in 1.50s
+
+Command: python -m pytest tests/test_snapshot_flow.py::test_t33_runtime_json_repair_gets_a_new_snapshot_and_child_span -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 1 passed in 1.02s
+
+Command: python -m pytest tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 2 passed in 1.49s
+
+Command: python -m pytest tests/test_real_evaluation.py::test_judge_cost_is_included_in_release_budget tests/test_real_evaluation.py::test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls -q --tb=short
+Working directory: backend
+Exit: 1
+Result: 2 failed in 2.17s under the default observe cost mode. The same module later passed all 35 tests with BETTER_AGENT_COST_MODE=enforce; the two assertions require enforcement mode.
+
+Command: python -m compileall -q app
+Working directory: backend
+Exit: 0
+
+Command: git diff --check
+Working directory: repository root
+Exit: 0 (Git reported LF-to-CRLF normalization notices for edited files)
+
+PostgreSQL command: python -m pytest tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short
+Working directory: backend
+Exit: 0 on rerun
+Result: 34 passed in 24.11s. First run: 32 passed / 2 failed because two test-created contexts lacked explicit owner_id; test fixture now supplies owner_id="local-user".
+Database: unique compose project, tmpfs-backed PostgreSQL; TEST_DATABASE_URL unset; fixture removed the container after the run.
+
+Command: python -m pytest tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 12 passed in 13.99s, same isolated disposable PostgreSQL fixture.
+
+Command: python -m pytest tests/test_cost_control.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py tests/test_context_wire_gate.py tests/test_runtime_prompt_policy.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 80 passed in 22.69s
+
+Command: python -m pytest tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 21 passed in 15.63s, including direct profile-version verification with a mocked HTTP transport and a persisted snapshot.
+
+Command: BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_real_evaluation.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 35 passed in 14.06s. Under default observe mode, two budget-specific assertions do not exercise enforcement; with enforcement enabled they pass.
+
+Command: python -m pytest tests/test_research_api.py tests/test_research_service.py tests/test_research_engine.py tests/test_agent_worker.py tests/test_goal_reviews.py tests/test_goal_adjustments.py tests/test_memory_archive.py tests/test_memory_reference_gateway.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 159 passed in 56.90s
+
+PostgreSQL isolation note: the integration fixture used a unique compose project and tmpfs-backed data, with no TEST_DATABASE_URL. Docker 29.2.1 was available. No development database was migrated or truncated.
+
+Command: python -m pytest tests/test_snapshot_gateway.py::test_t02_transport_recorder_reads_the_committed_binding_before_send tests/test_snapshot_gateway.py::test_t02_transport_recorder_fails_on_an_unbound_send -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 2 passed in 1.64s
+
+Command: python -m pytest tests/test_snapshot_gateway.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 36 passed in 19.05s
+
+Command: python -m compileall -q app tests
+Working directory: backend
+Exit: 0
+
+Command: git diff --check
+Working directory: repository root
+Exit: 0 (LF-to-CRLF normalization notices only)
+
+Command: python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 11 passed in 7.87s. Evidence capture enabled; 11 transport sends checked through independent DB connections.
+
+Command: python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 47 passed in 32.74s. Docker Compose used its isolated test project; TEST_DATABASE_URL unset.
+
+Command: python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/integration/test_snapshot_entrypoints_postgres.py --collect-only -q
+Working directory: backend
+Exit: 0
+Result: 12 tests collected.
+
+Evidence capture rerun: SQLite adapter group 11 passed; PostgreSQL Research binding node 1 passed. `logs/observed-bindings.ndjson` contains 12 opaque binding records with no prompt bodies or credentials.
+
+Command: python -m pytest tests/test_model_input_snapshot.py tests/test_model_input_snapshot_store.py tests/test_snapshot_gateway.py tests/test_snapshot_flow.py tests/test_snapshot_recovery.py tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 130 passed in 66.38s.
+
+Command: python -m pytest tests/test_execution_context.py tests/test_harness_context_flow.py tests/test_harness_context_approval.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py tests/test_chat_goal_tools.py tests/test_goal_tools.py tests/test_goal_tool_recovery.py tests/test_conversation.py tests/test_conversation_worker.py tests/test_conversation_protocol_v2.py tests/test_goal_programs.py tests/test_goal_program_compiler.py -q --tb=short
+Working directory: backend
+First run: 265 passed, 2 failed. Failure nodes: test_harness_context_flow.py::test_i01_read_tool_chain_shares_one_trace and ::test_i02_parallel_tools_share_one_parent_and_next_call_is_new. Root cause was `_complete_logical_call` discarding explicit per-call context and deriving a second span; additionally the ambient context was one child below the turn root. Both were corrected.
+Rerun: 267 passed in 126.33s, Exit: 0.
+
+Command: python -m pytest tests/test_research_engine.py tests/test_research_service.py tests/test_research_api.py tests/test_agent_tasks.py tests/test_agent_worker.py tests/test_agent_api.py tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 134 passed in 43.11s.
+
+Command: python -m pytest tests/test_runtime.py tests/test_runtime_prompt_policy.py tests/test_materializer.py tests/test_plan_execution_projection.py tests/test_goal_reviews.py tests/test_goal_period_review.py tests/test_goal_adjustments.py tests/test_goal_adjustment_api.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 73 passed in 75.00s.
+
+Command: BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_learning_agent.py tests/test_learning_eval.py tests/test_learning_judge_reliability.py tests/test_learning_pipeline_v3.py tests/test_learning_v3_wiring.py tests/test_learning_v3_fixes.py tests/test_evolution.py tests/test_evolution_api.py tests/test_real_evaluation.py tests/test_evaluation_api.py tests/test_memory_archive.py tests/test_memory_reference.py tests/test_memory_reference_gateway.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 235 passed in 191.03s.
+
+Evidence capture rerun: SQLite adapter group 13 passed; PostgreSQL Research binding node 1 passed. `logs/observed-bindings.ndjson` contains 14 unique invocation/send records; all 14 were verified before send through independent database connections.
+
+M1 revalidation (2026-10-08):
+Command: python -m pytest tests/test_model_input_snapshot.py tests/test_model_input_snapshot_store.py tests/test_snapshot_gateway.py tests/test_snapshot_flow.py tests/test_snapshot_recovery.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 119 passed in 58.93s.
+
+Command: BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_m5_release_gates.py tests/test_m5_controlled_acceptance.py tests/integration/test_m1_live_harness.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 25 passed in 21.54s, including complete offline M1 live harness round.
+
+Command: python -m pytest tests/test_real_evaluation.py -q --tb=short (shell BETTER_AGENT_COST_MODE unset)
+Working directory: backend
+Exit: 0
+Result: 35 passed in 12.91s; two enforcement-specific tests explicitly set enforce through monkeypatch.
+
+Command: BETTER_AGENT_COST_MODE=enforce AGENT_ARCHIVE_WAIT_MS=30000 python -m pytest tests/test_conversation_worker.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 41 passed in 42.76s, including lease renewal.
+
+Command: python -m pytest tests/test_snapshot_research_entries.py tests/test_research_engine.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 71 passed in 8.12s, including Research adapter compatibility and T04/T05/T06 boundary cases.
+
+Capture rerun: SQLite Research/Learning/archive/reference entry adapters 15 passed; isolated PostgreSQL Research binding 1 passed. 18 observed sends, 17 unique invocations; one network retry sends twice under the same invocation and snapshot. All 18 had a valid committed binding before send; 0 provenance complete / 18 partial.
+
+B08 follow-up, 2026-10-08:
+Command: python -m pytest tests/test_model_admin_api.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 8 passed in 7.12s. Includes T19 inactive-version/no-stable verification and T20 cross-owner zero-send plus failed transport retry binding.
+
+B11 / full isolated PostgreSQL acceptance rerun, 2026-10-08:
+Command: python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 49 passed in 33.59s using ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset. New ModelAdmin checks prove cross-owner zero send, persisted failed attempts, retry reuse, and snapshot insert failure rollback before send.
+
+Historical correction: the immediately preceding dedicated capture rerun is 18 observed sends / 17 invocations / 18 valid committed bindings (0 complete, 18 partial provenance); earlier 14-send log line is an older capture and is not the latest result.
+
+ModelAdmin装配补充（2026-10-08）：`python -m pytest tests/test_model_admin_api.py -q --tb=short` 9 passed in 8.32s。新增动态断言 startup 与 API fallback 的 ModelAdminService 均注入 runtime 的 model_control_store；T22 关闭。T21 仍 partial：预算拒绝未通过管理端 direct 验证入口验收。
+
+B08/T19-T22 final local rerun, 2026-10-08:
+Command: python -m pytest tests/test_model_admin_api.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 10 passed in 8.36s. Missing credential, missing control store, and zero-budget cases fail before provider send; startup and API fallback both retain the controlled store. B08 closed; T21 marked pass.
+
+T03 failure injection, 2026-10-08:
+Command: python -m pytest tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 3 passed in 2.17s. Snapshot row insert, invocation row insert, and execution-context binding write each failed independently; all cases rolled back invocation/snapshot/attempt and performed zero provider sends.
+
+Gateway transaction and identity regression, 2026-10-08:
+Command: python -m pytest tests/test_snapshot_gateway.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 39 passed in 22.55s, including T03's three binding transaction failure injections.
+
+Command: python -m pytest tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 3 passed in 1.85s; a missing LiveBehaviorRunner owner and both direct/routed identity failures make zero calls.
+
+T38 strengthened check, 2026-10-08:
+Command: python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 1 passed in 1.41s. All three calls have unique snapshot IDs, unique invocation IDs, the trusted turn owner, and sibling spans under the turn root.
+
+Production-boundary eval check, 2026-10-08:
+Command: python -m pytest tests/test_eval_scenarios.py -q --tb=short
+Working directory: backend
+Exit: 0
+Result: 3 passed in 37.39s; `eval.py --mode live` without a control store fails closed as a configuration smoke failure, while deterministic eval coverage remains green.
+
+Minimal acceptance follow-up, 2026-10-09 (Asia/Shanghai)
+Working directory: D:/RAG/better/backend
+Command: python -m pytest tests/test_snapshot_goal_runtime_entries.py -q --tb=short
+Cost mode: unset
+First run: exit 1; 2 failed, 13 passed in 10.50s.
+Failures: T34 read tenant-b turn with default local-user; T35 sentinel lacked required role.
+Both were new fixture setup mistakes, corrected without production changes.
+Repeat: exit 0; 15 passed in 10.32s.
+
+Command: python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/test_plan_execution_projection.py tests/test_goal_reviews.py tests/test_goal_period_review.py tests/test_goal_program_api.py tests/integration/test_db_target_guard.py -q --tb=short
+Cost mode: unset
+Exit: 0
+Result: 83 passed in 38.92s.
+
+Command (PowerShell): $env:BETTER_AGENT_COST_MODE = 'enforce'; python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/integration/test_db_target_guard.py -q --tb=short
+Exit: 0
+Result: 39 passed in 10.49s. Includes final assertions that daily-review JSON repair leaves first snapshot messages unchanged.
+
+Command: python -m pytest tests/test_snapshot_goal_runtime_entries.py --collect-only -q
+Exit: 0
+Result: 15 tests collected in 0.19s; all three new callsite mappings resolved.
+No full backend or PostgreSQL database rerun in this minimal follow-up. DB guard tests invoke rejection logic only; no database or Alembic subprocess is started.

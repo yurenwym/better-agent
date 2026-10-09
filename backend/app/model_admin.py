@@ -44,9 +44,12 @@ class ExternalCredentialMissing(ModelAdminError):
 
 
 class ModelAdminService:
-    def __init__(self, db: Database, *, owner_id: str = "local-user", verifier: Callable | None = None) -> None:
+    def __init__(self, db: Database, *, owner_id: str = "local-user", verifier: Callable | None = None,
+                 control_store: Any | None = None, verification_transport: Any | None = None) -> None:
         self.db = db
         self.owner_id = owner_id
+        self.control_store = control_store
+        self.verification_transport = verification_transport
         self.verifier = verifier or self._verify_live
 
     def create_profile(self, payload: dict[str, Any], *, validate_capacity: bool = True) -> dict[str, Any]:
@@ -345,14 +348,25 @@ class ModelAdminService:
         return normalized
 
     async def _verify_live(self, item: dict[str, Any]) -> dict[str, Any]:
+        if self.control_store is None:
+            raise ModelAdminError("controlled model verification requires a model control store")
         from .model_gateway import ModelGateway, ModelProfile, ModelRequest
+        from .model_control import ModelCallContext
         profile = ModelProfile(
             item["base_url"], item["model_name"], item["credential_env_ref"], item["timeout_seconds"],
             item["max_attempts"], provider_protocol=item["provider_protocol"], provider_name=item["provider_name"],
             context_window=item["context_window"], max_output_tokens=item["max_output_tokens"],
             registered_profile_version_id=item["id"],
         )
-        response = await ModelGateway(profile).complete(ModelRequest(messages=[{"role": "user", "content": "只回复 OK"}], max_tokens=8))
+        response = await ModelGateway(
+            profile, transport=self.verification_transport, control_store=self.control_store,
+        ).complete(
+            ModelRequest(messages=[{"role": "user", "content": "只回复 OK"}], max_tokens=8,
+                         role="conversation", purpose="verify_model_profile_version"),
+            context=ModelCallContext(
+                role="conversation", purpose="verify_model_profile_version", owner_id=self.owner_id,
+            ),
+        )
         return {"ok": bool(response.message.strip())}
 
 

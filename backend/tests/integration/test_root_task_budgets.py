@@ -31,7 +31,9 @@ def root_budget(migrated_postgres_url, tmp_path):
         "local-user", "turn", "root-turn", max_attempts=1,
         deadline_at=(datetime.now(timezone.utc) + timedelta(minutes=5)).isoformat(), limit_microusd=1000,
     )
-    handle = _registered_cost_handle(db, costs, ModelCallContext("conversation", "answer", root_budget_id=root["id"]))
+    handle = _registered_cost_handle(
+        db, costs, ModelCallContext("conversation", "answer", owner_id="local-user", root_budget_id=root["id"]),
+    )
     yield db, costs, root, handle
     db.close()
 

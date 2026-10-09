@@ -231,7 +231,8 @@ async def main():
         (args.out / "prompt.txt").write_text(prompt, encoding="utf-8")
     gateway = None
     if not args.resume:
-        gateway = ModelGateway(replace(profile, max_attempts=1, network_retries=0, timeout_seconds=90, max_output_tokens=1600))
+        gateway = ModelGateway(replace(profile, max_attempts=1, network_retries=0, timeout_seconds=90, max_output_tokens=1600),
+                                offline_unbound=True)
     for case in selected:
         if any(r["id"] == case["id"] for r in run["rows"]):
             continue

@@ -525,10 +525,14 @@ class ExpertAdvisoryService:
 
     def start(
         self, *, purpose: str, source_id: str, objective: str, context: dict[str, Any],
-        roles: tuple[str, ...], owner_id: str = "local-user", thread_id: str | None = None,
+        roles: tuple[str, ...], owner_id: str, thread_id: str | None = None,
         append_thread_message: bool = False, runtime_bundle_id: str | None = None,
         root_budget_id: str | None = None,
     ) -> dict[str, Any]:
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            # Refused before any agent_runs row exists: an advisory run with no
+            # authorized owner must not be persisted and fail later at the gateway.
+            raise PermissionError("expert advisory run requires an authorized owner")
         identity = _hash({"purpose": purpose, "source_id": source_id, "objective": objective, "context": context,
                           "roles": roles, "runtime_bundle_id": runtime_bundle_id,
                           "root_budget_id": root_budget_id})[:24]

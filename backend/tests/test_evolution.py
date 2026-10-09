@@ -311,11 +311,31 @@ def test_live_behavior_runner_pins_each_arm_to_its_bundle() -> None:
             return SimpleNamespace(message="helpful" if request.role=="judge_quality" else "可执行答案")
 
     gateway=Gateway()
-    result=asyncio.run(LiveBehaviorRunner(gateway)._run({"prompts":"candidate"},"制定计划","bundle-candidate"))
+    result=asyncio.run(LiveBehaviorRunner(gateway)._run(
+        {"prompts":"candidate"}, "制定计划", "bundle-candidate", "local-user",
+    ))
 
     assert result=="helpful"
     assert gateway.contexts[0].runtime_bundle_id=="bundle-candidate"
     assert gateway.contexts[0].role=="conversation"
+
+
+def test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call() -> None:
+    import asyncio
+    from app.evolution import LiveBehaviorRunner
+
+    class Gateway:
+        calls = 0
+        async def complete(self, request, **kwargs):
+            self.calls += 1
+            raise AssertionError("identity failure must happen before model send")
+        def set_call_context(self, context):
+            raise AssertionError("identity failure must happen before installing ambient context")
+
+    gateway = Gateway()
+    with pytest.raises(PermissionError, match="owner is required"):
+        asyncio.run(LiveBehaviorRunner(gateway)._run({"prompts": "test"}, "case", "bundle-test", ""))
+    assert gateway.calls == 0
 
 
 def test_builtin_evaluation_fails_closed_without_behavior_runner(tmp_path):

@@ -32,7 +32,7 @@ async def test_routed_single_attempt_disables_fallback(tmp_path, monkeypatch):
     gateway=RoutedModelGateway(db,ModelControlStore(db),execute_attempt=execute)
     with pytest.raises(GatewayError):
         await gateway.complete(ModelRequest(messages=[],role="planner",single_attempt=True),
-            context=ModelCallContext("planner","resolve",runtime_bundle_id=bundle.id))
+            context=ModelCallContext("planner","resolve",runtime_bundle_id=bundle.id, owner_id="local-user"))
     assert calls==[versions["planner"]]
     with db.connection() as c:
         assert c.execute("SELECT status FROM model_invocations").fetchone()[0]=="FAILED"
@@ -50,6 +50,6 @@ async def test_routed_deadline_releases_invocation(tmp_path,monkeypatch):
     gateway=RoutedModelGateway(db,ModelControlStore(db),execute_attempt=execute)
     with pytest.raises(asyncio.TimeoutError):
         await asyncio.wait_for(gateway.complete(ModelRequest(messages=[],role="planner",single_attempt=True),
-            context=ModelCallContext("planner","resolve",runtime_bundle_id=bundle.id)),timeout=.05)
+            context=ModelCallContext("planner","resolve",runtime_bundle_id=bundle.id, owner_id="local-user")),timeout=.05)
     with db.connection() as c:
         assert c.execute("SELECT status FROM model_invocations").fetchone()[0]=="CANCELLED"

@@ -117,9 +117,10 @@ def test_redaction_keeps_the_host_and_database():
 
 # --------------------------------------------------------------------- ordering
 
-def test_alembic_never_runs_against_a_rejected_target(monkeypatch, request):
+def test_alembic_never_runs_against_a_rejected_target(monkeypatch):
     """The whole point of T01: the refusal must precede `alembic upgrade`."""
-    monkeypatch.setenv("TEST_DATABASE_URL", DEVELOPMENT)
+    from integration.conftest import migrated_postgres_url
+
     calls: list[tuple] = []
     real_run = subprocess.run
 
@@ -130,7 +131,9 @@ def test_alembic_never_runs_against_a_rejected_target(monkeypatch, request):
     monkeypatch.setattr(subprocess, "run", spy)
 
     with pytest.raises(pytest.fail.Exception) as excinfo:
-        request.getfixturevalue("migrated_postgres_url")
+        # Exercise the guard adjacent to migration, not a session-cached result
+        # whose URL may already have been resolved by an earlier integration test.
+        migrated_postgres_url.__wrapped__(DEVELOPMENT)
 
     assert "refusing to migrate or truncate" in str(excinfo.value)
     assert calls == [], "alembic must not be invoked for a rejected target"

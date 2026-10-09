@@ -57,7 +57,7 @@ def test_real_model_paired_delivery_diagnostic(tmp_path, migrated_postgres_url):
         report["calls"] += 1
         result = await gateway.complete(ModelRequest(messages=messages, tools=[], temperature=0, max_tokens=900, role=role, purpose=purpose, thinking=False),
                                         context=ModelCallContext(role, purpose, runtime_bundle_id=bundle_id, root_budget_id=root["id"],
-                                                                 invocation_id=f"live-pair:{report['calls']}", idempotency_key=f"live-pair:{report['calls']}"))
+                                                                 invocation_id=f"live-pair:{report['calls']}", idempotency_key=f"live-pair:{report['calls']}", owner_id="local-user"))
         save()
         return result
     async def run():

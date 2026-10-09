@@ -317,7 +317,7 @@ class GoalProgramService:
                     objective="审阅计划并提出可执行性、风险和遗漏建议",
                     context={"request": request, "plan_markdown": source_markdown}, roles=("planner", "critic"),
                     thread_id=context.thread_id, runtime_bundle_id=context.runtime_bundle_id,
-                    root_budget_id=context.root_budget_id,
+                    root_budget_id=context.root_budget_id, owner_id=context.owner_id,
                 )
                 if advice is not None:
                     request = {**request, "expert_advice": advice}

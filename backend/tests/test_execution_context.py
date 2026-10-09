@@ -335,7 +335,7 @@ async def test_u10_gateway_wrappers_keep_the_public_identity(tmp_path, monkeypat
     # Legacy callers that pass no harness keep working unchanged.
     await gateway.complete(
         ModelRequest(messages=[], role="conversation"),
-        context=ModelCallContext("conversation", "answer", runtime_bundle_id=bundle.id),
+        context=ModelCallContext("conversation", "answer", owner_id="local-user", runtime_bundle_id=bundle.id),
     )
     assert store.contexts[-1].harness is None
     assert store.contexts[-1].span_id is None

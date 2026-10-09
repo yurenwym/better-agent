@@ -12,6 +12,7 @@ import subprocess
 import sys
 import time
 import uuid
+from datetime import datetime, timezone
 
 import psycopg
 from psycopg import sql
@@ -150,6 +151,9 @@ class CapturingMemoryContext:
     def select(self, request):
         self.last = self.provider.select(request)
         return self.last
+
+    def load_continuation(self, *args, **kwargs):
+        return self.provider.load_continuation(*args, **kwargs)
 
 
 class UnavailableArchiver:
@@ -304,7 +308,14 @@ def require_completed_turn(runtime, turn, assistant, label: str) -> None:
         job = connection.execute(
             "SELECT status,last_error_json FROM turn_jobs WHERE turn_id=?", (turn.id,),
         ).fetchone()
-    details = dict(job) if job is not None else None
+        ask = connection.execute(
+            "SELECT call_id,questions_json FROM turn_asks WHERE turn_id=? ORDER BY created_at DESC LIMIT 1",
+            (turn.id,),
+        ).fetchone()
+    details = {
+        "job": dict(job) if job is not None else None,
+        "ask": dict(ask) if ask is not None else None,
+    }
     raise AcceptanceFailure(f"{label} turn failed: status={turn.status}, job={details}")
 
 
@@ -335,6 +346,29 @@ def seed_archive_exchange(runtime, owner: str, thread_id: str, suffix: str) -> t
     return user_id, assistant_id
 
 
+def seed_oversized_history(runtime, thread_id: str) -> None:
+    """Force the unavailable-archive acceptance branch under any test profile."""
+    now = datetime.now(timezone.utc).isoformat()
+    with runtime.db.transaction() as connection:
+        sequence = int(connection.execute(
+            "SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,),
+        ).fetchone()[0])
+        for index in range(6):
+            turn_id = f"m1-large-history-{index}-{uuid.uuid4().hex}"
+            message_id = f"m1-large-message-{index}-{uuid.uuid4().hex}"
+            content = "历史记录 " + ("无关上下文。" * 60000) if index == 0 else f"历史上下文 {index}。"
+            connection.execute(
+                "INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) "
+                "VALUES (?,?,?,'COMPLETED',?,?)", (turn_id, thread_id, turn_id, now, now),
+            )
+            connection.execute(
+                "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at,completed_at) "
+                "VALUES (?,?,?,'user',?,'ready',1,?,?,?,?)",
+                (message_id, thread_id, turn_id, content, len(content), sequence, now, now),
+            )
+            sequence += 1
+
+
 def side_effect_counts(runtime) -> dict[str, int]:
     tables = ("turn_asks", "plan_documents", "research_jobs", "agent_runs", "memory_entries")
     with runtime.db.connection() as connection:
@@ -361,7 +395,7 @@ async def run_round(
 
         prompt = (
             "这是一次信息提取题，请直接回答，不要提问、保存、研究或启动协作。"
-            "本次临时改用SQLite；若上下文中能看到长期默认数据库，请同时说明它。"
+            "本次临时改用SQLite；若上下文中能看到长期默认数据库，请说明长期默认数据库名称。"
             "再回答：自行车锻炼强度递增上限是多少，recovery_friday是哪天？"
             "只使用当前消息和系统提供的上下文，不补充一般建议。"
         )
@@ -423,6 +457,7 @@ async def run_round(
         runtime.archiver = UnavailableArchiver()
         independent_thread = runtime.conversation.create_thread(f"{BATCH_ID} incomplete independent {round_number}", owner)
         seed_archive_exchange(runtime, owner, independent_thread.id, f"{round_number}-independent")
+        seed_oversized_history(runtime, independent_thread.id)
         independent_turn, independent = await run_turn(
             runtime, owner, independent_thread.id, f"{BATCH_ID}-{round_number}-independent", "什么是哈希表？",
         )
@@ -434,6 +469,7 @@ async def run_round(
 
         dependent_thread = runtime.conversation.create_thread(f"{BATCH_ID} incomplete dependent {round_number}", owner)
         seed_archive_exchange(runtime, owner, dependent_thread.id, f"{round_number}-dependent")
+        seed_oversized_history(runtime, dependent_thread.id)
         before_effects = side_effect_counts(runtime)
         dependent_turn, dependent = await run_turn(
             runtime, owner, dependent_thread.id, f"{BATCH_ID}-{round_number}-dependent", "继续刚才的计划并保存",

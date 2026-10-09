@@ -1254,7 +1254,7 @@ class LiveEvaluationRunner:
                 ),
                 context=self._context(
                     "conversation", f"evaluation_{label}", invocation_id, config[f"{label}_bundle_id"], price_snapshot_id,
-                    owner_id=config.get("owner_id", "local-user"), root_budget_id=config.get("root_budget_id"),
+                    owner_id=config.get("owner_id"), root_budget_id=config.get("root_budget_id"),
                 ),
             ))
             cost = self._cost(invocation_id)
@@ -1283,7 +1283,7 @@ class LiveEvaluationRunner:
                     role, "paired_evaluation_judgment", invocation_id,
                     config.get("evaluator_bundle_id") or config["baseline_bundle_id"],
                     price_snapshot_id,
-                    owner_id=config.get("owner_id", "local-user"), root_budget_id=config.get("root_budget_id"),
+                    owner_id=config.get("owner_id"), root_budget_id=config.get("root_budget_id"),
                 ),
             ))
             result = _parse_json_object(response.message)
@@ -1297,7 +1297,7 @@ class LiveEvaluationRunner:
 
     def _context(
         self, role: str, purpose: str, invocation_id: str, bundle_id: str, price_snapshot_id: str | None = None,
-        *, owner_id: str = "local-user", root_budget_id: str | None = None,
+        *, owner_id: str | None, root_budget_id: str | None = None,
     ):
         from .model_control import ModelCallContext
         with self.control_store.db.connection() as connection:
@@ -1308,6 +1308,8 @@ class LiveEvaluationRunner:
         policy_id, digest = routing.get("policy_id"), routing.get("digest")
         if not isinstance(policy_id, str) or not isinstance(digest, str):
             raise EvaluationAccessError("evaluation runtime bundle routing is incomplete")
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise EvaluationAccessError("evaluation run has no authorized owner")
         return ModelCallContext(
             role=role, purpose=purpose, invocation_id=invocation_id, runtime_bundle_id=bundle_id,
             routing_policy_id=policy_id, routing_policy_digest=digest, price_snapshot_id=price_snapshot_id,

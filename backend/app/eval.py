@@ -72,7 +72,7 @@ def compare_reports(baseline: str | Path, latest: str | Path) -> dict[str, Any]:
 
 def _run_live_smoke(profile: Any) -> SuiteReport:
     try:
-        response = asyncio.run(ModelGateway(profile).complete(ModelRequest(messages=[
+        response = asyncio.run(ModelGateway(profile, offline_unbound=True).complete(ModelRequest(messages=[
             {"role": "system", "content": "返回一个只包含 status 字段的简短 JSON 对象。不要包含秘密或隐藏推理。"},
             {"role": "user", "content": "状态检查"},
         ], max_tokens=64)))

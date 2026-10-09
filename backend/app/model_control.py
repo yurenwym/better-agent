@@ -69,7 +69,9 @@ class ModelRouter:
 class ModelCallContext:
     role: str
     purpose: str
-    owner_id: str = "local-user"
+    # Deliberately unset by default. A production gateway must receive an owner
+    # from an authorized execution record or explicit service configuration.
+    owner_id: str | None = None
     run_id: str | None = None
     goal_id: str | None = None
     thread_id: str | None = None
@@ -898,7 +900,11 @@ class RoutedModelGateway:
         to, so the budget, ``min_turns`` and ``compact_ratio`` all come from one
         versioned source instead of a local constant.
         """
-        active = context or self._call_context.get() or ModelCallContext("conversation", "complete", owner_id=owner_id or "local-user")
+        active = context or self._call_context.get()
+        if active is None:
+            if not owner_id:
+                raise RoutingError("model execution owner is required")
+            active = ModelCallContext("conversation", "complete", owner_id=owner_id)
         if owner_id is not None and active.owner_id != owner_id:
             active = replace(active, owner_id=owner_id)
         active = child_call_context(active, role=role, purpose=purpose)
@@ -942,7 +948,11 @@ class RoutedModelGateway:
 
     def output_limit(self, context: ModelCallContext | None = None, *, owner_id: str | None = None,
                      role: str | None = None, purpose: str | None = None) -> int:
-        active = context or self._call_context.get() or ModelCallContext("planner", "compile_goal_program", owner_id=owner_id or "local-user")
+        active = context or self._call_context.get()
+        if active is None:
+            if not owner_id:
+                raise RoutingError("model execution owner is required")
+            active = ModelCallContext("planner", "compile_goal_program", owner_id=owner_id)
         if owner_id is not None and active.owner_id != owner_id:
             active = rebind(active, owner_id=owner_id)
         active = child_call_context(active, role=role, purpose=purpose)
@@ -956,9 +966,9 @@ class RoutedModelGateway:
     ) -> Any:
         from .model_gateway import GatewayError, ModelResponse
 
-        context = context or self._call_context.get() or ModelCallContext(
-            request.role or "conversation", request.purpose or "complete"
-        )
+        context = context or self._call_context.get()
+        if context is None or not isinstance(context.owner_id, str) or not context.owner_id.strip():
+            raise RoutingError("model execution owner is required")
         context = child_call_context(
             context,
             role=request.role,

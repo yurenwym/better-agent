@@ -244,7 +244,8 @@ def test_release_report_digest_cannot_be_reused_after_tampering(tmp_path) -> Non
         RealEvaluator.assert_release_approvable(report)
 
 
-def test_judge_cost_is_included_in_release_budget(tmp_path) -> None:
+def test_judge_cost_is_included_in_release_budget(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     evaluator = RealEvaluator(tmp_path)
     evaluator.register_release_suite("release-v1", _release_cases())
     def quality(payload): return {"winner":"right" if "candidate" in payload["right"] else "left", "_cost_microusd":2}
@@ -389,7 +390,8 @@ def test_resume_rebuilds_completed_records_from_every_partition(tmp_path, partit
     assert any(record["partition"]==partition for record in report["records"][:completed])
 
 
-def test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls(tmp_path) -> None:
+def test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
     from app.db import Database
     db=Database(tmp_path/"agent.db");evaluator=RealEvaluator(tmp_path/"evals",db=db);evaluator.register_release_suite("release-v1",_release_cases())
     config={"suite_id":"release-v1","baseline_bundle_id":"base","candidate_bundle_id":"candidate","baseline_model_id":"a","candidate_model_id":"b","quality_judge_model_id":"q","safety_judge_model_id":"s","evaluator_digest":"e","tool_schema_digest":"t","context_digest":"c","budget_microusd":6,"primary_objective":"quality"}
@@ -422,8 +424,8 @@ def test_live_judges_pin_evaluator_bundle_and_use_its_routing_digest(tmp_path) -
     db=Database(tmp_path/"agent.db")
     bundle=BehaviorBundleService(db).ensure({"model_routing":{"policy_id":"policy-eval","digest":"routing-eval"}})
     runner=LiveEvaluationRunner(None,ModelControlStore(db))
-    quality=runner._context("judge_quality","paired_evaluation_judgment","quality",bundle.id)
-    safety=runner._context("judge_safety","paired_evaluation_judgment","safety",bundle.id)
+    quality=runner._context("judge_quality","paired_evaluation_judgment","quality",bundle.id, owner_id="local-user")
+    safety=runner._context("judge_safety","paired_evaluation_judgment","safety",bundle.id, owner_id="local-user")
     assert quality.runtime_bundle_id==safety.runtime_bundle_id==bundle.id
     assert quality.routing_policy_id==safety.routing_policy_id=="policy-eval"
     assert quality.routing_policy_digest==safety.routing_policy_digest=="routing-eval"
@@ -589,7 +591,7 @@ def test_authoritative_evaluation_config_freezes_four_price_snapshot_ids(tmp_pat
     assert runner._reservation(models["baseline"], expected["baseline"]) == 140
     context = runner._context(
         "conversation", "evaluation_baseline", "eval-price-context", baseline_bundle.id,
-        expected["baseline"],
+        expected["baseline"], owner_id="local-user",
     )
     assert context.price_snapshot_id == expected["baseline"]
 

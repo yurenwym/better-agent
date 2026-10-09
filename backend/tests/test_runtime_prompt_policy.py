@@ -24,13 +24,13 @@ def test_startup_prompt_callbacks_follow_pinned_bundle_after_channel_switch(tmp_
     runtime.behavior.activate("stable", new.id, "switch")
     callbacks = [runtime.model.runtime_prompt_policy, runtime.conversation.route_model.runtime_prompt_policy,
                  runtime.research.engine.model.runtime_prompt_policy, runtime.goal_programs.compiler.runtime_prompt_policy]
-    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id=old.id))
+    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id=old.id, owner_id="local-user"))
     try:
         assert all(callback() == "old-policy" for callback in callbacks)
     finally:
         gateway.reset_call_context(token)
     assert all(callback() == "new-policy" for callback in callbacks)
-    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id="missing"))
+    token = gateway.set_call_context(ModelCallContext("conversation", "test", runtime_bundle_id="missing", owner_id="local-user"))
     try:
         with pytest.raises(RoutingError, match="pinned"):
             callbacks[0]()

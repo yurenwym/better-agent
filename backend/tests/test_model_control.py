@@ -82,7 +82,7 @@ async def test_idempotent_replay_never_calls_provider_twice(tmp_path, monkeypatc
         transport=httpx.MockTransport(handler),
         control_store=ModelControlStore(db),
     )
-    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn")
+    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn", owner_id="local-user")
     request = ModelRequest(messages=[{"role": "user", "content": "hello"}])
 
     assert (await gateway.complete(request, context=context)).message == "ok"
@@ -116,7 +116,7 @@ async def test_request_estimate_matches_transmitted_payload_and_attempt(tmp_path
                            counter_id="deepseek-text-estimate", max_attempts=1)
     gateway = ModelGateway(profile, transport=httpx.MockTransport(handler), control_store=ModelControlStore(db))
     await gateway.complete(ModelRequest(messages=[{"role": "user", "content": "桂林行程", "_context_required": True}]),
-                           context=ModelCallContext("conversation", "route_and_respond"))
+                           context=ModelCallContext("conversation", "route_and_respond", owner_id="local-user"))
     with db.connection() as connection:
         event = connection.execute("SELECT data_json FROM model_invocation_events WHERE event_type='model.request.estimated'").fetchone()
         attempt = connection.execute("SELECT id FROM model_attempts").fetchone()
@@ -152,7 +152,7 @@ async def test_idempotency_key_rejects_a_different_request_digest(tmp_path, monk
         transport=httpx.MockTransport(handler),
         control_store=ModelControlStore(db),
     )
-    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn")
+    context = ModelCallContext("conversation", "answer", idempotency_key="same-turn", owner_id="local-user")
 
     await gateway.complete(ModelRequest(messages=[{"role": "user", "content": "first"}]), context=context)
     with pytest.raises(InvocationIdempotencyConflict):
@@ -169,7 +169,7 @@ def test_child_call_context_scopes_nested_model_purposes() -> None:
         "route_and_respond",
         invocation_id="conversation:turn-1",
         idempotency_key="conversation:turn-1",
-    )
+     owner_id="local-user")
 
     classifier = child_call_context(
         parent,
@@ -218,7 +218,7 @@ async def test_gateway_persists_real_attempts_and_emits_contiguous_run_events(tm
     )
     result = await gateway.complete(
         ModelRequest(messages=[{"role": "user", "content": "hi"}]),
-        context=ModelCallContext(role="planner", purpose="create_plan", run_id="run-1", goal_id="goal-1"),
+        context=ModelCallContext(role="planner", purpose="create_plan", run_id="run-1", goal_id="goal-1", owner_id="local-user"),
     )
 
     assert result.message == "ok"
@@ -269,7 +269,7 @@ async def test_gateway_persists_cancel_before_network_as_cancelled_invocation(tm
     with pytest.raises(GatewayError, match="cancelled"):
         await gateway.complete(
             ModelRequest(messages=[]), cancel_event=cancelled,
-            context=ModelCallContext(role="conversation", purpose="answer"),
+            context=ModelCallContext(role="conversation", purpose="answer", owner_id="local-user"),
         )
     with db.connection() as connection:
         invocation = connection.execute("SELECT status FROM model_invocations").fetchone()
@@ -296,7 +296,7 @@ async def test_connect_failure_closes_attempt_and_invocation(tmp_path, monkeypat
         control_store=ModelControlStore(db),
     )
     with pytest.raises(GatewayError) as caught:
-        await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "answer"))
+        await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "answer", owner_id="local-user"))
 
     assert caught.value.kind == "provider_unavailable"
     with db.connection() as connection:
@@ -326,7 +326,7 @@ async def test_connect_failure_is_retryable_with_separate_attempts(tmp_path, mon
         ModelProfile("https://provider.test/v1", "demo", "MODEL_TEST_KEY", max_attempts=2, network_retries=1, retry_base_seconds=0),
         transport=httpx.MockTransport(handler), control_store=ModelControlStore(db),
     )
-    result = await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "answer"))
+    result = await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("conversation", "answer", owner_id="local-user"))
 
     assert result.message == "ok"
     with db.connection() as connection:
@@ -388,11 +388,11 @@ async def test_evaluation_attempt_pins_price_snapshot_while_regular_call_uses_cu
         context=ModelCallContext(
             "conversation", "evaluation_baseline", invocation_id="eval-priced",
             price_snapshot_id="price-frozen",
-        ),
+         owner_id="local-user"),
     )
     await gateway.complete(
         ModelRequest(messages=[]),
-        context=ModelCallContext("conversation", "answer", invocation_id="regular-priced"),
+        context=ModelCallContext("conversation", "answer", invocation_id="regular-priced", owner_id="local-user"),
     )
 
     with db.connection() as connection:

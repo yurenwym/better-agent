@@ -31,7 +31,7 @@ def test_operation_root_survives_retry_restart_and_changed_defaults(migrated_pos
     try:
         service = CostService(db)
         root = service.ensure_default_root_budget("local-user", "goal_operation", "daily-review:1:1")
-        handle = _registered_cost_handle(db, service, ModelCallContext("reflector", "daily_review", root_budget_id=root["id"]))
+        handle = _registered_cost_handle(db, service, ModelCallContext("reflector", "daily_review", root_budget_id=root["id"], owner_id="local-user"))
         with db.transaction() as connection:
             service.reserve_attempt(connection, handle, "first")
         before = service.summary("local-user", "ROOT", root["id"])
@@ -78,7 +78,7 @@ async def test_unbudgeted_postgres_call_is_blocked_before_network(migrated_postg
             control_store=ModelControlStore(db, costs=CostService(db)),
         )
         with pytest.raises(GatewayError, match="no configured budget") as error:
-            await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("planner", "compile_goal_program"))
+            await gateway.complete(ModelRequest(messages=[]), context=ModelCallContext("planner", "compile_goal_program", owner_id="local-user"))
         assert error.value.kind == "budget"
         with db.connection() as connection:
             assert connection.execute("SELECT COUNT(*) FROM model_attempts").fetchone()[0] == 0
@@ -164,7 +164,7 @@ def test_ask_does_not_revive_exhausted_execution_or_reset_limits(pending_ask, ex
             connection.execute("UPDATE cost_budgets SET charged_microusd=limit_microusd WHERE period_key=?", (root["id"],))
     result = _answer(service, turn)
     assert result.turn.status == "ACCEPTED"
-    handle = _registered_cost_handle(db, costs, ModelCallContext("conversation", "answer", root_budget_id=root["id"]))
+    handle = _registered_cost_handle(db, costs, ModelCallContext("conversation", "answer", root_budget_id=root["id"], owner_id="local-user"))
     with pytest.raises(BudgetExceeded):
         with db.transaction() as connection:
             costs.reserve_attempt(connection, handle, "continuation-attempt")

@@ -132,7 +132,7 @@ def invocation(runtime, deployment, run_id="write-1", *, bad_prompt=False):
     control = ModelControlStore(runtime.db, costs=runtime.costs)
     handle = control.begin_invocation(ModelProfile("https://offline.invalid", "offline", "UNUSED", max_attempts=1,
                                                   context_window=100, max_output_tokens=10),
-        ModelRequest(messages=messages), ModelCallContext("researcher", "write_research_section", run_id=run_id, runtime_bundle_id=bundle_id))
+        ModelRequest(messages=messages), ModelCallContext("researcher", "write_research_section", run_id=run_id, runtime_bundle_id=bundle_id, owner_id="local-user"))
     return control, handle
 
 

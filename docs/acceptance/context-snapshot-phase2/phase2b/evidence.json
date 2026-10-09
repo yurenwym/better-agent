@@ -1,0 +1,427 @@
+{
+  "status": "incomplete",
+  "minimal_followup_2026_10_09": {
+    "scope": "3 tests appended to existing runtime entry suite; session-cache-dependent DB guard test corrected; no production edits",
+    "supersedes_historical_accounting": {"pass": 15, "partial": 17, "pending": 6},
+    "nodes": {
+      "CS-GR-03": "tests/test_snapshot_goal_runtime_entries.py::test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot",
+      "CS-GP-01": "tests/test_snapshot_goal_runtime_entries.py::test_t35_daily_and_period_review_restore_context_after_failure",
+      "CS-GP-02": "tests/test_snapshot_goal_runtime_entries.py::test_t35_adjustment_api_repair_has_independent_committed_snapshots"
+    },
+    "t34": "pass (SQLite)",
+    "t35": "partial: PG goal_operation root and non-default program owner not reverified",
+    "t36": "partial: Runtime covered; expert and Research Worker paths remain pending",
+    "b12": "incomplete; mappings above are incremental, not a full transport denominator",
+    "regression_command": "python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/test_plan_execution_projection.py tests/test_goal_reviews.py tests/test_goal_period_review.py tests/test_goal_program_api.py tests/integration/test_db_target_guard.py -q --tb=short",
+    "regression_result": "83 passed in 38.92s; exit 0; BETTER_AGENT_COST_MODE unset",
+    "enforce_command": "BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_snapshot_goal_runtime_entries.py tests/integration/test_db_target_guard.py -q --tb=short",
+    "enforce_result": "39 passed in 10.49s; exit 0; includes final first/repair message-count assertions",
+    "collection_result": "python -m pytest tests/test_snapshot_goal_runtime_entries.py --collect-only -q: 15 collected; exit 0; all three new mapped nodes resolve",
+    "full_suite": "not rerun; user-reported 2106 passed / 7 skipped / 8 failed is not new execution evidence"
+  },
+  "date": "2026-10-08",
+  "baseline_commit": "37a4e9af39faa781a92db1227e444173e13c2db0",
+  "branch": "front0920",
+  "dirty": true,
+  "schema": {
+    "workspace_sqlite_agent_db_max_version": 24,
+    "alembic_declared_head": "20260930_0025",
+    "isolated_postgres_tested": true,
+    "isolated_postgres_acceptance_count": 49,
+    "isolated_postgres_acceptance_result": "passed"
+  },
+  "environment": {
+    "python": "3.13.0",
+    "cost_mode": "default observe (specialized adapter tests)",
+    "database_url_logged": false
+  },
+  "m1_status": "通过本轮复验",
+  "entrypoint_coverage": {
+    "production_entrypoints": 18,
+    "tested_entrypoints": 1,
+    "coverage_percent": 5.56,
+    "note": "1 of 18 callsites (CS-MD-01) satisfies its complete acceptance contract; 7 other callsite groups have partial dynamic evidence. Remaining production entrypoints are partial or pending.",
+    "partial_dynamic_callsite_groups": 7
+  },
+  "transport_coverage": {
+    "observed_sends": 18,
+    "sends_with_valid_committed_binding": 18,
+    "unique_invocations": 17,
+    "provenance_complete": 0,
+    "provenance_partial": 18,
+    "unmapped_nodes": 0,
+    "note": "Counts cover the dedicated Research/Learning/Memory capture batch. Each send was checked before transport using an independent DB connection; network retry is a second send sharing one invocation/snapshot. This is not the complete production-entrypoint denominator."
+  },
+  "mapped_partial_nodes": [
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[plan]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[distill]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[reflect]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[curate]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[write]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[summarize]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[audit]",
+    "tests/test_snapshot_research_entries.py::test_research_entrypoint_sends_only_after_committed_snapshot[repair]",
+    "tests/test_snapshot_learning_entries.py::test_learning_agent_generation_freezes_authorized_job_input",
+    "tests/test_snapshot_learning_entries.py::test_learning_constraint_extraction_freezes_source_excerpt",
+    "tests/test_snapshot_learning_entries.py::test_learning_judge_uses_its_own_committed_call",
+    "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+    "tests/test_snapshot_auxiliary_entries.py::test_archive_worker_summary_uses_claim_owner_and_committed_snapshot",
+    "tests/test_snapshot_auxiliary_entries.py::test_reference_resolution_freezes_the_final_candidate_list",
+    "tests/test_snapshot_research_entries.py::test_research_invalid_json_repair_is_a_new_logical_call",
+    "tests/test_snapshot_research_entries.py::test_research_network_retry_reuses_the_frozen_logical_call"
+  ],
+  "test_batches": [
+    {
+      "command": "python -m pytest tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short",
+      "result": "36 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_gateway.py -q --tb=short",
+      "result": "36 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_flow.py tests/test_snapshot_gateway.py tests/test_execution_context.py::test_u10_gateway_wrappers_keep_the_public_identity tests/test_evolution.py::test_live_behavior_runner_pins_each_arm_to_its_bundle -q --tb=short",
+      "result": "52 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_conversation.py tests/test_conversation_worker.py tests/test_live_model.py tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short",
+      "result": "133 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_research_api.py tests/test_research_service.py tests/test_research_engine.py tests/test_agent_worker.py tests/test_goal_reviews.py tests/test_goal_adjustments.py tests/test_memory_archive.py tests/test_memory_reference_gateway.py -q --tb=short",
+      "result": "159 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_cost_control.py tests/test_model_control.py tests/test_model_gateway.py tests/test_routed_model_gateway.py tests/test_context_wire_gate.py tests/test_runtime_prompt_policy.py -q --tb=short",
+      "result": "80 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_model_admin_api.py tests/test_startup_contract.py -q --tb=short",
+      "result": "21 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "BETTER_AGENT_COST_MODE=enforce python -m pytest tests/test_real_evaluation.py -q --tb=short",
+      "result": "35 passed",
+      "exit_code": 0,
+      "environment": {
+        "BETTER_AGENT_COST_MODE": "enforce"
+      }
+    },
+    {
+      "command": "python -m pytest tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short",
+      "result": "34 passed on rerun; first run had 2 owner-default test failures before test fixtures were migrated",
+      "exit_code": 0,
+      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
+    },
+    {
+      "command": "python -m pytest tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py -q --tb=short",
+      "result": "12 passed",
+      "exit_code": 0,
+      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short",
+      "result": "1 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_flow.py::test_t33_runtime_json_repair_gets_a_new_snapshot_and_child_span -q --tb=short",
+      "result": "1 passed",
+      "exit_code": 0
+    },
+    {
+      "command": "python -m pytest tests/test_real_evaluation.py::test_judge_cost_is_included_in_release_budget tests/test_real_evaluation.py::test_evaluation_budget_blocks_before_next_case_and_recovers_without_repeating_calls -q --tb=short",
+      "result": "2 failed",
+      "exit_code": 1
+    },
+    {
+      "database": "temporary SQLite per test",
+      "exit_code": 0,
+      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py -q --tb=short",
+      "result": "11 passed",
+      "environment": {
+        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled",
+        "cost_mode": "default observe"
+      }
+    },
+    {
+      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset",
+      "exit_code": 0,
+      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py tests/integration/test_model_input_snapshot_postgres.py tests/integration/test_harness_context_postgres.py tests/integration/test_chat_goal_tools_postgres.py tests/integration/test_goal_tool_recovery_postgres.py tests/integration/test_root_task_budgets.py tests/integration/test_attempt_settlement_postgres.py -q --tb=short",
+      "result": "49 passed in 33.59s"
+    },
+    {
+      "exit_code": 0,
+      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/integration/test_snapshot_entrypoints_postgres.py --collect-only -q",
+      "result": "12 tests collected"
+    },
+    {
+      "exit_code": 0,
+      "result": "13 passed",
+      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/test_snapshot_auxiliary_entries.py -q --tb=short",
+      "database": "temporary SQLite per test",
+      "environment": {
+        "cost_mode": "default observe",
+        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled"
+      }
+    },
+    {
+      "exit_code": 0,
+      "result": "1 passed",
+      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py -q --tb=short",
+      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset"
+    },
+    {
+      "exit_code": 0,
+      "result": "71 passed",
+      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_research_engine.py -q --tb=short"
+    },
+    {
+      "database": "temporary SQLite per test",
+      "exit_code": 0,
+      "result": "15 passed",
+      "environment": {
+        "BETTER_SNAPSHOT_EVIDENCE_PATH": "enabled"
+      },
+      "command": "python -m pytest tests/test_snapshot_research_entries.py tests/test_snapshot_learning_entries.py tests/test_snapshot_auxiliary_entries.py -q --tb=short"
+    },
+    {
+      "database": "ephemeral isolated docker-compose PostgreSQL; TEST_DATABASE_URL unset",
+      "exit_code": 0,
+      "result": "1 passed",
+      "command": "python -m pytest tests/integration/test_snapshot_entrypoints_postgres.py -q --tb=short"
+    },
+    {
+      "command": "python -m pytest tests/test_model_admin_api.py -q --tb=short",
+      "result": "10 passed in 8.36s",
+      "exit_code": 0,
+      "database": "temporary SQLite per test",
+      "acceptance_nodes": [
+        "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version",
+        "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
+        "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store",
+        "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send"
+      ]
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing -q --tb=short",
+      "result": "3 passed in 2.17s",
+      "exit_code": 0,
+      "database": "temporary SQLite per parameterized case",
+      "acceptance_nodes": [
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[snapshot]",
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[invocation]",
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[execution_context_binding]"
+      ]
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_gateway.py -q --tb=short",
+      "result": "39 passed in 22.55s",
+      "exit_code": 0,
+      "database": "temporary SQLite per test",
+      "acceptance_nodes": [
+        "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing"
+      ]
+    },
+    {
+      "command": "python -m pytest tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call tests/test_snapshot_gateway.py::test_routed_gateway_refuses_missing_execution_identity_before_any_send tests/test_snapshot_gateway.py::test_direct_gateway_rejects_missing_identity_and_uncontrolled_http -q --tb=short",
+      "result": "3 passed in 1.85s",
+      "exit_code": 0,
+      "acceptance_nodes": [
+        "tests/test_evolution.py::test_live_behavior_runner_rejects_missing_owner_before_any_gateway_call"
+      ]
+    },
+    {
+      "command": "python -m pytest tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans -q --tb=short",
+      "result": "1 passed in 1.41s",
+      "exit_code": 0,
+      "database": "temporary SQLite per test",
+      "acceptance_nodes": [
+        "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
+      ]
+    },
+    {
+      "command": "python -m pytest tests/test_eval_scenarios.py -q --tb=short",
+      "result": "3 passed in 37.39s",
+      "exit_code": 0,
+      "database": "temporary SQLite/eval fixtures",
+      "acceptance_nodes": [
+        "tests/test_eval_scenarios.py::test_live_smoke_without_control_store_fails_closed"
+      ]
+    }
+  ],
+  "known_unresolved_failures": [],
+  "configuration_sensitive_observation": "Two real-evaluation budget tests fail under the default observe mode; both pass with the required BETTER_AGENT_COST_MODE=enforce acceptance configuration.",
+  "binding_examples_file": "binding-examples.json",
+  "binding_examples_collected": true,
+  "t01_t38_accounting": {
+    "details_file": "t01-t38-accounting.md",
+    "partial": [
+      "T01",
+      "T04",
+      "T07",
+      "T11",
+      "T12",
+      "T13",
+      "T14",
+      "T15",
+      "T16",
+      "T17",
+      "T18",
+      "T24",
+      "T26",
+      "T33",
+      "T37"
+    ],
+    "pending": [
+      "T08",
+      "T09",
+      "T10",
+      "T23",
+      "T28",
+      "T32",
+      "T34",
+      "T35",
+      "T36"
+    ],
+    "pass": [
+      "T02",
+      "T03",
+      "T05",
+      "T06",
+      "T19",
+      "T20",
+      "T21",
+      "T22",
+      "T25",
+      "T27",
+      "T29",
+      "T30",
+      "T31",
+      "T38"
+    ],
+    "total": 38
+  },
+  "callsite_matrix": [
+    {
+      "status": "partial",
+      "callsite_id": "CS-RS-01"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-RS-02"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-LN-01"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-GR-01"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-MA-01"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-MR-01"
+    },
+    {
+      "status": "partial",
+      "callsite_id": "CS-CA-01"
+    },
+    {
+      "status": "complete",
+      "callsite_id": "CS-MD-01"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-RS-03"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-AG-01"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-AG-02"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-EV-01"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-EV-02"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-EV-03"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-GR-02"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-GR-03"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-GP-01"
+    },
+    {
+      "status": "pending",
+      "callsite_id": "CS-GP-02"
+    }
+  ],
+  "m1_evidence": [
+    "Phase 2A SQLite specialized: 119 passed",
+    "M5 gate + offline PG live harness under BETTER_AGENT_COST_MODE=enforce: 25 passed",
+    "Real evaluation full module under default shell environment: 35 passed; budget tests set enforce internally",
+    "Conversation worker full module with AGENT_ARCHIVE_WAIT_MS=30000: 41 passed",
+    "Isolated PostgreSQL Phase 2B set: 47 passed"
+  ],
+  "covered_test_nodes": {
+    "T19": [
+      "tests/test_model_admin_api.py::test_live_verification_freezes_the_requested_unrouted_profile_version"
+    ],
+    "T20": [
+      "tests/test_model_admin_api.py::test_live_verification_failure_keeps_committed_binding_and_cross_owner_is_denied",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres"
+    ],
+    "T22": [
+      "tests/test_model_admin_api.py::test_model_admin_startup_and_api_fallback_keep_the_control_store"
+    ],
+    "T21": [
+      "tests/test_model_admin_api.py::test_live_verification_budget_rejection_happens_before_provider_send",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+      "tests/test_model_admin_api.py::test_model_profile_and_routing_policy_api_are_versioned_and_secret_safe"
+    ],
+    "T03": [
+      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[snapshot]",
+      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[invocation]",
+      "tests/test_snapshot_gateway.py::test_t03_any_binding_transaction_write_failure_rolls_back_and_sends_nothing[execution_context_binding]"
+    ],
+    "T31": [
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_research_plan_is_committed_before_postgres_transport_send",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_verification_failure_is_bound_and_owner_scoped_in_postgres",
+      "tests/integration/test_snapshot_entrypoints_postgres.py::test_model_admin_snapshot_persistence_failure_prevents_postgres_send",
+      "tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_snapshot_write_rolls_back_the_invocation",
+      "tests/integration/test_model_input_snapshot_postgres.py::test_p05_a_failed_execution_context_write_rolls_back_snapshot_and_invocation",
+      "tests/integration/test_model_input_snapshot_postgres.py::test_p07_direct_sql_cannot_rewrite_or_unbind_a_snapshot",
+      "tests/integration/test_attempt_settlement_postgres.py::test_concurrent_finish_has_one_settlement_and_one_event"
+    ],
+    "T38": [
+      "tests/test_snapshot_flow.py::test_t38_conversation_auxiliary_calls_and_main_call_have_sibling_spans"
+    ]
+  }
+}
