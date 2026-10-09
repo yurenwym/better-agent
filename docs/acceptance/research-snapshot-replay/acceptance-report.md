@@ -1,6 +1,14 @@
 # Replay-M3 验收报告
 
-日期：2026-10-09（Asia/Shanghai）。工程结论：**PASS**。候选效果：**INSUFFICIENT_EVIDENCE**。发布资格：**false**。
+日期：2026-10-09（Asia/Shanghai）。当前结论：**两项审查修复专项通过，完整阶段验收待复验**。候选效果：**INSUFFICIENT_EVIDENCE**。发布资格：**false**。下方原 274 节点 PASS 为 `2edb2d8` 的历史测试结论，不能作为两项逻辑缺口不存在或当前代码完全验收通过的证明。
+
+## 2edb2d8 审查修复
+
+- P1：原实现只在入口检查历史来源，预检之后撤销 bundle 仍可发送。现在用调用专属 store view 将历史 invocation/digest 保存到新 snapshot provenance，复用 direct/routed 网关的每次发送与重试前准入检查，重新装载历史来源并检查当前撤销。研究臂和两个 Judge 都绑定该依赖；失败保留新 invocation/snapshot 和已有 attempt，原记录不变。共享 control store 不被替换或挂载来源依赖。
+- P2：原 Judge 仅收到 left/right，rubric 摘要没有对应实际评分输入。现在两个匿名 Judge 都收到独立冻结的 task/evidence/rubric context，仅白名单业务字段入模；顺序、prompt 和 seed 固定，候选 prompt/臂/bundle/model 标识不入 Judge。Judge 版本升级 v2；task/evidence/rubric/blind_input 摘要对应实际请求。
+- 新回归：预检后、创建网关时撤销来源零发送；首次 timeout 后撤销不发送第二次；Judge 撤销零发送；direct gateway 首次发送与 retry 同样拒绝；逐项改变任务、证据、rubric 改变两个 Judge 的请求，同时匿名输出顺序保持一致。来源依赖从新快照读取并验证，拒绝记录保留。
+- 本轮范围：enforce 下回放专项及受影响 gateway/real_evaluation/静态旁路回归，另复跑隔离 PG entrypoint 文件。实际命令、JUnit、节点和源码摘要见 `review-fix-evidence.json`。`evidence.json` 和原配对 Judge 日志保留为旧版历史证据，新版绑定见 `logs/review-fix-judge-bindings.json`。
+- 未执行全仓测试，也未重跑原完整 Replay-M3 所有门禁集合。两项缺口已由定向回归闭环；当前不恢复“完整阶段验收 PASS”。无付费模型调用。
 
 ## 完成内容
 

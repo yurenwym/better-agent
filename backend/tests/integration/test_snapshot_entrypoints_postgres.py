@@ -14,6 +14,17 @@ from snapshot_entrypoint_helpers import CommittedSnapshotTransport
 from test_snapshot_gateway import _answer, _configured_control_plane
 
 
+@pytest.mark.parametrize("boundary", ["before_gateway", "retry", "judge"])
+def test_rp14_pg_source_dependency_is_checked_at_each_send(migrated_postgres_url, tmp_path, monkeypatch, boundary):
+    from test_research_snapshot_replay import assert_source_revocation_blocks_send
+    monkeypatch.setenv("BETTER_AGENT_COST_MODE", "enforce")
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        assert_source_revocation_blocks_send(tmp_path, monkeypatch, boundary, database=db)
+    finally:
+        db.close()
+
+
 def test_rp12_rp15_rp18_research_pair_pg_owner_root_and_cost(migrated_postgres_url, tmp_path, monkeypatch):
     """Real Research writes + dual Judge on a guarded PG ledger; no network."""
     from test_research_snapshot_replay import paired_setup

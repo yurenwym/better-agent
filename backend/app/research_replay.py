@@ -20,7 +20,7 @@ import time
 from typing import Any
 import uuid
 
-from .model_input_snapshot import ModelInputSnapshot, SnapshotError, canonical_json, deserialize_envelope, freeze_model_input
+from .model_input_snapshot import ModelInputSnapshot, SnapshotError, SnapshotProvenance, canonical_json, deserialize_envelope, freeze_model_input
 from .model_input_snapshot_store import ModelInputSnapshotStore
 from .model_control import ModelCallContext, ModelControlStore, RoutedModelGateway, new_logical_call
 from .model_gateway import GatewayError, ModelRequest, ModelResponse, Timing, UsageBuckets
@@ -31,7 +31,7 @@ from .research.models import ResearchRequest, ResearchLimits, Source
 
 SCHEMA = "research-snapshot-replay-v1"
 CONVERSION = "research-write-sidecar-v1"
-JUDGE_VERSION = "research-replay-judge-v1"
+JUDGE_VERSION = "research-replay-judge-v2"
 SEED = "research-replay-blind-v1"
 REQUEST_FIELDS = ("messages", "tools", "temperature", "max_tokens", "thinking", "response_format", "single_attempt")
 
@@ -298,6 +298,49 @@ class FixtureRetriever:
         return sources
 
 
+class SourceBoundControl:
+    """Call-scoped store view: shared gateway checks include the historical source.
+
+    The source reference is frozen in each new invocation's snapshot provenance.
+    No shared store method is replaced, and concurrent unrelated calls are free
+    of this dependency. Both direct and routed gateways use this send gate.
+    """
+    def __init__(self, control, source_store, owner, reference):
+        self.control, self.source_store, self.owner = control, source_store, owner
+        self.reference_json = canonical_json(reference)
+
+    def __getattr__(self, name):
+        return getattr(self.control, name)
+
+    def assert_request_active(self, invocation_id, context):
+        snapshot = self.snapshots.load_for_invocation(self.owner, invocation_id)
+        reference = (snapshot.provenance().assembly or {}).get("research_replay_source")
+        if context.owner_id != self.owner or canonical_json(reference) != self.reference_json:
+            raise ReplayError("HISTORICAL_SOURCE_BINDING_MISMATCH")
+        source = self.source_store.snapshots.load_for_invocation(self.owner, reference["invocation_id"])
+        if source.content_digest != reference["snapshot_digest"]:
+            raise ReplayError("HISTORICAL_SOURCE_BINDING_MISMATCH")
+        self.source_store.assert_request_active(reference["invocation_id"],
+            ModelCallContext(source.role, source.purpose, owner_id=self.owner, runtime_bundle_id=source.runtime_bundle_id))
+        self.control.assert_request_active(invocation_id, context)
+
+
+class SourceBoundGateway:
+    def __init__(self, gateway, source_store, owner, reference):
+        self.gateway = gateway
+        self.reference_json = canonical_json(reference)
+        gateway.control_store = SourceBoundControl(gateway.control_store, source_store, owner, reference)
+
+    def __getattr__(self, name):
+        return getattr(self.gateway, name)
+
+    async def complete(self, request, *, provenance=None, **kwargs):
+        original = provenance or SnapshotProvenance()
+        provenance = replace(original, assembly={**(original.assembly or {}),
+                                                 "research_replay_source": json.loads(self.reference_json)})
+        return await self.gateway.complete(request, provenance=provenance, **kwargs)
+
+
 class ResearchEvaluationRunner(LiveEvaluationRunner):
     """Research write + dual blind Judge seam, using the existing paid control plane.
 
@@ -367,6 +410,7 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
             parent = self._context("researcher", "research_replay", "evaluation_" + uuid.uuid4().hex, bundle_id,
                 config["price_snapshot_ids"][arm], owner_id=config["owner_id"], root_budget_id=config["root_budget_id"])
             gateway = self._gateway(config[arm + "_model_id"])
+            gateway = self._bind_source(gateway, config, case)
             from .research.models import Evidence
             evidence = [Evidence("fixture-" + str(index), item[1], item[0], None, 1) for index, item in enumerate(case["evidence"])]
             with self.control_store.db.connection() as connection:
@@ -389,6 +433,14 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
                     "ttft_seconds": None, "prompt_digest": _prompt_digest(messages[0]["content"]),
                     "model_identity": config[arm + "_model_id"], "profile_version_id": config[arm + "_model_id"]}
         return invoke
+
+    def _bind_source(self, gateway, config, case):
+        if not case.get("source"):
+            return gateway
+        if self.source_store is None:
+            raise ReplayError("CURRENT_SOURCE_AUTHORIZATION_REQUIRED")
+        reference = {key: case["source"].get(key) for key in ("invocation_id", "snapshot_digest")}
+        return SourceBoundGateway(gateway, self.source_store, config["owner_id"], reference)
 
     def _manifest(self, bundle_id):
         with self.control_store.db.connection() as connection:
@@ -414,10 +466,19 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
             left_is_baseline = int(digest([SEED, payload["case"]["id"]])[:8], 16) % 2 == 0
             blind = {"left": payload["baseline"] if left_is_baseline else payload["candidate"],
                      "right": payload["candidate"] if left_is_baseline else payload["baseline"]}
+            # Only frozen business fields are included. Arm/bundle/model labels
+            # and candidate prompt never enter the Judge's task context.
+            case = payload["case"]
+            context = json.loads(canonical_json({
+                "task": {key: case.get(key) for key in ("input", "topic", "heading", "thesis", "prior_summary")},
+                "evidence": case["evidence"], "rubric": case.get("rubric", {}),
+            }))
+            blind["context"] = context
             decisions, costs = [], []
             for label, role, instruction in (("quality_judge", "judge_quality", QUALITY_JUDGE_PROMPT),
                                              ("safety_judge", "judge_safety", SAFETY_JUDGE_PROMPT)):
                 gateway = self._gateway(config[label + "_model_id"])
+                gateway = self._bind_source(gateway, config, case)
                 identity = "model_invocation_eval_" + uuid.uuid4().hex
                 response = asyncio.run(gateway.complete(ModelRequest(
                     [{"role": "system", "content": instruction}, {"role": "user", "content": canonical_json(blind)}],
@@ -432,7 +493,8 @@ class ResearchEvaluationRunner(LiveEvaluationRunner):
                 raise ReplayError("INVALID_BLIND_JUDGE")
             winner = "tie" if quality["winner"] == "tie" else "baseline" if (quality["winner"] == "left") == left_is_baseline else "candidate"
             self.blind_records.append({"case_id": payload["case"]["id"], "left_is_baseline": left_is_baseline,
-                "seed_digest": digest(SEED), "rubric_digest": digest(payload["case"].get("rubric", {})),
+                "seed_digest": digest(SEED), "rubric_digest": digest(context["rubric"]),
+                "task_digest": digest(context["task"]), "evidence_digest": digest(context["evidence"]),
                 "judge_prompt_digest": digest([QUALITY_JUDGE_PROMPT, SAFETY_JUDGE_PROMPT]), "judge_version": JUDGE_VERSION,
                 "blind_input_digest": digest(blind)})
             return {"winner": winner, "baseline_safe": safety["left_safe" if left_is_baseline else "right_safe"],

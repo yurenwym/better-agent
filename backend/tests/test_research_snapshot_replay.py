@@ -354,7 +354,7 @@ def test_rp13_only_allowed_fragment_changes_and_judges_are_blind(tmp_path, monke
     judges = [request for request, _ in observers if request.role.startswith("judge")]
     assert len(judges) == 2
     for request in judges:
-        assert set(json.loads(request.messages[1]["content"])) == {"left", "right"}
+        assert set(json.loads(request.messages[1]["content"])) == {"left", "right", "context"}
         assert CANDIDATE not in request.messages[0]["content"]
     assert runner.blind_records[0]["seed_digest"] and runner.blind_records[0]["judge_prompt_digest"]
     invalid = copy.deepcopy(candidate.manifest)
@@ -396,6 +396,126 @@ def test_rp14_revoked_frozen_source_is_readable_but_cannot_send_again(tmp_path, 
         runner.runner(config)(pair["candidate_messages"], candidate.id, case)
     assert len(observers) == before
     assert ModelInputSnapshotStore(db).load_for_invocation("operator", old["id"]).content_json == frozen.content_json
+
+
+@pytest.mark.parametrize("boundary", ["before_gateway", "retry", "judge"])
+def test_rp14_source_revocation_after_precheck_blocks_every_new_send(tmp_path, monkeypatch, boundary):
+    assert_source_revocation_blocks_send(tmp_path, monkeypatch, boundary)
+
+
+def assert_source_revocation_blocks_send(tmp_path, monkeypatch, boundary, *, database=None, gateway_kind="routed"):
+    from test_snapshot_gateway import _learning_assets
+    from app.learning_assets import LearningConflict
+    db, base, candidate, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch, database=database, controlled=database is not None)
+    assets = _learning_assets(db, tmp_path)
+    runner.control_store.learning_assets = assets
+    pair = validate_pair(base.manifest, candidate.manifest, case)
+    runner.runner(config)(pair["base_messages"], base.id, case)
+    old = runner.bindings[0]
+    frozen = ModelInputSnapshotStore(db).load_for_invocation("operator", old["id"])
+    runner.source_store = runner.control_store
+    case["source"] = {"invocation_id": old["id"], "snapshot_digest": frozen.content_digest}
+    before = len(observers)
+    factory = runner.gateway_factory
+    gateways, sends = [], []
+
+    def revoke():
+        assets.revoke("operator", "bundle", base.id, "source-revoked-during-replay")
+
+    def create(version):
+        gateway = factory(version)
+        if gateway_kind == "direct":
+            import httpx
+            from app.model_gateway import ModelGateway
+            from test_snapshot_gateway import _registered_profile
+            def handler(request):
+                sends.append(request)
+                assert len(sends) == 1, "direct retry sent after source revocation"
+                revoke()
+                raise httpx.ReadTimeout("fixture timeout", request=request)
+            async def no_sleep(_):
+                return None
+            gateway = ModelGateway(replace(_registered_profile(db, version), max_attempts=2, retry_base_seconds=0),
+                transport=httpx.MockTransport(handler), control_store=runner.control_store, sleep=no_sleep)
+        gateways.append(gateway)
+        if boundary in {"before_gateway", "judge"}:
+            revoke()
+        if boundary == "retry" and gateway_kind == "routed":
+            # Registered fixture version is immutable; only this isolated
+            # transport's resolved profile gets the extra retry attempt.
+            route = gateway._route
+            def retry_route(context):
+                snapshot, profiles, context = route(context)
+                return snapshot, [replace(profile, max_attempts=2) for profile in profiles], context
+            gateway._route = retry_route
+            async def fail_once(profile, request, **kwargs):
+                from snapshot_entrypoint_helpers import CommittedSnapshotTransport
+                observer = CommittedSnapshotTransport(db, "operator", "CS-EV-03", _answer())
+                observer.record(profile, request)
+                sends.append(observer.observations[0])
+                assert len(sends) == 1, "retry sent after source revocation"
+                dependency = ModelInputSnapshotStore(db).load_for_invocation("operator", sends[-1]["invocation_id"]).provenance().assembly
+                assert dependency["research_replay_source"] == case["source"]
+                revoke()
+                raise GatewayError("fixture timeout", "timeout")
+            gateway._execute_attempt = fail_once
+        return gateway
+
+    runner.gateway_factory = create
+    with pytest.raises(LearningConflict, match="revoked"):
+        if boundary == "judge":
+            runner.judge(config)({"case": case, "baseline": "answer", "candidate": "answer"})
+        else:
+            runner.runner(config)(pair["candidate_messages"], candidate.id, case)
+    assert len(observers) == before and len(sends) == (1 if boundary == "retry" else 0)
+    with db.connection() as connection:
+        rows = connection.execute("SELECT id,status FROM model_invocations WHERE id<>?", (old["id"],)).fetchall()
+        assert len(rows) == 1 and rows[0]["status"] == "FAILED"
+        assert connection.execute("SELECT COUNT(*) FROM model_attempts WHERE invocation_id=?", (rows[0]["id"],)).fetchone()[0] == len(sends)
+    dependency = ModelInputSnapshotStore(db).load_for_invocation("operator", rows[0]["id"]).provenance().assembly
+    assert dependency["research_replay_source"] == case["source"]
+    assert all(gateway.current_call_context() is None for gateway in gateways)
+    assert ModelInputSnapshotStore(db).load_for_invocation("operator", old["id"]).content_json == frozen.content_json
+    # The source guard is scoped to this call, not attached to the shared store.
+    assert runner.control_store.__class__.__name__ == "ModelControlStore"
+
+
+@pytest.mark.parametrize("boundary", ["before_gateway", "retry"])
+def test_rp14_direct_gateway_checks_historical_source_before_send_and_retry(tmp_path, monkeypatch, boundary):
+    assert_source_revocation_blocks_send(tmp_path, monkeypatch, boundary, gateway_kind="direct")
+
+
+@pytest.mark.parametrize("changed", ["task", "evidence", "rubric"])
+def test_rp13_judges_receive_frozen_scoring_context_and_digest_it(tmp_path, monkeypatch, changed):
+    _, _, _, runner, config, observers, case, _ = paired_setup(tmp_path, monkeypatch)
+    judge = runner.judge(config)
+    payload = {"case": case, "baseline": "same A", "candidate": "same B"}
+    judge(payload)
+    if changed == "task":
+        case["heading"] = "Different frozen task"
+    elif changed == "evidence":
+        case["evidence"] = [("Different frozen evidence.", "s2")]
+    else:
+        case["rubric"] = {"deterministic_required": ["different required result"]}
+    judge(payload)
+    assert len(observers) == 4
+    for index in (0, 1):
+        before = json.loads(observers[index][0].messages[1]["content"])
+        after = json.loads(observers[index + 2][0].messages[1]["content"])
+        assert before != after
+        assert (before["left"], before["right"]) == (after["left"], after["right"])
+        context = after["context"]
+        assert context["task"]["heading"] == case["heading"]
+        assert context["evidence"] == json.loads(canonical_json(case["evidence"]))
+        assert context["rubric"] == case["rubric"]
+        assert set(after) == {"left", "right", "context"}
+        assert config["candidate_bundle_id"] not in canonical_json(after) and CANDIDATE not in canonical_json(after)
+        record = runner.blind_records[-1]
+        assert record["blind_input_digest"] == digest(after)
+        assert record["task_digest"] == digest(context["task"])
+        assert record["evidence_digest"] == digest(context["evidence"])
+        assert record["rubric_digest"] == digest(context["rubric"])
+    assert runner.blind_records[0]["blind_input_digest"] != runner.blind_records[1]["blind_input_digest"]
 
 
 @pytest.mark.parametrize("metric", [None, 1])

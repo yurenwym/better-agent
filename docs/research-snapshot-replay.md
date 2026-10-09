@@ -46,7 +46,7 @@ python -m app.research_replay export --invocation INVOCATION_ID --lineage ORIGIN
 
 `ResearchEvaluationRunner` 复用已有 LiveEvaluationRunner 的网关、价格 reservation、context 和 attempt 成本；研究臂实际调用 LiveResearchModel.write。输入配置须有可信 owner、独立 evaluation root、两臂 bundle、同一 researcher profile/价格、两个固定 Judge profile/价格和 evaluator bundle。预检整份 manifest 仅允许一个片段变化，并核验 bundle 当前路由与 profile 无 fallback。
 
-`runner(config)` 和 `judge(config)` 可传给 `ResearchRoleReplayEvaluator.evaluate`。受控模式必须使用 PostgreSQL 的独立 evaluation root 与 CostService；当前来源 snapshot digest、权限和撤销在新发送前再检查。Judge 只有匿名 left/right，固定 prompt、rubric 版本与盲化 seed；所有调用创建新 invocation/snapshot，成本汇总包含 arm/Judge/retry，部分 usage 或缺价格保持 unknown。
+`runner(config)` 和 `judge(config)` 可传给 `ResearchRoleReplayEvaluator.evaluate`。受控模式必须使用 PostgreSQL 的独立 evaluation root 与 CostService；历史来源 invocation/digest 保存在每个新调用快照的 provenance.assembly.research_replay_source 中，direct/routed 网关在每次发送与重试前验证来源绑定、权限和撤销。该依赖检查仅作用于本次调用，不替换共享 store 的检查方法。Judge 保留匿名 left/right，另收到冻结的任务（input/topic/heading/thesis/prior_summary）、证据和 rubric；不传臂、模型、bundle 标签或候选 prompt。Judge v2 的 task/evidence/rubric 摘要均计算自实际发送的 context，blind_input_digest 覆盖完整评分请求。所有调用创建新 invocation/snapshot，成本汇总包含 arm/Judge/retry，部分 usage 或缺价格保持 unknown。
 
 CLI `--mode controlled` 拒绝自行启动付费运行，返回 `CONTROLLED_REQUIRES_EXISTING_AUTHORIZED_EVALUATION_START`。应由现有明确评估启动方式先展示预计调用数、独立预算并取得启动授权后，在授权服务上下文调用此接缝。本轮没有付费启动授权，也未执行真实模型。
 

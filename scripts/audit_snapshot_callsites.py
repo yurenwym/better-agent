@@ -43,6 +43,7 @@ SYMBOLS = {
     "ManagedResearchWorker._finish_exposure": ["CS-RS-03"],
     "ResearchEvaluationRunner.runner.invoke": ["CS-EV-03"],
     "ResearchEvaluationRunner.judge.invoke": ["CS-EV-03"],
+    "SourceBoundGateway.complete": ["CS-EV-03"],
     "execute_case": ["CS-EV-03"],
     "AgentRuntime._finish_exposure": ["CS-GR-02"],
 }
