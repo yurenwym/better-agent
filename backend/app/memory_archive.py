@@ -77,33 +77,15 @@ class ArchiveWaitTimeout(ArchiveUnavailable):
     public_message = "历史整理超时；你的输入已保存，稍后可以直接继续，不需要重新输入。"
 
 
-# R2-04: the foreground wait is a *UX* budget, not a model-capacity one. It does
-# not scale with ``H``, so unlike every knob in ``token_budget`` it is not
-# profile policy -- it is an operational limit read from the environment, the
-# same family as ``AGENT_ARCHIVE_MAX_JOBS_PER_MINUTE``.
-DEFAULT_ARCHIVE_WAIT_MS = 2_000
-DEFAULT_ARCHIVE_WAIT_POLL_MS = 50
-
-
-@dataclass(frozen=True)
-class ArchiveWaitPolicy:
-    deadline_ms: int
-    poll_ms: int
-
-    def public_view(self) -> dict[str, Any]:
-        return {"deadline_ms": self.deadline_ms, "poll_ms": self.poll_ms}
+class ArchivePending(Exception):
+    """The turn released its lease while an independent archive job runs."""
 
 
 class WaitDeadline:
-    """A wall-clock bound for the foreground archival wait.
+    """Bound local context measurement; durable waits use archive_wait_until."""
 
-    The loop must never sleep past the deadline, and it must notice a cancel
-    promptly rather than after one long sleep. Both are properties of the sleep
-    slice, so they are computed here instead of being spread through the loop.
-    """
-
-    def __init__(self, policy: ArchiveWaitPolicy, *, clock: Callable[[], float] = time.monotonic) -> None:
-        self.policy = policy
+    def __init__(self, deadline_ms: int, *, clock: Callable[[], float] = time.monotonic) -> None:
+        self.deadline_ms = deadline_ms
         self._clock = clock
         self._started = clock()
 
@@ -113,15 +95,11 @@ class WaitDeadline:
 
     @property
     def remaining_ms(self) -> int:
-        return max(self.policy.deadline_ms - self.elapsed_ms, 0)
+        return max(self.deadline_ms - self.elapsed_ms, 0)
 
     @property
     def expired(self) -> bool:
         return self.remaining_ms <= 0
-
-    def sleep_seconds(self) -> float:
-        """One slice: never longer than the poll interval or what is left."""
-        return max(min(self.policy.poll_ms, self.remaining_ms), 0) / 1000.0
 
 
 @dataclass(frozen=True)
@@ -139,6 +117,7 @@ class ArchiveClaim:
     tokenizer_version: str = DEFAULT_TOKEN_COUNTER.version
     runtime_bundle_id: str | None = None
     root_budget_id: str | None = None
+    previous_error: str | None = None
 
 
 Summarizer = Callable[[dict[str, Any]], Awaitable[dict[str, Any] | str]]
@@ -441,6 +420,7 @@ class ConversationArchiver:
             int(row["end_message_seq"]), row["source_hash"], self.worker_id, epoch, attempts,
             row["prompt_version"], row["tokenizer_version"],
             row["runtime_bundle_id"], row["root_budget_id"],
+            json.loads(row["last_error_json"] or "{}").get("message") if row["last_error_code"] == "invalid_summary" else None,
         )
 
     async def process(self, claim: ArchiveClaim):
@@ -456,6 +436,11 @@ class ConversationArchiver:
             if self.summarizer is None:
                 raise InvalidEpisodeSummary("episode summarizer is not configured")
             payload = self._input_payload(transcript)
+            if claim.previous_error:
+                payload["validation_feedback"] = {
+                    "error": claim.previous_error,
+                    "instruction": "Correct the previous validation error. Assistant claims belong in attributed synopsis; outcomes and decisions require user evidence. Use empty arrays when unsupported.",
+                }
             input_tokens = DEFAULT_TOKEN_COUNTER.count_text(
                 json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
             )
@@ -1149,7 +1134,12 @@ def foreground_turn_pending(db) -> bool:
     """
     with db.connection() as connection:
         row = connection.execute(
-            "SELECT 1 FROM turn_jobs WHERE status='QUEUED' LIMIT 1"
+            "SELECT 1 FROM turn_jobs j JOIN turns t ON t.id=j.turn_id "
+            "WHERE j.status='QUEUED' AND j.archive_job_id IS NULL AND NOT EXISTS ("
+            "SELECT 1 FROM turn_jobs waiting JOIN turns earlier ON earlier.id=waiting.turn_id "
+            "WHERE waiting.thread_id=j.thread_id AND waiting.status='QUEUED' "
+            "AND waiting.archive_job_id IS NOT NULL AND (earlier.created_at < t.created_at "
+            "OR (earlier.created_at=t.created_at AND earlier.id < t.id))) LIMIT 1"
         ).fetchone()
     return row is not None
 
@@ -1172,20 +1162,6 @@ def archive_jobs_per_minute_from_env() -> int | None:
     if not raw:
         return None
     return _positive_int_env("AGENT_ARCHIVE_MAX_JOBS_PER_MINUTE", 1)
-
-
-def archive_wait_policy() -> ArchiveWaitPolicy:
-    """The bounded foreground wait.
-
-    A zero poll interval would spin, so the poll is floored at 1ms. The deadline
-    is not floored: an operator who sets it below the poll interval gets a wait
-    that gives up on the first check, which is a coherent way to disable the
-    wait entirely.
-    """
-    return ArchiveWaitPolicy(
-        deadline_ms=_positive_int_env("AGENT_ARCHIVE_WAIT_MS", DEFAULT_ARCHIVE_WAIT_MS),
-        poll_ms=max(_positive_int_env("AGENT_ARCHIVE_WAIT_POLL_MS", DEFAULT_ARCHIVE_WAIT_POLL_MS), 1),
-    )
 
 
 def _owns(row: Any, claim: ArchiveClaim) -> bool:

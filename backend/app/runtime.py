@@ -1793,7 +1793,7 @@ class AgentRuntime:
                 "local_time", "calculator", "read_note", "write_note", "trusted_connector",
                 *goal_read_tools,
                 "create_plan_draft", "modify_plan_document", "activate_goal_plan",
-                "record_action_feedback", "defer_action",
+                "record_action_feedback", "defer_action", "complete_action", "preview_goal_plan", "close_day",
             }
         return set()
 

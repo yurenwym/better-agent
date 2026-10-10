@@ -83,14 +83,136 @@ async def _execute_with_approval(runtime, call, context):
 
 EXPECTED_TOOLS = {
     "create_plan_draft", "modify_plan_document", "activate_goal_plan", "query_goals",
-    "get_today_tasks", "get_action_context", "get_plan", "record_action_feedback", "defer_action",
+    "get_today_tasks", "get_action_context", "get_plan", "record_action_feedback", "defer_action", "complete_action", "preview_goal_plan", "close_day",
 }
+
+
+@pytest.mark.asyncio
+async def test_close_day_requires_approval_reuses_review_and_is_recoverable(tmp_path):
+    from app.domain import ApprovalRequired
+    from app.tools import ToolCall
+    runtime = _tool_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("对话复盘")
+    _, preview = await _draft_and_preview(runtime, thread.id)
+    program_id = preview.data["program_id"]
+    activation = {"mode": "activate", "program_id": program_id, "expected_version": preview.data["program_version"]}
+    await _handler(runtime, "activate_goal_plan")(activation, _approved_activation_context(runtime, thread.id, activation))
+    action = runtime.goal_programs.get(program_id)["actions"][0]
+    runtime.goal_programs.complete_action(action["id"], expected_version=action["version"],
+        idempotency_key="complete-review", feedback={"actual_minutes": 8, "actual_date": action["scheduled_date"]})
+    context = _context(runtime, thread.id, call="close-day")
+    call = ToolCall("close-day", "close_day", {"program_id": program_id, "local_date": action["scheduled_date"]})
+    with pytest.raises(ApprovalRequired):
+        await runtime.tools.execute_async(call, context=context, skill_tools=None)
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_daily_reviews").fetchone()[0] == 0
+    before = runtime.goal_programs.get(program_id)["actions"]
+    result = await _execute_with_approval(runtime, call, context)
+    assert result.ok and result.data["status"] == "QUEUED"
+    recovered = runtime.tools.spec("close_day").recover_result(call.params, context)
+    assert recovered.ok and recovered.data == result.data
+    repeat_context = _context(runtime, thread.id, call="close-day-again")
+    repeat = _handler(runtime, "close_day")(call.params, repeat_context)
+    assert repeat.ok and repeat.data["id"] == result.data["id"]
+    assert runtime.goal_programs.get(program_id)["actions"] == before
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_daily_reviews").fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_close_day_rejects_unrecorded_future_and_foreign_days(tmp_path):
+    from dataclasses import replace
+    runtime = _tool_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("复盘边界")
+    _, preview = await _draft_and_preview(runtime, thread.id)
+    params = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
+    await _handler(runtime, "activate_goal_plan")(params, _approved_activation_context(runtime, thread.id, params))
+    context = _context(runtime, thread.id)
+    handler = _handler(runtime, "close_day")
+    close = {"program_id": params["program_id"], "local_date": "2026-09-01"}
+    assert not handler(close, context).ok
+    assert not handler({**close, "local_date": "2999-01-01"}, context).ok
+    assert handler(close, replace(context, owner_id="other-user")).error == "RESOURCE_NOT_FOUND"
+    assert handler(close, replace(context, project_id="other-project")).error == "RESOURCE_NOT_FOUND"
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_daily_reviews").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_completion_is_approved_idempotent_and_does_not_review(tmp_path):
+    from app.tools import ToolCall
+    from app.domain import ApprovalRequired
+    runtime = _tool_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("完成")
+    draft, preview = await _draft_and_preview(runtime, thread.id)
+    params = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
+    await _handler(runtime, "activate_goal_plan")(params, _approved_activation_context(runtime, thread.id, params))
+    action = runtime.goal_programs.get(preview.data["program_id"])["actions"][0]
+    context = _context(runtime, thread.id, call="complete-one")
+    call = ToolCall("complete-one", "complete_action", {"action_id": action["id"], "expected_version": action["version"], "actual_minutes": 15})
+    with pytest.raises(ApprovalRequired):
+        await runtime.tools.execute_async(call, context=context, skill_tools=None)
+    result = await _execute_with_approval(runtime, call, context)
+    assert result.ok and result.data["action"]["status"] == "COMPLETED"
+    repeated = await runtime.tools.execute_async(call, context=context, skill_tools=None)
+    assert repeated.data == result.data
+    recovered = runtime.tools.spec("complete_action").recover_result(call.params, context)
+    assert recovered.ok and recovered.data == result.data
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM goal_action_feedback WHERE action_id=?", (action["id"],)).fetchone()[0] == 1
+        assert connection.execute("SELECT COUNT(*) FROM goal_daily_reviews").fetchone()[0] == 0
+
+
+@pytest.mark.asyncio
+async def test_preview_keeps_write_claim_without_approval(tmp_path):
+    from app.tools import ToolCall, ToolRisk
+    runtime = _tool_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("免审批预览")
+    draft = _handler(runtime, "create_plan_draft")({"title": "计划", "markdown_content": "# 一周计划\n每天练习"}, _context(runtime, thread.id, call="draft"))
+    call = ToolCall("preview-new", "preview_goal_plan", {
+        "document_id": draft.data["document_id"], "expected_document_version_id": draft.data["version_id"],
+        "start_date": "2026-09-01", "end_date": "2026-09-05", "timezone": "Asia/Shanghai", "daily_minutes": 60,
+    })
+    result = await runtime.tools.execute_async(call, context=_context(runtime, thread.id, call=call.id), skill_tools=None)
+    assert result.ok and result.data["activated"] is False
+    assert runtime.tools.risk_of(call.name, call.params) == ToolRisk.WRITE
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM approvals WHERE tool_call_id=?", (call.id,)).fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM tool_execution_claims WHERE tool_call_id=?", (call.id,)).fetchone()[0] == 1
+
+
+@pytest.mark.asyncio
+async def test_complete_action_rejects_owner_project_and_stale_version(tmp_path):
+    from dataclasses import replace
+    runtime = _tool_runtime(tmp_path)
+    thread = runtime.conversation.create_thread("完成边界")
+    draft, preview = await _draft_and_preview(runtime, thread.id)
+    activation = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
+    await _handler(runtime, "activate_goal_plan")(activation, _approved_activation_context(runtime, thread.id, activation))
+    action = runtime.goal_programs.get(preview.data["program_id"])["actions"][0]
+    handler = _handler(runtime, "complete_action")
+    params = {"action_id": action["id"], "expected_version": action["version"]}
+    assert not handler(params, _context(runtime, thread.id, owner="other")).ok
+    assert not handler(params, replace(_context(runtime, thread.id), thread_id=None, project_id="other-project")).ok
+    with runtime.db.transaction() as c:
+        c.execute("UPDATE goal_actions SET version=version+1 WHERE id=?", (action["id"],))
+    stale = handler(params, _context(runtime, thread.id))
+    assert not stale.ok
+    with runtime.db.connection() as c:
+        assert c.execute("SELECT status FROM goal_actions WHERE id=?", (action["id"],)).fetchone()[0] != "COMPLETED"
+        assert c.execute("SELECT COUNT(*) FROM goal_action_feedback WHERE action_id=?", (action["id"],)).fetchone()[0] == 0
 
 
 def test_goal_tools_register_into_the_registry_and_model_snapshot(tmp_path, monkeypatch):
     runtime = _runtime(tmp_path, monkeypatch)
     names = {item["function"]["name"] for item in runtime.tools.describe()}
     assert EXPECTED_TOOLS <= names
+    activation = next(item["function"]["parameters"] for item in runtime.tools.describe()
+                      if item["function"]["name"] == "activate_goal_plan")
+    assert activation["properties"]["mode"]["enum"] == ["activate"]
+    assert set(activation["properties"]) == {"mode", "program_id", "expected_version"}
+    # Persisted legacy preview calls still validate against their original schema.
+    assert "preview" in runtime.tools.spec("activate_goal_plan").schema["properties"]["mode"]["enum"]
     # The persisted behavior-bundle digest is computed after registration.
     manifest = runtime.behavior.active("stable").manifest
     assert "tools" in manifest
@@ -309,6 +431,21 @@ async def test_confirmed_activation_then_reads_and_feedback(tmp_path, monkeypatc
     )
     assert today.ok and today.data["items"]
     assert today.data["items"][0]["category"] == "today"
+    assert today.data["groups"][0]["review"] is None
+    original_today = runtime.goal_programs.today
+    def with_review(**kwargs):
+        result = original_today(**kwargs)
+        result["programs"][0]["review"] = {
+            "status": "COMPLETED", "summary": "今天已完成", "needs_adjustment": False,
+            "evidence_stale": False, "error_code": None,
+        }
+        return result
+    monkeypatch.setattr(runtime.goal_programs, "today", with_review)
+    reviewed = _handler(runtime, "get_today_tasks")(
+        {"date": "2026-09-01"}, _context(runtime, thread.id, call="read-review"),
+    )
+    assert reviewed.data["groups"][0]["review"]["summary"] == "今天已完成"
+    monkeypatch.setattr(runtime.goal_programs, "today", original_today)
     action_id = today.data["items"][0]["id"]
 
     context_view = _handler(runtime, "get_action_context")(

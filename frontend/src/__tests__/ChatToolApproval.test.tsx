@@ -62,6 +62,15 @@ const draftCall: ChatToolCall = {
   acted_at: null,
 };
 
+it("explains approved daily review without promising schedule changes", () => {
+  render(<ChatToolApprovalCard toolCall={{...draftCall, tool_name: "close_day",
+    params: {program_id: "program-1", local_date: "2026-10-10"},
+    binding: {goal_day: {title: "桌面整理", local_date: "2026-10-10"}}}} onApprove={vi.fn()} onReject={vi.fn()} onRefresh={vi.fn()} />);
+  expect(screen.getByText("结束当天并复盘 · 需要确认")).toBeTruthy();
+  expect(screen.getByText(/可能产生模型费用/)).toBeTruthy();
+  expect(screen.getByText("2026-10-10")).toBeTruthy();
+});
+
 const activationCall: ChatToolCall = {
   ...draftCall,
   id: "chat-tool-2",

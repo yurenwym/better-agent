@@ -208,7 +208,7 @@ class WebSearchRetriever:
         sites = cls._sites(query)
         terms_query = re.sub(r"\bsite:[^\s]+", "", query, flags=re.I)
         raw_terms = [
-            token for token in re.findall(r"[A-Za-z][A-Za-z0-9_.+#-]{2,}", terms_query)
+            token for token in re.findall(r"[A-Za-z][A-Za-z0-9_.+#-]{1,}", terms_query)
             if token.lower() not in cls._TERM_STOPWORDS and not token.lower().startswith(("http", "www"))
         ]
         strong = [
@@ -289,7 +289,7 @@ class WebSearchRetriever:
     def _relevance_terms(cls, value: str) -> set[str]:
         lowered = value.lower()
         terms = {
-            token for token in re.findall(r"[a-z][a-z0-9_.+#-]{2,}", lowered)
+            token for token in re.findall(r"[a-z][a-z0-9_.+#-]{1,}", lowered)
             if token not in cls._TERM_STOPWORDS and not token.startswith(("http", "www"))
         }
         for run in re.findall(r"[\u4e00-\u9fff]{2,}", lowered):

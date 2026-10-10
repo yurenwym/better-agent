@@ -183,6 +183,24 @@ export function renderRecordFeedback(toolCall: ChatToolCall): ToolApprovalConten
 
 // 新增工具只需在这里注册一个渲染器；未注册的工具回落到通用文案。
 const toolRenderers: Record<string, ToolRenderer> = {
+  close_day: (toolCall) => {
+    const day = toolCall.binding?.goal_day as { title?: string; local_date?: string } | undefined;
+    return {
+      title: "结束当天并复盘 · 需要确认",
+      body: <div><h4>{day?.title ?? "所选目标"}</h4>
+        <p>批准后根据已记录的执行情况生成并保存每日复盘，可能产生模型费用。后续安排不会自动修改。</p>
+        <FactList fields={[["执行日期", day?.local_date ?? stringParam(toolCall.params ?? {}, "local_date")]]} /></div>,
+    };
+  },
+  complete_action: (toolCall) => {
+    const action = toolCall.binding?.goal_action as { title?: string } | undefined;
+    return {
+      title: "完成行动 · 需要确认",
+      body: <div><h4>{action?.title ?? "所选行动"}</h4>
+        <p>批准后标记完成，并保存本次提供的用时与反馈。不会结束当天或自动复盘。</p>
+        <FeedbackDetails params={toolCall.params ?? {}} /></div>,
+    };
+  },
   create_plan_draft: renderPlanDraft,
   modify_plan_document: renderModifyDocument,
   activate_goal_plan: renderGoalActivation,

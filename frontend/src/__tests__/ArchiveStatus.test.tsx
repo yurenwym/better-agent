@@ -4,6 +4,18 @@ import ArchiveStatus from "../components/ArchiveStatus";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+it("restores a waiting turn after refresh and retries its saved input", async () => {
+  const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({
+    archived_through_seq: 20, jobs: [], waiting_turn: { id: "saved-turn", status: "FAILED", version: 4 },
+  }) });
+  vi.stubGlobal("fetch", fetcher);
+  render(<ArchiveStatus threadId="thread" csrfToken="token" />);
+  fireEvent.click(await screen.findByRole("button", { name: "重试并继续" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledWith("/api/turns/saved-turn/retry-archive", expect.objectContaining({
+    method: "POST", body: JSON.stringify({ expected_version: 4 }),
+  })));
+});
+
 it("shows a failed archive and submits an explicit scoped retry", async () => {
   const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ archived_through_seq: 0, jobs: [{ id: "job", status: "DEAD_LETTER", end_message_seq: 5, updated_at: "version-one" }] }) })
     .mockResolvedValueOnce({ ok: true }).mockResolvedValue({ ok: true, json: async () => ({ archived_through_seq: 0, jobs: [{ id: "job", status: "QUEUED", end_message_seq: 5 }] }) });

@@ -14,9 +14,7 @@ import pytest
 
 from app.db import Database
 from app.memory_archive import (
-    DEFAULT_ARCHIVE_WAIT_MS, DEFAULT_ARCHIVE_WAIT_POLL_MS, ArchiveUnavailable,
-    ArchiveWaitPolicy, ArchiveWaitTimeout, ConversationArchiver, WaitDeadline,
-    archive_wait_policy,
+    ArchiveUnavailable, ArchiveWaitTimeout, ConversationArchiver, WaitDeadline,
 )
 from app.memory_v2 import MemoryStore
 from test_runtime import make_runtime
@@ -26,43 +24,14 @@ from test_runtime import make_runtime
 # Policy and deadline arithmetic
 # --------------------------------------------------------------------------
 
-def test_the_wait_policy_defaults_to_the_plan_candidate():
-    assert archive_wait_policy().public_view() == {
-        "deadline_ms": DEFAULT_ARCHIVE_WAIT_MS, "poll_ms": DEFAULT_ARCHIVE_WAIT_POLL_MS,
-    }
-    assert DEFAULT_ARCHIVE_WAIT_MS == 2_000
-
-
-def test_the_wait_policy_is_configurable_from_the_environment(monkeypatch):
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "750")
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_POLL_MS", "25")
-    assert archive_wait_policy().public_view() == {"deadline_ms": 750, "poll_ms": 25}
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "0")
-    with pytest.raises(ValueError):
-        archive_wait_policy()
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "2000")
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_POLL_MS", "0")
-    with pytest.raises(ValueError):
-        archive_wait_policy()
-
-
-def test_a_poll_below_one_millisecond_is_floored_not_accepted():
-    """A zero poll would spin the event loop."""
-    policy = ArchiveWaitPolicy(deadline_ms=1000, poll_ms=0)
-    deadline = WaitDeadline(policy, clock=lambda: 0.0)
-    assert deadline.sleep_seconds() == 0.0
-
-
-def test_the_sleep_slice_never_passes_the_deadline():
+def test_local_measurement_deadline_is_bounded():
     ticks = [0.0]
-    deadline = WaitDeadline(ArchiveWaitPolicy(2_000, 50), clock=lambda: ticks[0])
-    assert deadline.sleep_seconds() == 0.05
+    deadline = WaitDeadline(2000, clock=lambda: ticks[0])
+    assert deadline.remaining_ms == 2000
     ticks[0] = 1.99
-    # 10ms left, not the full 50ms poll: the loop must not overshoot.
-    assert deadline.sleep_seconds() == pytest.approx(0.01)
+    assert deadline.remaining_ms == 10
     ticks[0] = 2.0
-    assert deadline.expired is True
-    assert deadline.sleep_seconds() == 0.0
+    assert deadline.expired and deadline.remaining_ms == 0
 
 
 def test_the_timeout_is_a_distinct_recoverable_code():
@@ -131,393 +100,137 @@ def _archiving_states(runtime, thread):
 # Bounded
 # --------------------------------------------------------------------------
 
-@pytest.mark.asyncio
-async def test_a_wait_that_cannot_finish_stops_at_the_deadline(tmp_path, monkeypatch):
-    """The bound is wall-clock, not an iteration count."""
+async def _summary(payload):
+    ids = [event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
+    return {"synopsis": [{"text": "历史要点", "source_message_ids": [ids[0]]}],
+        "topics": [], "decisions": [], "outcomes": [], "open_loops": [], "sensitivity": "normal"}
+
+
+async def _waiting_case(tmp_path, summarizer=_summary):
     from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "300")
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_POLL_MS", "20")
-
-    async def never_finishes(payload):
-        # A job that another worker owns forever: nothing is ever committed.
-        raise AssertionError("the foreground must not summarise here")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never_finishes)
-    archiver.keep_tokens = 4_000
+    from app.memory_archive import ArchivePending
+    runtime, archiver = _runtime_with_archiver(tmp_path, summarizer)
+    archiver.keep_tokens = 4000
     thread = _thread_with_history(runtime, turns=8, size=900)
     turn = await _accepted_turn(runtime, thread)
-
-    # Hold the job so the foreground can only wait for it.
-    original_claim = archiver.claim
-    held: list[str] = []
-
-    def hold(job_id=None):
-        claim = original_claim(job_id)
-        if claim is not None:
-            held.append(claim.job_id)
-        return None
-
-    archiver.claim = hold
-
     worker = ManagedTurnWorker(runtime.conversation)
-    started = time.monotonic()
-    with pytest.raises(ArchiveWaitTimeout):
+    assert worker.claim_next() == turn.id
+    with pytest.raises(ArchivePending):
         await worker._archive_history_before_generation(turn)
-    elapsed = time.monotonic() - started
-    assert held, "the job should have been enqueued"
-    # Bounded: comfortably inside a generous multiple of the configured 300ms.
-    assert elapsed < 2.0, elapsed
-    assert _archiving_states(runtime, thread) == ["waiting", "timeout"]
+    return runtime, archiver, thread, turn, worker
 
 
 @pytest.mark.asyncio
-async def test_a_slow_archive_attempt_is_cut_off_by_the_deadline(tmp_path, monkeypatch):
-    """The bound covers the foreground's own model call, not only idle waiting."""
-    from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "200")
-
-    started = asyncio.Event()
-
-    async def hangs(payload):
-        started.set()
-        await asyncio.sleep(30)
-        raise AssertionError("unreachable")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, hangs)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    wall = time.monotonic()
-    with pytest.raises(ArchiveWaitTimeout):
-        await worker._archive_history_before_generation(turn)
-    assert time.monotonic() - wall < 2.0
-    assert started.is_set()
-    # The cut-off job is left durably reclaimable rather than silently lost.
+async def test_pending_archive_releases_slot_and_does_not_run_inline(tmp_path):
+    called = []
+    async def summary(payload):
+        called.append(True)
+        return await _summary(payload)
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path, summary)
+    assert not called
     with runtime.db.connection() as connection:
-        status = connection.execute(
-            "SELECT status FROM memory_archive_jobs ORDER BY created_at DESC LIMIT 1"
-        ).fetchone()["status"]
-    assert status in {"QUEUED", "RUNNING"}
+        job = connection.execute("SELECT * FROM turn_jobs WHERE turn_id=?", (turn.id,)).fetchone()
+    assert job["status"] == "QUEUED" and job["lease_owner"] is None and job["archive_job_id"]
+    assert worker.claim_next() is None
+    from app.memory_archive import foreground_turn_pending
+    assert not foreground_turn_pending(runtime.db)
+    assert not _events(runtime, thread, "model.started")
+    assert _archiving_states(runtime, thread)[-1] == "waiting"
+    runtime.db.close()
 
 
 @pytest.mark.asyncio
-async def test_a_request_that_fits_never_waits_and_never_announces(tmp_path, monkeypatch):
-    from app.conversation import ManagedTurnWorker
+async def test_later_turn_does_not_overtake_archive_wait_or_starve_archiver(tmp_path):
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path)
+    runtime.conversation.accept_turn(thread.id, "later-turn", "稍后查询", owner_id="local-user")
+    assert worker.claim_next() is None
+    from app.memory_archive import foreground_turn_pending
+    assert not foreground_turn_pending(runtime.db)
+    runtime.db.close()
 
+
+@pytest.mark.asyncio
+async def test_lost_archive_lease_fails_instead_of_spinning(tmp_path):
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path)
+    with runtime.db.transaction() as connection:
+        connection.execute("UPDATE memory_archive_jobs SET status='LEASE_LOST'")
+    assert worker.claim_next() == turn.id
+    with pytest.raises(ArchiveUnavailable):
+        await worker._archive_history_before_generation(turn)
+    runtime.db.close()
+
+
+@pytest.mark.asyncio
+async def test_slow_archive_completes_and_new_worker_resumes_original_turn(tmp_path, monkeypatch):
     monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "1")
-
-    async def unused(payload):
-        raise AssertionError("nothing should be archived")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, unused)
-    archiver.keep_tokens = 200_000
-    thread = _thread_with_history(runtime, turns=2, size=200)
-    turn = await _accepted_turn(runtime, thread)
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    started = time.monotonic()
-    await worker._archive_history_before_generation(turn)
-    assert time.monotonic() - started < 0.5
-    assert _archiving_states(runtime, thread) == []
-    with runtime.db.connection() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM memory_archive_jobs").fetchone()[0] == 0
-
-
-@pytest.mark.asyncio
-async def test_a_completed_pass_reports_ready_and_reaches_the_target(tmp_path, monkeypatch):
+    async def slow(payload):
+        await asyncio.sleep(.05)
+        return await _summary(payload)
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path, slow)
+    from app.memory_archive import ManagedArchiveWorker
+    archive_worker = ManagedArchiveWorker(archiver)
+    assert await archive_worker.run_once()
     from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "5000")
-
-    async def summary(payload):
-        ids = [event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
-        return {
-            "synopsis": [{"text": "s", "source_message_ids": [ids[0]]}],
-            "topics": [], "decisions": [], "outcomes": [], "open_loops": [], "sensitivity": "normal",
-        }
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, summary)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    await worker._archive_history_before_generation(turn)
-
-    assert _archiving_states(runtime, thread) == ["waiting", "ready"]
+    recovered = ManagedTurnWorker(runtime.conversation)
+    assert recovered.claim_next() == turn.id
+    await recovered._archive_history_before_generation(turn)
     with runtime.db.connection() as connection:
-        covered = connection.execute(
-            "SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",
-            (thread.id,),
-        ).fetchone()["archived_through_seq"]
-    assert covered > 0
-
-
-# --------------------------------------------------------------------------
-# Cancellable, without undoing committed work
-# --------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_cancelling_the_wait_ends_the_turn_promptly(tmp_path, monkeypatch):
-    from app.conversation import ManagedTurnWorker, TurnJobCancelled
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "30_000")
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_POLL_MS", "20")
-
-    async def never(payload):
-        raise AssertionError("must not be called")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-
-    archiver.claim = lambda job_id=None: None
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    checks = {"n": 0}
-
-    def cancel_after_the_wait_started(turn_id: str) -> bool:
-        checks["n"] += 1
-        # False on the first check so the wait really starts; then cancel.
-        return checks["n"] > 1
-
-    worker._cancel_requested = cancel_after_the_wait_started
-
-    started = time.monotonic()
-    with pytest.raises(TurnJobCancelled):
-        await worker._archive_history_before_generation(turn)
-    # A cancel is honoured between slices, not after the 30s deadline.
-    assert time.monotonic() - started < 2.0
-    assert _archiving_states(runtime, thread) == ["waiting", "cancelled"]
+        assert connection.execute("SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?", (thread.id,)).fetchone()[0] > 0
+        assert connection.execute("SELECT COUNT(*) FROM thread_messages WHERE turn_id=? AND role='user'", (turn.id,)).fetchone()[0] == 1
+    runtime.db.close()
 
 
 @pytest.mark.asyncio
-async def test_a_cancel_that_arrives_before_the_wait_produces_no_status_noise(tmp_path, monkeypatch):
-    """Nothing is announced for a wait that never actually started."""
-    from app.conversation import ManagedTurnWorker, TurnJobCancelled
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "30_000")
-
-    async def never(payload):
-        raise AssertionError("must not be called")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-    archiver.claim = lambda job_id=None: None
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    worker._cancel_requested = lambda turn_id: True
-
-    with pytest.raises(TurnJobCancelled):
-        await worker._archive_history_before_generation(turn)
-    assert _archiving_states(runtime, thread) == []
+async def test_cancel_wait_does_not_reexecute_turn_or_rollback_archive(tmp_path):
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path)
+    runtime.conversation.cancel_turn(turn.id, "local-user")
+    assert worker.claim_next() is None
+    claim = archiver.claim()
+    assert claim
+    await archiver.process(claim)
+    assert runtime.conversation.turn(turn.id).status == "CANCELLED"
+    assert worker.claim_next() is None
+    runtime.db.close()
 
 
 @pytest.mark.asyncio
-async def test_cancelling_the_wait_does_not_roll_back_a_committed_archive(tmp_path, monkeypatch):
-    """A cancel stops the wait; it never undoes an Episode that already landed."""
-    from app.conversation import ManagedTurnWorker, TurnJobCancelled
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "30_000")
-
-    async def summary(payload):
-        ids = [event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
-        return {
-            "synopsis": [{"text": "s", "source_message_ids": [ids[0]]}],
-            "topics": [], "decisions": [], "outcomes": [], "open_loops": [], "sensitivity": "normal",
-        }
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, summary)
-    # Small enough that one pass commits, but the target is never reached, so
-    # the loop would keep going -- which is where the cancel lands.
-    archiver.keep_tokens = 30_000
-    archiver.max_summary_tokens = 10 ** 7
-    thread = _thread_with_history(runtime, turns=8, size=3_000)
-    turn = await _accepted_turn(runtime, thread)
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    calls = {"n": 0}
-
-    def cancel_after_first_commit(turn_id: str) -> bool:
-        calls["n"] += 1
-        # First check happens before any work; cancel only once work has landed.
-        with runtime.db.connection() as connection:
-            row = connection.execute(
-                "SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",
-                (thread.id,),
-            ).fetchone()
-        return bool(row and int(row["archived_through_seq"]) > 0)
-
-    worker._cancel_requested = cancel_after_first_commit
-
-    with pytest.raises((TurnJobCancelled, ArchiveUnavailable)):
-        await worker._archive_history_before_generation(turn)
-
-    with runtime.db.connection() as connection:
-        covered = connection.execute(
-            "SELECT archived_through_seq FROM conversation_archive_state WHERE thread_id=?",
-            (thread.id,),
-        ).fetchone()["archived_through_seq"]
-        episodes = connection.execute(
-            "SELECT COUNT(*) FROM memory_episodes WHERE thread_id=?", (thread.id,),
-        ).fetchone()[0]
-    # Committed work survives the cancel, and the cursor never moves backwards.
-    assert covered > 0
-    assert episodes >= 1
-
-
-@pytest.mark.asyncio
-async def test_a_cancelled_turn_cannot_be_reexecuted(tmp_path):
-    """Re-execution validates the old task state instead of assuming it is live."""
-    from app.conversation import TurnJobCancelled
-
-    runtime = make_runtime(tmp_path, _noop_model())
-    thread = runtime.conversation.create_thread(owner_id="local-user")
-    submission = runtime.conversation.accept_turn(
-        thread.id, "cancel-me", "hello", owner_id="local-user",
-    )
-    runtime.conversation.cancel_turn(submission.turn_id, "local-user")
-
-    from app.conversation import ManagedTurnWorker
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    with pytest.raises((TurnJobCancelled, Exception)) as caught:
-        worker._assert_job_owner(submission.turn_id)
-    # Whatever the exact type, it must refuse rather than run the old turn.
-    assert caught.value is not None
-
-
-def _noop_model():
-    from app.runtime import MockModelGateway
-
-    return MockModelGateway()
-
-
-# --------------------------------------------------------------------------
-# The status is a context status, never model output
-# --------------------------------------------------------------------------
-
-@pytest.mark.asyncio
-async def test_the_status_event_is_a_context_event_and_never_a_model_event(tmp_path, monkeypatch):
-    from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "300")
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_POLL_MS", "20")
-
-    async def never(payload):
-        raise AssertionError("must not be called")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-    archiver.claim = lambda job_id=None: None
-
-    worker = ManagedTurnWorker(runtime.conversation)
+async def test_total_wait_timeout_becomes_eligible_without_archiver_finishing(tmp_path):
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path)
+    with runtime.db.transaction() as connection:
+        connection.execute("UPDATE turn_jobs SET archive_wait_until=? WHERE turn_id=?", ("2000-01-01T00:00:00+00:00", turn.id))
+    assert worker.claim_next() == turn.id
     with pytest.raises(ArchiveWaitTimeout):
         await worker._archive_history_before_generation(turn)
+    runtime.db.close()
 
+
+@pytest.mark.asyncio
+async def test_permanent_archive_failure_does_not_loop(tmp_path):
+    runtime, archiver, thread, turn, worker = await _waiting_case(tmp_path)
+    with runtime.db.transaction() as connection:
+        connection.execute("UPDATE memory_archive_jobs SET status='DEAD_LETTER'")
+        # A proactive archive may fail before this turn ever waits for it.
+        connection.execute("UPDATE turn_jobs SET archive_job_id=NULL WHERE turn_id=?", (turn.id,))
+        connection.execute("UPDATE turns SET reason_code=NULL WHERE id=?", (turn.id,))
+    assert worker.claim_next() == turn.id
+    with pytest.raises(ArchiveUnavailable):
+        await worker._archive_history_before_generation(turn)
     with runtime.db.connection() as connection:
-        types = [
-            row["type"] for row in connection.execute(
-                "SELECT type FROM thread_events WHERE thread_id=? ORDER BY seq", (thread.id,)
-            ).fetchall()
-        ]
-    assert "context.archiving" in types
-    # Nothing in the wait path may emit a model event: that is what would let a
-    # status hint be counted as a first-token improvement.
-    assert not any(name.startswith("model.") for name in types)
-    assert not any("first_token" in name for name in types)
+        assert connection.execute("SELECT archive_job_id FROM turn_jobs WHERE turn_id=?", (turn.id,)).fetchone()[0]
+    assert runtime.conversation.turn(turn.id).reason_code == "archive_unavailable"
+    runtime.db.close()
 
 
 @pytest.mark.asyncio
-async def test_the_status_event_carries_the_numbers_the_ui_needs(tmp_path, monkeypatch):
+async def test_request_that_fits_does_not_enqueue(tmp_path):
     from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "300")
-
-    async def never(payload):
-        raise AssertionError("must not be called")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
+    runtime, archiver = _runtime_with_archiver(tmp_path, _summary)
+    thread = _thread_with_history(runtime, turns=1, size=20)
     turn = await _accepted_turn(runtime, thread)
-    archiver.claim = lambda job_id=None: None
+    await ManagedTurnWorker(runtime.conversation)._archive_history_before_generation(turn)
+    assert not archiver.status(thread.id, "local-user")["jobs"]
+    runtime.db.close()
 
-    worker = ManagedTurnWorker(runtime.conversation)
-    with pytest.raises(ArchiveWaitTimeout):
-        await worker._archive_history_before_generation(turn)
-
-    waiting = _events(runtime, thread, "context.archiving")[0]
-    assert set(waiting) >= {
-        "state", "waited_ms", "deadline_ms", "pending_units", "target_units", "input_limit",
-    }
-    assert waiting["deadline_ms"] == 300
-    assert waiting["pending_units"] > waiting["target_units"]
-
-
-@pytest.mark.asyncio
-async def test_a_timeout_raises_its_own_event_so_the_answer_is_not_faked(tmp_path, monkeypatch):
-    from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "200")
-
-    async def never(payload):
-        raise AssertionError("must not be called")
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, never)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-    archiver.claim = lambda job_id=None: None
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    with pytest.raises(ArchiveWaitTimeout):
-        await worker._archive_history_before_generation(turn)
-
-    events = _events(runtime, thread, "context.archive_wait_timeout")
-    assert len(events) == 1
-    assert events[0]["recoverable"] is True
-    assert events[0]["input_preserved"] is True
-    assert events[0]["message"]
-    assert events[0]["reason_code"] == "archive_wait_timeout"
-    assert _archiving_states(runtime, thread) == ["waiting", "timeout"]
-
-
-@pytest.mark.asyncio
-async def test_an_attempt_that_overruns_reports_its_own_reason(tmp_path, monkeypatch):
-    """The two ways to run out of budget are reported distinctly."""
-    from app.conversation import ManagedTurnWorker
-
-    monkeypatch.setenv("AGENT_ARCHIVE_WAIT_MS", "200")
-
-    async def hangs(payload):
-        await asyncio.sleep(30)
-
-    runtime, archiver = _runtime_with_archiver(tmp_path, hangs)
-    archiver.keep_tokens = 4_000
-    thread = _thread_with_history(runtime, turns=8, size=900)
-    turn = await _accepted_turn(runtime, thread)
-
-    worker = ManagedTurnWorker(runtime.conversation)
-    with pytest.raises(ArchiveWaitTimeout):
-        await worker._archive_history_before_generation(turn)
-
-    events = _events(runtime, thread, "context.archive_wait_timeout")
-    assert [event["reason"] for event in events] == ["attempt_exceeded_deadline"]
-
-
-# --------------------------------------------------------------------------
-# Local counting cost is measured on its own
-# --------------------------------------------------------------------------
 
 def test_the_local_counting_cost_is_reported_separately_from_the_whole_context(tmp_path):
     from app.conversation import ConversationService

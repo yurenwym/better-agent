@@ -44,27 +44,28 @@ async def test_action_context_cannot_be_dropped_to_fit_conversation(tmp_path, mo
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("policy", ["answer", "propose_execution", "propose_plan", "ask"])
-async def test_incomplete_archive_only_allows_plain_answer(tmp_path, monkeypatch, policy):
+async def test_required_archive_failure_never_discards_history(tmp_path, monkeypatch):
     from app.memory_archive import ArchiveUnavailable
+    calls = []
     class Model(ScriptedConversationModel):
-        async def answer_without_history(self, *, history, memory_context_content, on_text_delta, **kwargs):
-            assert history == [] and memory_context_content is None
-            if policy == "ask":
-                from app.ask import AskRequest
-                return AskRequest(call_id="blocked-ask", questions=())
-            on_text_delta('{"v":1,"policy":"'+policy+'","content_shape":"text","reason_code":"test"}\nLimited answer')
-    runtime=make_runtime(tmp_path,Model("unused"))
-    thread=runtime.conversation.create_thread("incomplete")
-    accepted=runtime.conversation.accept_turn(thread.id,"m1-limited","Independent question",[])
-    async def unavailable(turn, **kwargs): raise ArchiveUnavailable("dead letter")
-    monkeypatch.setattr(runtime.turn_worker.primary,"_archive_history_before_generation",unavailable)
+        async def answer_without_history(self, **kwargs):
+            calls.append("degraded")
+        async def route_and_respond(self, **kwargs):
+            calls.append("normal")
+    runtime = make_runtime(tmp_path, Model("unused"))
+    thread = runtime.conversation.create_thread("incomplete")
+    accepted = runtime.conversation.accept_turn(thread.id, "m1-limited", "Independent question", [])
+    async def unavailable(turn, **kwargs):
+        raise ArchiveUnavailable("dead letter")
+    monkeypatch.setattr(runtime.turn_worker.primary, "_archive_history_before_generation", unavailable)
     await runtime.turn_worker.run_once()
-    assert runtime.conversation.turn(accepted.turn_id).status == ("COMPLETED" if policy == "answer" else "FAILED")
-    assert any(event.type == "context.incomplete" for event in runtime.conversation.events.list(thread.id))
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    assert not calls
+    assert any(event.type == "context.continuation_failed" for event in runtime.conversation.events.list(thread.id))
     with runtime.db.connection() as c:
         for table in ("turn_asks", "plan_documents", "research_jobs", "agent_runs", "memory_entries"):
             assert c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
+    runtime.db.close()
 
 
 class MemoryAwareConversationModel(ScriptedConversationModel):
@@ -491,10 +492,15 @@ async def test_worker_archives_old_history_before_model_and_replaces_raw_source_
                         len(content), sequence, now, now,
                     ),
                 )
-    runtime.conversation.accept_turn(thread.id, "current-turn", "CURRENT_REQUEST", [])
+    accepted = runtime.conversation.accept_turn(thread.id, "current-turn", "CURRENT_REQUEST", [])
 
     await runtime.turn_worker.run_once()
 
+    assert model.calls == 0
+    assert runtime.conversation.turn(accepted.turn_id).status == "ROUTING"
+    from app.memory_archive import ManagedArchiveWorker
+    assert await ManagedArchiveWorker(runtime.archiver).run_once()
+    await runtime.turn_worker.run_once()
     assert model.calls == 1
     assert model.history is not None
     rendered = "\n".join(str(message.get("content", "")) for message in model.history)
@@ -552,6 +558,11 @@ async def test_worker_does_not_generate_when_required_archive_permanently_fails(
 
     await runtime.turn_worker.run_once()
 
+    assert model.calls == 0
+    assert runtime.conversation.turn(accepted.turn_id).status == "ROUTING"
+    from app.memory_archive import ManagedArchiveWorker
+    assert await ManagedArchiveWorker(runtime.archiver).run_once()
+    await runtime.turn_worker.run_once()
     assert model.calls == 0
     assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
     with runtime.db.connection() as connection:

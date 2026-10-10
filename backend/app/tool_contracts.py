@@ -181,6 +181,11 @@ class ToolSpec:
     reject_identity_params: bool = False
     # Read-only reconciliation: return only a proven committed business result.
     recover_result: ContextHandler | None = None
+    # Consent is independent of WRITE claim/reconciliation semantics.
+    requires_approval: bool = True
+    # New model calls can use a narrower schema while persisted calls retain
+    # their original validation and approval digest.
+    model_schema: dict[str, Any] | None = None
     # Provenance. Native tools leave these at their defaults; an MCP tool must
     # be locatable by source, stable server identity, remote name and the
     # digest of the definition the model was actually shown.
@@ -196,6 +201,8 @@ class ToolSpec:
                       "risk": self.risk.value, "path_fields": self.path_fields,
                       "reject_identity_params": self.reject_identity_params,
                       "source": self.source, "definition_digest": self.definition_digest}
+        if not self.requires_approval:
+            definition["requires_approval"] = False
         return hashlib.sha256(json.dumps(definition, sort_keys=True, ensure_ascii=False,
                                         separators=(",", ":")).encode()).hexdigest()
 

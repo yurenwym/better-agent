@@ -546,6 +546,9 @@ class ConversationService:
                 connection=connection, occurred_at=now,
             )
             if row["job_status"] == "QUEUED" or row["status"] in {"AWAITING_DIRECTION", "AWAITING_INPUT", "AWAITING_TOOL_APPROVAL"}:
+                if row["reason_code"] == "archive_waiting":
+                    self.events.append(row["thread_id"], turn_id, "context.archiving", "user",
+                        {"state": "cancelled"}, connection=connection, occurred_at=now)
                 connection.execute(
                     "UPDATE turn_jobs SET status = 'CANCELLED', finished_at = ? WHERE turn_id = ?",
                     (now, turn_id),
@@ -1639,6 +1642,19 @@ class ManagedTurnWorker:
                     OR (turn_jobs.status = 'RUNNING' AND turn_jobs.lease_until IS NOT NULL
                         AND turn_jobs.lease_until <= ?)
                 )
+                AND (turn_jobs.archive_job_id IS NULL OR turn_jobs.cancel_requested_at IS NOT NULL
+                     OR turn_jobs.archive_wait_until <= ? OR EXISTS (
+                       SELECT 1 FROM memory_archive_jobs a WHERE a.id=turn_jobs.archive_job_id
+                         AND a.status IN ('COMPLETED','DEAD_LETTER','LEASE_LOST')
+                     ))
+                AND NOT EXISTS (
+                    SELECT 1 FROM turn_jobs waiting
+                    JOIN turns earlier ON earlier.id=waiting.turn_id
+                    WHERE waiting.thread_id=turns.thread_id AND waiting.status='QUEUED'
+                      AND waiting.archive_job_id IS NOT NULL
+                      AND (earlier.created_at < turns.created_at
+                        OR (earlier.created_at=turns.created_at AND earlier.id < turns.id))
+                )
                 AND NOT EXISTS (
                     SELECT 1 FROM turn_jobs active_jobs
                     JOIN turns active_turns ON active_turns.id = active_jobs.turn_id
@@ -1649,7 +1665,7 @@ class ManagedTurnWorker:
                 ORDER BY turn_jobs.started_at IS NOT NULL, turn_jobs.started_at, turns.created_at, turns.id
                 LIMIT 1
                 """,
-                (now,),
+                (now, now),
             ).fetchone()
             if row is None:
                 return None
@@ -1700,6 +1716,7 @@ class ManagedTurnWorker:
             self._require_job_owner(connection, turn_id, require_not_cancelled=True)
 
     async def _process_claimed(self, turn_id: str) -> None:
+        from .memory_archive import ArchivePending
         with self.db.connection() as connection:
             scope = connection.execute(
                 "SELECT h.owner_id FROM turns t JOIN threads h ON h.id=t.thread_id "
@@ -1737,7 +1754,7 @@ class ManagedTurnWorker:
             generation = self._prepare_generation(turn)
             plan_context = self.conversation.plan_context.load_for_turn(turn.thread_id, turn.id)
             goal_context = self.conversation.goal_context.load_for_turn(turn.thread_id, turn.id)
-            from .memory_archive import ArchiveUnavailable, ArchiveWaitTimeout
+            from .memory_archive import ArchiveUnavailable, ArchiveWaitTimeout, ArchivePending
             from .memory_v2 import ContinuationError
             from .live_model import ToolApprovalRequest, _is_plain_existing_plan_save, _latest_assistant_plan
             # The hot-window policy and the memory provider both need the thread
@@ -1860,6 +1877,14 @@ class ManagedTurnWorker:
                         user_content=content, human_mode=human_mode,
                         branch_state=branch_state, tool_schemas=tool_schemas,
                     )
+                with self.db.transaction() as connection:
+                    self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+                    waiting = connection.execute("SELECT archive_job_id FROM turn_jobs WHERE turn_id=?", (turn.id,)).fetchone()
+                    if waiting["archive_job_id"]:
+                        self.conversation.events.append(turn.thread_id, turn.id, "context.archiving", "worker",
+                            {"state": "ready"}, connection=connection)
+                    connection.execute("UPDATE turn_jobs SET archive_job_id=NULL,archive_wait_until=NULL WHERE turn_id=?", (turn.id,))
+                    connection.execute("UPDATE turns SET reason_code=NULL WHERE id=? AND reason_code='archive_waiting'", (turn.id,))
             except ArchiveWaitTimeout:
                 # A timeout is *not* a recovered context, so this deliberately
                 # does not fall through to the degraded answer below: answering
@@ -1881,21 +1906,11 @@ class ManagedTurnWorker:
                 )
                 raise
             except ArchiveUnavailable as exc:
-                if (plan_context is not None and goal_context is None) or turn.skill_names or not hasattr(self.conversation.route_model, "answer_without_history"):
-                    raise
-                # Archival is broken rather than merely slow. The request can
-                # still be answered on its own terms, but the user is told
-                # *which* thing went wrong instead of receiving an answer whose
-                # history was silently dropped.
-                context_incomplete = True
                 self.conversation.events.append(
-                    turn.thread_id, turn.id, "context.incomplete", "worker",
-                    {
-                        "reason_code": getattr(exc, "code", "archive_unavailable"),
-                        "message": getattr(exc, "public_message", None) or str(exc)[:240],
-                        "recoverable": True,
-                    },
+                    turn.thread_id, turn.id, "context.continuation_failed", "worker",
+                    {"reason_code": exc.code, "message": exc.public_message, "recoverable": True},
                 )
+                raise
             memory_bundle = None
             memory_context_content = None
             if provider is not None and not context_incomplete:
@@ -2331,6 +2346,8 @@ class ManagedTurnWorker:
                 self._flush_delta(turn, message_id, generation, pending)
             self._finish_success(turn, message_id, generation, decoder.header, plan_context)
             await self._finish_exposure(turn, success=True, message_id=message_id)
+        except ArchivePending:
+            return
         except TurnJobCancelled:
             with contextlib.suppress(TurnJobLeaseLost):
                 self._finish_cancelled(turn, message_id, generation, pending)
@@ -3134,7 +3151,7 @@ class ManagedTurnWorker:
         error_text = str(error)
         failure_message = str(getattr(error, "public_message", SAFE_FAILURE_MESSAGE))
         if getattr(error, "kind", "") == "context_incomplete" or type(error).__name__ == "ArchiveUnavailable":
-            failure_message = "本会话的历史整理失败，暂时无法可靠读取前文。可以新建会话并带上必要条件；这不是模型余额问题，原对话仍保留。"
+            failure_message = "本会话的历史整理失败，暂时无法可靠读取前文。输入与原始历史已保留，请重试历史整理后继续。"
         with self.db.transaction() as connection:
             self._require_job_owner(connection, turn.id)
             readable = None
@@ -3211,8 +3228,9 @@ class ManagedTurnWorker:
                     connection=connection, occurred_at=now,
                 )
             connection.execute(
-                "UPDATE turns SET status = 'FAILED', version = version + 1, updated_at = ? WHERE id = ?",
-                (now, turn.id),
+                "UPDATE turns SET status = 'FAILED', version = version + 1, updated_at = ?, "
+                "reason_code=CASE WHEN reason_code='archive_waiting' THEN ? ELSE reason_code END WHERE id = ?",
+                (now, getattr(error, "code", "archive_unavailable"), turn.id),
             )
             from .outcome_adapters import exception_outcome
             outcome = outcome or exception_outcome(error if isinstance(error, Exception) else RuntimeError(error))
@@ -3477,36 +3495,13 @@ class ManagedTurnWorker:
         user_content: str = "", human_mode: bool = False, branch_state: Any = None,
         tool_schemas: list[dict[str, Any]] | None = None,
     ) -> None:
-        """Compact the uncovered prefix, inside a bounded and cancellable wait.
+        """Measure mandatory context and persist an independent archival dependency.
 
-        Three properties matter here and each is enforced rather than assumed:
-
-        * **Bounded.** The loop never runs past ``archive_wait_policy()``'s
-          deadline and reports the timeout instead of pretending the history was
-          recovered. The deadline is created once and never reset by a rebuild.
-        * **Cancellable.** A stop request is noticed between slices, so a user
-          is never held for the whole deadline. Cancelling the wait does *not*
-          undo an archival pass that already committed -- that Episode stays,
-          and the coverage cursor does not move backwards.
-        * **Honest about what it shows.** The waiting state is announced as a
-          ``context.archiving`` status event, which is a context-stage hint. It
-          is not model output and it never touches the first-token timestamp, so
-          it cannot be counted as a first-token improvement.
-
-        Two modes share the deadline/cancel/lease rules:
-
-        * **Full-request mode** (the routed conversation model exposes
-          ``prepare_mandatory_request``): every iteration rebuilds the summary and
-          the whole unarchived suffix and measures the *complete* request -- real
-          system prompt, tools, goal state, current input and adapter envelope.
-          Only that measurement decides success. A commit that still leaves the
-          request over budget continues to the next batch.
-        * **Legacy mode** (test doubles and unrouted models): no profile-aware
-          request exists, so the raw uncovered prefix against the window remains
-          the only defensible proxy.
+        No external model work runs here. A completed prefix is re-measured;
+        pending work releases the turn lease and resumes through the durable queue.
         """
         from .memory_archive import (
-            ArchiveWaitTimeout, WaitDeadline, archive_wait_policy,
+            ArchiveWaitTimeout, WaitDeadline, _positive_int_env,
         )
         from .memory_v2 import ContinuationContextOverflow
         from .token_budget import DEFAULT_TOKEN_COUNTER
@@ -3588,8 +3583,7 @@ class ManagedTurnWorker:
             limit = window.packing_limit(len(effective), len(tools))
             return cost, limit, turn_count, payload_bytes
 
-        policy = archive_wait_policy()
-        deadline = WaitDeadline(policy)
+        deadline = WaitDeadline(_positive_int_env("AGENT_ARCHIVE_TOTAL_WAIT_MS", 120000))
         announced = False
 
         def announce(state: str, **extra: Any) -> None:
@@ -3598,7 +3592,7 @@ class ManagedTurnWorker:
                 {
                     "state": state,
                     "waited_ms": deadline.elapsed_ms,
-                    "deadline_ms": policy.deadline_ms,
+                    "deadline_ms": deadline.deadline_ms,
                     "input_limit": window.input_limit,
                     "effective_input_limit": window.input_limit,
                     "reserved_output": getattr(window, "reserved_output", 0),
@@ -3613,7 +3607,7 @@ class ManagedTurnWorker:
             """Report the timeout where it is detected, then return the error."""
             announce("timeout", reason=reason)
             error = ArchiveWaitTimeout(
-                f"conversation archive did not finish within {policy.deadline_ms}ms "
+                f"conversation archive did not finish within {deadline.deadline_ms}ms "
                 f"({reason}; {detail})"
             )
             self.conversation.events.append(
@@ -3627,23 +3621,14 @@ class ManagedTurnWorker:
                     # the worker runs, so "resume later" needs no extra save.
                     "input_preserved": True,
                     "waited_ms": deadline.elapsed_ms,
-                    "deadline_ms": policy.deadline_ms,
+                    "deadline_ms": deadline.deadline_ms,
                 },
             )
             return error
 
         async def one_attempt(force_prefix: bool) -> str:
-            try:
-                return await asyncio.wait_for(
-                    self._archive_attempt_once(
-                        archiver, turn, window,
-                        sleep_seconds=deadline.sleep_seconds(),
-                        force_prefix=force_prefix,
-                    ),
-                    timeout=max(deadline.remaining_ms, 1) / 1000.0,
-                )
-            except asyncio.TimeoutError:
-                raise give_up("attempt_exceeded_deadline", "attempt overran the deadline") from None
+            return await self._archive_attempt_once(archiver, turn, window,
+                force_prefix=force_prefix)
 
         if full_budget:
             cost, limit, turn_count, payload_bytes = measure_full_request()
@@ -3761,7 +3746,7 @@ class ManagedTurnWorker:
             pending_units = builder.measure(pending, counter=counter)
 
     async def _archive_attempt_once(
-        self, archiver: Any, turn: TurnSnapshot, window: Any, *, sleep_seconds: float,
+        self, archiver: Any, turn: TurnSnapshot, window: Any, *,
         force_prefix: bool = False,
     ) -> str:
         """One unit of foreground archival work.
@@ -3788,22 +3773,49 @@ class ManagedTurnWorker:
         )
         if job_id is None:
             return "nothing_selectable"
-        claim = archiver.claim(job_id)
-        if claim is not None:
-            await archiver.process(claim)
-            return "processed"
         with self.db.connection() as connection:
             row = connection.execute(
                 "SELECT status FROM memory_archive_jobs WHERE id=?", (job_id,),
             ).fetchone()
-        if row is None or row["status"] in {"COMPLETED", "LEASE_LOST"}:
+            wait = connection.execute(
+                "SELECT archive_wait_until FROM turn_jobs WHERE turn_id=?", (turn.id,),
+            ).fetchone()
+        if row is None or row["status"] == "LEASE_LOST":
+            raise ArchiveUnavailable(f"conversation archive job {job_id} lost its source or lease")
+        if row["status"] == "COMPLETED":
             return "settled"
         if row["status"] == "DEAD_LETTER":
+            with self.db.transaction() as connection:
+                self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+                connection.execute("UPDATE turn_jobs SET archive_job_id=? WHERE turn_id=?", (job_id, turn.id))
+                connection.execute("UPDATE turns SET reason_code='archive_unavailable' WHERE id=?", (turn.id,))
             raise ArchiveUnavailable(f"conversation archive job {job_id} failed permanently")
-        # Another worker owns the job. Yield, then re-check the deadline and the
-        # cancel request rather than sleeping until the lease expires.
-        await asyncio.sleep(max(sleep_seconds, 0))
-        return "waited"
+        now = datetime.now(timezone.utc)
+        until = wait["archive_wait_until"] if wait else None
+        if isinstance(until, str):
+            until = datetime.fromisoformat(until)
+        if until is not None and until <= now:
+            from .memory_archive import ArchiveWaitTimeout
+            raise ArchiveWaitTimeout("archive total wait deadline exceeded")
+        if until is None:
+            from .memory_archive import _positive_int_env
+            until = now + timedelta(milliseconds=_positive_int_env("AGENT_ARCHIVE_TOTAL_WAIT_MS", 120000))
+        with self.db.transaction() as connection:
+            self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            connection.execute(
+                "UPDATE turn_jobs SET archive_job_id=?,archive_wait_until=? WHERE turn_id=?",
+                (job_id, until.isoformat(), turn.id),
+            )
+            connection.execute(
+                "UPDATE turns SET reason_code='archive_waiting',updated_at=?,version=version+1 WHERE id=?",
+                (now.isoformat(), turn.id),
+            )
+            self.conversation.events.append(turn.thread_id, turn.id, "context.archiving", "worker",
+                {"state": "waiting", "message": "正在整理历史，完成后继续", "archive_job_id": job_id},
+                connection=connection)
+            self._finish_task(connection, turn.id, "QUEUED")
+        from .memory_archive import ArchivePending
+        raise ArchivePending()
 
     def _skill_context(self, turn: TurnSnapshot) -> str:
         if not turn.skill_names or self.conversation.agent_runtime is None:
@@ -3814,6 +3826,23 @@ class ManagedTurnWorker:
         if owner is None:
             return ""
         return SkillPlatform(self.db, self.conversation.agent_runtime.skill_platform.root, owner[0]).context_text("RUN", turn.id, "conversation")
+
+    def _close_handoff_preambles(self, connection, turn):
+        now = _now()
+        rows = connection.execute(
+            "SELECT id,generation FROM thread_messages WHERE turn_id=? AND role='assistant' "
+            "AND status='streaming' AND research_job_id IS NULL", (turn.id,),
+        ).fetchall()
+        for row in rows:
+            connection.execute(
+                "UPDATE thread_messages SET status='interrupted',completed_at=? WHERE id=?",
+                (now, row["id"]),
+            )
+            self.conversation.events.append(
+                turn.thread_id, turn.id, "message.completed", "worker",
+                {"message_id": row["id"], "generation": row["generation"], "finish_reason": "handoff"},
+                connection=connection, occurred_at=now,
+            )
 
     def handoff_start_research(self, turn, topic, scope, *, context_incomplete=False, message_id=None, pending=""):
         from .memory_archive import ArchiveUnavailable
@@ -3841,6 +3870,7 @@ class ManagedTurnWorker:
                 (scope,),
                 connection=connection,
             )
+            self._close_handoff_preambles(connection, turn)
             self._finish_task(connection, turn.id, "COMPLETED")
             connection.execute("UPDATE turn_jobs SET finished_at=? WHERE turn_id=?", (_now(), turn.id))
             self._finish_loop_attempt(connection, turn,
@@ -3917,6 +3947,7 @@ class ManagedTurnWorker:
             self.conversation.events.append(turn.thread_id, turn.id, "turn.completed", "worker", {}, connection=connection, occurred_at=now)
             self._finish_loop_attempt(connection, turn,
                 ExecutionOutcome(Scope.LOOP, Status.HANDOFF, target_ref=run["id"]))
+            self._close_handoff_preambles(connection, turn)
             self._finish_task(connection, turn.id, "COMPLETED")
             connection.execute('UPDATE turn_jobs SET finished_at=? WHERE turn_id=?', (now, turn.id))
         return run

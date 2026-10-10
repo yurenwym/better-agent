@@ -489,6 +489,7 @@ def test_history_keeps_all_unarchived_turns_before_required_tagging(tmp_path) ->
 async def test_foreground_archive_accounts_for_the_complete_request(tmp_path) -> None:
     from app.model_gateway import ModelProfile
     from app.memory_v2 import ContinuationContextOverflow
+    from app.memory_archive import ArchivePending
     from app.token_budget import (
         DEFAULT_TOKEN_COUNTER, effective_input_budget, hot_window, strip_packing_hints,
     )
@@ -543,6 +544,7 @@ async def test_foreground_archive_accounts_for_the_complete_request(tmp_path) ->
     assert raw_cost <= window.compact_target
     assert full_cost > window.input_limit
 
+    assert runtime.turn_worker.primary.claim_next() == turn.id
     try:
         await runtime.turn_worker.primary._archive_history_before_generation(
             turn, scope={"owner_id": "local-user", "project_id": None},
@@ -550,16 +552,14 @@ async def test_foreground_archive_accounts_for_the_complete_request(tmp_path) ->
             history_through=12, goal_context=None,
             user_content="当前问题", human_mode=False,
         )
-    except ContinuationContextOverflow:
+    except (ContinuationContextOverflow, ArchivePending):
         # After the batch, the rebuilt request may still not fit; that is an
         # explicit failure, but work must have been attempted first.
         pass
 
     state = archiver.status(thread.id, "local-user")
-    assert state["archived_through_seq"] > 0, (
-        "the complete request exceeded the budget, so a foreground archive must "
-        "have run even though the raw prefix was under the compaction target"
-    )
+    assert state["jobs"], "the complete request requires an independent archive job"
+    assert state["archived_through_seq"] == 0, "preflight must not execute paid archival inline"
 
 
 @pytest.mark.asyncio
@@ -628,6 +628,7 @@ async def test_preflight_measurement_includes_branch_instructions(tmp_path) -> N
     from app.live_model import INHERITED_PLAN_DOCUMENT_INSTRUCTION
     from app.model_gateway import ModelProfile
     from app.memory_v2 import ContinuationContextOverflow
+    from app.memory_archive import ArchivePending
     from app.token_budget import (
         DEFAULT_TOKEN_COUNTER, effective_input_budget, hot_window, strip_packing_hints,
     )
@@ -692,6 +693,7 @@ async def test_preflight_measurement_includes_branch_instructions(tmp_path) -> N
     # Before the fix the pre-check measured ``plain_cost`` and returned ready;
     # now the branch instruction is counted, so the loop must archive or fail.
     raised = False
+    assert runtime.turn_worker.primary.claim_next() == turn.id
     try:
         await runtime.turn_worker.primary._archive_history_before_generation(
             turn, scope={"owner_id": "local-user", "project_id": None},
@@ -700,7 +702,7 @@ async def test_preflight_measurement_includes_branch_instructions(tmp_path) -> N
             user_content=content, human_mode=False,
             branch_state=branch_state,
         )
-    except ContinuationContextOverflow:
+    except (ContinuationContextOverflow, ArchivePending):
         raised = True
     assert raised or archiver.status(thread.id, "local-user")["archived_through_seq"] > 0
 

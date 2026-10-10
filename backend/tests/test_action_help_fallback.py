@@ -34,7 +34,7 @@ async def test_action_fallback_uses_only_snapshot_and_question(independent):
 
 
 @pytest.mark.asyncio
-async def test_worker_passes_action_snapshot_when_archive_fails(tmp_path, monkeypatch):
+async def test_worker_preserves_required_history_even_with_action_snapshot(tmp_path, monkeypatch):
     from test_runtime import make_runtime
     seen = []
     class Model:
@@ -53,5 +53,6 @@ async def test_worker_passes_action_snapshot_when_archive_fails(tmp_path, monkey
     thread = runtime.conversation.create_thread("fallback")
     submission = runtime.conversation.accept_turn(thread.id, "fallback-1", "Read CSV", [])
     await runtime.turn_worker.run_once()
-    assert seen == [True]
-    assert runtime.conversation.turn(submission.turn_id).status == "COMPLETED"
+    assert seen == []
+    assert runtime.conversation.turn(submission.turn_id).status == "FAILED"
+    runtime.db.close()

@@ -13,6 +13,7 @@ approval or execution.
 from __future__ import annotations
 
 import inspect
+import json
 import logging
 from datetime import date as _date
 from typing import Any, Callable, Literal
@@ -123,6 +124,50 @@ class ActivateGoalPlanParams(BaseModel):
                 raise ValueError("activate must not carry preview fields")
             if isinstance(self.expected_version, bool) or self.expected_version < 0:
                 raise ValueError("expected_version must be a non-negative integer")
+        return self
+
+
+class PreviewGoalPlanParams(BaseModel):
+    model_config = STRICT
+    document_id: str = Field(min_length=1)
+    expected_document_version_id: str = Field(min_length=1)
+    start_date: str
+    end_date: str
+    timezone: str
+    daily_minutes: int = Field(ge=5, le=1440)
+    constraints: ScheduleConstraints | None = None
+
+    @model_validator(mode="after")
+    def _validate(self):
+        _iso_date(self.start_date)
+        _iso_date(self.end_date)
+        return self
+
+
+class CompleteActionParams(BaseModel):
+    model_config = STRICT
+    action_id: str = Field(min_length=1)
+    expected_version: int = Field(ge=0)
+    actual_date: str | None = Field(default=None, description="实际完成日期；只有用户明确提供日期时填写。未提供则省略，由服务端按目标时区使用今天。提前完成时不能填未来的计划日期。")
+    actual_minutes: int | None = Field(default=None, ge=0, le=1440)
+    completed_work: str | None = Field(default=None, max_length=2000)
+    note: str | None = Field(default=None, max_length=2000)
+
+    @model_validator(mode="after")
+    def _validate(self):
+        if self.actual_date is not None:
+            _iso_date(self.actual_date)
+        return self
+
+
+class CloseDayParams(BaseModel):
+    model_config = STRICT
+    program_id: str = Field(min_length=1)
+    local_date: str = Field(description="目标时区中的执行日期，不得使用未来日期。")
+
+    @model_validator(mode="after")
+    def _validate(self):
+        _iso_date(self.local_date)
         return self
 
 
@@ -653,7 +698,13 @@ def _get_today_tasks(service: GoalProgramService):
                         continue
                 timezone = group["program"]["timezone"]
                 local_date = group["local_date"]
-                group_dates.append({"program_id": program_id, "local_date": local_date, "timezone": timezone})
+                review = group.get("review")
+                group_dates.append({
+                    "program_id": program_id, "local_date": local_date, "timezone": timezone,
+                    "review": {key: review.get(key) for key in (
+                        "status", "summary", "needs_adjustment", "evidence_stale", "error_code",
+                    )} if review else None,
+                })
                 for category in ("today", "overdue", "completed"):
                     for item in group.get(category, []):
                         items.append(_task_view(item, category=category, program_id=program_id, timezone=timezone, local_date=local_date))
@@ -745,6 +796,39 @@ def _get_plan(service: GoalProgramService, plan_documents: PlanDocumentService):
             )
         except Exception as exc:  # noqa: BLE001
             return _failure(exc, tool="get_plan", context=context)
+    return handler
+
+
+def _complete_action(service: GoalProgramService):
+    def handler(params, context):
+        try:
+            model = CompleteActionParams.model_validate(params)
+            action = service.get_action_context(model.action_id, owner_id=context.owner_id)["action"]
+            _check_program_scope(service, action["program_id"], context)
+            feedback = model.model_dump(exclude_none=True, exclude={"action_id", "expected_version"})
+            result = service.complete_action(model.action_id, expected_version=model.expected_version,
+                idempotency_key=_tool_key(context), owner_id=context.owner_id, feedback=feedback)
+            return _ok("行动已标记完成，未自动结束当天或启动复盘。", result)
+        except Exception as exc:
+            return _failure(exc, tool="complete_action", context=context)
+    return handler
+
+
+def _close_day(service: GoalProgramService):
+    def handler(params, context):
+        try:
+            model = CloseDayParams.model_validate(params)
+            result = service.close_day(model.program_id, model.local_date,
+                idempotency_key=_tool_key(context), owner_id=context.owner_id)
+            return _ok("当天复盘已登记，以下为实际状态。执行安排未修改。", result)
+        except Exception as exc:
+            return _failure(exc, tool="close_day", context=context)
+    return handler
+
+
+def _preview_tool(service, documents):
+    async def handler(params, context):
+        return await _activate_goal_plan(service, documents)({"mode": "preview", **params}, context)
     return handler
 
 
@@ -887,6 +971,26 @@ def _recover_committed_activation(service, documents):
     return recover
 
 
+def _recover_goal_receipt(service, documents, handler):
+    def receipt(params, context):
+        _check_tool_scope(service, documents, params, context)
+        with service.db.connection() as connection:
+            row = connection.execute(
+                "SELECT response_json FROM goal_command_receipts WHERE owner_id=? AND idempotency_key=?",
+                (context.owner_id, _tool_key(context)),
+            ).fetchone()
+        if row is None or json.loads(row["response_json"]).get("_pending_program_id"):
+            return False
+        return True
+    if inspect.iscoroutinefunction(handler):
+        async def recover(params, context):
+            return await handler(params, context) if receipt(params, context) else None
+    else:
+        def recover(params, context):
+            return handler(params, context) if receipt(params, context) else None
+    return recover
+
+
 def build_goal_tool_specs(
     goal_programs: GoalProgramService, plan_documents: PlanDocumentService,
 ) -> list[ToolSpec]:
@@ -922,13 +1026,48 @@ def build_goal_tool_specs(
             timeout_seconds=30,
         ),
         ToolSpec(
+            name="preview_goal_plan",
+            description="将已保存计划编译为待确认执行预览。直接生成草稿，无需审批；不激活行动、不配置提醒。日期和时区缺失时先澄清。",
+            schema=_schema(PreviewGoalPlanParams), risk=ToolRisk.WRITE,
+            handler=lambda params: _err(INVALID_ARGUMENT, "需要执行上下文"),
+            context_handler=_guard_identity(_preview_tool(goal_programs, plan_documents), goal_programs, plan_documents),
+            validator=lambda params: _validate(PreviewGoalPlanParams, params),
+            reject_identity_params=True, requires_approval=False, timeout_seconds=180,
+            recover_result=_recover_goal_receipt(goal_programs, plan_documents, _preview_tool(goal_programs, plan_documents)),
+        ),
+        ToolSpec(
+            name="complete_action", description="用户明确要求标记行动完成时使用；先读取最新行动版本，通过一次审批后完成并可记录用户提供的用时与反馈。不会结束当天或自动复盘。部分进展使用 record_action_feedback。",
+            schema=_schema(CompleteActionParams), risk=ToolRisk.WRITE,
+            handler=lambda params: _err(INVALID_ARGUMENT, "需要执行上下文"),
+            context_handler=_guard_identity(_complete_action(goal_programs), goal_programs, plan_documents),
+            validator=lambda params: _validate(CompleteActionParams, params), reject_identity_params=True,
+            recover_result=_recover_goal_receipt(goal_programs, plan_documents, _complete_action(goal_programs)),
+        ),
+        ToolSpec(
+            name="close_day",
+            description="用户明确要求结束某目标当天执行并保存每日复盘时使用。先读取目标与执行记录，确认目标时区中的日期；已有真实记录即可提交，不强制补充感受。需要一次审批，复用后台复盘服务，不修改未来安排。提交后用 get_today_tasks 查询复盘状态，未完成时不得宣称已完成。",
+            schema=_schema(CloseDayParams), risk=ToolRisk.WRITE,
+            handler=lambda params: _err(INVALID_ARGUMENT, "需要执行上下文"),
+            context_handler=_guard_identity(_close_day(goal_programs), goal_programs, plan_documents),
+            validator=lambda params: _validate(CloseDayParams, params), reject_identity_params=True,
+            recover_result=_recover_goal_receipt(goal_programs, plan_documents, _close_day(goal_programs)),
+        ),
+        ToolSpec(
             name="activate_goal_plan",
             description=(
-                "将已保存的计划编译为执行预览，并在用户确认该预览后激活。preview 只生成待确认目标；activate 必须有系统验证的用户确认，不能自行跳过。"
-                "activate 只传 mode、program_id、expected_version，不要携带 document_id、文档版本、日期或预览字段，携带会被拒绝。"
-                "激活只建立行动安排和进度记录，不代表开启主动提醒、定时监督或自动复盘；未实际配置调度时不得声称已开启每日复盘。"
+                "正式激活已生成的执行预览，需要一次用户审批。先用 preview_goal_plan 生成预览。"
+                "只传 mode=activate、program_id、expected_version；激活不配置提醒或自动复盘。"
             ),
             schema=_schema(ActivateGoalPlanParams),
+            model_schema={
+                "type": "object", "additionalProperties": False,
+                "required": ["mode", "program_id", "expected_version"],
+                "properties": {
+                    "mode": {"type": "string", "enum": ["activate"]},
+                    "program_id": {"type": "string", "minLength": 1},
+                    "expected_version": {"type": "integer", "minimum": 0},
+                },
+            },
             risk=ToolRisk.WRITE,
             handler=lambda params: _err(INVALID_ARGUMENT, "该工具需要服务端执行上下文"),
             context_handler=_guard_identity(_activate_goal_plan(goal_programs, plan_documents), goal_programs, plan_documents),
@@ -979,7 +1118,7 @@ def build_goal_tool_specs(
         ),
         ToolSpec(
             name="record_action_feedback",
-            description="记录用户明确陈述的行动进展或更正已有反馈，不标记行动完成。不得推测投入时间、难度和完成情况。调用前读取最新行动版本。",
+            description="记录用户明确陈述的行动进展或更正已有反馈，不标记行动完成。用户明确要求标记完成时使用 complete_action，一次写入完成与反馈，不要先重复记录部分进展。不得推测投入时间、难度和完成情况。调用前读取最新行动版本。",
             schema=_schema(RecordActionFeedbackParams),
             risk=ToolRisk.WRITE,
             handler=lambda params: _err(INVALID_ARGUMENT, "该工具需要服务端执行上下文"),

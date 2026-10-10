@@ -100,7 +100,8 @@ async def test_live_harness_exercises_one_complete_round_without_network(
         tmp_path / "m1-live-offline", 1, profile, budget,
     )
 
+    assert result["independent_terminal_status"] == "FAILED"
     assert result["dependent_terminal_status"] == "FAILED"
-    assert len(result["model_invocations"]) == 6
-    assert len(budget.model_attempts) == 6
+    assert len(result["model_invocations"]) == 3
+    assert len(budget.model_attempts) == 3
     assert len(budget.embedding_requests) == 2

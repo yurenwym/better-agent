@@ -236,9 +236,9 @@ def configure_owner_runtime(runtime, owner: str, profile, attempt_budget: BatchB
     runtime.costs.set_budget(owner, "DAILY", runtime.costs.today_period(), MODEL_BUDGET_MICROUSD)
     runtime.conversation.route_model.gateway._execute_attempt = attempt_budget.model_attempt
     # These acceptance prompts are intentionally self-contained. Skipping the
-    # generic research-intent pre-classifier keeps the frozen six-call contract.
+    # generic research-intent pre-classifier keeps the three-call contract.
     runtime.conversation.route_model.gateway.supports_intent_classification = False
-    # M1 validates memory, conversation degradation, and Episode archival only.
+    # M1 validates memory, archive failure boundaries, and Episode archival only.
     # Safety judging and evolution exposure are separate unapproved workflows.
     runtime.safety_judge = None
     runtime.evolution = None
@@ -461,11 +461,7 @@ async def run_round(
         independent_turn, independent = await run_turn(
             runtime, owner, independent_thread.id, f"{BATCH_ID}-{round_number}-independent", "什么是哈希表？",
         )
-        require_completed_turn(runtime, independent_turn, independent, "independent incomplete-context")
-        require(
-            "历史上下文不完整" in independent.content and "哈希" in independent.content,
-            f"independent answer lacks the incomplete-context notice or answer: {independent.content!r}",
-        )
+        require(independent_turn.status == "FAILED", "required history was discarded to answer an independent request")
 
         dependent_thread = runtime.conversation.create_thread(f"{BATCH_ID} incomplete dependent {round_number}", owner)
         seed_archive_exchange(runtime, owner, dependent_thread.id, f"{round_number}-dependent")
@@ -493,7 +489,7 @@ async def run_round(
                 "SELECT COALESCE(SUM(amount_microusd),0) FROM cost_ledger WHERE owner_id=? AND period_kind='DAILY' AND entry_type='CHARGE'",
                 (owner,),
             ).fetchone()[0])
-        require(len(invocations) == 6, f"round {round_number} used {len(invocations)} model invocations instead of 6")
+        require(len(invocations) == 3, f"round {round_number} used {len(invocations)} model invocations instead of 3")
         require(all(item["status"] == "SUCCEEDED" for item in invocations), "round contains a failed model invocation")
         require(all(item["cost_status"] in {"ESTIMATED_COMPLETE", "ESTIMATED_PARTIAL"} for item in attempts), "round contains unexplained model cost")
         return {
@@ -528,6 +524,7 @@ async def run_round(
                 "candidate_sha256": hashlib.sha256(candidate.content.encode()).hexdigest(),
                 "independent_sha256": hashlib.sha256(independent.content.encode()).hexdigest(),
             },
+            "independent_terminal_status": independent_turn.status,
             "dependent_terminal_status": dependent_turn.status,
             "side_effect_counts": after_effects,
         }
@@ -588,8 +585,8 @@ async def main(output: Path) -> int:
                 backend_root, database_url, data_root, round_number, profile, budget,
             ))
         invocation_count = sum(len(item["model_invocations"]) for item in report["rounds"])
-        require(invocation_count == 18, "batch did not finish with exactly 18 model invocations")
-        require(18 <= len(budget.model_attempts) <= MAX_MODEL_ATTEMPTS, "batch model attempt count is outside 18-21")
+        require(invocation_count == 9, "batch did not finish with exactly 9 model invocations")
+        require(9 <= len(budget.model_attempts) <= MAX_MODEL_ATTEMPTS, "batch model attempt count is outside 9-21")
         require(len(budget.embedding_requests) == 6, "batch did not finish with exactly 6 embedding requests")
         require(sum(item["charged_microusd"] for item in report["rounds"]) <= MODEL_BUDGET_MICROUSD, "model charges exceeded the approved batch ceiling")
         report["status"] = "PASSED"

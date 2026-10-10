@@ -54,11 +54,14 @@ CHAT_RUN_PREFIX = "chat-turn:"
 # a deployment with no MCP server configured must not load the SDK at all.
 MCP_SOURCE = "mcp"
 
-# The eight goal business tools, in the same order the registration uses.
+# Goal business tools available to conversation agents.
 GOAL_TOOL_NAMES: frozenset[str] = frozenset({
     "create_plan_draft",
     "modify_plan_document",
     "activate_goal_plan",
+    "preview_goal_plan",
+    "complete_action",
+    "close_day",
     "query_goals",
     "get_today_tasks",
     "get_action_context",
@@ -441,10 +444,10 @@ class ChatToolRunner:
 
     def schemas(self) -> list[dict[str, Any]]:
         allowed = self.allowed_names()
-        return [
-            schema for schema in self.registry.describe()
-            if schema["function"]["name"] in allowed
-        ]
+        import copy
+        schemas = [copy.deepcopy(schema) for schema in self.registry.describe()
+                   if schema["function"]["name"] in allowed]
+        return schemas
 
     def context(self, tool_call_id: str) -> ToolExecutionContext:
         return ToolExecutionContext(
@@ -481,6 +484,12 @@ class ChatToolRunner:
         return create_child_context(candidate)
 
     def authorization(self, tool_name: str, params: dict[str, Any], context: ToolExecutionContext) -> dict[str, Any]:
+        if tool_name == "close_day" and self.goal_programs is not None:
+            program = self.goal_programs.get(params["program_id"], owner_id=context.owner_id)
+            return {"goal_day": {"title": program["objective_title"], "local_date": params["local_date"]}}
+        if tool_name == "complete_action" and self.goal_programs is not None:
+            action = self.goal_programs.get_action_context(params["action_id"], owner_id=context.owner_id)["action"]
+            return {"goal_action": {"title": action["title"], "id": action["id"], "version": action["version"]}}
         if self._mcp_sync is not None:
             # A remote write is approved against one server configuration
             # version and one definition digest, so a rotated credential or a

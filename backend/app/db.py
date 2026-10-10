@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20261010_0027"
+POSTGRES_SCHEMA_HEAD = "20261010_0028"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1650,6 +1650,12 @@ MIGRATIONS = (
 MIGRATIONS = (*MIGRATIONS, (48, """
 ALTER TABLE events ADD COLUMN envelope_json TEXT;
 ALTER TABLE thread_events ADD COLUMN envelope_json TEXT;
+"""))
+
+
+MIGRATIONS = (*MIGRATIONS, (49, """
+ALTER TABLE turn_jobs ADD COLUMN archive_job_id TEXT REFERENCES memory_archive_jobs(id);
+ALTER TABLE turn_jobs ADD COLUMN archive_wait_until TEXT;
 """))
 
 

@@ -653,7 +653,16 @@ def register_routes(app) -> None:
     @app.get("/api/threads/{thread_id}/archive")
     async def archive_status(thread_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)):
         try:
-            return service.archiver.status(thread_id, current_owner)
+            result = service.archiver.status(thread_id, current_owner)
+            with service.archiver.db.connection() as connection:
+                row = connection.execute(
+                    "SELECT t.id,t.status,t.version FROM turns t JOIN turn_jobs j ON j.turn_id=t.id "
+                    "WHERE t.thread_id=? AND j.archive_job_id IS NOT NULL AND t.status IN ('ROUTING','FAILED') "
+                    "AND t.reason_code IN ('archive_waiting','archive_wait_timeout','archive_unavailable') "
+                    "ORDER BY t.created_at DESC LIMIT 1", (thread_id,),
+                ).fetchone()
+            result["waiting_turn"] = dict(row) if row else None
+            return result
         except (KeyError, PermissionError) as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
@@ -666,6 +675,43 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=404, detail="archive job not found") from exc
         except ArchiveError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post("/api/turns/{turn_id}/retry-archive", dependencies=[Depends(mutate)])
+    async def retry_archive_turn(turn_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)):
+        from .memory_archive import ArchiveError
+        from datetime import datetime, timezone
+        try:
+            turn = service.conversation.turn(turn_id, current_owner)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="turn not found") from exc
+        with service.db.connection() as connection:
+            job = connection.execute("SELECT archive_job_id,cancel_requested_at FROM turn_jobs WHERE turn_id=?", (turn_id,)).fetchone()
+            archive = connection.execute("SELECT * FROM memory_archive_jobs WHERE id=?", (job["archive_job_id"],)).fetchone() if job else None
+        if turn.status == "ROUTING" and archive:
+            return {"turn_id": turn_id, "status": turn.status}
+        if (turn.status != "FAILED" or turn.reason_code not in {"archive_waiting", "archive_wait_timeout", "archive_unavailable"}
+                or turn.version != _required_int(payload, "expected_version")
+                or archive is None or job["cancel_requested_at"]):
+            raise HTTPException(status_code=409, detail="回合状态已变化，请刷新后重试")
+        if archive["status"] == "LEASE_LOST":
+            raise HTTPException(status_code=409, detail="归档来源或租约已失效，请先恢复历史来源")
+        try:
+            if archive["status"] == "DEAD_LETTER":
+                service.archiver.retry(turn.thread_id, current_owner, archive["id"], archive["updated_at"])
+        except ArchiveError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        with service.db.transaction() as connection:
+            changed = connection.execute(
+                "UPDATE turns SET status='ROUTING',reason_code='archive_waiting',version=version+1,updated_at=? "
+                "WHERE id=? AND status='FAILED' AND version=?",
+                (datetime.now(timezone.utc).isoformat(), turn_id, turn.version),
+            ).rowcount
+            if changed:
+                connection.execute("UPDATE turn_jobs SET status='QUEUED',archive_wait_until=NULL,finished_at=NULL,last_error_json=NULL WHERE turn_id=? AND cancel_requested_at IS NULL", (turn_id,))
+                connection.execute("DELETE FROM turn_metrics WHERE turn_id=?", (turn_id,))
+                service.conversation.events.append(turn.thread_id, turn_id, "context.archiving", "worker",
+                    {"state": "waiting", "message": "正在整理历史，完成后继续"}, connection=connection)
+        return {"turn_id": turn_id, "status": "ROUTING"}
 
     @app.get("/api/threads/{thread_id}/plan")
     async def get_thread_plan(

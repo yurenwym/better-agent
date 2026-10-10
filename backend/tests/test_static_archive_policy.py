@@ -549,7 +549,11 @@ def test_foreground_turn_pending_only_counts_waiting_turns(tmp_path):
     # would stop archival entirely on a busy system.
     assert foreground_turn_pending(db) is False
     with db.transaction() as connection:
-        connection.execute("INSERT INTO turn_jobs(turn_id,status) VALUES ('turn-1','QUEUED')")
+        connection.execute(
+            "INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) "
+            "VALUES ('turn-1',?,'turn-1','ACCEPTED','2026-01-02','2026-01-02')", (thread.id,),
+        )
+        connection.execute("INSERT INTO turn_jobs(turn_id,thread_id,status) VALUES ('turn-1',?,'QUEUED')", (thread.id,))
     assert foreground_turn_pending(db) is True
 
 

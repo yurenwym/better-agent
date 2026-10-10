@@ -145,6 +145,23 @@ def test_technical_query_compaction_prefers_specific_anchors() -> None:
     assert len(variants) == 2
 
 
+def test_short_product_name_is_preserved_in_relevance_checks():
+    _, anchors = WebSearchRetriever._query_variants("site:docs.astral.sh uv beginner tutorial")
+    assert "uv" in anchors
+    score, matched, _ = WebSearchRetriever._relevance(
+        "Getting started | uv", "https://docs.astral.sh/uv/",
+        "A beginner guide to uv for Python projects.",
+        "uv beginner tutorial", "uv", anchors,
+    )
+    assert score > 0
+    assert "uv" in matched
+    score, _, _ = WebSearchRetriever._relevance(
+        "Travel", "https://example.com", "Travel destinations and hotels.",
+        "uv beginner tutorial", "uv", anchors,
+    )
+    assert score == 0
+
+
 def test_query_compaction_preserves_site_scope_and_checks_boundaries():
     variants, anchors = WebSearchRetriever._query_variants(
         "pgvector HNSW ef_search site:github.com/pgvector/pgvector"

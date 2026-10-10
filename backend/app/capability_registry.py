@@ -26,7 +26,7 @@ class CapabilityRegistry:
                 "function": {
                     "name": spec.name,
                     "description": spec.description,
-                    "parameters": spec.schema,
+                    "parameters": spec.model_schema if spec.model_schema is not None else spec.schema,
                 },
             }
             for spec in self._tools.values()

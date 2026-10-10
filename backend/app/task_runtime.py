@@ -159,7 +159,7 @@ class TaskRuntime:
         allowed = {
             TaskKind.RESEARCH: {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "QUEUED"},
             TaskKind.EXPERT: {"SUCCEEDED", "FAILED", "CANCELLED", "WAITING_CHILDREN", "QUEUED"},
-            TaskKind.TURN: {"COMPLETED", "FAILED", "CANCELLED"},
+            TaskKind.TURN: {"COMPLETED", "FAILED", "CANCELLED", "QUEUED"},
             TaskKind.PROJECTION: {"READY", "FAILED"},
             TaskKind.GOAL: {"QUEUED"},
         }

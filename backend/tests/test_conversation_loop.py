@@ -40,7 +40,7 @@ async def test_reused_handoff_closes_current_attempt(tmp_path, monkeypatch, kind
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     call = tool("start_research", {"topic": "topic", "scope": "web"}) if kind == "research" else tool(
         "delegate_experts", {"objective": "topic", "roles": ["critic"]})
-    gateway = Gateway([("", [call])])
+    gateway = Gateway([("正在启动任务。", [call])])
     runtime = build_runtime(tmp_path, conversation_model=LiveConversationModel(gateway))
     try:
         thread = runtime.conversation.create_thread("reuse")
@@ -48,6 +48,11 @@ async def test_reused_handoff_closes_current_attempt(tmp_path, monkeypatch, kind
         await runtime.turn_worker.run_once()
         turn = runtime.conversation.turn(accepted.turn_id)
         assert turn.status == "COMPLETED"
+        with runtime.db.connection() as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM thread_messages WHERE turn_id=? AND content=?",
+                (turn.id, "正在启动任务。"),
+            ).fetchone()[0] == 0
         worker = runtime.turn_worker.primary
         with runtime.db.transaction() as connection:
             connection.execute("UPDATE turn_jobs SET status='QUEUED',finished_at=NULL WHERE turn_id=?", (turn.id,))

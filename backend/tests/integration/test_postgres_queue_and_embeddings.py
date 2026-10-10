@@ -47,6 +47,33 @@ def _clear_turn_jobs(db) -> None:
         connection.execute("DELETE FROM turn_jobs")
 
 
+def test_archive_dependency_survives_reopen_and_preserves_thread_order(migrated_postgres_url, tmp_path):
+    from app.db import Database
+    from app.durable_queue import DurableQueue
+    from app.memory_archive import foreground_turn_pending
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    _clear_turn_jobs(db)
+    older, later = _seed_queue(db, thread_count=1, turns_per_thread=2)[0]
+    with db.transaction() as c:
+        thread_id = c.execute("SELECT thread_id FROM turns WHERE id=?", (older,)).fetchone()[0]
+        c.execute("INSERT INTO memory_archive_jobs(id,owner_id,thread_id,start_message_seq,end_message_seq,source_hash,prompt_version,tokenizer_version,status,available_at,created_at,updated_at) "
+                  "VALUES ('dependency','local-user',?,1,2,'hash','prompt','counter','QUEUED',clock_timestamp(),clock_timestamp(),clock_timestamp())", (thread_id,))
+        c.execute("UPDATE turn_jobs SET archive_job_id='dependency',archive_wait_until=clock_timestamp()+interval '2 minutes' WHERE turn_id=?", (older,))
+    db.close()
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    queue = DurableQueue(db)
+    assert queue.claim_next("restarted", 30) is None
+    assert not foreground_turn_pending(db)
+    with db.transaction() as c:
+        c.execute("UPDATE memory_archive_jobs SET status='COMPLETED' WHERE id='dependency'")
+    token = queue.claim_next("restarted", 30)
+    assert token.job_id == older
+    assert queue.claim_next("second-worker", 30) is None
+    queue.finish(token)
+    assert queue.claim_next("next", 30).job_id == later
+    db.close()
+
+
 def test_durable_queue_concurrent_claims_are_unique_per_thread(
     migrated_postgres_url, tmp_path
 ) -> None:

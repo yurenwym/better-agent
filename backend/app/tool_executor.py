@@ -226,7 +226,7 @@ class ToolExecutor:
             spec.validator(call.params)
         for field_name in spec.path_fields:
             self.safe_path(call.params[field_name])
-        approval_required = self._risk(spec, call) == ToolRisk.WRITE
+        approval_required = self._risk(spec, call) == ToolRisk.WRITE and spec.requires_approval
         granted = False
         if approval_required and self.approval_service is not None:
             try:

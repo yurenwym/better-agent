@@ -57,6 +57,20 @@ class DurableQueue:
                   SELECT 1
                   FROM turn_jobs eligible
                   WHERE eligible.thread_id=h.id
+                    AND NOT EXISTS (
+                      SELECT 1 FROM turn_jobs waiting
+                      JOIN turns earlier ON earlier.id=waiting.turn_id
+                      JOIN turns current ON current.id=eligible.turn_id
+                      WHERE waiting.thread_id=h.id AND waiting.status='QUEUED'
+                        AND waiting.archive_job_id IS NOT NULL
+                        AND (earlier.created_at < current.created_at
+                          OR (earlier.created_at=current.created_at AND earlier.id < current.id))
+                    )
+                    AND (eligible.archive_job_id IS NULL OR eligible.cancel_requested_at IS NOT NULL
+                      OR eligible.archive_wait_until <= clock_timestamp() OR EXISTS (
+                        SELECT 1 FROM memory_archive_jobs a WHERE a.id=eligible.archive_job_id
+                          AND a.status IN ('COMPLETED','DEAD_LETTER','LEASE_LOST')
+                      ))
                     AND (
                       (eligible.status='RUNNING'
                        AND eligible.lease_until <= clock_timestamp())
@@ -85,7 +99,17 @@ class DurableQueue:
                 SELECT j.turn_id,j.thread_id
                 FROM turn_jobs j
                 JOIN turns t ON t.id=j.turn_id AND t.thread_id=j.thread_id
-                WHERE j.thread_id=? AND (
+                WHERE j.thread_id=? AND NOT EXISTS (
+                  SELECT 1 FROM turn_jobs waiting JOIN turns earlier ON earlier.id=waiting.turn_id
+                  WHERE waiting.thread_id=j.thread_id AND waiting.status='QUEUED'
+                    AND waiting.archive_job_id IS NOT NULL
+                    AND (earlier.created_at < t.created_at
+                      OR (earlier.created_at=t.created_at AND earlier.id < t.id))
+                ) AND (j.archive_job_id IS NULL OR j.cancel_requested_at IS NOT NULL
+                  OR j.archive_wait_until <= clock_timestamp() OR EXISTS (
+                    SELECT 1 FROM memory_archive_jobs a WHERE a.id=j.archive_job_id
+                      AND a.status IN ('COMPLETED','DEAD_LETTER','LEASE_LOST')
+                  )) AND (
                   (j.status='RUNNING' AND j.lease_until <= clock_timestamp())
                   OR (j.status='QUEUED' AND NOT EXISTS (
                     SELECT 1 FROM turn_jobs active
