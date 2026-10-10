@@ -11,6 +11,13 @@ _LOADED_CREDENTIALS: dict[str, str] = {}
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
+def agent_loop_mode() -> str:
+    mode = os.getenv("BETTER_AGENT_LOOP_MODE", "loop").strip().lower()
+    if mode not in {"legacy", "loop"}:
+        raise ValueError("BETTER_AGENT_LOOP_MODE must be legacy or loop")
+    return mode
+
+
 def monetary_limits_enabled() -> bool:
     return os.getenv("BETTER_AGENT_COST_MODE", "observe").lower() == "enforce"
 

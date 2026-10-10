@@ -39,14 +39,33 @@ def test_research_routes_create_list_detail_cancel_retry(tmp_path) -> None:
     assert retried.status_code == 202 and retried.json()["job_id"] != job_id
 
 
+def test_research_routes_do_not_expose_or_mutate_another_owners_job(tmp_path):
+    http, runtime = client(tmp_path)
+    csrf = http.get("/api/bootstrap").json()["csrf_token"]
+    headers = {"X-CSRF-Token": csrf, "x-owner-id": "other", "Content-Type": "application/json"}
+    thread = runtime.conversation.create_thread()
+    job = runtime.research.create_manual(thread.id, "private", "private", ("web",))
+    base = f"/api/research/jobs/{job.id}"
+    for suffix in ("", "/report", "/sources"):
+        assert http.get(base + suffix, headers=headers).status_code == 404
+    assert http.get("/api/research/jobs", headers=headers).json() == {"jobs": []}
+    assert http.post(base + "/cancel", headers=headers).status_code == 404
+    assert http.post(base + "/retry", headers=headers, json={"client_request_id": "other"}).status_code == 404
+    assert http.delete(base, headers=headers).status_code == 404
+    assert http.post(f"/api/threads/{thread.id}/research", headers=headers,
+                     json={"client_request_id": "other", "topic": "other"}).status_code == 404
+    assert runtime.research.get(job.id).status == "QUEUED"
+    assert len(runtime.research.list()) == 1
+
+
 def test_research_job_api_returns_a_stable_failure_reason(tmp_path) -> None:
     http, runtime = client(tmp_path)
     csrf = http.get("/api/bootstrap").json()["csrf_token"]
     headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
     thread = http.post("/api/threads", headers=headers, json={}).json()
     job = runtime.research.create_manual(thread["id"], "research", "failed-api", ("web",))
-    runtime.research.claim_next("worker", 30)
-    runtime.research.fail(job.id, "worker", "unknowncitation")
+    lease_1 = runtime.research.claim_next("worker", 30)
+    runtime.research.fail(job.id, "worker", "unknowncitation", epoch=lease_1.lease_epoch)
     payload = http.get(f"/api/research/jobs/{job.id}").json()
     assert payload["failure_reason_code"] == "unknowncitation"
 
@@ -57,8 +76,8 @@ def test_research_job_api_returns_missing_requirements(tmp_path) -> None:
     headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
     thread = http.post("/api/threads", headers=headers, json={}).json()
     job = runtime.research.create_manual(thread["id"], "research", "failed-details-api", ("web",))
-    runtime.research.claim_next("worker", 30)
-    runtime.research.fail(job.id, "worker", "topiccoverageerror", diagnostics={"missing_requirements":["投递渠道"]})
+    lease_1 = runtime.research.claim_next("worker", 30)
+    runtime.research.fail(job.id, "worker", "topiccoverageerror", diagnostics={"missing_requirements":["投递渠道"]}, epoch=lease_1.lease_epoch)
 
     payload = http.get(f"/api/research/jobs/{job.id}").json()
     assert payload["failure_details"] == {"missing_requirements": ["投递渠道"]}
@@ -70,9 +89,9 @@ def test_research_job_api_exposes_partial_traceability(tmp_path) -> None:
     headers = {"X-CSRF-Token": csrf, "Content-Type": "application/json"}
     thread = http.post("/api/threads", headers=headers, json={}).json()
     job = runtime.research.create_manual(thread["id"], "research", "partial-api", ("web",))
-    runtime.research.claim_next("worker", 30)
+    lease_1 = runtime.research.claim_next("worker", 30)
     matrix = ({"requirement": "A", "supported": True},)
-    runtime.research.complete_partial(job.id, "worker", "partial", "# partial", 1, 1, matrix, ("B",))
+    runtime.research.complete_partial(job.id, "worker", "partial", "# partial", 1, 1, matrix, ("B",), epoch=lease_1.lease_epoch)
 
     payload = http.get(f"/api/research/jobs/{job.id}").json()
     assert payload["status"] == "PARTIAL"

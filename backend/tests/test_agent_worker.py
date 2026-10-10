@@ -1,4 +1,5 @@
 import asyncio
+import json
 import pytest
 
 from app.agents import AgentTaskService, ManagedAgentWorker
@@ -14,6 +15,34 @@ class ExpertModel:
             "risks": [],
             "open_questions": [],
         }
+
+
+@pytest.mark.asyncio
+async def test_worker_preserves_safe_model_error_in_attempt(tmp_path):
+    from app.model_gateway import GatewayError
+
+    class Model(ExpertModel):
+        async def execute(self, role, objective, context, inputs):
+            raise GatewayError("private-provider-detail", "budget")
+
+    db = Database(tmp_path / "error.db")
+    try:
+        bundle = BehaviorBundleService(db).ensure({"code": "test"})
+        service = AgentTaskService(db)
+        run = service.create_run("local-user", "topic", {}, bundle.id,
+                                 expert_roles=("critic",), idempotency_key="error")
+        worker = ManagedAgentWorker(service, Model())
+        await worker.run_once()
+        await worker.run_once()
+        child = service.children(run["coordinator_task_id"])[0]
+        assert child["status"] == "FAILED"
+        with db.connection() as connection:
+            row = connection.execute("SELECT error_json FROM agent_task_attempts WHERE task_id=?", (child["id"],)).fetchone()
+        outcome = json.loads(row["error_json"])["outcome"]
+        assert outcome["scope"] == "task" and outcome["error"]["code"] == "MODEL_BUDGET"
+        assert "private-provider-detail" not in row["error_json"]
+    finally:
+        db.close()
 
 
 @pytest.mark.asyncio
@@ -129,14 +158,17 @@ def test_coordinator_persists_distinct_role_scoped_child_objectives(tmp_path):
         db.close()
 
 
-def test_completed_expert_run_projects_a_visible_thread_message_and_events(tmp_path):
+@pytest.mark.parametrize("from_turn", [False, True])
+def test_completed_expert_run_projects_a_visible_thread_message_and_events(tmp_path, from_turn):
     from app.conversation import ConversationService
     db = Database(tmp_path / "agent.db")
     conversation = ConversationService(db)
     thread = conversation.create_thread("专家")
     bundle = BehaviorBundleService(db).ensure({"code":"test"})
+    BehaviorBundleService(db).activate("stable", bundle.id, "test-expert-bundle")
+    parent = conversation.accept_turn(thread.id, "expert-parent", "专家", []) if from_turn else None
     service = AgentTaskService(db, thread_events=conversation.events)
-    run = service.create_run("local-user", "制定训练计划", {"goal":"训练"}, bundle.id, thread_id=thread.id, idempotency_key="expert-visible")
+    run = service.create_run("local-user", "制定训练计划", {"goal":"训练", "source_turn_id": parent.turn_id if parent else None}, bundle.id, thread_id=thread.id, idempotency_key="expert-visible", parent_turn_id=parent.turn_id if parent else None)
     worker = ManagedAgentWorker(service, ExpertModel())
     for _ in range(5): assert asyncio.run(worker.run_once()) is True
     assistant = conversation.messages(thread.id)[-1]
@@ -144,6 +176,15 @@ def test_completed_expert_run_projects_a_visible_thread_message_and_events(tmp_p
     assert "专家协作结果" in assistant.content and "researcher" in assistant.content
     event_types = [event.type for event in conversation.events.list(thread.id)]
     assert "expert.run.queued" in event_types and "expert.run.completed" in event_types
+    if parent:
+        from app.event_envelope import EventMetadata
+        lifecycle = [event for event in conversation.events.list(thread.id) if event.type.startswith("expert.run.")]
+        queued, completed = [EventMetadata.from_dict(json.loads(event.envelope_json)) for event in lifecycle]
+        root = conversation.harness_context.load_turn_context(parent.turn_id)
+        assert queued.context.trace_id == completed.context.trace_id == root.trace_id
+        assert queued.context.span_id == completed.context.span_id != root.span_id
+        assert completed.causation_event_id == lifecycle[0].event_id
+        assert completed.outcome.status.value == "completed"
 
 
 def test_worker_uses_requested_expert_roles(tmp_path):

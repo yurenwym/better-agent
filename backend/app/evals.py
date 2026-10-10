@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -39,6 +41,125 @@ class SuiteReport:
 
 
 Scenario = Callable[[Path], Awaitable[str]]
+
+
+ROUTING_CATEGORY_MINIMUMS = {
+    "direct": 6, "research": 6, "implicit_research": 6, "expert": 6,
+    "remember": 6, "clarify": 6, "goal_read": 6, "goal_write": 6,
+    "negation": 6, "mixed": 6, "plan_publish": 6, "plan_save": 4,
+}
+ROUTING_OUTCOMES = frozenset({
+    "final", "handoff:research", "handoff:expert", "tool:remember", "ask",
+    "tool:query_goals", "approval", "final+plan_document",
+})
+
+
+def routing_digest(value: object) -> str:
+    encoded = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def routing_holdout_record(suite: dict) -> dict:
+    holdout = sorted(
+        (case for case in suite["cases"] if case["partition"] == "HOLDOUT"),
+        key=lambda case: case["case_id"],
+    )
+    return {"suite": suite["suite"], "count": len(holdout), "sha256": routing_digest(holdout)}
+
+
+def load_routing_suite(path: Path, freeze_path: Path) -> dict:
+    suite = json.loads(path.read_text(encoding="utf-8"))
+    if suite.get("suite") != "agent-loop-routing-v1" or suite.get("version") != 1:
+        raise ValueError("unsupported routing suite")
+    seen: set[str] = set()
+    counts = dict.fromkeys(ROUTING_CATEGORY_MINIMUMS, 0)
+    for case in suite["cases"]:
+        case_id = case["case_id"]
+        if not isinstance(case_id, str) or not case_id or case_id in seen:
+            raise ValueError("duplicate or invalid case_id")
+        seen.add(case_id)
+        if case["partition"] not in {"DEV", "HOLDOUT"} or case["category"] not in counts:
+            raise ValueError(f"invalid partition/category: {case_id}")
+        counts[case["category"]] += 1
+        if not isinstance(case["input"], str) or not case["input"].strip():
+            raise ValueError(f"empty input: {case_id}")
+        if not isinstance(case["history"], list) or any(
+            not isinstance(message, dict)
+            or message.get("role") not in {"user", "assistant"}
+            or not isinstance(message.get("content"), str)
+            for message in case["history"]
+        ):
+            raise ValueError(f"invalid history: {case_id}")
+        for key in ("expected", "forbidden"):
+            if not isinstance(case[key], list) or any(item not in ROUTING_OUTCOMES for item in case[key]):
+                raise ValueError(f"invalid {key}: {case_id}")
+        if not case["expected"] or set(case["expected"]) & set(case["forbidden"]):
+            raise ValueError(f"contradictory expectation: {case_id}")
+    if any(counts[key] < minimum for key, minimum in ROUTING_CATEGORY_MINIMUMS.items()):
+        raise ValueError("routing category minimum not met")
+    frozen = json.loads(freeze_path.read_text(encoding="utf-8"))
+    actual = routing_holdout_record(suite)
+    if actual != frozen or actual["count"] < suite["planned_holdout_count"]:
+        raise ValueError("HOLDOUT freeze mismatch")
+    return suite
+
+
+def run_routing_mock(suite: dict, *, mode: str = "legacy", responses: dict | None = None) -> dict:
+    """Exercise report accounting only. No production route or provider is invoked.
+
+    The default fixed response is deliberately independent of expected labels.
+    Injected responses allow invalid/cancelled accounting to be checked offline.
+    """
+    if mode != "legacy":
+        raise ValueError("T00 supports legacy mock only")
+    responses = responses if responses is not None else {
+        case["case_id"]: {"status": "valid", "observed": ["final"]}
+        for case in suite["cases"]
+    }
+    if set(responses) - {case["case_id"] for case in suite["cases"]}:
+        raise ValueError("unknown response case_id")
+    rows = []
+    for case in suite["cases"]:
+        response = responses.get(case["case_id"], {})
+        status = response.get("status", "invalid") if isinstance(response, dict) else "invalid"
+        observed = response.get("observed", []) if isinstance(response, dict) else []
+        if status not in {"valid", "invalid", "cancelled"}:
+            status = "invalid"
+        if not isinstance(observed, list) or not observed or any(item not in ROUTING_OUTCOMES for item in observed):
+            observed = []
+            if status == "valid":
+                status = "invalid"
+        forbidden_hit = bool(set(observed) & set(case["forbidden"]))
+        rows.append({
+            "case_id": case["case_id"], "partition": case["partition"], "category": case["category"],
+            "expected": case["expected"], "forbidden": case["forbidden"],
+            "observed": observed, "status": status, "forbidden_hit": forbidden_hit,
+            "matched": status == "valid" and set(case["expected"]) <= set(observed) and not forbidden_hit,
+            "model_calls": 0, "tokens": None, "cost_usd": None,
+            "cost_source": "not_applicable_mock", "first_token_ms": None,
+        })
+
+    def summarize(items: list[dict]) -> dict:
+        return {
+            "planned": len(items), "matched": sum(row["matched"] for row in items),
+            "match_fraction": sum(row["matched"] for row in items) / len(items) if items else None,
+            "invalid": sum(row["status"] == "invalid" for row in items),
+            "cancelled": sum(row["status"] == "cancelled" for row in items),
+            "forbidden_hits": sum(row["forbidden_hit"] for row in items),
+        }
+
+    return {
+        "suite": suite["suite"], "suite_sha256": routing_digest(suite),
+        "holdout": routing_holdout_record(suite), "mode": mode, "provider": "mock",
+        "scope": "report_accounting_only", "production_route_executed": False,
+        "engineering": "PASS", "routing_quality": "INSUFFICIENT_EVIDENCE",
+        "summary": summarize(rows),
+        "by_category": {key: summarize([row for row in rows if row["category"] == key]) for key in ROUTING_CATEGORY_MINIMUMS},
+        "by_partition": {key: summarize([row for row in rows if row["partition"] == key]) for key in ("DEV", "HOLDOUT")},
+        "invalid_case_ids": [row["case_id"] for row in rows if row["status"] == "invalid"],
+        "cancelled_case_ids": [row["case_id"] for row in rows if row["status"] == "cancelled"],
+        "cases": rows,
+    }
 
 
 def run_deterministic_suite() -> SuiteReport:

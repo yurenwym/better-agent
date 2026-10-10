@@ -84,6 +84,25 @@ def test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection(tmp_path,
         _answer('{"action":"complete_step","output":"Delivered"}'), _answer('{"candidates":[]}'),
     ])
     monkeypatch.setattr(gateway, "_execute_attempt", observer)
+    # Bind authorized evidence inside creation, before the root and first event.
+    source = _turn_context(db, owner_id="tenant-b")
+    persist_root = runtime._persist_run_root
+
+    def persist_source_root(connection, run_id):
+        from dataclasses import replace
+        from app.execution_context import create_child_context, serialize_context
+        from app.harness_context_store import HarnessContextStore
+        root = HarnessContextStore(db).load_turn_context(source.turn_id)
+        connection.execute("UPDATE runs SET source_turn_id=? WHERE id=?", (source.turn_id, run_id))
+        persist_root(connection, run_id)
+        run = runtime.get_run(run_id, connection=connection)
+        budget = dict(run.budget)
+        budget["agent_loop_context"] = serialize_context(replace(create_child_context(root),
+            run_id=run_id, runtime_bundle_id=run.runtime_bundle_id, root_budget_id=run.root_budget_id,
+            project_id=run.project_id))
+        connection.execute("UPDATE runs SET budget_json=? WHERE id=?", (json.dumps(budget), run_id))
+
+    monkeypatch.setattr(runtime, "_persist_run_root", persist_source_root)
     app = create_app(runtime=runtime)
     client = TestClient(app)
     created = client.post("/api/goals", json={"title":"Deliver", "description":"Answer"}, headers=_headers(app))
@@ -91,11 +110,6 @@ def test_t33_goal_http_lifecycle_freezes_repair_and_trusted_reflection(tmp_path,
     run_id, goal_id = created.json()["run_id"], created.json()["id"]
     planned = client.post(f"/api/goals/{goal_id}/messages", json={"content":"Deliver"}, headers=_headers(app))
     assert planned.status_code == 200 and planned.json()["state"] == "AWAITING_APPROVAL", planned.text
-    # Reflection requires real user evidence; the service-owner/no-turn path above
-    # has none and correctly short-circuits. Attach a persisted authorized source.
-    source = _turn_context(db, owner_id="tenant-b")
-    with db.transaction() as connection:
-        connection.execute("UPDATE runs SET source_turn_id=? WHERE id=?", (source.turn_id, run_id))
     approved = client.post(f"/api/runs/{run_id}/plans/1/approve", json={}, headers=_headers(app))
     assert approved.status_code == 200 and approved.json()["state"] == "COMPLETED", approved.text
     rows = _invocations(db)
@@ -175,7 +189,7 @@ async def test_t37_a_run_whose_source_turn_has_no_owner_sends_nothing(tmp_path, 
         connection.execute("PRAGMA foreign_keys=OFF")
         connection.execute("UPDATE runs SET source_turn_id='turn-that-does-not-exist' WHERE id=?", (run.id,))
 
-    with pytest.raises(PermissionError):
+    with pytest.raises(ValueError, match="run source identity changed"):
         await runtime.handle_message(run.id, "开始")
 
     assert sent == []
@@ -369,8 +383,8 @@ async def test_t34_projection_claim_failure_and_ready_retry_keep_the_snapshot(tm
     assert recorder.observations == [] and _invocations(db) == []
     monkeypatch.setattr(materializer, "_claim_projection", claim)
 
-    def interrupted(*args):
-        store(*args)
+    def interrupted(*args, **kwargs):
+        store(*args, **kwargs)
         raise RuntimeError("interrupted after READY")
 
     monkeypatch.setattr(materializer, "_store_projection_draft", interrupted)

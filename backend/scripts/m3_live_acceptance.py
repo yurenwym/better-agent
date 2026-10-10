@@ -618,11 +618,15 @@ async def _run_round(
             source_turn_id=None, source_message_id=None, actor="model",
         )
         user_request = "请调用 researcher、planner、critic 三个专家协作。" + CORE_OBJECTIVE
-        accepted = runtime.conversation.accept_turn(
-            thread.id, f"{BATCH_ID}:round:{round_number}", user_request, [], owner_id=owner,
-        )
-        with runtime.db.transaction() as connection:
-            connection.execute("UPDATE turns SET runtime_bundle_id=? WHERE id=?", (bundle_id, accepted.turn_id))
+        # This controlled harness pins its bundle at the trusted assignment
+        # boundary. An accepted turn's persisted identity is immutable.
+        from unittest.mock import patch
+        from types import SimpleNamespace
+        assignment = SimpleNamespace(assign_run=lambda *args, **kwargs: (bundle_id, None))
+        with patch.object(runtime, "evolution", assignment):
+            accepted = runtime.conversation.accept_turn(
+                thread.id, f"{BATCH_ID}:round:{round_number}", user_request, [], owner_id=owner,
+            )
         await asyncio.wait_for(runtime.turn_worker.run_once(), timeout=budget.remaining())
         turn = runtime.conversation.turn(accepted.turn_id, owner_id=owner)
         _require(turn.status == "COMPLETED" and turn.policy == "start_expert", "conversation did not hand off to experts")

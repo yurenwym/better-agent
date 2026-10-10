@@ -1,0 +1,998 @@
+{
+  "suite": "agent-loop-routing-v1",
+  "version": 1,
+  "material": "synthetic",
+  "review": {
+    "status": "author_reviewed",
+    "scope": "合成材料、路由意图及禁止结果；不代表独立人工路由评审"
+  },
+  "planned_holdout_count": 24,
+  "cases": [
+    {
+      "case_id": "routing-direct-01",
+      "partition": "DEV",
+      "category": "direct",
+      "input": "用两句话解释缓存。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-direct-02",
+      "partition": "DEV",
+      "category": "direct",
+      "input": "为什么烧开的水会冒气泡？",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-direct-03",
+      "partition": "DEV",
+      "category": "direct",
+      "input": "Python 列表与元组有什么区别？",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-direct-04",
+      "partition": "DEV",
+      "category": "direct",
+      "input": "如何把摄氏二十度换算成华氏？",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-direct-05",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "input": "解释一下机会成本。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-direct-06",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "input": "给我三个改善睡眠环境的小建议。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": []
+    },
+    {
+      "case_id": "routing-research-01",
+      "partition": "DEV",
+      "category": "research",
+      "input": "请启动深度研究，比较家用储能的主要技术路线。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-research-02",
+      "partition": "DEV",
+      "category": "research",
+      "input": "做一次深度研究：开源数据库的商业模式。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-research-03",
+      "partition": "DEV",
+      "category": "research",
+      "input": "请联网深度研究城市雨水回收方案。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-research-04",
+      "partition": "DEV",
+      "category": "research",
+      "input": "请以深度研究任务调查电池回收产业。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-research-05",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "input": "启动深度研究，分析远程办公对团队协作的影响。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-research-06",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "input": "请做一份深度研究报告，主题是热泵在寒冷地区的适用性。",
+      "history": [],
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-01",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "input": "简单介绍选购路由器该看哪些指标。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-02",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "input": "我想了解电动车电池寿命，先给常识性说明。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-03",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "input": "分析一下每天走路的好处，简短回答。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-04",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "input": "比较一下机械键盘和薄膜键盘的常见特点。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-05",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "input": "我正在研究如何整理书架，给几个小窍门。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-implicit_research-06",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "input": "说说租房看房时需要留意什么。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-01",
+      "partition": "DEV",
+      "category": "expert",
+      "input": "请找专家团队评审我的学习方案。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-02",
+      "partition": "DEV",
+      "category": "expert",
+      "input": "启动专家协作，分析小店会员制度的利弊。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-03",
+      "partition": "DEV",
+      "category": "expert",
+      "input": "请研究员、规划师和批评者一起审查我的时间安排。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-04",
+      "partition": "DEV",
+      "category": "expert",
+      "input": "请让专家帮我讨论家庭备灾清单。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-05",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "input": "调用专家团队，为志愿者活动提出改进意见。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-expert-06",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "input": "找专家协作分析个人作品集应如何组织。",
+      "history": [],
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-01",
+      "partition": "DEV",
+      "category": "remember",
+      "input": "请记住：我更喜欢简短回答。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-02",
+      "partition": "DEV",
+      "category": "remember",
+      "input": "请记住我通常在早晨学习。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-03",
+      "partition": "DEV",
+      "category": "remember",
+      "input": "以后请用中文回复，把这个偏好记住。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-04",
+      "partition": "DEV",
+      "category": "remember",
+      "input": "请长期记住：我不吃香菜。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-05",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "input": "帮我记住我喜欢用表格比较方案。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-remember-06",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "input": "请记住我希望例子先于抽象定义。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-01",
+      "partition": "DEV",
+      "category": "clarify",
+      "input": "帮我把那个改一下。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-02",
+      "partition": "DEV",
+      "category": "clarify",
+      "input": "替我安排它。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-03",
+      "partition": "DEV",
+      "category": "clarify",
+      "input": "继续执行之前那个任务。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-04",
+      "partition": "DEV",
+      "category": "clarify",
+      "input": "把这个换成另一个。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-05",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "input": "帮我选一个。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-clarify-06",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "input": "按他说的处理吧。",
+      "history": [],
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-01",
+      "partition": "DEV",
+      "category": "goal_read",
+      "input": "查一下我现在有哪些目标。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-02",
+      "partition": "DEV",
+      "category": "goal_read",
+      "input": "列出我的目标列表。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-03",
+      "partition": "DEV",
+      "category": "goal_read",
+      "input": "查看目前的全部目标。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-04",
+      "partition": "DEV",
+      "category": "goal_read",
+      "input": "我设置过哪些目标？请查询。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-05",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "input": "帮我查询现有目标的状态。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_read-06",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "input": "打开目标列表让我看看。",
+      "history": [],
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-01",
+      "partition": "DEV",
+      "category": "goal_write",
+      "input": "把当前计划的第二周改成复习周。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-02",
+      "partition": "DEV",
+      "category": "goal_write",
+      "input": "修改当前计划，将每天练习增加到三十分钟。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-03",
+      "partition": "DEV",
+      "category": "goal_write",
+      "input": "请把已有计划里的阅读任务改为写作任务。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-04",
+      "partition": "DEV",
+      "category": "goal_write",
+      "input": "更新当前计划，让周末休息。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-05",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "input": "将当前计划总时长从四周改为六周。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-goal_write-06",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "input": "请把已有计划最后一天调整为总结日。",
+      "history": [
+        {
+          "role": "user",
+          "content": "当前已有四周阅读计划，每天阅读二十分钟，周末同样阅读，最后一天读新章节。"
+        }
+      ],
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ]
+    },
+    {
+      "case_id": "routing-negation-01",
+      "partition": "DEV",
+      "category": "negation",
+      "input": "不用研究，直接说一下如何收纳桌面。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-negation-02",
+      "partition": "DEV",
+      "category": "negation",
+      "input": "不要启动深度研究，简述太阳能发电原理。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-negation-03",
+      "partition": "DEV",
+      "category": "negation",
+      "input": "无需找专家，给我一个买菜清单示例。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-negation-04",
+      "partition": "DEV",
+      "category": "negation",
+      "input": "别开研究任务，用常识解释为什么会打雷。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-negation-05",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "input": "不要调用专家团队，简单说明番茄钟方法。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-negation-06",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "input": "我不是让你做深度研究，只想知道什么是复利。",
+      "history": [],
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-01",
+      "partition": "DEV",
+      "category": "mixed",
+      "input": "记住我喜欢简短回答，并简单解释什么是索引，不要开研究。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-02",
+      "partition": "DEV",
+      "category": "mixed",
+      "input": "请记住我早上跑步，再给一句鼓励，不用找专家。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-03",
+      "partition": "DEV",
+      "category": "mixed",
+      "input": "请记住我偏好素食，并推荐一道家常菜，不要深度研究。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-04",
+      "partition": "DEV",
+      "category": "mixed",
+      "input": "记住我喜欢分步骤说明，再解释如何整理文件，不用找专家。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-05",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "input": "请记住我周日休息，再给一个放松建议，不开研究任务。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-mixed-06",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "input": "请记住我不喜欢熬夜，并给一条作息建议，不找专家。",
+      "history": [],
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-01",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "input": "请制定并保存一份七天阅读计划，每天二十分钟。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-02",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "input": "为我生成一份两周散步计划，并保存成计划文档。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-03",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "input": "请写好并保存一个三天整理房间的计划。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-04",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "input": "制定一周基础绘画练习计划，输出全文并保存。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-05",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "input": "写一份五天英语听力计划，直接保存成计划文档。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_publish-06",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "input": "请生成并保存一份四周编程入门计划，每天半小时。",
+      "history": [],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ]
+    },
+    {
+      "case_id": "routing-plan_save-01",
+      "partition": "DEV",
+      "category": "plan_save",
+      "input": "把刚才那份保存成计划。",
+      "history": [
+        {
+          "role": "assistant",
+          "content": "# 一周阅读计划\n\n每天阅读二十分钟。\n\n- 周一至周五：阅读并摘录一条想法。\n- 周六：整理笔记。\n- 周日：回顾本周收获。"
+        }
+      ],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "expected_source": "latest_assistant_plan"
+    },
+    {
+      "case_id": "routing-plan_save-02",
+      "partition": "DEV",
+      "category": "plan_save",
+      "input": "请将上面的计划保存为计划文档。",
+      "history": [
+        {
+          "role": "assistant",
+          "content": "# 一周阅读计划\n\n每天阅读二十分钟。\n\n- 周一至周五：阅读并摘录一条想法。\n- 周六：整理笔记。\n- 周日：回顾本周收获。"
+        }
+      ],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "expected_source": "latest_assistant_plan"
+    },
+    {
+      "case_id": "routing-plan_save-03",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "input": "就按刚才的内容保存成计划。",
+      "history": [
+        {
+          "role": "assistant",
+          "content": "# 一周阅读计划\n\n每天阅读二十分钟。\n\n- 周一至周五：阅读并摘录一条想法。\n- 周六：整理笔记。\n- 周日：回顾本周收获。"
+        }
+      ],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "expected_source": "latest_assistant_plan"
+    },
+    {
+      "case_id": "routing-plan_save-04",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "input": "保存你刚写的计划，正文不用改。",
+      "history": [
+        {
+          "role": "assistant",
+          "content": "# 一周阅读计划\n\n每天阅读二十分钟。\n\n- 周一至周五：阅读并摘录一条想法。\n- 周六：整理笔记。\n- 周日：回顾本周收获。"
+        }
+      ],
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "expected_source": "latest_assistant_plan"
+    }
+  ]
+}

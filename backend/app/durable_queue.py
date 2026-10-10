@@ -5,6 +5,7 @@ import json
 import os
 
 from .db import Database
+from .task_runtime import TaskKind, TaskRef, TaskRuntime, LeaseToken as TaskLeaseToken, LeaseLost
 
 
 @dataclass(frozen=True)
@@ -14,9 +15,9 @@ class LeaseToken:
     owner: str
     epoch: int
 
-
-class LeaseLost(RuntimeError):
-    pass
+    def task_token(self) -> TaskLeaseToken:
+        """Keep queue routing metadata outside the shared execution token."""
+        return TaskLeaseToken(TaskRef(TaskKind.TURN, self.job_id), self.owner, self.epoch)
 
 
 class DurableQueue:
@@ -26,6 +27,7 @@ class DurableQueue:
         if db.backend != "postgresql":
             raise ValueError("DurableQueue requires PostgreSQL")
         self.db = db
+        self.tasks = TaskRuntime(db)
         configured = max_running
         if configured is None:
             try:
@@ -80,104 +82,63 @@ class DurableQueue:
                 return None
             row = connection.execute(
                 """
-                WITH candidate AS (
-                  SELECT j.turn_id,j.thread_id
-                  FROM turn_jobs j
-                  JOIN turns t ON t.id=j.turn_id AND t.thread_id=j.thread_id
-                  WHERE j.thread_id=%s AND (
-                    (j.status='RUNNING' AND j.lease_until <= clock_timestamp())
-                    OR (
-                      j.status='QUEUED'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM turn_jobs active
-                        WHERE active.thread_id=j.thread_id AND active.status='RUNNING'
-                      )
-                    )
-                  )
-                  ORDER BY (j.status='QUEUED'),j.started_at NULLS LAST,t.created_at,t.id
-                  FOR UPDATE OF j SKIP LOCKED
-                  LIMIT 1
+                SELECT j.turn_id,j.thread_id
+                FROM turn_jobs j
+                JOIN turns t ON t.id=j.turn_id AND t.thread_id=j.thread_id
+                WHERE j.thread_id=? AND (
+                  (j.status='RUNNING' AND j.lease_until <= clock_timestamp())
+                  OR (j.status='QUEUED' AND NOT EXISTS (
+                    SELECT 1 FROM turn_jobs active
+                    WHERE active.thread_id=j.thread_id AND active.status='RUNNING'
+                  ))
                 )
-                UPDATE turn_jobs j
-                SET status='RUNNING',lease_owner=%s,
-                    lease_until=clock_timestamp()+(%s * interval '1 second'),
-                    lease_epoch=j.lease_epoch+1,attempts=j.attempts+1,
-                    started_at=COALESCE(j.started_at,clock_timestamp())
-                FROM candidate c
-                WHERE j.turn_id=c.turn_id
-                RETURNING j.turn_id,j.thread_id,j.lease_epoch
-                """,
-                (claimed_thread["thread_id"], owner, lease_seconds),
+                ORDER BY (j.status='QUEUED'),j.started_at NULLS LAST,t.created_at,t.id
+                FOR UPDATE OF j SKIP LOCKED LIMIT 1
+                """, (claimed_thread["thread_id"],),
             ).fetchone()
             if row is None:
                 return None
-            return LeaseToken(row["turn_id"], row["thread_id"], owner, int(row["lease_epoch"]))
+            attempt = self.tasks.claim(connection, TaskRef(TaskKind.TURN, row["turn_id"]), owner, lease_seconds)
+            if attempt is None:
+                return None
+            connection.execute(
+                "UPDATE turn_jobs SET started_at=COALESCE(started_at,clock_timestamp()) WHERE turn_id=?",
+                (row["turn_id"],),
+            )
+            return LeaseToken(row["turn_id"], row["thread_id"], owner, attempt.token.epoch)
 
     def heartbeat(self, token: LeaseToken, lease_seconds: float) -> None:
         with self.db.transaction() as connection:
-            changed = connection.execute(
-                """
-                UPDATE turn_jobs
-                SET lease_until=clock_timestamp()+(%s * interval '1 second')
-                WHERE turn_id=%s AND status='RUNNING' AND lease_owner=%s
-                  AND lease_epoch=%s AND lease_until > clock_timestamp()
-                """,
-                (lease_seconds, token.job_id, token.owner, token.epoch),
-            ).rowcount
-        if changed != 1:
-            raise LeaseLost(token.job_id)
+            self.tasks.heartbeat(connection, token.task_token(), lease_seconds)
 
     def request_cancel(self, job_id: str) -> bool:
         with self.db.transaction() as connection:
-            return connection.execute(
-                """
-                UPDATE turn_jobs
-                SET cancel_requested_at=clock_timestamp(),
-                    status=CASE WHEN status='QUEUED' THEN 'CANCELLED' ELSE status END,
-                    finished_at=CASE WHEN status='QUEUED' THEN clock_timestamp() ELSE finished_at END
-                WHERE turn_id=%s AND status IN ('QUEUED','RUNNING')
-                  AND cancel_requested_at IS NULL
-                """,
-                (job_id,),
-            ).rowcount == 1
+            if not self.tasks.request_cancel(connection, TaskRef(TaskKind.TURN, job_id)):
+                return False
+            connection.execute(
+                "UPDATE turn_jobs SET status='CANCELLED',finished_at=clock_timestamp() "
+                "WHERE turn_id=? AND status='QUEUED'", (job_id,),
+            )
+            return True
 
     def fail(self, token: LeaseToken, error_code: str) -> None:
         with self.db.transaction() as connection:
-            changed = connection.execute(
-                """
-                UPDATE turn_jobs SET status='FAILED',lease_owner=NULL,lease_until=NULL,
-                  finished_at=clock_timestamp(),last_error_json=%s
-                WHERE turn_id=%s AND status='RUNNING' AND lease_owner=%s
-                  AND lease_epoch=%s AND lease_until>clock_timestamp()
-                """,
-                (json.dumps({"error_code": error_code[:100]}, ensure_ascii=False),
-                 token.job_id, token.owner, token.epoch),
-            ).rowcount
-        if changed != 1:
-            raise LeaseLost(token.job_id)
+            self.tasks.finish(connection, token.task_token(), "FAILED")
+            connection.execute(
+                "UPDATE turn_jobs SET finished_at=clock_timestamp(),last_error_json=? WHERE turn_id=?",
+                (json.dumps({"error_code": error_code[:100]}, ensure_ascii=False), token.job_id),
+            )
 
     def recover_expired(self) -> int:
         with self.db.transaction() as connection:
-            return connection.execute(
-                """
-                UPDATE turn_jobs SET status='QUEUED',lease_owner=NULL,lease_until=NULL,
-                  lease_epoch=lease_epoch+1
-                WHERE status='RUNNING' AND lease_until<=clock_timestamp()
-                """
-            ).rowcount
+            rows = connection.execute(
+                "SELECT turn_id FROM turn_jobs WHERE status='RUNNING' AND lease_until<=clock_timestamp() "
+                "FOR UPDATE SKIP LOCKED"
+            ).fetchall()
+            return sum(self.tasks.recover_expired(connection, TaskRef(TaskKind.TURN, row["turn_id"]), "QUEUED")
+                       for row in rows)
 
     def finish(self, token: LeaseToken, status: str = "COMPLETED") -> None:
-        if status not in {"COMPLETED", "FAILED", "CANCELLED"}:
-            raise ValueError("invalid terminal status")
         with self.db.transaction() as connection:
-            changed = connection.execute(
-                """
-                UPDATE turn_jobs SET status=%s,lease_owner=NULL,lease_until=NULL,
-                    finished_at=clock_timestamp()
-                WHERE turn_id=%s AND status='RUNNING' AND lease_owner=%s
-                  AND lease_epoch=%s AND lease_until > clock_timestamp()
-                """,
-                (status, token.job_id, token.owner, token.epoch),
-            ).rowcount
-        if changed != 1:
-            raise LeaseLost(token.job_id)
+            self.tasks.finish(connection, token.task_token(), status)
+            connection.execute("UPDATE turn_jobs SET finished_at=clock_timestamp() WHERE turn_id=?", (token.job_id,))

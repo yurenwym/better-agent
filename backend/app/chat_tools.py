@@ -23,7 +23,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from typing import Any
 
@@ -35,7 +35,10 @@ from .execution_context import (
     create_child_context,
 )
 from .harness_context_store import HarnessContextStore
+from .execution_outcome import Effect
+from .policy_engine import PolicyAction, PolicyInput, decide
 from .tools import (
+    ToolArgumentError,
     ToolCall,
     ToolExecutionContext,
     ToolReconciliationRequired,
@@ -216,6 +219,8 @@ class ChatToolCallStore:
         call_id = call_id or f"chat-tool-{uuid.uuid4().hex}"
         binding = binding or {}
         with self.db.transaction() as connection:
+            created_at = (connection.execute("SELECT clock_timestamp() AS now").fetchone()["now"].isoformat()
+                          if self.db.backend == "postgresql" else _now())
             connection.execute(
                 "INSERT INTO turn_tool_calls(id,turn_id,thread_id,tool_name,params_json,params_hash,risk,status,"
                 "approval_id,binding_json,result_json,error_code,created_at,acted_at) "
@@ -233,7 +238,7 @@ class ChatToolCallStore:
                     json.dumps(binding, ensure_ascii=False, sort_keys=True),
                     json.dumps(result, ensure_ascii=False) if result is not None else None,
                     error_code,
-                    _now(),
+                    created_at,
                     _now() if status != STATUS_PENDING else None,
                 ),
             )
@@ -322,6 +327,7 @@ class ChatToolCallStore:
         status: str,
     ) -> None:
         with self.db.transaction() as connection:
+            row = connection.execute("SELECT * FROM turn_tool_calls WHERE id=?", (call_id,)).fetchone()
             connection.execute(
                 "UPDATE turn_tool_calls SET status=?, result_json=?, error_code=?, acted_at=? WHERE id=?",
                 (
@@ -332,6 +338,23 @@ class ChatToolCallStore:
                     call_id,
                 ),
             )
+            trusted = False
+            if row is not None and row["execution_context_json"]:
+                try:
+                    HarnessContextStore(self.db).load_tool_call_context(call_id, connection=connection)
+                    trusted = True
+                except HarnessContextError:
+                    # The refusal itself must commit even when the identity
+                    # being refused is corrupt. Its existing error_code remains
+                    # the diagnostic; do not invent a normal execution trace.
+                    pass
+            if trusted and result is not None:
+                from .events import ThreadEventStore
+                from .outcome_adapters import tool_result_outcome
+                outcome = tool_result_outcome(ToolResult(**result), write=row["risk"] == "WRITE", operation_ref=call_id)
+                ThreadEventStore(self.db).append(row["thread_id"], row["turn_id"],
+                    "tool.execution.finished", "tool", {"call_id": call_id, "outcome": outcome.to_dict()},
+                    connection=connection)
 
     def cascade_pending(self, turn_id: str) -> None:
         with self.db.transaction() as connection:
@@ -363,6 +386,7 @@ class ChatToolRunner:
         tool_allowance=None,
         mcp_sync=None,
         harness: HarnessExecutionContext | None = None,
+        capability_names: frozenset[str] = frozenset(),
     ) -> None:
         self.registry = registry
         self.approvals = approvals
@@ -381,6 +405,7 @@ class ChatToolRunner:
         # The turn's trace root.  Absent only for legacy callers that build a
         # runner without the harness; the minimal chain always supplies it.
         self.harness = harness
+        self.capability_names = capability_names
 
     @property
     def run_id(self) -> str:
@@ -402,7 +427,9 @@ class ChatToolRunner:
         registered = {
             schema["function"]["name"] for schema in self.registry.describe()
         }
-        allowed = set(GOAL_TOOL_NAMES & registered)
+        allowed = set((GOAL_TOOL_NAMES | self.capability_names) & registered)
+        if 'publish_plan_document' in self.capability_names:
+            allowed.discard('create_plan_draft')
         if self._allowance is None:
             return allowed
         allowed &= set(self._allowance)
@@ -430,23 +457,28 @@ class ChatToolRunner:
             runtime_bundle_id=self.runtime_bundle_id,
         )
 
-    def tool_harness(self, parent: HarnessExecutionContext | None = None) -> HarnessExecutionContext | None:
-        """A new span under the model call that produced this tool call.
-
-        One tool call, one span: the same harness is used by the pre-execution
-        record, the approval request and the resume path.
-        """
-        root = parent or self.harness
-        if root is None:
-            return None
-        return create_child_context(root)
-
     def execution_context(
         self, tool_call_id: str, harness: HarnessExecutionContext | None,
     ) -> ToolExecutionContext:
         if harness is None:
             return self.context(tool_call_id)
         return ToolExecutionContext.from_harness(harness, tool_call_id=tool_call_id)
+
+    def _verified_harness(self, parent: HarnessExecutionContext | None) -> HarnessExecutionContext:
+        root = HarnessContextStore(self.store.db).load_turn_context(self.turn_id)
+        if (root.owner_id != self.owner_id or root.thread_id != self.thread_id
+                or root.project_id != self.project_id or root.runtime_bundle_id != self.runtime_bundle_id
+                or root.root_budget_id != self.root_budget_id):
+            raise HarnessContextError("tool source identity changed")
+        candidate = parent or self.harness or root
+        if replace(candidate, span_id=root.span_id, parent_span_id=root.parent_span_id) != root:
+            raise HarnessContextError("tool caller differs from persisted source")
+        with self.store.db.connection() as connection:
+            active = connection.execute("SELECT 1 FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL",
+                                        (self.thread_id, self.owner_id)).fetchone()
+        if active is None:
+            raise HarnessContextError("tool source thread unavailable")
+        return create_child_context(candidate)
 
     def authorization(self, tool_name: str, params: dict[str, Any], context: ToolExecutionContext) -> dict[str, Any]:
         if self._mcp_sync is not None:
@@ -497,19 +529,32 @@ class ChatToolRunner:
             spec = self.registry.spec(tool_name)
         except ToolRejected as exc:
             return ChatToolOutcome(call_id=call_id, result=ToolResult(False, str(exc), error="TOOL_NOT_ALLOWED"))
-        risk = self.registry.risk_of(tool_name, params)
-        harness = self.tool_harness(parent_harness)
+        risk = self.registry.executor.risk_of(tool_name, params)
+        needs_approval = False
         try:
-            self.registry.authorize(call, run_id=self.run_id, skill_tools=allowed)
+            self.registry.executor.authorize(call, run_id=self.run_id, skill_tools=allowed)
         except ApprovalRequired:
-            # Parameters passed validation; a WRITE call needs the user.
-            return await self._request_approval(
-                call_id=call_id, tool_name=tool_name, params=params, risk=risk, harness=harness,
-            )
-        except ToolRejected as exc:
+            needs_approval = True
+        except ToolArgumentError as exc:
             return ChatToolOutcome(
                 call_id=call_id,
-                result=ToolResult(False, f"工具参数无效：{exc}", error="INVALID_ARGUMENT"),
+                result=ToolResult(False, f"工具参数无效：{exc}", error="INVALID_ARGUMENT", effect=Effect.NOT_STARTED),
+            )
+        except ToolRejected:
+            return ChatToolOutcome(call_id=call_id,
+                result=ToolResult(False, "工具调用未获授权。", error="TOOL_NOT_ALLOWED", effect=Effect.NOT_STARTED))
+        try:
+            harness = self._verified_harness(parent_harness)
+            identity_valid = True
+        except HarnessContextError:
+            identity_valid = False
+        decision = decide(PolicyInput(registered=True, allowed=True, identity_valid=identity_valid))
+        if decision.action == PolicyAction.DENY:
+            return ChatToolOutcome(call_id=call_id,
+                result=ToolResult(False, "执行来源身份已失效，请重新发起。", error="CONTEXT_IDENTITY_CONFLICT", effect=Effect.NOT_STARTED))
+        if needs_approval:
+            return await self._request_approval(
+                call_id=call_id, tool_name=tool_name, params=params, risk=risk, harness=harness,
             )
         # The call's identity is durable before the handler can produce any
         # side effect, so a crash mid-execution is still reconcilable.
@@ -525,7 +570,7 @@ class ChatToolRunner:
         )
         context = self.execution_context(call_id, harness)
         try:
-            result = await self.registry.execute_async(
+            result = await self.registry.executor.execute_async(
                 call, context=context, skill_tools=allowed, authorization=None,
             )
         except ToolReconciliationRequired:
@@ -560,6 +605,8 @@ class ChatToolRunner:
         context = self.execution_context(call_id, harness)
         try:
             binding = self.authorization(tool_name, params, context)
+            if self.registry.spec(tool_name).source != MCP_SOURCE:
+                binding = {**binding, "capability_digest": self.registry.spec(tool_name).approval_digest()}
         except (ToolRejected, KeyError, ValueError) as exc:
             return ChatToolOutcome(
                 call_id=call_id,
@@ -616,6 +663,23 @@ class ChatToolRunner:
         ids are never allowed to fill in for the original ones - restoring the
         context is not restoring an old authorization.
         """
+        # The caller's snapshot may predate cancellation or completion. Scope
+        # the durable row before returning results or recording a refusal.
+        with self.store.db.connection() as connection:
+            row = connection.execute(
+                "SELECT c.* FROM turn_tool_calls c JOIN turns s ON s.id=c.turn_id "
+                "JOIN threads t ON t.id=s.thread_id "
+                "WHERE c.id=? AND t.id=? AND t.owner_id=? AND t.deleted_at IS NULL",
+                (call.id, self.thread_id, self.owner_id),
+            ).fetchone()
+        identity = decide(PolicyInput(True, True, row is not None))
+        if identity.action == PolicyAction.DENY:
+            return ToolResult(False, "待审批操作不属于当前会话，已拒绝恢复。",
+                              error="CONTEXT_IDENTITY_CONFLICT", effect=Effect.NOT_STARTED)
+        call = _row_to_snapshot(row)
+        if call.thread_id != self.thread_id:
+            return self._refuse_resume(call, "CONTEXT_IDENTITY_CONFLICT",
+                                       "待审批操作与原会话的绑定不一致，已拒绝恢复。")
         if call.result is not None:
             return ToolResult(**call.result)
         if call.status == STATUS_REJECTED:
@@ -624,6 +688,10 @@ class ChatToolRunner:
             return ToolResult(False, "该工具调用当前不可执行", error="ACTION_NOT_ELIGIBLE")
         try:
             harness = self.store.load_execution_context(call.id)
+            root = HarnessContextStore(self.store.db).load_turn_context(call.turn_id)
+            if replace(harness, span_id=root.span_id, parent_span_id=root.parent_span_id,
+                       run_id=root.run_id) != root:
+                raise HarnessContextError("tool context differs from its persisted source turn")
         except LegacyContextMissing as exc:
             return self._refuse_resume(
                 call, "LEGACY_CONTEXT_MISSING",
@@ -634,7 +702,9 @@ class ChatToolRunner:
                 call, getattr(exc, "code", "CONTEXT_INVALID"),
                 f"待审批操作的执行上下文不可信，已拒绝恢复：{exc}",
             )
-        if self.owner_id and harness.owner_id != self.owner_id:
+        identity = decide(PolicyInput(registered=True, allowed=True,
+            identity_valid=bool(self.owner_id) and harness.owner_id == self.owner_id))
+        if identity.action == PolicyAction.DENY:
             return self._refuse_resume(
                 call, "CONTEXT_IDENTITY_CONFLICT", "待审批操作属于其他用户，已拒绝恢复。",
             )
@@ -647,19 +717,31 @@ class ChatToolRunner:
                 call, "ACTION_NOT_ELIGIBLE", "工具参数与审批记录不一致，已拒绝恢复。",
             )
         allowed = self.allowed_names()
-        if call.tool_name not in allowed:
+        with self.store.db.connection() as connection:
+            source_active = connection.execute(
+                "SELECT 1 FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL",
+                (call.thread_id, self.owner_id),
+            ).fetchone() is not None
+        policy = decide(PolicyInput(registered=any(spec.name == call.tool_name for spec in self.registry.specs()),
+            allowed=call.tool_name in allowed, identity_valid=source_active))
+        if policy.action == PolicyAction.DENY:
+            result = ToolResult(False, "该工具当前不可用", error="TOOL_NOT_ALLOWED", effect=Effect.NOT_STARTED)
             self.store.record_result(
-                call.id, result=ToolResult(False, "该工具当前不可用", error="TOOL_NOT_ALLOWED").as_dict(),
+                call.id, result=result.as_dict(),
                 error_code="TOOL_NOT_ALLOWED", status=STATUS_FAILED,
             )
-            return ToolResult(False, "该工具当前不可用", error="TOOL_NOT_ALLOWED")
+            return result
+        spec = self.registry.spec(call.tool_name)
+        if spec.source != MCP_SOURCE and call.binding.get("capability_digest") != spec.approval_digest():
+            return self._refuse_resume(call, "TOOL_AUTHORIZATION_DENIED",
+                                       "工具定义已改变或缺少版本绑定，请重新发起审批。")
         tool_call = self._bound_call(call.tool_name, call.params, call.id)
-        # Reconstructed from the original record: the original trace, span,
-        # parent span, turn, run, budget root and bundle - unchanged.
-        context = ToolExecutionContext.from_harness(harness, tool_call_id=call.id)
-        self._record_resume_event(call, harness)
+        # Keep the logical call identity immutable. The actual resumed attempt
+        # and its nested model calls use the durable resume event's child span.
+        attempt = self._record_resume_event(call, harness)
+        context = ToolExecutionContext.from_harness(attempt, tool_call_id=call.id)
         try:
-            result = await self.registry.execute_async(
+            result = await self.registry.executor.execute_async(
                 tool_call,
                 context=context,
                 skill_tools=allowed,
@@ -671,8 +753,10 @@ class ChatToolRunner:
                 "工具执行状态待核对，暂不能继续。",
                 error="TOOL_RECONCILIATION_REQUIRED",
             )
+        except ToolArgumentError as exc:
+            result = ToolResult(False, f"工具参数无效：{exc}", error="INVALID_ARGUMENT", effect=Effect.NOT_STARTED)
         except (ToolRejected, ApprovalRequired) as exc:
-            result = ToolResult(False, f"工具执行被拒绝：{exc}", error="TOOL_AUTHORIZATION_DENIED")
+            result = ToolResult(False, f"工具执行被拒绝：{exc}", error="TOOL_AUTHORIZATION_DENIED", effect=Effect.NOT_STARTED)
         self.store.record_result(
             call.id,
             result=result.as_dict(),
@@ -683,13 +767,13 @@ class ChatToolRunner:
 
     def _refuse_resume(self, call: ChatToolCallSnapshot, code: str, message: str) -> ToolResult:
         """Refuse a resume without executing anything, and record why."""
-        result = ToolResult(False, message, error=code)
+        result = ToolResult(False, message, error=code, effect=Effect.NOT_STARTED)
         self.store.record_result(
             call.id, result=result.as_dict(), error_code=code, status=STATUS_FAILED,
         )
         return result
 
-    def _record_resume_event(self, call: ChatToolCallSnapshot, harness) -> None:
+    def _record_resume_event(self, call: ChatToolCallSnapshot, harness) -> HarnessExecutionContext:
         """Audit the resume against the original logical span.
 
         The event references the original call, trace and span; it does not
@@ -698,7 +782,7 @@ class ChatToolRunner:
         """
         from .events import ThreadEventStore
 
-        ThreadEventStore(self.store.db).append(
+        event = ThreadEventStore(self.store.db).append(
             call.thread_id, call.turn_id, "chat_tool.context_resumed", "tool",
             {
                 "call_id": call.id,
@@ -708,3 +792,6 @@ class ChatToolRunner:
                 "parent_span_id": harness.parent_span_id,
             },
         )
+        from .event_envelope import EventMetadata
+
+        return EventMetadata.from_dict(json.loads(event.envelope_json)).context

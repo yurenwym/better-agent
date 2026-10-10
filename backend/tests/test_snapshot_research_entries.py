@@ -15,6 +15,77 @@ from test_snapshot_gateway import _answer, _configured_control_plane
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("fault", ["cancel", "lease"])
+async def test_research_refreshes_execution_right_before_send(tmp_path, monkeypatch, fault):
+    from app.conversation import ConversationService
+    from app.research.service import ResearchService
+    from app.research.worker import ManagedResearchWorker
+    from app.research.models import ResearchEvent
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    observer = CommittedSnapshotTransport(db, "local-user", "revoked-worker", _answer("unused"))
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
+    class Engine:
+        model = LiveResearchModel(gateway)
+        async def run_research(self, request):
+            if fault == "cancel":
+                service.cancel(request.job_id)
+            else:
+                with db.transaction() as connection:
+                    connection.execute("UPDATE research_jobs SET lease_owner='replacement' WHERE id=?", (request.job_id,))
+            await self.model.write("Result", "thesis", [], "")
+            yield ResearchEvent("report", "completed", {"title": "unused", "markdown": "unused"})
+    try:
+        conversation = ConversationService(db)
+        service = ResearchService(db, conversation.events, Engine())
+        job = service.create_manual(conversation.create_thread().id, "Research", "revoked-worker",
+                                    ("web",), runtime_bundle_id=bundle.id)
+        await ManagedResearchWorker(service).run_once(job.id)
+        assert observer.send_count == 0
+        assert service.get(job.id).status == ("CANCELLED" if fault == "cancel" else "RUNNING")
+        assert service.get(job.id).report_markdown is None
+    finally:
+        db.close()
+
+
+@pytest.mark.asyncio
+async def test_research_worker_model_inherits_durable_source_trace(tmp_path, monkeypatch):
+    from app.conversation import ConversationService
+    from app.research.service import ResearchService
+    from app.research.worker import ManagedResearchWorker
+    from app.research.models import ResearchEvent
+    from app.harness_context_store import HarnessContextStore
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, owner_id="research-owner")
+    observer = CommittedSnapshotTransport(db, "research-owner", "trace-worker", _answer("## Result"))
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=observer)
+
+    class Engine:
+        model = LiveResearchModel(gateway)
+
+        async def run_research(self, request):
+            await self.model.write("Result", "thesis", [], "")
+            yield ResearchEvent("report", "completed", {
+                "title": "Result", "markdown": "# Result", "source_count": 0, "evidence_count": 0,
+            })
+
+    conversation = ConversationService(db)
+    service = ResearchService(db, conversation.events, Engine())
+    thread = conversation.create_thread("Research", owner_id="research-owner")
+    job = service.create_manual(thread.id, "Research", "trace-worker", ("web",), runtime_bundle_id=bundle.id)
+    await ManagedResearchWorker(service).run_once(job.id)
+    assert service.get(job.id).status == "COMPLETED"
+    assert observer.send_count == 1
+    with db.connection() as connection:
+        invocation = connection.execute("SELECT id FROM model_invocations WHERE run_id=?", (job.id,)).fetchone()
+    store = HarnessContextStore(db)
+    root = store.load_turn_context(job.source_turn_id)
+    context = store.load_invocation_context(invocation["id"])
+    assert context.trace_id == root.trace_id
+    assert context.run_id == job.id and context.turn_id == root.turn_id
+    assert context.owner_id == root.owner_id and context.runtime_bundle_id == bundle.id
+
+
+@pytest.mark.asyncio
 async def test_t37_research_worker_with_missing_source_turn_never_sends(tmp_path, monkeypatch):
     from app.conversation import ConversationService
     from app.research.service import ResearchService
@@ -262,3 +333,30 @@ async def test_research_network_retry_reuses_the_frozen_logical_call(tmp_path, m
     assert first["snapshot_id"] == retry["snapshot_id"]
     assert first["snapshot_digest"] == retry["snapshot_digest"]
     assert first["attempt_id"] != retry["attempt_id"]
+
+
+@pytest.mark.asyncio
+async def test_research_budget_failure_retains_model_error_in_task_event(tmp_path, monkeypatch):
+    from app.conversation import ConversationService
+    from app.research.service import ResearchService
+    from app.research.worker import ManagedResearchWorker
+    from app.event_envelope import EventMetadata
+    from app.research.models import ResearchEvent
+
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    class Engine:
+        async def run_research(self, request):
+            raise GatewayError("private account details", "budget")
+            yield ResearchEvent("report", "completed", {})
+
+    conversation = ConversationService(db)
+    service = ResearchService(db, conversation.events, Engine())
+    thread = conversation.create_thread("budget")
+    job = service.create_manual(thread.id, "topic", "budget", ("web",), runtime_bundle_id=bundle.id)
+    await ManagedResearchWorker(service).run_once(job.id)
+    assert service.get(job.id).status == "FAILED"
+    failed = next(e for e in conversation.events.list(thread.id) if e.type == "research.failed")
+    outcome = EventMetadata.from_dict(json.loads(failed.envelope_json)).outcome
+    assert outcome.scope == "task" and outcome.error.code == "MODEL_BUDGET"
+    assert outcome.error.phase == "model" and not outcome.error.retryable
+    assert "private account" not in json.dumps(outcome.to_dict())

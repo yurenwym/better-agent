@@ -88,20 +88,26 @@ async def test_unbudgeted_postgres_call_is_blocked_before_network(migrated_postg
 
 
 @pytest.fixture
-def pending_ask(migrated_postgres_url, tmp_path):
+def pending_ask(migrated_postgres_url, tmp_path, monkeypatch):
     db = Database(migrated_postgres_url, workspace=tmp_path)
     service = ConversationService(db)
+    # Historical fixture: acceptance predates durable execution identities.
     costs = CostService(db)
     thread = service.create_thread("late answer")
-    turn = service.accept_turn(thread.id, "request", "Make a plan", [])
-    waiting = datetime.now(timezone.utc) - timedelta(days=3)
+    with monkeypatch.context() as historical:
+        historical.setattr(service, "_persist_turn_root", lambda *args: None)
+        turn = service.accept_turn(thread.id, "request", "Make a plan", [])
+    with db.connection() as connection:
+        waiting = connection.execute("SELECT clock_timestamp() AS now").fetchone()["now"] - timedelta(days=3)
     root = costs.create_root_budget(
         "local-user", "turn", turn.turn_id, max_attempts=3,
         deadline_at=(waiting + timedelta(minutes=7)).isoformat(), limit_microusd=1000,
     )
     questions = [{"id": "level", "header": "Level", "question": "Your level?", "options": [], "multi_select": False, "allow_free_text": True}]
     with db.transaction() as connection:
-        connection.execute("UPDATE turns SET status='AWAITING_INPUT',root_budget_id=? WHERE id=?", (root["id"], turn.turn_id))
+        # This fixture reconstructs a historical waiting turn whose identity
+        # has not yet been frozen, rather than mutating a live accepted root.
+        connection.execute("UPDATE turns SET status='AWAITING_INPUT',root_budget_id=?,execution_context_json=NULL,execution_context_digest=NULL WHERE id=?", (root["id"], turn.turn_id))
         connection.execute("UPDATE turn_jobs SET status='COMPLETED' WHERE turn_id=?", (turn.turn_id,))
         connection.execute(
             "INSERT INTO turn_asks(id,turn_id,call_id,questions_json,status,created_at) VALUES ('late-ask',?,'ask-call',?,'PENDING',?)",
@@ -150,6 +156,13 @@ def test_concurrent_answers_only_resume_once(pending_ask):
     assert 415 < costs.root_seconds_remaining("local-user", root["id"]) <= 420
     with db.connection() as connection:
         assert connection.execute("SELECT COUNT(*) FROM turns WHERE parent_turn_id=?", (turn.turn_id,)).fetchone()[0] == 1
+
+
+def test_ask_resume_uses_budget_clock_when_worker_clock_is_ahead(pending_ask, monkeypatch):
+    _, service, costs, turn, root, _ = pending_ask
+    monkeypatch.setattr("app.conversation._now", lambda: (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat())
+    _answer(service, turn)
+    assert 415 < costs.root_seconds_remaining("local-user", root["id"]) <= 420
 
 
 @pytest.mark.parametrize("exhausted", ["deadline", "attempts", "money"])

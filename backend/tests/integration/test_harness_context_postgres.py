@@ -99,9 +99,13 @@ def _seed(db: Database, *, owner_id: str = "local-user"):
 
     conversation = ConversationService(db)
     thread = conversation.create_thread("PG 上下文", owner_id=owner_id)
-    accepted = conversation.accept_turn(
-        thread.id, f"pg-{uuid.uuid4().hex[:8]}", "生成执行预览", [], owner_id=owner_id,
-    )
+    # Storage tests deliberately start with a historical, unbound row. New
+    # production turns already freeze their identity during acceptance.
+    from unittest.mock import patch
+    with patch.object(conversation, "_persist_turn_root"):
+        accepted = conversation.accept_turn(
+            thread.id, f"pg-{uuid.uuid4().hex[:8]}", "生成执行预览", [], owner_id=owner_id,
+        )
     store = ChatToolCallStore(db)
     call = store.create(
         turn_id=accepted.turn_id, thread_id=thread.id, tool_name="get_today_tasks",

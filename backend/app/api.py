@@ -616,10 +616,16 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
     @app.get("/api/threads/{thread_id}/events")
-    async def get_thread_events(thread_id: str, request: Request, after_seq: int = 0, service=Depends(conversation)) -> dict[str, Any]:
+    async def get_thread_events(thread_id: str, request: Request, after_seq: int = 0, envelope: bool = False, service=Depends(conversation)) -> dict[str, Any]:
         try:
             service.thread(thread_id)
-            return {"events": [_thread_event_json(event) for event in service.events.list(thread_id, after_seq)]}
+            events = service.events.list(thread_id, after_seq)
+            if envelope:
+                from .event_projection import project_authorized_event
+                # These conversation endpoints are local-owner scoped, just
+                # like service.thread above; a header cannot change that scope.
+                return {"events": [project_authorized_event(event, owner_id="local-user") for event in events]}
+            return {"events": [_thread_event_json(event) for event in events]}
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
@@ -1078,11 +1084,12 @@ def register_routes(app) -> None:
         return {"turn": _turn_json(turn)}
 
     @app.post("/api/threads/{thread_id}/research", status_code=202, dependencies=[Depends(mutate)])
-    async def create_research(thread_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def create_research(thread_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         research = getattr(service, "research", None)
         if research is None:
             raise HTTPException(status_code=503, detail="research is not configured")
         try:
+            service.conversation.thread(thread_id, current_owner)
             scopes = payload.get("source_scopes", ["web"])
             if not isinstance(scopes, list): raise ValueError("source_scopes must be an array")
             job = research.create_manual(thread_id, str(payload.get("topic", "")), str(payload.get("client_request_id", "")), tuple(scopes))
@@ -1093,50 +1100,50 @@ def register_routes(app) -> None:
         return {"job_id": job.id, "status": job.status, "event_cursor": service.conversation.thread(thread_id).next_event_seq - 1}
 
     @app.get("/api/research/jobs")
-    async def list_research_jobs(thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0, service=Depends(runtime)) -> dict[str, Any]:
+    async def list_research_jobs(thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         research = getattr(service, "research", None)
-        return {"jobs": [] if research is None else [_research_job_json(job) for job in research.list(thread_id=thread_id, schedule_id=schedule_id, status=status, limit=limit, offset=offset)]}
+        return {"jobs": [] if research is None else [_research_job_json(job) for job in research.list(thread_id=thread_id, schedule_id=schedule_id, status=status, limit=limit, offset=offset, owner_id=current_owner)]}
 
     @app.get("/api/research/jobs/{job_id}")
-    async def get_research_job(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
-        try: return _research_job_json(service.research.get(job_id))
+    async def get_research_job(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        try: return _research_job_json(service.research.get(job_id, owner_id=current_owner))
         except (AttributeError, KeyError) as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
     @app.get("/api/research/jobs/{job_id}/report")
-    async def get_research_report(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
+    async def get_research_report(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         try:
-            job = service.research.get(job_id)
+            job = service.research.get(job_id, owner_id=current_owner)
             if not job.report_markdown: raise HTTPException(status_code=409, detail="research report is not ready")
             return {"job_id": job.id, "title": job.report_title, "markdown": job.report_markdown}
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
     @app.get("/api/research/jobs/{job_id}/sources")
-    async def get_research_sources(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
-        try: service.research.get(job_id)
+    async def get_research_sources(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        try: service.research.get(job_id, owner_id=current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
         with service.db.connection() as connection:
             rows = connection.execute("SELECT id,ordinal,kind,canonical_url,locator,title,published_at,retrieved_at,quality_score FROM research_sources WHERE job_id=? ORDER BY ordinal", (job_id,)).fetchall()
         return {"sources": [dict(row) for row in rows]}
 
     @app.post("/api/research/jobs/{job_id}/cancel", dependencies=[Depends(mutate)])
-    async def cancel_research(job_id: str, service=Depends(runtime)) -> dict[str, Any]:
-        try: return _research_job_json(service.research.cancel(job_id))
+    async def cancel_research(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        try: return _research_job_json(service.research.cancel(job_id, owner_id=current_owner))
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
     @app.delete("/api/research/jobs/{job_id}", status_code=204, dependencies=[Depends(mutate)])
-    async def delete_research(job_id: str, service=Depends(runtime)) -> Response:
+    async def delete_research(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> Response:
         from .research.service import ResearchConflict
-        try: service.research.delete(job_id)
+        try: service.research.delete(job_id, owner_id=current_owner)
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
         except ResearchConflict as exc: raise HTTPException(status_code=409, detail=str(exc)) from exc
         return Response(status_code=204)
 
     @app.post("/api/research/jobs/{job_id}/retry", status_code=202, dependencies=[Depends(mutate)])
-    async def retry_research(job_id: str, payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
+    async def retry_research(job_id: str, payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         key = payload.get("client_request_id")
         if not isinstance(key, str) or not key: raise HTTPException(status_code=422, detail="client_request_id is required")
         try:
-            job = service.research.retry(job_id, payload.get("topic"), key)
+            job = service.research.retry(job_id, payload.get("topic"), key, owner_id=current_owner)
             return {"job_id": job.id, "status": job.status}
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 

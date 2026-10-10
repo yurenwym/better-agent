@@ -61,7 +61,8 @@ async def test_write_timeout_blocks_runtime_and_preserves_claim_after_late_effec
     registry = ToolRegistry(tmp_path / "workspace", db=runtime.db, approval_service=runtime.approvals)
     registry.register(spec)
     with pytest.raises(ToolReconciliationRequired):
-        registry.execute(call, run_id=run.id, skill_tools=None)
+        registry.execute(call, run_id=run.id, skill_tools=None,
+                         authorization={"capability_digest": spec.approval_digest()})
     events = [event for event in runtime.events.list(run.id) if event.type == "tool.reconciliation_required"]
     assert len(events) == 1
     assert effects == ["once"]

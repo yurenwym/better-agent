@@ -1,0 +1,1705 @@
+{
+  "suite": "agent-loop-routing-v1",
+  "suite_sha256": "534db10b49e4df15c0c758fe3fd4def4e0c5a13e52c00babe3f3a69bcde30485",
+  "holdout": {
+    "suite": "agent-loop-routing-v1",
+    "count": 24,
+    "sha256": "7b4b4b28b9f0b76b4535a7ced2775c883fc12a8d37f75dae009e645d6ffbd686"
+  },
+  "mode": "legacy",
+  "provider": "mock",
+  "scope": "report_accounting_only",
+  "production_route_executed": false,
+  "engineering": "PASS",
+  "routing_quality": "INSUFFICIENT_EVIDENCE",
+  "summary": {
+    "planned": 70,
+    "matched": 18,
+    "match_fraction": 0.2571428571428571,
+    "invalid": 0,
+    "cancelled": 0,
+    "forbidden_hits": 0
+  },
+  "by_category": {
+    "direct": {
+      "planned": 6,
+      "matched": 6,
+      "match_fraction": 1.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "research": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "implicit_research": {
+      "planned": 6,
+      "matched": 6,
+      "match_fraction": 1.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "expert": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "remember": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "clarify": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "goal_read": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "goal_write": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "negation": {
+      "planned": 6,
+      "matched": 6,
+      "match_fraction": 1.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "mixed": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "plan_publish": {
+      "planned": 6,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "plan_save": {
+      "planned": 4,
+      "matched": 0,
+      "match_fraction": 0.0,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    }
+  },
+  "by_partition": {
+    "DEV": {
+      "planned": 46,
+      "matched": 12,
+      "match_fraction": 0.2608695652173913,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    },
+    "HOLDOUT": {
+      "planned": 24,
+      "matched": 6,
+      "match_fraction": 0.25,
+      "invalid": 0,
+      "cancelled": 0,
+      "forbidden_hits": 0
+    }
+  },
+  "invalid_case_ids": [],
+  "cancelled_case_ids": [],
+  "cases": [
+    {
+      "case_id": "routing-direct-01",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-direct-02",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-direct-03",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-direct-04",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-direct-05",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-direct-06",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-01",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-02",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-03",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-04",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-05",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-research-06",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-01",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-02",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-03",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-04",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-05",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-implicit_research-06",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-01",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-02",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-03",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-04",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-05",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-expert-06",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-01",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-02",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-03",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-04",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-05",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-remember-06",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-01",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-02",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-03",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-04",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-05",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-clarify-06",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-01",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-02",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-03",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-04",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-05",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_read-06",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-01",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-02",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-03",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-04",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-05",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-goal_write-06",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-01",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-02",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-03",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-04",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-05",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-negation-06",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": true,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-01",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-02",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-03",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-04",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-05",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-mixed-06",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-01",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-02",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-03",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-04",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-05",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_publish-06",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_save-01",
+      "partition": "DEV",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_save-02",
+      "partition": "DEV",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_save-03",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    },
+    {
+      "case_id": "routing-plan_save-04",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "observed": [
+        "final"
+      ],
+      "status": "valid",
+      "forbidden_hit": false,
+      "matched": false,
+      "model_calls": 0,
+      "tokens": null,
+      "cost_usd": null,
+      "cost_source": "not_applicable_mock",
+      "first_token_ms": null
+    }
+  ]
+}

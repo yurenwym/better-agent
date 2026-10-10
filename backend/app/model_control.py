@@ -317,14 +317,30 @@ class ModelControlStore:
         repair: the caller must not retry, must not fall back, and must not
         replace the frozen input.
         """
-        assets = getattr(self, "learning_assets", None)
-        if assets is not None:
-            assets.assert_request_active(invocation_id, context.owner_id)
-        learning = getattr(self, "learning", None)
-        if learning is not None and context.runtime_bundle_id:
-            # The pinned prompt is part of what the call was frozen under, so it
-            # is checked here rather than in each gateway's own copy of the rule.
-            learning.assert_pinned_prompt_active(context.owner_id, context.runtime_bundle_id)
+        from .send_authority import assert_send_authority
+
+        assert_send_authority()
+        self.assert_sources_active(invocation_id, context)
+
+    def assert_sources_active(self, invocation_id: str, context: ModelCallContext) -> None:
+        """Revalidate frozen source dependencies at send and result delivery."""
+        from .learning import LearningConflict
+        from .evolution import EvolutionGateError
+        from .policy_engine import PolicyAction, PolicyInput, decide
+
+        source_error = None
+        try:
+            assets = getattr(self, "learning_assets", None)
+            if assets is not None:
+                assets.assert_request_active(invocation_id, context.owner_id)
+            learning = getattr(self, "learning", None)
+            if learning is not None and context.runtime_bundle_id:
+                learning.assert_pinned_prompt_active(context.owner_id, context.runtime_bundle_id)
+        except (LearningConflict, EvolutionGateError) as exc:
+            source_error = exc
+        decision = decide(PolicyInput(True, True, True, source_valid=source_error is None))
+        if decision.action == PolicyAction.DENY:
+            raise source_error
 
     def begin_invocation(
         self, profile: Any, request: Any, context: ModelCallContext,
@@ -1042,6 +1058,12 @@ class RoutedModelGateway:
                     on_text_reset()
                 if on_attempt_started is not None:
                     on_attempt_started(ordinal, reason)
+                from .policy_engine import PolicyAction, PolicyInput, decide
+                decision = decide(PolicyInput(True, True, True,
+                    cancelled=cancel_event is not None and cancel_event.is_set()))
+                if decision.action == PolicyAction.DENY:
+                    self.control_store.finish_invocation(handle, "cancelled")
+                    raise GatewayError("model request cancelled", "cancelled", ordinal - 1)
                 # The shared send-time asset check, run after every caller
                 # callback and immediately before the wire, on every attempt.
                 try:

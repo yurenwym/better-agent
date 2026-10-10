@@ -41,12 +41,14 @@ class ManagedResearchWorker:
         )
         if not job: return False
         cancel = asyncio.Event(); self._active_cancel = cancel
-        heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel))
+        heartbeat = asyncio.create_task(self._heartbeat(job.id, cancel, job.lease_epoch))
         report = None
         gateway = getattr(getattr(self.service.engine, "model", None), "gateway", None)
         context_token = None
         runtime_bundle_id = None
         try:
+            from ..harness_context_store import HarnessContextStore
+            source_context = HarnessContextStore(self.service.db).load_turn_context(job.source_turn_id)
             with self.service.db.connection() as connection:
                 turn = connection.execute(
                     "SELECT t.runtime_bundle_id,th.owner_id FROM turns t "
@@ -67,11 +69,14 @@ class ManagedResearchWorker:
                 runtime_bundle_id = self.learning.resolve_research_policy(turn["owner_id"], project[0] if project else None, runtime_bundle_id)
             if getattr(gateway, "control_store", None) is not None:
                 from ..model_control import ModelCallContext
-                context_token = gateway.set_call_context(ModelCallContext(
-                    role="researcher", purpose="research", run_id=job.id, thread_id=job.thread_id,
-                    turn_id=job.source_turn_id, runtime_bundle_id=runtime_bundle_id,
+                from ..execution_context import create_child_context
+                from dataclasses import replace
+                harness = replace(create_child_context(source_context), run_id=job.id,
+                    runtime_bundle_id=runtime_bundle_id,
                     root_budget_id=self._root_budget_id(job.id),
-                    owner_id=turn["owner_id"],
+                )
+                context_token = gateway.set_call_context(ModelCallContext.from_harness(
+                    harness, role="researcher", purpose="research",
                 ))
             sections,sources,evidence,plan=self.service.recovery_context(job.id)
             limits = self.limits
@@ -90,13 +95,13 @@ class ManagedResearchWorker:
             if policy:
                 from dataclasses import replace
                 request = replace(request, stop_condition=policy.get("research_stop_condition", "none"))
-            async for event in self.service.engine.run_research(request):
+            async for event in self._research_events(request, job.lease_epoch):
                 current = self.service.get(job.id)
                 if current.cancel_requested_at: cancel.set()
                 if event.type == "report": report = event.data
                 if event.type == "policy_decision":
                     self.service.events.append(job.thread_id, job.source_turn_id, "task_policy.research_decision", "research_worker", {"job_id": job.id, **event.data})
-                self.service.apply_event(job.id, self.owner, event)
+                self.service.apply_event(job.id, self.owner, event, epoch=job.lease_epoch)
             if self.service.get(job.id).cancel_requested_at: raise ResearchCancelled("research cancelled")
             if not report: raise RuntimeError("research report missing")
             if self.expert_advisor is not None:
@@ -107,29 +112,36 @@ class ManagedResearchWorker:
                     ).fetchone()
                 if source_turn is None or not source_turn["owner_id"]:
                     raise PermissionError("research source turn is missing an authorized owner")
-                advice = await self.expert_advisor.advise(
-                    purpose="research", source_id=job.id, objective="审阅研究报告的证据覆盖、结论边界和关键风险",
-                    context={"topic": job.topic, "report": report["markdown"]}, roles=("researcher", "critic"),
-                    thread_id=job.thread_id, runtime_bundle_id=source_turn["runtime_bundle_id"],
-                    owner_id=source_turn["owner_id"],
-                    root_budget_id=self._root_budget_id(job.id),
-                )
+                from ..send_authority import send_authority
+                def require_attempt():
+                    with self.service.db.transaction() as connection:
+                        self.service._owned(job.id, self.owner, connection, epoch=job.lease_epoch)
+                with send_authority(require_attempt):
+                    advice = await self.expert_advisor.advise(
+                        purpose="research", source_id=job.id, objective="审阅研究报告的证据覆盖、结论边界和关键风险",
+                        context={"topic": job.topic, "report": report["markdown"]}, roles=("researcher", "critic"),
+                        thread_id=job.thread_id, runtime_bundle_id=source_turn["runtime_bundle_id"],
+                        owner_id=source_turn["owner_id"],
+                        root_budget_id=self._root_budget_id(job.id),
+                    )
                 if advice is not None:
-                    self.service.events.append(job.thread_id, job.source_turn_id, "research.expert_reviewed", "coordinator", {
-                        "job_id": job.id, "summary": str(advice.get("summary", ""))[:500],
-                        "incomplete": bool(advice.get("incomplete")),
-                    })
+                    with self.service.db.transaction() as connection:
+                        self.service._owned(job.id, self.owner, connection, epoch=job.lease_epoch)
+                        self.service.events.append(job.thread_id, job.source_turn_id, "research.expert_reviewed", "coordinator", {
+                            "job_id": job.id, "summary": str(advice.get("summary", ""))[:500],
+                            "incomplete": bool(advice.get("incomplete")),
+                        }, connection=connection)
             if report.get("completion_status") == "PARTIAL":
                 self.service.complete_partial(
                     job.id, self.owner, report["title"], report["markdown"],
                     int(report["source_count"]), int(report["evidence_count"]),
-                    report.get("traceability", ()), report.get("missing_requirements", ()),
+                    report.get("traceability", ()), report.get("missing_requirements", ()), epoch=job.lease_epoch,
                 )
             else:
                 self.service.complete(
                     job.id, self.owner, report["title"], report["markdown"],
                     int(report["source_count"]), int(report["evidence_count"]),
-                    report.get("traceability", ()),
+                    report.get("traceability", ()), epoch=job.lease_epoch,
                 )
             await self._finish_exposure(job, success=True, output=report["markdown"], runtime_bundle_id=runtime_bundle_id)
             notifier = getattr(self.service, "notifications", None)
@@ -137,24 +149,28 @@ class ManagedResearchWorker:
                 await notifier.deliver_completed(job.id, report["title"], report["markdown"])
         except ResearchCancelled:
             if not self._shutdown:
-                self.service.finish_cancelled(job.id, self.owner)
+                self.service.finish_cancelled(job.id, self.owner, epoch=job.lease_epoch)
                 await self._finish_exposure(job, success=False, runtime_bundle_id=runtime_bundle_id)
         except ResearchConflict:
             if self.service.get(job.id).cancel_requested_at:
-                self.service.finish_cancelled(job.id,self.owner)
+                self.service.finish_cancelled(job.id, self.owner, epoch=job.lease_epoch)
             else:
                 raise
         except PermissionError:
             pass
         except Exception as exc:
             if self.service.get(job.id).cancel_requested_at:
-                self.service.finish_cancelled(job.id, self.owner)
+                self.service.finish_cancelled(job.id, self.owner, epoch=job.lease_epoch)
                 await self._finish_exposure(job, success=False, runtime_bundle_id=runtime_bundle_id)
                 return True
             reason=(getattr(exc,"reason_code",None) or getattr(exc,"kind",None) or type(exc).__name__.lower())
             diagnostics=getattr(exc,"diagnostics",None)
             retryable=bool(getattr(exc,"retryable",False)) or isinstance(exc,(TimeoutError,ConnectionError,asyncio.TimeoutError)) or getattr(exc,"kind","") in {"timeout","rate_limit","server"}
-            with contextlib.suppress(PermissionError): self.service.fail(job.id, self.owner, reason,retryable,diagnostics)
+            from ..outcome_adapters import error_from_exception
+            from ..execution_outcome import ExecutionOutcome, Scope, Status
+            with contextlib.suppress(PermissionError):
+                self.service.fail(job.id, self.owner, reason, retryable, diagnostics,
+                    epoch=job.lease_epoch, outcome=ExecutionOutcome(Scope.TASK, Status.FAILED, error=error_from_exception(exc)))
             if not retryable:
                 await self._finish_exposure(job, success=False, runtime_bundle_id=runtime_bundle_id)
         finally:
@@ -165,26 +181,40 @@ class ManagedResearchWorker:
             self._active_cancel = None
         return True
 
+    async def _research_events(self, request, epoch):
+        from ..send_authority import send_authority
+        def check():
+            with self.service.db.transaction() as connection:
+                row = self.service._owned(request.job_id, self.owner, connection, epoch=epoch, allow_cancelled=True)
+                if row["cancel_requested_at"] is not None:
+                    raise ResearchCancelled("research cancelled")
+        async with contextlib.aclosing(self.service.engine.run_research(request)) as events:
+            while True:
+                try:
+                    with send_authority(check):
+                        event = await anext(events)
+                except StopAsyncIteration:
+                    return
+                yield event
+
     async def _finish_exposure(self, job, *, success: bool, output: str = "", runtime_bundle_id: str | None = None) -> None:
         if self.evolution is None:
             return
         safety_pass = None
         if self.safety_judge is not None and output:
-            with self.service.db.connection() as connection:
-                turn = connection.execute(
-                    "SELECT t.runtime_bundle_id,th.owner_id FROM turns t "
-                    "JOIN threads th ON th.id=t.thread_id WHERE t.id=?", (job.source_turn_id,),
-                ).fetchone()
             gateway = getattr(self.safety_judge, "gateway", None)
             token = None
             if getattr(gateway, "control_store", None) is not None:
                 from ..model_control import ModelCallContext
-                token = gateway.set_call_context(ModelCallContext(
-                    role="judge_safety", purpose="judge_research_output", run_id=job.id, thread_id=job.thread_id,
-                    turn_id=job.source_turn_id, runtime_bundle_id=runtime_bundle_id or (turn["runtime_bundle_id"] if turn else None),
-                    owner_id=turn["owner_id"] if turn else "",
-                    root_budget_id=self._root_budget_id(job.id),
-                ))
+                from ..harness_context_store import HarnessContextStore
+                from ..execution_context import create_child_context
+                from dataclasses import replace
+                root = HarnessContextStore(self.service.db).load_turn_context(job.source_turn_id)
+                harness = replace(create_child_context(root), run_id=job.id,
+                    runtime_bundle_id=runtime_bundle_id or root.runtime_bundle_id,
+                    root_budget_id=self._root_budget_id(job.id))
+                token = gateway.set_call_context(ModelCallContext.from_harness(
+                    harness, role="judge_safety", purpose="judge_research_output"))
             try:
                 safety_pass = await self.safety_judge.judge({"research_job_id": job.id, "output": output})
             except Exception:
@@ -210,7 +240,7 @@ class ManagedResearchWorker:
                 try: await asyncio.wait_for(self._stop.wait(), self.poll_interval)
                 except asyncio.TimeoutError: pass
 
-    async def _heartbeat(self, job_id, cancel):
+    async def _heartbeat(self, job_id, cancel, epoch):
         while True:
             await asyncio.sleep(max(self.lease_seconds / 3, .05))
-            if not self.service.renew(job_id, self.owner, self.lease_seconds): cancel.set(); return
+            if not self.service.renew(job_id, self.owner, self.lease_seconds, epoch=epoch): cancel.set(); return

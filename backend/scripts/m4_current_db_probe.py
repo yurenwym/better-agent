@@ -33,7 +33,8 @@ def main() -> int:
 
         thread = conversation.create_thread("M4 current PostgreSQL probe", owner_id=owner)
         job = research.create_manual(thread.id, "验证部分研究", "partial-probe", ("local_note",))
-        research.claim_next(owner, 30)
+        claimed = research.claim(job.id, owner, 30)
+        assert claimed is not None
         matrix = ({
             "requirement": "已支持项", "conclusion": "有证据的结论",
             "evidence_ids": ["evidence-probe"], "source_ids": ["source-probe"],
@@ -46,7 +47,7 @@ def main() -> int:
         },)
         result = research.complete_partial(
             job.id, owner, "部分研究", "# 部分研究\n\n有证据的结论。", 1, 1,
-            matrix, ("缺失项",),
+            matrix, ("缺失项",), epoch=claimed.lease_epoch,
         )
         if result.status != "PARTIAL" or result.phase != "partial":
             raise AssertionError("partial terminal state was not persisted")

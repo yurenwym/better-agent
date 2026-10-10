@@ -8,7 +8,7 @@ import os
 import json
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Protocol
 
@@ -31,9 +31,12 @@ from .chat_tools import (
     chat_run_id,
     decide_approval,
 )
+from .task_runtime import TaskRuntime, TaskKind, TaskRef, LeaseToken as TaskLeaseToken, LeaseLost, TaskCancelled
 from .db import Database
 from .events import ThreadEvent, ThreadEventStore
 from .execution_context import HarnessExecutionContext, create_child_context
+from .event_envelope import EventMetadata
+from .execution_outcome import ExecutionOutcome, Scope, Status
 from .harness_context_store import HarnessContextStore
 from .plan_documents import (
     PlanDocumentConflict,
@@ -410,7 +413,8 @@ class ConversationService:
         now = _now()
         with self.db.transaction() as connection:
             row = connection.execute(
-                "SELECT active_turn_id FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL",
+                "SELECT active_turn_id FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL"
+                + (" FOR UPDATE" if self.db.backend == "postgresql" else ""),
                 (thread_id, owner_id),
             ).fetchone()
             if row is None:
@@ -688,7 +692,7 @@ class ConversationService:
                     costs = getattr(self.agent_runtime, "costs", None) or CostService(self.db)
                     if root_budget_id is not None:
                         waiting_seconds = costs.resume_root_after_ask(
-                            owner_id, root_budget_id, ask_row["created_at"], resumed_at=now, connection=connection,
+                            owner_id, root_budget_id, ask_row["created_at"], connection=connection,
                         )
                     else:
                         root_budget_id = costs.ensure_default_root_budget(
@@ -742,6 +746,7 @@ class ConversationService:
                     {"continuation_turn_id": continuation_id},
                     connection=connection, occurred_at=now,
                 )
+                self._persist_turn_root(connection, continuation_id)
                 self.events.append(
                     turn_row["thread_id"], continuation_id, "turn.accepted", "user",
                     {"parent_turn_id": turn_id, "ask_id": ask_id, "message_id": answer_message_id},
@@ -824,7 +829,7 @@ class ConversationService:
                     if root_budget_id is not None:
                         costs.resume_root_after_ask(
                             owner_id, root_budget_id, call_row["created_at"],
-                            resumed_at=now, connection=connection,
+                            connection=connection,
                         )
                     else:
                         root_budget_id = costs.ensure_default_root_budget(
@@ -892,6 +897,7 @@ class ConversationService:
                     {"continuation_turn_id": continuation_id},
                     connection=connection, occurred_at=now,
                 )
+                self._persist_turn_root(connection, continuation_id)
                 self.events.append(
                     turn_row["thread_id"], continuation_id, "turn.accepted", "user",
                     {"parent_turn_id": turn_id, "tool_call_id": call_row["id"]},
@@ -1063,6 +1069,7 @@ class ConversationService:
                     )
                     root_budget_id = root["id"]
                     connection.execute("UPDATE turns SET root_budget_id=? WHERE id=?", (root_budget_id, turn_id))
+            self._persist_turn_root(connection, turn_id)
             if selected_skills and self.agent_runtime is not None:
                 if manual_skills:
                     try:
@@ -1123,6 +1130,18 @@ class ConversationService:
                 event = self.events.append(thread_id, turn_id, "turn.completed", "user", {}, connection=connection, occurred_at=now)
         return TurnSubmission(thread_id, turn_id, initial_status, 0, event.seq)
 
+    def _persist_turn_root(self, connection, turn_id: str) -> None:
+        """Freeze identity in the same transaction as accepting the turn."""
+        row = connection.execute(
+            "SELECT t.*,th.owner_id,th.project_id FROM turns t "
+            "JOIN threads th ON th.id=t.thread_id WHERE t.id=?", (turn_id,),
+        ).fetchone()
+        self.harness_context.load_or_create_turn_context(
+            turn_id, owner_id=row["owner_id"], thread_id=row["thread_id"],
+            project_id=row["project_id"], runtime_bundle_id=row["runtime_bundle_id"],
+            root_budget_id=row["root_budget_id"], connection=connection,
+        )
+
 
 EXECUTION_PROJECTION_LEASE_SECONDS = 60
 
@@ -1132,6 +1151,7 @@ class ExecutionMaterializer:
         self.db = db
         self.agent_runtime = agent_runtime
         self.thread_events = thread_events
+        self.tasks = TaskRuntime(db)
         self.owner = f"materializer_{uuid.uuid4().hex}"
         self._locks: dict[str, asyncio.Lock] = {}
 
@@ -1240,7 +1260,7 @@ class ExecutionMaterializer:
         if projection_status == "READY" and persisted_draft_json:
             draft = _projection_draft_from_json(persisted_draft_json)
         if draft is None:
-            self._claim_projection(
+            projection_token = self._claim_projection(
                 turn_id,
                 idempotency_key,
                 expected_version,
@@ -1249,26 +1269,21 @@ class ExecutionMaterializer:
             )
             renew_stop = asyncio.Event()
             renew_task = asyncio.create_task(
-                self._renew_projection_claim(turn_id, idempotency_key, renew_stop)
+                self._renew_projection_claim(projection_token, renew_stop)
             )
             try:
                 gateway = getattr(self.agent_runtime.model, "gateway", None)
                 context_token = None
                 if getattr(gateway, "control_store", None) is not None:
                     from .model_control import ModelCallContext
-                    with self.db.connection() as connection:
-                        pinned = connection.execute(
-                            "SELECT t.runtime_bundle_id,t.root_budget_id,th.owner_id FROM turns t "
-                            "JOIN threads th ON th.id=t.thread_id WHERE t.id=?", (turn_id,)
-                        ).fetchone()
-                    context_token = gateway.set_call_context(ModelCallContext(
-                        role="planner", purpose="project_plan_for_execution", thread_id=thread_id,
-                        turn_id=turn_id, runtime_bundle_id=pinned["runtime_bundle_id"],
-                        root_budget_id=pinned["root_budget_id"], owner_id=pinned["owner_id"],
-                    ))
-                draft = await PlanExecutionCompiler(self.agent_runtime.model).compile(source=source)
+                    root = HarnessContextStore(self.db).load_turn_context(turn_id)
+                    context_token = gateway.set_call_context(ModelCallContext.from_harness(
+                        create_child_context(root), role="planner", purpose="project_plan_for_execution"))
+                from .send_authority import send_authority
+                with send_authority(lambda: self._assert_projection(projection_token)):
+                    draft = await PlanExecutionCompiler(self.agent_runtime.model).compile(source=source)
             except Exception as exc:
-                self._fail_projection(turn_id, idempotency_key, str(exc), thread_id)
+                self._fail_projection(turn_id, idempotency_key, str(exc), thread_id, token=projection_token)
                 raise
             finally:
                 if 'context_token' in locals() and context_token is not None:
@@ -1277,7 +1292,7 @@ class ExecutionMaterializer:
                 renew_task.cancel()
                 with contextlib.suppress(asyncio.CancelledError):
                     await renew_task
-            self._store_projection_draft(turn_id, idempotency_key, source, draft)
+            self._store_projection_draft(turn_id, idempotency_key, source, draft, token=projection_token)
 
         now = _now()
         with self.db.transaction() as connection:
@@ -1296,6 +1311,12 @@ class ExecutionMaterializer:
             session_id = f"session_{uuid.uuid4().hex}"
             run_id = f"run_{uuid.uuid4().hex}"
             budget = self.agent_runtime.initial_budget()
+            from .execution_context import serialize_context
+            source_context = HarnessContextStore(self.db).load_turn_context(turn_id)
+            budget["agent_loop_context"] = serialize_context(replace(
+                create_child_context(source_context), run_id=run_id,
+                root_budget_id=None, project_id=None,
+            ))
             connection.execute("INSERT INTO goals(id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)", (goal_id, source.title, source.markdown, now, now))
             connection.execute("INSERT INTO sessions(id, goal_id, created_at, updated_at) VALUES (?, ?, ?, ?)", (session_id, goal_id, now, now))
             plan_id = f"pv_{uuid.uuid4().hex}"
@@ -1342,13 +1363,12 @@ class ExecutionMaterializer:
         expected_version: int,
         source: ExecutionSource,
         thread_id: str,
-    ) -> None:
+    ) -> TaskLeaseToken:
         with self.db.transaction() as connection:
-            row = connection.execute("SELECT * FROM turns WHERE id = ?", (turn_id,)).fetchone()
+            lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            row = connection.execute("SELECT * FROM turns WHERE id = ?" + lock, (turn_id,)).fetchone()
             if row is None:
                 raise KeyError(turn_id)
-            if row["direction_idempotency_key"] == idempotency_key and row["direction_projection_status"] == "READY":
-                return
             if (
                 row["direction_idempotency_key"] == idempotency_key
                 and row["direction_projection_status"] == "COMPILING"
@@ -1372,19 +1392,20 @@ class ExecutionMaterializer:
             ).fetchone()
             if duplicate is not None:
                 raise ValueError("direction idempotency key already used")
+            attempt = self.tasks.claim(connection, TaskRef(TaskKind.PROJECTION, turn_id), self.owner,
+                                       EXECUTION_PROJECTION_LEASE_SECONDS)
+            if attempt is None:
+                raise ValueError("execution projection is already in progress")
             connection.execute(
-                "UPDATE turns SET direction_idempotency_key = ?, direction_projection_status = 'COMPILING', "
+                "UPDATE turns SET direction_idempotency_key = ?, "
                 "direction_projection_source_document_id = ?, direction_projection_source_version_id = ?, "
                 "direction_projection_source_hash = ?, direction_projection_draft_json = NULL, "
-                "direction_projection_error = NULL, direction_projection_claim_owner = ?, "
-                "direction_projection_lease_until = ?, updated_at = ? WHERE id = ?",
+                "direction_projection_error = NULL, updated_at = ? WHERE id = ?",
                 (
                     idempotency_key,
                     source.document_id,
                     source.version_id,
                     source.content_hash,
-                    self.owner,
-                    _after_seconds(EXECUTION_PROJECTION_LEASE_SECONDS),
                     _now(),
                     turn_id,
                 ),
@@ -1402,32 +1423,23 @@ class ExecutionMaterializer:
                 connection=connection,
             )
 
-    async def _renew_projection_claim(
-        self,
-        turn_id: str,
-        idempotency_key: str,
-        stop: asyncio.Event,
-    ) -> None:
+            return attempt.token
+
+    def _assert_projection(self, token: TaskLeaseToken) -> None:
+        with self.db.transaction() as connection:
+            self.tasks.require(connection, token)
+
+    async def _renew_projection_claim(self, token: TaskLeaseToken, stop: asyncio.Event) -> None:
         interval = max(EXECUTION_PROJECTION_LEASE_SECONDS / 3, 0.01)
-        while True:
+        while not stop.is_set():
             try:
                 await asyncio.wait_for(stop.wait(), timeout=interval)
                 return
             except asyncio.TimeoutError:
-                with self.db.transaction() as connection:
-                    updated = connection.execute(
-                        "UPDATE turns SET direction_projection_lease_until = ?, updated_at = ? "
-                        "WHERE id = ? AND direction_idempotency_key = ? "
-                        "AND direction_projection_status = 'COMPILING' AND direction_projection_claim_owner = ?",
-                        (
-                            _after_seconds(EXECUTION_PROJECTION_LEASE_SECONDS),
-                            _now(),
-                            turn_id,
-                            idempotency_key,
-                            self.owner,
-                        ),
-                    )
-                if updated.rowcount != 1:
+                try:
+                    with self.db.transaction() as connection:
+                        self.tasks.heartbeat(connection, token, EXECUTION_PROJECTION_LEASE_SECONDS)
+                except LeaseLost:
                     return
 
     def _store_projection_draft(
@@ -1436,8 +1448,10 @@ class ExecutionMaterializer:
         idempotency_key: str,
         source: ExecutionSource,
         draft: Any,
+        *, token: TaskLeaseToken,
     ) -> None:
         with self.db.transaction() as connection:
+            self.tasks.require(connection, token)
             row = connection.execute(
                 "SELECT direction_idempotency_key, direction_projection_status, direction_projection_claim_owner "
                 "FROM turns WHERE id = ?",
@@ -1451,10 +1465,11 @@ class ExecutionMaterializer:
                 or row["direction_projection_claim_owner"] != self.owner
             ):
                 raise ValueError("execution projection claim is no longer owned by this request")
+            self.tasks.finish(connection, token, "READY")
             connection.execute(
-                "UPDATE turns SET direction_projection_status = 'READY', direction_projection_draft_json = ?, "
+                "UPDATE turns SET direction_projection_draft_json = ?, "
                 "direction_projection_source_document_id = ?, direction_projection_source_version_id = ?, "
-                "direction_projection_source_hash = ?, direction_projection_lease_until = NULL, updated_at = ? WHERE id = ?",
+                "direction_projection_source_hash = ?, updated_at = ? WHERE id = ?",
                 (
                     _projection_draft_to_json(draft),
                     source.document_id,
@@ -1465,8 +1480,12 @@ class ExecutionMaterializer:
                 ),
             )
 
-    def _fail_projection(self, turn_id: str, idempotency_key: str, error: str, thread_id: str) -> None:
+    def _fail_projection(self, turn_id: str, idempotency_key: str, error: str, thread_id: str, *, token: TaskLeaseToken) -> None:
         with self.db.transaction() as connection:
+            try:
+                self.tasks.require(connection, token)
+            except LeaseLost:
+                return
             row = connection.execute(
                 "SELECT direction_idempotency_key, direction_projection_source_document_id, "
                 "direction_projection_source_version_id, direction_projection_source_hash, "
@@ -1480,9 +1499,9 @@ class ExecutionMaterializer:
                 or row["direction_projection_claim_owner"] != self.owner
             ):
                 return
+            self.tasks.finish(connection, token, "FAILED")
             connection.execute(
-                "UPDATE turns SET direction_projection_status = 'FAILED', direction_projection_error = ?, "
-                "direction_projection_claim_owner = NULL, direction_projection_lease_until = NULL, updated_at = ? WHERE id = ?",
+                "UPDATE turns SET direction_projection_error = ?, updated_at = ? WHERE id = ?",
                 (error[:240], _now(), turn_id),
             )
             self.thread_events.append(
@@ -1553,12 +1572,14 @@ class ManagedTurnWorker:
     ) -> None:
         self.conversation = conversation
         self.db = conversation.db
+        self.tasks = TaskRuntime(self.db)
         self.owner = owner or f"turn-worker-{uuid.uuid4().hex}"
         self.lease_seconds = lease_seconds
         self.poll_interval = poll_interval
         self._task: asyncio.Task[Any] | None = None
         self._stop_event: asyncio.Event | None = None
         self._lease_token = None
+        self._loop_attempt: EventMetadata | None = None
 
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
@@ -1607,7 +1628,6 @@ class ManagedTurnWorker:
                 )
             return token.job_id
         now = _now()
-        lease_until = _after_seconds(self.lease_seconds)
         with self.db.transaction() as connection:
             row = connection.execute(
                 """
@@ -1634,23 +1654,12 @@ class ManagedTurnWorker:
             if row is None:
                 return None
             turn_id = row["turn_id"]
-            claimed = connection.execute(
-                """
-                UPDATE turn_jobs SET status = 'RUNNING', lease_owner = ?, lease_until = ?,
-                    lease_epoch = lease_epoch + 1, attempts = attempts + 1,
-                    started_at = COALESCE(started_at, ?)
-                WHERE turn_id = ? AND (
-                    status = 'QUEUED' OR (status = 'RUNNING' AND lease_until IS NOT NULL AND lease_until <= ?)
-                )
-                """,
-                (self.owner, lease_until, now, turn_id, now),
-            )
-            if claimed.rowcount != 1:
+            attempt = self.tasks.claim(connection, TaskRef(TaskKind.TURN, turn_id), self.owner, self.lease_seconds)
+            if attempt is None:
                 return None
+            connection.execute("UPDATE turn_jobs SET started_at=COALESCE(started_at,?) WHERE turn_id=?", (now, turn_id))
             from .durable_queue import LeaseToken
-            self._lease_token = LeaseToken(
-                turn_id, row["thread_id"], self.owner, int(row["lease_epoch"] or 0) + 1,
-            )
+            self._lease_token = LeaseToken(turn_id, row["thread_id"], self.owner, attempt.token.epoch)
             turn = connection.execute("SELECT status FROM turns WHERE id = ?", (turn_id,)).fetchone()
             if turn["status"] == "ACCEPTED":
                 connection.execute(
@@ -1682,6 +1691,15 @@ class ManagedTurnWorker:
                     pass
 
     async def _process(self, turn_id: str) -> None:
+        from .send_authority import send_authority
+        with send_authority(lambda: self._assert_send_authority(turn_id)):
+            await self._process_claimed(turn_id)
+
+    def _assert_send_authority(self, turn_id: str) -> None:
+        with self.db.transaction() as connection:
+            self._require_job_owner(connection, turn_id, require_not_cancelled=True)
+
+    async def _process_claimed(self, turn_id: str) -> None:
         with self.db.connection() as connection:
             scope = connection.execute(
                 "SELECT h.owner_id FROM turns t JOIN threads h ON h.id=t.thread_id "
@@ -1733,15 +1751,7 @@ class ManagedTurnWorker:
             # One trace root per turn, persisted with the turn itself: a worker
             # restart or a retry re-reads the same trace instead of minting a
             # second one.  Every model call and tool call below derives from it.
-            turn_harness = self.conversation.harness_context.load_or_create_turn_context(
-                turn.id,
-                owner_id=scope["owner_id"],
-                thread_id=turn.thread_id,
-                project_id=scope["project_id"],
-                run_id=chat_run_id(turn.id),
-                root_budget_id=getattr(turn, "root_budget_id", None),
-                runtime_bundle_id=turn.runtime_bundle_id,
-            )
+            turn_harness = self.conversation.harness_context.load_turn_context(turn.id)
             window = self._hot_window(turn, scope["owner_id"])
             mcp_sync = getattr(self.conversation.agent_runtime, "mcp_sync", None)
             if mcp_sync is not None:
@@ -1753,6 +1763,19 @@ class ManagedTurnWorker:
                 except Exception:  # noqa: BLE001 - an optional integration never breaks a turn
                     pass
             tool_runner = self._chat_tool_runner(turn, scope, turn_harness)
+            from .config import agent_loop_mode
+            if agent_loop_mode() == "loop" and tool_runner is not None:
+                # Count the same native schemas in the preflight packing budget.
+                from .conversation_capabilities import (register_research_capability, register_expert_capability,
+                    register_remember_capability, register_publish_capability)
+                from .tools import ToolRegistry
+                preview_registry = ToolRegistry(tool_runner.registry.workspace)
+                for register in (register_research_capability, register_expert_capability, register_remember_capability, register_publish_capability):
+                    register(preview_registry, lambda _: None)
+                from .task_capabilities import register_task_capabilities
+                register_task_capabilities(preview_registry, self.conversation.agent_runtime)
+                original_schemas = tool_runner.schemas
+                tool_runner.schemas = lambda: [*[schema for schema in original_schemas() if schema['function']['name'] != 'create_plan_draft'], *preview_registry.describe()]
             tool_schemas = tool_runner.schemas() if tool_runner is not None else []
             if tool_continuation is not None:
                 if tool_runner is None:
@@ -1770,7 +1793,8 @@ class ManagedTurnWorker:
                     },
                 )
             save_history = None
-            if user_message is not None and _is_plain_existing_plan_save(content):
+            from .config import agent_loop_mode
+            if agent_loop_mode() == "legacy" and user_message is not None and _is_plain_existing_plan_save(content):
                 with self.db.connection() as connection:
                     prior = connection.execute(
                         "SELECT m.content FROM thread_messages m JOIN threads t ON t.id=m.thread_id "
@@ -2081,6 +2105,59 @@ class ManagedTurnWorker:
 
             context_ms = _elapsed_ms(context_started_ns)
             model_started_ns = time.perf_counter_ns()
+            from .config import agent_loop_mode
+            from .live_model import LiveConversationModel
+            native_loop = agent_loop_mode() == "loop" and isinstance(self.conversation.route_model, LiveConversationModel) and not context_incomplete
+            if native_loop:
+                with self.db.transaction() as connection:
+                    self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+                    unfinished = connection.execute(
+                        "SELECT s.event_id,s.envelope_json FROM thread_events s WHERE s.turn_id=? "
+                        "AND s.type='loop.started' AND NOT EXISTS "
+                        "(SELECT 1 FROM thread_events f WHERE f.event_id=s.event_id || ':finished')",
+                        (turn.id,),
+                    ).fetchall()
+                    for prior in unfinished:
+                        previous = EventMetadata.from_dict(json.loads(prior["envelope_json"]))
+                        interrupted = ExecutionOutcome(Scope.LOOP, Status.EXHAUSTED, reason="WORKER_LEASE_LOST")
+                        uncertain = connection.execute(
+                            "SELECT tool_call_id FROM tool_execution_claims WHERE run_id=? "
+                            "AND status='RECONCILIATION_REQUIRED' ORDER BY updated_at DESC LIMIT 1", (chat_run_id(turn.id),),
+                        ).fetchone()
+                        if uncertain:
+                            from .outcome_adapters import exception_outcome
+                            from .tools import ToolReconciliationRequired
+                            interrupted = exception_outcome(ToolReconciliationRequired(),
+                                reconciliation_ref=uncertain["tool_call_id"])
+                        self.conversation.events.append(turn.thread_id, turn.id, "loop.finished", "worker",
+                            {"outcome": interrupted.to_dict()}, connection=connection,
+                            event_id=f"{prior['event_id']}:finished",
+                            metadata=replace(previous, causation_event_id=prior["event_id"], outcome=interrupted))
+                    metadata = EventMetadata(create_child_context(turn_harness), "conversation_loop",
+                        turn.id, self._lease_token.epoch)
+                    started = self.conversation.events.append(turn.thread_id, turn.id, "loop.started", "worker", {},
+                        metadata=metadata, connection=connection)
+                    self._loop_attempt = replace(metadata, causation_event_id=started.event_id)
+                turn_harness = metadata.context
+            if native_loop and tool_runner is not None:
+                from .conversation_capabilities import (ConversationCapabilityBinding, register_research_capability,
+                    register_expert_capability, register_remember_capability, register_publish_capability)
+                from .tools import ToolRegistry
+                # Per-turn catalogue prevents one concurrent turn from replacing another's bound handler.
+                registry = ToolRegistry(tool_runner.registry.workspace, db=self.db, approval_service=tool_runner.approvals)
+                for spec in tool_runner.registry.specs():
+                    registry.register(spec)
+                binding = ConversationCapabilityBinding(self, turn, scope["owner_id"], context_incomplete,
+                    tuple(history), plan_context, user_message.id if user_message else None, content)
+                for register in (register_research_capability, register_expert_capability, register_remember_capability, register_publish_capability):
+                    register(registry, lambda context: binding)
+                from .task_capabilities import register_task_capabilities
+                register_task_capabilities(registry, self.conversation.agent_runtime)
+                tool_runner.registry = registry
+                if "schemas" in vars(tool_runner):
+                    del tool_runner.schemas
+                tool_runner.capability_names = frozenset({"start_research", "delegate_experts", "remember", "publish_plan_document", "get_task", "cancel_task"})
+                tool_runner.capability_binding = binding
             respond = self.conversation.route_model.answer_without_history if context_incomplete else self.conversation.route_model.route_and_respond
             refreshed_skills = self._skill_context(turn)
             if refreshed_skills != skill_context:
@@ -2113,6 +2190,8 @@ class ManagedTurnWorker:
                 name=f"conversation-turn-{turn_id}",
             )
             decoder = ControlHeadDecoder()
+            if native_loop:
+                decoder.header = RouteDecision("answer", "text", "loop:final")
             last_flush = asyncio.get_running_loop().time()
             while not model_task.done() or not queue.empty():
                 if lease_lost.is_set():
@@ -2127,6 +2206,8 @@ class ManagedTurnWorker:
                     continue
                 if kind == "reset":
                     decoder = ControlHeadDecoder()
+                    if native_loop:
+                        decoder.header = RouteDecision("answer", "text", "loop:final")
                     if message_id is not None:
                         self._interrupt_message(turn, message_id, generation, "retry")
                         message_id = None
@@ -2160,6 +2241,51 @@ class ManagedTurnWorker:
                 await self._finish_exposure(turn, success=False, message_id=message_id)
                 return
             result = await model_task
+            if native_loop:
+                from .outcome_adapters import loop_outcome
+                execution_outcome = loop_outcome(result, operation_ref=turn.id)
+                if execution_outcome.status in {Status.AWAITING_INPUT, Status.AWAITING_APPROVAL}:
+                    result = result.continuation
+                    decoder = ControlHeadDecoder()
+                elif execution_outcome.status == Status.HANDOFF:
+                    with self.db.transaction() as connection:
+                        connection.execute("UPDATE turns SET reason_code=? WHERE id=?",
+                            ("tool:start_research" if result.kind == "research" else "tool:delegate_experts", turn.id))
+                    if result.kind == "expert":
+                        await self._finish_exposure(turn, success=True, message_id=None,
+                            observable={"policy": "start_expert"})
+                    return
+                elif execution_outcome.status in {Status.FAILED, Status.RECONCILIATION_REQUIRED}:
+                    raise result.error
+                elif execution_outcome.status == Status.CANCELLED:
+                    raise asyncio.CancelledError()
+                elif execution_outcome.status == Status.EXHAUSTED:
+                    self._finish_failure(turn, message_id, generation, result.reason,
+                        outcome=execution_outcome)
+                    await self._finish_exposure(turn, success=False, message_id=message_id)
+                    return
+                elif execution_outcome.status == Status.COMPLETED:
+                    if result.artifact is not None:
+                        decoder.header = RouteDecision("answer", "plan_document", "tool:publish_plan_document")
+                        if message_id is None:
+                            message_id = self._start_message(turn, decoder.header, generation)
+                        # The tool saved canonical bound text. Match display and bind its committed version.
+                        pending = ""
+                        with self.db.transaction() as connection:
+                            self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+                            connection.execute("UPDATE turns SET content_shape='plan_document',reason_code='tool:publish_plan_document' WHERE id=?", (turn.id,))
+                            connection.execute("UPDATE thread_messages SET content=?,content_length=?,plan_document_version_id=? WHERE id=?",
+                                (result.text, len(result.text), result.artifact["version_id"], message_id))
+                            connection.execute("UPDATE plan_document_versions SET source_message_id=? WHERE id=?",
+                                (message_id, result.artifact["version_id"]))
+                            version = connection.execute('SELECT * FROM plan_document_versions WHERE id=?', (result.artifact['version_id'],)).fetchone()
+                            self.conversation.events.append(turn.thread_id, turn.id, 'plan.document_ready', 'worker', {
+                                'plan_document_id': version['plan_document_id'], 'version_id': version['id'],
+                                'version': version['version'], 'content_hash': version['content_hash'],
+                                'source_message_id': message_id, 'actor': version['actor'],
+                            }, connection=connection)
+                    if message_id is None:
+                        pending = result.text
             if context_token is not None:
                 gateway.reset_call_context(context_token)
                 context_token = None
@@ -2181,64 +2307,19 @@ class ManagedTurnWorker:
             if context_incomplete and (decoder.header.policy != "answer" or decoder.header.artifact is not None):
                 raise ArchiveUnavailable("incomplete history only permits a plain answer")
             if decoder.header.policy == "start_research":
-                if message_id is not None or pending:
-                    raise RouteProtocolError("start_research cannot include visible body")
-                research = getattr(self.conversation.agent_runtime, "research", None)
-                if research is None:
-                    raise RuntimeError("research is not configured")
-                with self.db.transaction() as connection:
-                    self._require_job_owner(connection, turn.id, require_not_cancelled=True)
-                    research.create_from_turn(
-                        turn.id,
-                        decoder.header.research_topic or content,
-                        (decoder.header.research_scope or "web",),
-                        connection=connection,
-                    )
+                self.handoff_start_research(
+                    turn, decoder.header.research_topic or content, decoder.header.research_scope or "web",
+                    context_incomplete=context_incomplete, message_id=message_id, pending=pending,
+                )
                 return
             if decoder.header.policy == "start_expert":
-                if turn.goal_action_id:
-                    raise RouteProtocolError("action help cannot automatically dispatch experts")
-                if message_id is not None or pending:
-                    raise RouteProtocolError("start_expert cannot include visible body")
-                agent_tasks = getattr(self.conversation.agent_runtime, "agent_tasks", None)
-                if agent_tasks is None:
-                    raise RuntimeError("expert runtime is not configured")
-                with self.db.connection() as connection:
-                    thread_scope = connection.execute(
-                        "SELECT owner_id FROM threads WHERE id=? AND deleted_at IS NULL", (turn.thread_id,)
-                    ).fetchone()
-                if thread_scope is None:
-                    raise KeyError(turn.thread_id)
-                with self.db.transaction() as connection:
-                    self._require_job_owner(connection, turn.id, require_not_cancelled=True)
-                    agent_tasks.create_run(
-                        thread_scope["owner_id"], decoder.header.expert_objective or content,
-                        {
-                            "thread_id": turn.thread_id, "source_turn_id": turn.id,
-                            "source_message_id": user_message.id if user_message is not None else None,
-                            "request": content,
-                            "task_mode": "user_task",
-                            "plan_source": {
-                                "document_id": plan_context.plan_document_id,
-                                "version_id": plan_context.version_id,
-                                "version": plan_context.version,
-                                "content_hash": plan_context.content_hash,
-                                "cropped": plan_context.cropped,
-                            } if plan_context is not None else None,
-                            # History is already packed by complete turn under a token budget.
-                            # Slicing messages here loses leading context and may split tool groups.
-                            "history": history,
-                        },
-                        turn.runtime_bundle_id,
-                        thread_id=turn.thread_id, idempotency_key=f"conversation-expert:{turn.id}", append_thread_message=False,
-                        expert_roles=decoder.header.expert_roles, connection=connection, parent_turn_id=turn.id,
-                        root_budget_id=getattr(turn, "root_budget_id", None),
-                    )
-                    now = _now()
-                    connection.execute("UPDATE turns SET status='COMPLETED',policy='start_expert',content_shape='expert',reason_code=?,version=version+1,updated_at=? WHERE id=?", (decoder.header.reason_code, now, turn.id))
-                    self.conversation.events.append(turn.thread_id, turn.id, "expert.requested", "worker", {"objective": decoder.header.expert_objective, "roles": list(decoder.header.expert_roles)}, connection=connection, occurred_at=now)
-                    self.conversation.events.append(turn.thread_id, turn.id, "turn.completed", "worker", {}, connection=connection, occurred_at=now)
-                    connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn.id))
+                self.handoff_start_expert(
+                    turn, decoder.header.expert_objective, decoder.header.expert_roles,
+                    content=content, history=history, plan_context=plan_context,
+                    source_message_id=user_message.id if user_message is not None else None,
+                    reason_code=decoder.header.reason_code, context_incomplete=context_incomplete,
+                    message_id=message_id, pending=pending,
+                )
                 await self._finish_exposure(
                     turn, success=True, message_id=None,
                     observable={"policy": "start_expert", "objective": decoder.header.expert_objective},
@@ -2301,6 +2382,16 @@ class ManagedTurnWorker:
                     ),
                 )
             self._lease_token = None
+            self._loop_attempt = None
+
+    def _finish_loop_attempt(self, connection, turn, outcome: ExecutionOutcome) -> None:
+        metadata = self._loop_attempt
+        if metadata is None:
+            return
+        self.conversation.events.append(turn.thread_id, turn.id, "loop.finished", "worker",
+            {"outcome": outcome.to_dict()}, connection=connection,
+            metadata=replace(metadata, outcome=outcome),
+            event_id=f"{metadata.causation_event_id}:finished")
 
     def _persist_terminal_metrics(
         self, turn_id: str, *, lease_epoch: int | None = None,
@@ -2396,12 +2487,10 @@ class ManagedTurnWorker:
                     ).fetchone()
                 if owner is not None and owner["owner_id"]:
                     authorized_owner = owner["owner_id"]
-                    token = gateway.set_call_context(ModelCallContext(
-                        role="judge_safety", purpose="judge_conversation_output", thread_id=turn.thread_id,
-                        turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
-                        root_budget_id=getattr(turn, "root_budget_id", None),
-                        owner_id=owner["owner_id"],
-                    ))
+                    from .execution_context import create_child_context
+                    root = self.conversation.harness_context.load_turn_context(turn.id)
+                    token = gateway.set_call_context(ModelCallContext.from_harness(
+                        create_child_context(root), role="judge_safety", purpose="judge_conversation_output"))
             if getattr(gateway, "control_store", None) is None or authorized_owner:
                 try:
                     if observable is not None:
@@ -2440,74 +2529,41 @@ class ManagedTurnWorker:
         except asyncio.CancelledError:
             raise
 
-    def _renew_lease(self, turn_id: str) -> bool:
-        if self.db.backend == "postgresql":
-            from .durable_queue import DurableQueue, LeaseLost
+    def _task_token(self, turn_id: str) -> TaskLeaseToken:
+        token = self._lease_token
+        if token is None or token.job_id != turn_id:
+            raise TurnJobLeaseLost(turn_id)
+        return token.task_token()
 
-            if self._lease_token is None or self._lease_token.job_id != turn_id:
-                return False
-            try:
-                DurableQueue(self.db).heartbeat(self._lease_token, self.lease_seconds)
-                return True
-            except LeaseLost:
-                return False
-        now = _now()
-        lease_until = _after_seconds(self.lease_seconds)
-        with self.db.transaction() as connection:
-            result = connection.execute(
-                "UPDATE turn_jobs SET lease_until = ? "
-                "WHERE turn_id = ? AND status = 'RUNNING' AND lease_owner = ? "
-                "AND lease_epoch = ? AND lease_until IS NOT NULL AND lease_until > ?",
-                (
-                    lease_until, turn_id, self.owner,
-                    self._lease_token.epoch if self._lease_token is not None else -1, now,
-                ),
-            )
-            return result.rowcount == 1
+    def _renew_lease(self, turn_id: str) -> bool:
+        try:
+            with self.db.transaction() as connection:
+                self.tasks.heartbeat(connection, self._task_token(turn_id), self.lease_seconds)
+            return True
+        except (LeaseLost, TurnJobLeaseLost):
+            return False
 
     def _assert_job_owner(self, turn_id: str) -> None:
-        with self.db.connection() as connection:
-            token = self._lease_token
-            if self.db.backend == "postgresql":
-                row = connection.execute(
-                    "SELECT status,lease_owner,lease_until FROM turn_jobs "
-                    "WHERE turn_id=%s AND lease_epoch=%s AND lease_until>clock_timestamp()",
-                    (turn_id, token.epoch if token is not None else -1),
-                ).fetchone()
-            else:
-                row = connection.execute(
-                    "SELECT status,lease_owner,lease_until FROM turn_jobs "
-                    "WHERE turn_id=? AND lease_epoch=?",
-                    (turn_id, token.epoch if token is not None else -1),
-                ).fetchone()
-        if (
-            row is None
-            or row["status"] != "RUNNING"
-            or row["lease_owner"] != self.owner
-            or not _lease_active(row["lease_until"])
-        ):
-            raise TurnJobLeaseLost(turn_id)
+        with self.db.transaction() as connection:
+            self._require_job_owner(connection, turn_id, require_not_cancelled=True)
 
     def _require_job_owner(
         self, connection, turn_id: str, *, require_not_cancelled: bool = False,
     ) -> None:
-        token = self._lease_token
-        if self.db.backend == "postgresql":
-            row = connection.execute(
-                "SELECT status,lease_owner,lease_until,cancel_requested_at FROM turn_jobs "
-                "WHERE turn_id=%s AND lease_epoch=%s AND lease_until>clock_timestamp() FOR UPDATE",
-                (turn_id, token.epoch if token is not None else -1),
-            ).fetchone()
-        else:
-            row = connection.execute(
-                "SELECT status,lease_owner,lease_until,cancel_requested_at FROM turn_jobs "
-                "WHERE turn_id=? AND lease_epoch=?",
-                (turn_id, token.epoch if token is not None else -1),
-            ).fetchone()
-        if row is not None and require_not_cancelled and row["cancel_requested_at"] is not None:
-            raise TurnJobCancelled(turn_id)
-        if row is None or row["status"] != "RUNNING" or row["lease_owner"] != self.owner or not _lease_active(row["lease_until"]):
-            raise TurnJobLeaseLost(turn_id)
+        try:
+            self.tasks.require(connection, self._task_token(turn_id), allow_cancelled=not require_not_cancelled)
+        except TaskCancelled as exc:
+            raise TurnJobCancelled(turn_id) from exc
+        except LeaseLost as exc:
+            raise TurnJobLeaseLost(turn_id) from exc
+
+    def _finish_task(self, connection, turn_id: str, status: str) -> None:
+        try:
+            self.tasks.finish(connection, self._task_token(turn_id), status)
+        except TaskCancelled as exc:
+            raise TurnJobCancelled(turn_id) from exc
+        except LeaseLost as exc:
+            raise TurnJobLeaseLost(turn_id) from exc
 
     def _prepare_generation(self, turn: TurnSnapshot) -> int:
         now = _now()
@@ -2614,15 +2670,16 @@ class ManagedTurnWorker:
         questions = [question.as_dict() for question in request.questions]
         with self.db.transaction() as connection:
             self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            if self.db.backend == "postgresql":
+                now = connection.execute("SELECT clock_timestamp() AS now").fetchone()["now"].isoformat()
             existing = connection.execute(
                 "SELECT id FROM turn_asks WHERE call_id = ?", (request.call_id,)
             ).fetchone()
             if existing is not None:
-                connection.execute(
-                    "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? "
-                    "WHERE turn_id = ?",
-                    (now, turn.id),
-                )
+                self._finish_loop_attempt(connection, turn,
+                    ExecutionOutcome(Scope.LOOP, Status.AWAITING_INPUT, continuation_ref=existing["id"]))
+                self._finish_task(connection, turn.id, "COMPLETED")
+                connection.execute('UPDATE turn_jobs SET finished_at = ? WHERE turn_id = ?', (now, turn.id))
                 return
             connection.execute(
                 "INSERT INTO turn_asks(id, turn_id, call_id, questions_json, status, created_at) "
@@ -2668,10 +2725,10 @@ class ManagedTurnWorker:
                 turn.thread_id, turn.id, "turn.awaiting_input", "worker",
                 {"ask_id": ask_id}, connection=connection, occurred_at=now,
             )
-            connection.execute(
-                "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (now, turn.id),
-            )
+            self._finish_loop_attempt(connection, turn,
+                ExecutionOutcome(Scope.LOOP, Status.AWAITING_INPUT, continuation_ref=ask_id))
+            self._finish_task(connection, turn.id, "COMPLETED")
+            connection.execute('UPDATE turn_jobs SET finished_at = ? WHERE turn_id = ?', (now, turn.id))
 
     def _finish_tool_approval(self, turn: TurnSnapshot, request: "ToolApprovalRequest", generation: int) -> None:
         """Persist a paused WRITE tool call; the decision endpoint resumes it."""
@@ -2722,10 +2779,10 @@ class ManagedTurnWorker:
                 {"call_id": request.call_id, "tool_name": request.tool_name},
                 connection=connection, occurred_at=now,
             )
-            connection.execute(
-                "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (now, turn.id),
-            )
+            self._finish_loop_attempt(connection, turn,
+                ExecutionOutcome(Scope.LOOP, Status.AWAITING_APPROVAL, continuation_ref=request.call_id))
+            self._finish_task(connection, turn.id, "COMPLETED")
+            connection.execute('UPDATE turn_jobs SET finished_at = ? WHERE turn_id = ?', (now, turn.id))
 
     def _turn_tool_harness(self, turn: TurnSnapshot):
         """A tool span under the turn root, read back from its persisted record.
@@ -2743,15 +2800,7 @@ class ManagedTurnWorker:
             ).fetchone()
         if scope is None:
             return None
-        turn_harness = store.load_or_create_turn_context(
-            turn.id,
-            owner_id=scope["owner_id"],
-            thread_id=turn.thread_id,
-            project_id=scope["project_id"],
-            run_id=chat_run_id(turn.id),
-            root_budget_id=getattr(turn, "root_budget_id", None),
-            runtime_bundle_id=turn.runtime_bundle_id,
-        )
+        turn_harness = store.load_turn_context(turn.id)
         return create_child_context(turn_harness)
 
     def _suspend_artifact_modification(
@@ -2787,6 +2836,7 @@ class ManagedTurnWorker:
         run_id = chat_run_id(turn.id)
         store = self.conversation.chat_tool_calls
         tool_harness = self._turn_tool_harness(turn)
+        binding = {"capability_digest": tools.spec("modify_plan_document").approval_digest()}
         try:
             store.get(call_id)
             existing_row = True
@@ -2816,10 +2866,10 @@ class ManagedTurnWorker:
                 risk="WRITE",
                 call_id=call_id,
                 status=STATUS_PENDING,
-                binding={},
+                binding=binding,
                 execution_context=tool_harness,
             )
-        approval = approvals.request(run_id, call_id, "modify_plan_document", params, binding={})
+        approval = approvals.request(run_id, call_id, "modify_plan_document", params, binding=binding)
         if not existing_row:
             store.attach_approval(call_id, approval.id)
         return call_id, approval.id
@@ -2983,6 +3033,9 @@ class ManagedTurnWorker:
                 turn.thread_id, turn.id, event_type, "worker", {},
                 connection=connection, occurred_at=now,
             )
+            self._finish_loop_attempt(connection, turn,
+                ExecutionOutcome(Scope.LOOP, Status.AWAITING_APPROVAL, continuation_ref=artifact_suspended[0])
+                if artifact_suspended else ExecutionOutcome(Scope.LOOP, Status.COMPLETED))
             if artifact_suspended is not None:
                 call_id, approval_id = artifact_suspended
                 self.conversation.events.append(
@@ -2990,10 +3043,8 @@ class ManagedTurnWorker:
                     {"call_id": call_id, "approval_id": approval_id, "tool_name": "modify_plan_document"},
                     connection=connection, occurred_at=now,
                 )
-            connection.execute(
-                "UPDATE turn_jobs SET status = 'COMPLETED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (now, turn.id),
-            )
+            self._finish_task(connection, turn.id, "COMPLETED")
+            connection.execute('UPDATE turn_jobs SET finished_at = ? WHERE turn_id = ?', (now, turn.id))
 
     def _plan_failure_metadata(
         self,
@@ -3059,14 +3110,15 @@ class ManagedTurnWorker:
                 "UPDATE turns SET status = 'CANCELLED', version = version + 1, updated_at = ? WHERE id = ?",
                 (now, turn.id),
             )
-            self.conversation.events.append(
+            cancelled = self.conversation.events.append(
                 turn.thread_id, turn.id, "turn.cancelled", "worker", {},
                 connection=connection, occurred_at=now,
             )
-            connection.execute(
-                "UPDATE turn_jobs SET status = 'CANCELLED', lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (now, turn.id),
-            )
+            if self._loop_attempt is not None:
+                outcome = EventMetadata.from_dict(json.loads(cancelled.envelope_json)).outcome
+                self._finish_loop_attempt(connection, turn, replace(outcome, scope=Scope.LOOP))
+            self._finish_task(connection, turn.id, "CANCELLED")
+            connection.execute('UPDATE turn_jobs SET finished_at = ? WHERE turn_id = ?', (now, turn.id))
 
     def _finish_failure(
         self,
@@ -3076,6 +3128,7 @@ class ManagedTurnWorker:
         error: Exception | str,
         *,
         preserve_partial: bool = True,
+        outcome: ExecutionOutcome | None = None,
     ) -> None:
         now = _now()
         error_text = str(error)
@@ -3161,14 +3214,16 @@ class ManagedTurnWorker:
                 "UPDATE turns SET status = 'FAILED', version = version + 1, updated_at = ? WHERE id = ?",
                 (now, turn.id),
             )
+            from .outcome_adapters import exception_outcome
+            outcome = outcome or exception_outcome(error if isinstance(error, Exception) else RuntimeError(error))
             self.conversation.events.append(
-                turn.thread_id, turn.id, "turn.failed", "worker", {"reason": "conversation generation failed"},
+                turn.thread_id, turn.id, "turn.failed", "worker",
+                {"reason": "conversation generation failed", "outcome": replace(outcome, scope=Scope.TASK).to_dict()},
                 connection=connection, occurred_at=now,
             )
-            connection.execute(
-                "UPDATE turn_jobs SET status = 'FAILED', last_error_json = ?, lease_owner = NULL, lease_until = NULL, finished_at = ? WHERE turn_id = ?",
-                (json.dumps({"error": error_text[:240]}, ensure_ascii=False), now, turn.id),
-            )
+            self._finish_loop_attempt(connection, turn, outcome)
+            self._finish_task(connection, turn.id, "FAILED")
+            connection.execute('UPDATE turn_jobs SET last_error_json = ?, finished_at = ? WHERE turn_id = ?', (json.dumps({"error": error_text[:240]}, ensure_ascii=False), now, turn.id))
 
     def _interrupt_message(self, turn: TurnSnapshot, message_id: str, generation: int, reason: str) -> None:
         now = _now()
@@ -3759,6 +3814,112 @@ class ManagedTurnWorker:
         if owner is None:
             return ""
         return SkillPlatform(self.db, self.conversation.agent_runtime.skill_platform.root, owner[0]).context_text("RUN", turn.id, "conversation")
+
+    def handoff_start_research(self, turn, topic, scope, *, context_incomplete=False, message_id=None, pending=""):
+        from .memory_archive import ArchiveUnavailable
+        if context_incomplete:
+            raise ArchiveUnavailable("incomplete history only permits a plain answer")
+        if message_id is not None or pending:
+            raise RouteProtocolError("start_research cannot include visible body")
+        research = getattr(self.conversation.agent_runtime, "research", None)
+        if research is None:
+            raise RuntimeError("research is not configured")
+        with self.db.transaction() as connection:
+            if self._loop_attempt is not None:
+                self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            prior = connection.execute("SELECT id,topic,source_scopes_json FROM research_jobs WHERE source_turn_id=?", (turn.id,)).fetchone()
+            if prior is not None:
+                if prior["topic"] != topic or json.loads(prior["source_scopes_json"]) != [scope]:
+                    raise RuntimeError("research handoff binding changed")
+                self._finish_loop_attempt(connection, turn,
+                    ExecutionOutcome(Scope.LOOP, Status.HANDOFF, target_ref=prior["id"]))
+                return research._job(prior["id"], connection)
+            self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            job = research.create_from_turn(
+                turn.id,
+                topic,
+                (scope,),
+                connection=connection,
+            )
+            self._finish_task(connection, turn.id, "COMPLETED")
+            connection.execute("UPDATE turn_jobs SET finished_at=? WHERE turn_id=?", (_now(), turn.id))
+            self._finish_loop_attempt(connection, turn,
+                ExecutionOutcome(Scope.LOOP, Status.HANDOFF, target_ref=job.id))
+            return job
+
+    def handoff_start_expert(self, turn, objective, roles, *, content, history, plan_context,
+                             source_message_id=None, reason_code="explicit_collaboration",
+                             context_incomplete=False, message_id=None, pending=""):
+        from .memory_archive import ArchiveUnavailable
+        if context_incomplete:
+            raise ArchiveUnavailable("incomplete history only permits a plain answer")
+        if turn.goal_action_id:
+            raise RouteProtocolError("action help cannot automatically dispatch experts")
+        if message_id is not None or pending:
+            raise RouteProtocolError("start_expert cannot include visible body")
+        agent_tasks = getattr(self.conversation.agent_runtime, "agent_tasks", None)
+        if agent_tasks is None:
+            raise RuntimeError("expert runtime is not configured")
+        with self.db.connection() as connection:
+            thread_scope = connection.execute(
+                "SELECT owner_id FROM threads WHERE id=? AND deleted_at IS NULL", (turn.thread_id,)
+            ).fetchone()
+        if thread_scope is None:
+            raise KeyError(turn.thread_id)
+        with self.db.transaction() as connection:
+            if self._loop_attempt is not None:
+                self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            prior = connection.execute("SELECT * FROM agent_runs WHERE idempotency_key=? AND owner_id=?",
+                                       (f"conversation-expert:{turn.id}", thread_scope["owner_id"])).fetchone()
+            if prior is not None:
+                snapshot = connection.execute("SELECT content_json FROM agent_context_snapshots WHERE id=?", (prior["context_snapshot_id"],)).fetchone()
+                saved = json.loads(snapshot["content_json"]) if snapshot else {}
+                if (prior["objective"] != (objective or content).strip()
+                        or prior["thread_id"] != turn.thread_id
+                        or prior["runtime_bundle_id"] != turn.runtime_bundle_id
+                        or prior["root_budget_id"] != turn.root_budget_id
+                        or saved.get("expert_roles") != list(dict.fromkeys(roles))
+                        or saved.get("source_turn_id") != turn.id
+                        or saved.get("source_message_id") != source_message_id
+                        or saved.get("request") != content
+                        or saved.get("history") != history):
+                    raise RuntimeError("expert handoff binding changed")
+                self._finish_loop_attempt(connection, turn,
+                    ExecutionOutcome(Scope.LOOP, Status.HANDOFF, target_ref=prior["id"]))
+                return dict(prior)
+            self._require_job_owner(connection, turn.id, require_not_cancelled=True)
+            run = agent_tasks.create_run(
+                thread_scope["owner_id"], objective or content,
+                {
+                    "thread_id": turn.thread_id, "source_turn_id": turn.id,
+                    "source_message_id": source_message_id,
+                    "request": content,
+                    "task_mode": "user_task",
+                    "plan_source": {
+                        "document_id": plan_context.plan_document_id,
+                        "version_id": plan_context.version_id,
+                        "version": plan_context.version,
+                        "content_hash": plan_context.content_hash,
+                        "cropped": plan_context.cropped,
+                    } if plan_context is not None else None,
+                    # History is already packed by complete turn under a token budget.
+                    # Slicing messages here loses leading context and may split tool groups.
+                    "history": history,
+                },
+                turn.runtime_bundle_id,
+                thread_id=turn.thread_id, idempotency_key=f"conversation-expert:{turn.id}", append_thread_message=False,
+                expert_roles=roles, connection=connection, parent_turn_id=turn.id,
+                root_budget_id=getattr(turn, "root_budget_id", None),
+            )
+            now = _now()
+            connection.execute("UPDATE turns SET status='COMPLETED',policy='start_expert',content_shape='expert',reason_code=?,version=version+1,updated_at=? WHERE id=?", (reason_code, now, turn.id))
+            self.conversation.events.append(turn.thread_id, turn.id, "expert.requested", "worker", {"objective": objective, "roles": list(roles), "run_id": run["id"]}, connection=connection, occurred_at=now)
+            self.conversation.events.append(turn.thread_id, turn.id, "turn.completed", "worker", {}, connection=connection, occurred_at=now)
+            self._finish_loop_attempt(connection, turn,
+                ExecutionOutcome(Scope.LOOP, Status.HANDOFF, target_ref=run["id"]))
+            self._finish_task(connection, turn.id, "COMPLETED")
+            connection.execute('UPDATE turn_jobs SET finished_at=? WHERE turn_id=?', (now, turn.id))
+        return run
 
     def _chat_tool_runner(
         self, turn: TurnSnapshot, scope, harness: HarnessExecutionContext | None = None,

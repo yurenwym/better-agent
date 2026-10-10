@@ -39,6 +39,7 @@ from .mcp_client import (
     RemoteTool,
 )
 from .tools import (
+    ToolArgumentError,
     ToolExecutionContext,
     ToolReconciliationRequired,
     ToolRegistry,
@@ -70,6 +71,10 @@ _UNSUPPORTED_PROTOCOL_RESULTS = {"input_required", "elicitation", "task"}
 
 class McpToolRejected(ToolRejected):
     """The tool definition or its arguments cannot be used by the Harness."""
+
+
+class McpArgumentError(ToolArgumentError, McpToolRejected):
+    """Invalid arguments; preserve the existing MCP rejection catch boundary."""
 
 
 def _slug(value: str) -> str:
@@ -141,7 +146,7 @@ def validate_arguments(schema: dict[str, Any], params: dict[str, Any]) -> None:
         validator.validate(params)
     except ValidationError as exc:
         location = "/".join(str(part) for part in exc.absolute_path) or "<root>"
-        raise McpToolRejected(f"{location}: {exc.message}") from exc
+        raise McpArgumentError(f"{location}: {exc.message}") from exc
     except Exception as exc:  # noqa: BLE001 - unresolved $ref, bad dialect, ...
         raise McpToolRejected(f"tool arguments could not be validated: {exc}") from exc
 
@@ -495,19 +500,21 @@ class McpToolAdapter:
         self, model_name: str, tool: RemoteTool,
     ) -> Callable[[dict[str, Any], ToolExecutionContext], Awaitable[ToolResult]]:
         async def handler(params: dict[str, Any], context: ToolExecutionContext) -> ToolResult:
+            from .execution_outcome import Effect
+            from dataclasses import replace
             try:
                 current = await self.ensure_current(model_name)
             except McpToolRejected as exc:
                 return ToolResult(
-                    False, str(exc), error="MCP_DEFINITION_CHANGED",
+                    False, str(exc), error="MCP_DEFINITION_CHANGED", effect=Effect.NOT_STARTED,
                     meta={"source": MCP_SOURCE, "server_id": self.server_id, "remote_name": tool.name},
                 )
             except McpError as exc:
-                return self._failure(exc, model_name)
+                return replace(self._failure(exc, model_name), effect=Effect.NOT_STARTED)
             stale = self._stale_approval(current, context.authorization)
             if stale is not None:
                 return ToolResult(
-                    False, stale, error="MCP_APPROVAL_STALE",
+                    False, stale, error="MCP_APPROVAL_STALE", effect=Effect.NOT_STARTED,
                     meta={
                         "source": MCP_SOURCE, "server_id": self.server_id,
                         "remote_name": current.name,

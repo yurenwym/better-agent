@@ -13,6 +13,7 @@ from typing import Any
 from .db import Database
 from .model_gateway import UsageBuckets
 from .config import monetary_limits_enabled
+from .policy_engine import PolicyAction, PolicyInput, decide
 
 
 class BudgetExceeded(RuntimeError):
@@ -140,7 +141,7 @@ class CostService:
             return self.create_default_root_budget(owner_id, root_kind, root_object_id, connection=connection)
 
     def resume_root_after_ask(
-        self, owner_id: str, root_budget_id: str, waiting_since: str, *, resumed_at: str, connection,
+        self, owner_id: str, root_budget_id: str, waiting_since: str, *, connection,
     ) -> float:
         root = connection.execute(
             "SELECT deadline_at FROM task_budget_roots WHERE id=? AND owner_id=? FOR UPDATE",
@@ -150,7 +151,9 @@ class CostService:
             raise BudgetExceeded("root task budget is missing or belongs to another owner")
         deadline = datetime.fromisoformat(str(root["deadline_at"]))
         waiting = datetime.fromisoformat(waiting_since)
-        resumed = datetime.fromisoformat(resumed_at)
+        # Deadline enforcement uses the database clock too. Mixing it with a
+        # worker's wall clock can add execution time when the hosts drift.
+        resumed = connection.execute("SELECT clock_timestamp() AS now").fetchone()["now"]
         # The persisted Ask interval is human waiting, not agent execution.
         # An already exhausted execution deadline must never be revived.
         if deadline <= waiting:
@@ -250,7 +253,10 @@ class CostService:
         ).fetchone()
         if budget is None:
             raise KeyError("cost budget is not configured")
-        if monetary_limits_enabled() and int(budget["reserved_microusd"]) + int(budget["charged_microusd"]) + amount_microusd > int(budget["limit_microusd"]):
+        available = (not monetary_limits_enabled() or
+                     int(budget["reserved_microusd"]) + int(budget["charged_microusd"]) + amount_microusd <= int(budget["limit_microusd"]))
+        # Decide under the existing row lock; approval never replaces reservation.
+        if decide(PolicyInput(True, True, True, budget_available=available)).action == PolicyAction.DENY:
             raise BudgetExceeded("cost budget exhausted")
         connection.execute(
             "UPDATE cost_budgets SET reserved_microusd=reserved_microusd+?,version=version+1,updated_at=? WHERE owner_id=? AND period_kind=? AND period_key=?",

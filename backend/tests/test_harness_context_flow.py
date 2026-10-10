@@ -430,7 +430,12 @@ async def test_i03_tool_internal_llm_call_is_a_child_of_the_tool(tmp_path, monke
         ).fetchall()
     assert len(planner_rows) == 1
     planner = stored_context(planner_rows[0])
-    assert planner["parent_span_id"] == tool["span_id"]
+    from app.event_envelope import EventMetadata
+    resume = next(event for event in runtime.conversation.events.list(thread.id)
+                  if event.type == "chat_tool.context_resumed")
+    attempt = EventMetadata.from_dict(json.loads(resume.envelope_json)).context
+    assert attempt.parent_span_id == tool["span_id"]
+    assert planner["parent_span_id"] == attempt.span_id
     assert planner["trace_id"] == root["trace_id"]
     assert planner["owner_id"] == root["owner_id"]
     assert planner["turn_id"] == accepted.turn_id

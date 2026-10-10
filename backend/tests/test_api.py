@@ -1,6 +1,6 @@
 from fastapi.testclient import TestClient
 
-from test_runtime import make_runtime
+from test_runtime import make_runtime, historical_run_identity
 
 
 def _headers(app, **extra):
@@ -120,7 +120,7 @@ def test_budget_route_rejects_recovery_outside_react_budget_block(tmp_path) -> N
     assert "只有执行轮次用完后" in response.json()["detail"]
 
 
-def test_run_route_localizes_legacy_english_budget_reason(tmp_path) -> None:
+def test_run_route_localizes_legacy_english_budget_reason(tmp_path, historical_run_identity) -> None:
     import asyncio
     from app.domain import AgentState
     from app.main import create_app

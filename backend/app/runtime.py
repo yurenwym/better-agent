@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from contextvars import ContextVar
+from .task_runtime import TaskRuntime, TaskKind, TaskRef, LeaseLost
+
 import asyncio
 import json
 import time
 import uuid
 from collections import deque
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Iterable, Protocol
@@ -205,6 +210,9 @@ class AgentRuntime:
         self.context_assembler = ContextAssembler()
         self.state_machine = StateMachine()
         self._locks: dict[str, asyncio.Lock] = {}
+        self.tasks = TaskRuntime(db)
+        self._execution_token = ContextVar(f"goal_execution_{id(self)}", default=None)
+        self.execution_lease_seconds = 90.0
         self._cancel_events: dict[str, asyncio.Event] = {}
         self._active_model_tasks: dict[str, asyncio.Task[Any]] = {}
         self._cancel_guard = asyncio.Lock()
@@ -220,6 +228,9 @@ class AgentRuntime:
             evolution = getattr(self, "evolution", None)
             if evolution is not None:
                 bundle_id, _ = evolution.assign_run(run_id, project_id or goal_id, connection=connection)
+            else:
+                active_bundle = connection.execute("SELECT bundle_id FROM runtime_channels WHERE name='stable'").fetchone()
+                bundle_id = active_bundle["bundle_id"] if active_bundle else None
             root_budget_id = None
             costs = getattr(self, "costs", None)
             if self.db.backend == "postgresql" and costs is not None:
@@ -239,8 +250,21 @@ class AgentRuntime:
                 "VALUES (?, ?, ?, 'RECEIVED', ?, ?, ?, ?, ?)",
                 (run_id, goal_id, session_id, json.dumps(budget), bundle_id, root_budget_id, now, now),
             )
-        self.events.append(run_id, goal_id, "run.created", "runtime", {})
+            self._persist_run_root(connection, run_id)
+            self.events.append(run_id, goal_id, "run.created", "runtime", {}, connection=connection)
+        if self.events.projector is not None:
+            self.events.projector.project(run_id)
         return self.get_run(run_id)
+
+    def _persist_run_root(self, connection, run_id: str) -> None:
+        from .execution_context import create_root_context, serialize_context
+        run = self.get_run(run_id, connection=connection)
+        budget = dict(run.budget)
+        budget["agent_loop_context"] = serialize_context(create_root_context(
+            owner_id=self.owner_id, run_id=run.id, project_id=run.project_id,
+            runtime_bundle_id=run.runtime_bundle_id, root_budget_id=run.root_budget_id,
+        ))
+        connection.execute("UPDATE runs SET budget_json=? WHERE id=?", (json.dumps(budget), run_id))
 
     def initial_budget(self) -> dict[str, Any]:
         return {
@@ -251,8 +275,8 @@ class AgentRuntime:
             "applied_memory_versions": [],
         }
 
-    def get_run(self, run_id: str) -> RunSnapshot:
-        with self.db.connection() as connection:
+    def get_run(self, run_id: str, *, connection=None) -> RunSnapshot:
+        with (self.db.connection() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute(
                 "SELECT runs.*, goals.project_id FROM runs JOIN goals ON goals.id = runs.goal_id WHERE runs.id = ?",
                 (run_id,),
@@ -319,6 +343,7 @@ class AgentRuntime:
             interaction_id = f"interaction_{uuid.uuid4().hex}"
             now = _now()
             with self.db.transaction() as connection:
+                self._require_execution(connection, run_id)
                 connection.execute(
                     "INSERT INTO interactions(id, run_id, role, content, created_at) VALUES (?, ?, 'user', ?, ?)",
                     (interaction_id, run_id, content, now),
@@ -352,16 +377,18 @@ class AgentRuntime:
                 draft = await self._model_call(run, "planning", self.model.plan, goal, interactions)
                 if draft is None:
                     return self.get_run(run_id)
-                plan = self.plans.create(run_id, run.goal_id, draft.steps, draft.summary)
-                self._set_run_fields(run_id, current_plan_version_id=plan.id)
-                self.events.append(
-                    run_id,
-                    run.goal_id,
-                    "plan.version_created",
-                    "runtime",
-                    {"plan_version_id": plan.id, "version": plan.version},
-                )
-                self._transition(self.get_run(run_id), AgentState.AWAITING_APPROVAL, {"plan_version_id": plan.id})
+                with self.db.transaction() as connection:
+                    self._require_execution(connection, run_id, allow_cancelled=False)
+                    plan = self.plans.create(run_id, run.goal_id, draft.steps, draft.summary, connection=connection)
+                    self._set_run_fields(run_id, current_plan_version_id=plan.id, connection=connection)
+                    self.events.append(
+                        run_id,
+                        run.goal_id,
+                        "plan.version_created",
+                        "runtime",
+                        {"plan_version_id": plan.id, "version": plan.version}, connection=connection,
+                    )
+                    self._transition(self.get_run(run_id, connection=connection), AgentState.AWAITING_APPROVAL, {"plan_version_id": plan.id}, connection=connection)
             self.events.append(run_id, run.goal_id, "interaction.ended", "runtime", {"interaction_id": interaction_id})
             return self.get_run(run_id)
 
@@ -372,15 +399,19 @@ class AgentRuntime:
             plan = self.plans.current(run_id)
             if plan.version != version:
                 raise ValueError("plan version conflict")
-            approved = self.plans.approve(plan.id)
-            self.events.append(
-                run_id,
-                run.goal_id,
-                "plan.approved",
-                "user",
-                {"plan_version_id": approved.id, "version": approved.version},
-            )
-            self._transition(self.get_run(run_id), AgentState.EXECUTING, {"plan_version_id": approved.id})
+            with self.db.transaction() as connection:
+                self._require_execution(connection, run_id, allow_cancelled=False)
+                approved = self.plans.approve(plan.id, connection=connection)
+                self.events.append(
+                    run_id,
+                    run.goal_id,
+                    "plan.approved",
+                    "user",
+                    {"plan_version_id": approved.id, "version": approved.version}, connection=connection,
+                )
+                self._transition(self.get_run(run_id, connection=connection), AgentState.EXECUTING, {"plan_version_id": approved.id}, connection=connection)
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
             return await self._execute_locked(run_id)
 
     async def revise_plan(
@@ -393,15 +424,19 @@ class AgentRuntime:
         lock = self._lock(run_id)
         async with lock:
             run = self.get_run(run_id)
-            plan = self.plans.revise(run_id, run.goal_id, expected_version, steps, summary)
-            self._set_run_fields(run_id, current_plan_version_id=plan.id)
-            self.events.append(
-                run_id,
-                run.goal_id,
-                "plan.version_created",
-                "user",
-                {"plan_version_id": plan.id, "version": plan.version, "base_version": expected_version},
-            )
+            with self.db.transaction() as connection:
+                self._require_execution(connection, run_id, allow_cancelled=False)
+                plan = self.plans.revise(run_id, run.goal_id, expected_version, steps, summary, connection=connection)
+                self._set_run_fields(run_id, current_plan_version_id=plan.id, connection=connection)
+                self.events.append(
+                    run_id,
+                    run.goal_id,
+                    "plan.version_created",
+                    "user",
+                    {"plan_version_id": plan.id, "version": plan.version, "base_version": expected_version}, connection=connection,
+                )
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
             return plan
 
     def pending_approvals(self, run_id: str) -> list[Approval]:
@@ -421,15 +456,17 @@ class AgentRuntime:
             approval = self._approval_row(approval_id)
             params = json.loads(approval["params_json"])
             binding = json.loads(approval["binding_json"] or "{}")
-            self.approvals.grant(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding)
             run = self.get_run(approval["run_id"])
-            self.events.append(
-                run.id,
-                run.goal_id,
-                "approval.granted",
-                "user",
-                {"approval_id": approval_id, "tool_call_id": approval["tool_call_id"]},
-            )
+            with self.db.transaction() as connection:
+                self._require_execution(connection, run.id, allow_cancelled=False)
+                self.approvals.grant(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding, connection=connection)
+                self.events.append(
+                    run.id,
+                    run.goal_id,
+                    "approval.granted",
+                    "user",
+                    {"approval_id": approval_id, "tool_call_id": approval["tool_call_id"]}, connection=connection,
+                )
             return await self._execute_locked(run.id)
 
     async def reject_approval(self, approval_id: str) -> RunSnapshot:
@@ -438,9 +475,12 @@ class AgentRuntime:
             approval = self._approval_row(approval_id)
             params = json.loads(approval["params_json"])
             binding = json.loads(approval["binding_json"] or "{}")
-            self.approvals.reject(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding)
             run = self.get_run(run_id)
-            self.events.append(run_id, run.goal_id, "approval.rejected", "user", {"approval_id": approval_id})
+            with self.db.transaction() as connection:
+                self._require_execution(connection, run_id, allow_cancelled=False)
+                self.approvals.reject(approval_id, approval["run_id"], approval["tool_call_id"], params, binding=binding, connection=connection)
+                self.events.append(run_id, run.goal_id, "approval.rejected", "user",
+                    {"approval_id": approval_id, "tool_call_id": approval["tool_call_id"]}, connection=connection)
             return await self._execute_locked(run_id)
 
     async def add_budget(self, run_id: str, amount: int) -> RunSnapshot:
@@ -464,11 +504,19 @@ class AgentRuntime:
     async def cancel(self, run_id: str) -> RunSnapshot:
         self._cancel_event(run_id).set()
         async with self._cancel_guard:
-            run = self.get_run(run_id)
-            if run.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
-                self._transition(run, AgentState.CANCELLED, {"reason": "user cancelled"})
-                self.events.append(run_id, run.goal_id, "run.cancelled", "user", {})
-                self._save_checkpoint(run_id, "user cancelled")
+            changed = False
+            with self.db.transaction() as connection:
+                if self.db.backend == "postgresql":
+                    connection.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run_id,)).fetchone()
+                run = self.get_run(run_id, connection=connection)
+                if run.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
+                    self._transition(run, AgentState.CANCELLED, {"reason": "user cancelled"}, connection=connection)
+                    self.events.append(run_id, run.goal_id, "run.cancelled", "user", {}, connection=connection)
+                    self._save_checkpoint(run_id, "user cancelled", connection=connection)
+                    changed = True
+            if changed:
+                if self.events.projector is not None:
+                    self.events.projector.project(run_id)
                 await self._finish_exposure(run_id, success=False)
             active_task = self._active_model_tasks.get(run_id)
             current_task = asyncio.current_task()
@@ -481,16 +529,20 @@ class AgentRuntime:
         async with lock:
             run = self.get_run(run_id)
             plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else self.plans.current(run_id)
-            self.plans.mark_step_cancelled(plan.id, step_id)
-            self._set_run_fields(run_id, current_step_id=None)
-            self.events.append(
-                run_id,
-                run.goal_id,
-                "plan.step_cancelled",
-                "user",
-                {"plan_version_id": plan.id, "plan_step_id": step_id},
-            )
-            self._save_checkpoint(run_id, "step cancelled")
+            with self.db.transaction() as connection:
+                self._require_execution(connection, run_id, allow_cancelled=False)
+                self.plans.mark_step_cancelled(plan.id, step_id, connection=connection)
+                self._set_run_fields(run_id, current_step_id=None, connection=connection)
+                self.events.append(
+                    run_id,
+                    run.goal_id,
+                    "plan.step_cancelled",
+                    "user",
+                    {"plan_version_id": plan.id, "plan_step_id": step_id}, connection=connection,
+                )
+                self._save_checkpoint(run_id, "step cancelled", connection=connection)
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
             return self.get_run(run_id)
 
     async def resume(self, run_id: str) -> RunSnapshot:
@@ -551,10 +603,18 @@ class AgentRuntime:
                 {"plan_step_id": step.id, "plan_version_id": plan.id},
             )
             outcome = await self._execute_step(run_id, plan, step.id)
+            self._assert_execution(run_id)
             if outcome in {"blocked", "awaiting_outcome", "approval", "cancelled"}:
                 return self.get_run(run_id)
 
     async def _execute_step(self, run_id: str, plan: PlanVersion, step_id: str) -> str:
+        from .config import agent_loop_mode
+        if agent_loop_mode() == "loop":
+            from .goal_loop import execute_goal_step
+            result = await execute_goal_step(self, run_id, plan, step_id)
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
+            return result
         started = time.monotonic()
         observation = ""
         step = next(item for item in plan.steps if item.id == step_id)
@@ -613,30 +673,30 @@ class AgentRuntime:
             iteration = int(self.get_run(run_id).budget.get("react_iteration", iteration))
             correlation = {"plan_version_id": plan.id, "plan_step_id": step_id, "react_iteration": iteration}
             self.events.append(run_id, run.goal_id, "react.iteration_started", "runtime", correlation)
-            if decision.action == "complete_step":
-                self.plans.mark_step_completed(plan.id, step_id)
-                self.events.append(
-                    run_id,
-                    run.goal_id,
-                    "plan.step_finished",
-                    "runtime",
-                    {**correlation, "summary": decision.summary},
-                )
-                self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
-                self._set_run_fields(
-                    run_id,
-                    current_step_id=None,
-                    budget=self._reset_step_budget(
-                        self.get_run(run_id).budget,
-                        self.config.max_react_iterations_per_step,
-                    ),
-                )
-                return "completed"
-            if decision.action == "await_outcome":
-                self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
-                self._transition(self.get_run(run_id), AgentState.AWAITING_OUTCOME, {"observation": decision.observation})
-                self._save_checkpoint(run_id, decision.observation, pending_actions=[])
-                return "awaiting_outcome"
+            if decision.action in {"complete_step", "await_outcome"}:
+                with self.db.transaction() as connection:
+                    self._require_execution(connection, run_id)
+                    if self.db.backend == "postgresql":
+                        connection.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run_id,)).fetchone()
+                    current = self.get_run(run_id, connection=connection)
+                    if current.state == AgentState.CANCELLED or self._cancel_event(run_id).is_set():
+                        return "cancelled"
+                    self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime",
+                        correlation, connection=connection)
+                    if decision.action == "complete_step":
+                        self.plans.mark_step_completed(plan.id, step_id, connection=connection)
+                        self.events.append(run_id, run.goal_id, "plan.step_finished", "runtime",
+                            {**correlation, "summary": decision.summary}, connection=connection)
+                        self._set_run_fields(run_id, current_step_id=None,
+                            budget=self._reset_step_budget(current.budget, self.config.max_react_iterations_per_step),
+                            connection=connection)
+                    else:
+                        self._transition(current, AgentState.AWAITING_OUTCOME,
+                            {"observation": decision.observation}, connection=connection)
+                        self._save_checkpoint(run_id, decision.observation, pending_actions=[], connection=connection)
+                if self.events.projector is not None:
+                    self.events.projector.project(run_id)
+                return "completed" if decision.action == "complete_step" else "awaiting_outcome"
             if decision.action == "blocked":
                 self.events.append(run_id, run.goal_id, "react.iteration_finished", "runtime", correlation)
                 return self._block(
@@ -691,7 +751,7 @@ class AgentRuntime:
                     skill_tools = self._skill_tools_for_run(run, "react")
                     authorization = self._tool_authorization(run, "react", call)
                     try:
-                        self.tools.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+                        self.tools.executor.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
                     except ToolRejected as exc:
                         self.events.append(run_id, run.goal_id, "tool.authorization.denied", "runtime", {
                             "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
@@ -704,7 +764,8 @@ class AgentRuntime:
                         "tool",
                         {**correlation, "tool_call_id": call.id, "name": call.name},
                     )
-                    tool_result = await self.tools.execute_async(
+                    self._assert_execution(run_id)
+                    tool_result = await self.tools.executor.execute_async(
                         call, context=self._tool_execution_context(run, call),
                         skill_tools=skill_tools, authorization=authorization,
                     )
@@ -750,11 +811,8 @@ class AgentRuntime:
                     ])
                 return outcome
             except ToolRejected as exc:
-                reason = (
-                    "TOOL_INVALID_ARGUMENT"
-                    if str(exc).startswith("invalid arguments")
-                    else "TOOL_AUTHORIZATION_DENIED"
-                )
+                from .outcome_adapters import error_from_exception
+                reason = error_from_exception(exc).code
                 return self._block(
                     run_id,
                     reason,
@@ -853,10 +911,21 @@ class AgentRuntime:
                     "runtime",
                     {"reason": "invalid model candidate"},
                 )
-        if self.get_run(run_id).state == AgentState.REFLECTING:
-            self._transition(self.get_run(run_id), AgentState.COMPLETED, {"candidates": len(candidates)})
-        self.events.append(run_id, run.goal_id, "run.completed", "runtime", {"candidate_count": len(candidates)})
-        await self._finish_exposure(run_id, success=True)
+        completed = False
+        with self.db.transaction() as connection:
+            self._require_execution(connection, run_id)
+            if self.db.backend == "postgresql":
+                connection.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run_id,)).fetchone()
+            current = self.get_run(run_id, connection=connection)
+            if current.state == AgentState.REFLECTING and not self._cancel_event(run_id).is_set():
+                self._transition(current, AgentState.COMPLETED, {"candidates": len(candidates)}, connection=connection)
+                self.events.append(run_id, run.goal_id, "run.completed", "runtime",
+                    {"candidate_count": len(candidates)}, connection=connection)
+                completed = True
+        if completed:
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
+            await self._finish_exposure(run_id, success=True)
         return self.get_run(run_id)
 
     async def _finish_exposure(self, run_id: str, *, success: bool) -> None:
@@ -890,11 +959,14 @@ class AgentRuntime:
                     owner_id = None
                 if owner_id:
                     from .model_control import ModelCallContext
-                    token = gateway.set_call_context(ModelCallContext(
-                        role="judge_safety", purpose="judge_run_output", run_id=run.id,
-                        goal_id=run.goal_id, runtime_bundle_id=run.runtime_bundle_id,
-                        root_budget_id=run.root_budget_id, owner_id=owner_id,
-                    ))
+                    from .execution_context import deserialize_context, create_child_context, LegacyContextMissing
+                    if not run.budget.get("agent_loop_context"):
+                        raise LegacyContextMissing("goal safety check requires a persisted context")
+                    root = deserialize_context(run.budget["agent_loop_context"])
+                    if root.owner_id != owner_id:
+                        raise PermissionError("goal safety check owner changed")
+                    token = gateway.set_call_context(ModelCallContext.from_harness(
+                        create_child_context(root), role="judge_safety", purpose="judge_run_output", goal_id=run.goal_id))
             if getattr(gateway, "control_store", None) is None or owner_id:
                 try:
                     safety_pass = await judge.judge({"run_id": run_id, "output": "\n\n".join(messages[-8:])})
@@ -912,27 +984,40 @@ class AgentRuntime:
         message: str,
         budget: dict[str, Any],
         event_type: str,
+        *, connection=None,
     ) -> str:
-        if self._is_cancelled(run_id):
+        if connection is None:
+            with self.db.transaction() as active:
+                self._require_execution(active, run_id)
+                if self.db.backend == "postgresql":
+                    active.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run_id,)).fetchone()
+                result = self._block(run_id, reason_code, message, budget, event_type, connection=active)
+            if self.events.projector is not None:
+                self.events.projector.project(run_id)
+            return result
+        if self._cancel_event(run_id).is_set():
             return "cancelled"
-        run = self.get_run(run_id)
+        run = self.get_run(run_id, connection=connection)
+        if run.state in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
+            return "cancelled" if run.state == AgentState.CANCELLED else "completed"
         budget = dict(budget)
         budget["blocked_reason_code"] = reason_code
         budget["blocked_message"] = message
         budget.pop("blocked_reason", None)
-        self._set_run_fields(run_id, budget=budget)
+        self._set_run_fields(run_id, budget=budget, connection=connection)
         if run.state != AgentState.BLOCKED:
             self._transition(
-                self.get_run(run_id),
+                run,
                 AgentState.BLOCKED,
                 {"reason_code": reason_code, "message": message},
+                connection=connection,
             )
         message = public_message(message, reason_message(reason_code))
         event_data = {"reason_code": reason_code, "message": message}
         if event_type == "budget.exhausted":
-            self.events.append(run_id, run.goal_id, "budget.exhausted", "runtime", event_data)
-        self._save_checkpoint(run_id, message)
-        self.events.append(run_id, run.goal_id, "run.blocked", "runtime", event_data)
+            self.events.append(run_id, run.goal_id, "budget.exhausted", "runtime", event_data, connection=connection)
+        self.events.append(run_id, run.goal_id, "run.blocked", "runtime", event_data, connection=connection)
+        self._save_checkpoint(run_id, message, connection=connection)
         return "blocked"
 
     def _save_checkpoint(
@@ -941,11 +1026,11 @@ class AgentRuntime:
         observation: str,
         pending_actions: list[dict[str, Any]] | None = None,
         pending_approvals: list[str] | None = None,
+        *, connection=None,
     ) -> Checkpoint:
-        run = self.get_run(run_id)
-        plan = self.plans.get(run.current_plan_version_id) if run.current_plan_version_id else None
-        checkpoint = self.checkpoints.save(
-            Checkpoint(
+        run = self.get_run(run_id, connection=connection)
+        plan = self.plans.get(run.current_plan_version_id, connection=connection) if run.current_plan_version_id else None
+        checkpoint = Checkpoint(
                 run_id=run_id,
                 state=run.state.value,
                 plan_version_id=run.current_plan_version_id,
@@ -958,10 +1043,18 @@ class AgentRuntime:
                 pending_approvals=pending_approvals or [],
                 applied_memory_versions=list(run.budget.get("applied_memory_versions", [])),
                 pending_actions=pending_actions or [],
-                last_event_seq=self.events.list(run_id)[-1].seq if self.events.list(run_id) else 0,
+                last_event_seq=0,
             )
-        )
-        self.events.append(run_id, run.goal_id, "checkpoint.saved", "runtime", {"checkpoint_id": checkpoint.id})
+        from contextlib import nullcontext
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as active:
+            self._require_execution(active, run_id)
+            from dataclasses import replace
+            checkpoint = replace(checkpoint, last_event_seq=active.execute(
+                "SELECT COALESCE(MAX(seq),0) FROM events WHERE run_id=?", (run_id,),
+            ).fetchone()[0])
+            checkpoint = self.checkpoints.save(checkpoint, connection=active)
+            self.events.append(run_id, run.goal_id, "checkpoint.saved", "runtime",
+                               {"checkpoint_id": checkpoint.id}, connection=active)
         return checkpoint
 
     def _pending_action(self, run_id: str) -> dict[str, Any] | None:
@@ -1001,18 +1094,24 @@ class AgentRuntime:
         target: AgentState,
         data: dict[str, Any],
         resume_state: AgentState | None = None,
+        *, connection=None,
     ) -> None:
-        transition = self.state_machine.transition(run.state, target, resume_state=resume_state or run.resume_state)
-        self._set_run_fields(run.id, state=transition.state.value, resume_state=transition.resume_state.value if transition.resume_state else None)
-        self.events.append(
-            run.id,
-            run.goal_id,
-            "state.transitioned",
-            "runtime",
-            {"from": run.state.value, "to": transition.state.value, "resume_state": transition.resume_state.value if transition.resume_state else None, **data},
-        )
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
+            self._require_execution(connection, run.id)
+            if self.db.backend == "postgresql":
+                connection.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run.id,)).fetchone()
+            current = self.get_run(run.id, connection=connection)
+            transition = self.state_machine.transition(current.state, target, resume_state=resume_state or current.resume_state)
+            self._set_run_fields(run.id, connection=connection, state=transition.state.value,
+                                 resume_state=transition.resume_state.value if transition.resume_state else None)
+            self.events.append(
+                run.id, run.goal_id, "state.transitioned", "runtime",
+                {"from": current.state.value, "to": transition.state.value,
+                 "resume_state": transition.resume_state.value if transition.resume_state else None, **data},
+                connection=connection,
+            )
 
-    def _set_run_fields(self, run_id: str, **fields: Any) -> None:
+    def _set_run_fields(self, run_id: str, *, connection=None, **fields: Any) -> None:
         if not fields:
             return
         values = dict(fields)
@@ -1020,8 +1119,10 @@ class AgentRuntime:
             values["budget_json"] = json.dumps(values.pop("budget"), ensure_ascii=False)
         values["updated_at"] = _now()
         assignments = ", ".join(f"{key} = ?" for key in values)
-        with self.db.transaction() as connection:
-            connection.execute(
+        from contextlib import nullcontext
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as active:
+            self._require_execution(active, run_id)
+            active.execute(
                 f"UPDATE runs SET {assignments}, version = version + 1 WHERE id = ?",
                 (*values.values(), run_id),
             )
@@ -1056,138 +1157,153 @@ class AgentRuntime:
         gateway = getattr(self.model, "gateway", None)
         persistent_calls = getattr(gateway, "control_store", None) is not None
         call_context_token = None
-        if persistent_calls:
-            from .model_control import ModelCallContext
-
-            role = {"clarification": "ask", "planning": "planner", "react": "executor", "reflection": "reflector"}.get(kind, kind)
-            run_owner_id, thread_id = self._run_scope(run)
-            call_context_token = gateway.set_call_context(ModelCallContext(
-                role=role,
-                purpose=kind,
-                invocation_id=invocation_id,
-                run_id=run.id,
-                goal_id=run.goal_id,
-                thread_id=thread_id,
-                turn_id=run.source_turn_id,
-                runtime_bundle_id=run.runtime_bundle_id,
-                root_budget_id=run.root_budget_id,
-                owner_id=run_owner_id,
-            ))
-        snapshot = self._prepare_model_context(run, kind, args, invocation_id)
-        message_id = self._create_model_message(run)
-        if not persistent_calls:
-            self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
-            self.events.append(
-                run.id,
-                run.goal_id,
-                "model.attempt_started",
-                "runtime",
-                {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
-            )
-        setter = getattr(self.model, "set_text_delta_callback", None)
-        resetter = getattr(self.model, "set_text_reset_callback", None)
-        reset_delta = getattr(self.model, "reset_text_delta_callback", None)
-        reset_stream = getattr(self.model, "reset_text_reset_callback", None)
-        cancel_setter = getattr(self.model, "set_cancel_event", None)
-        cancel_resetter = getattr(self.model, "reset_cancel_event", None)
-        streamed = False
-
-        def on_delta(delta: str) -> None:
-            nonlocal streamed
-            streamed = True
-            self._append_model_delta(run, kind, invocation_id, message_id, delta)
-
-        def on_reset() -> None:
-            nonlocal streamed
-            if streamed:
-                self._reset_model_message(run, kind, invocation_id, message_id)
-                streamed = False
-
-        delta_token = setter(on_delta) if setter is not None else None
-        reset_token = resetter(on_reset) if resetter is not None else None
-        cancel_token = cancel_setter(self._cancel_event(run.id)) if cancel_setter is not None else None
-
-        def clear_callbacks() -> None:
-            if cancel_resetter is not None and cancel_token is not None:
-                cancel_resetter(cancel_token)
-            if reset_stream is not None and reset_token is not None:
-                reset_stream(reset_token)
-            elif resetter is not None:
-                resetter(None)
-            if reset_delta is not None and delta_token is not None:
-                reset_delta(delta_token)
-            elif setter is not None:
-                setter(None)
         try:
-            result = await method(*args)
-        except asyncio.CancelledError:
-            clear_callbacks()
+            if persistent_calls:
+                from .model_control import ModelCallContext
+                from .execution_context import create_child_context, deserialize_context, LegacyContextMissing
+                if not run.budget.get("agent_loop_context"):
+                    raise LegacyContextMissing("model execution requires a persisted run context")
+                role = {"clarification": "ask", "planning": "planner", "react": "executor", "reflection": "reflector"}.get(kind, kind)
+                run_owner_id, thread_id = self._run_scope(run)
+                harness = deserialize_context(run.budget["agent_loop_context"])
+                expected = {"owner_id": run_owner_id, "thread_id": thread_id, "turn_id": run.source_turn_id,
+                    "run_id": run.id, "runtime_bundle_id": run.runtime_bundle_id, "root_budget_id": run.root_budget_id,
+                    "project_id": run.project_id}
+                if any(getattr(harness, key) != value for key, value in expected.items()):
+                    from .execution_context import ContextIdentityConflict
+                    raise ContextIdentityConflict("model run identity changed")
+                context = ModelCallContext.from_harness(
+                    create_child_context(harness), role=role, purpose=kind,
+                    invocation_id=invocation_id, goal_id=run.goal_id,
+                )
+                call_context_token = gateway.set_call_context(context)
+            snapshot = self._prepare_model_context(run, kind, args, invocation_id)
+            message_id = self._create_model_message(run)
             if not persistent_calls:
-                self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
-            return None
-        except Exception as exc:
-            clear_callbacks()
-            from .model_gateway import GatewayError
+                self.events.append(run.id, run.goal_id, "model.invocation_started", "runtime", {"model_invocation_id": invocation_id, "kind": kind})
+                self.events.append(
+                    run.id,
+                    run.goal_id,
+                    "model.attempt_started",
+                    "runtime",
+                    {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "attempt": 1},
+                )
+            setter = getattr(self.model, "set_text_delta_callback", None)
+            resetter = getattr(self.model, "set_text_reset_callback", None)
+            reset_delta = getattr(self.model, "reset_text_delta_callback", None)
+            reset_stream = getattr(self.model, "reset_text_reset_callback", None)
+            cancel_setter = getattr(self.model, "set_cancel_event", None)
+            cancel_resetter = getattr(self.model, "reset_cancel_event", None)
+            streamed = False
 
-            if not isinstance(exc, GatewayError):
-                raise
-            if exc.kind == "cancelled" or self._is_cancelled(run.id):
+            def on_delta(delta: str) -> None:
+                nonlocal streamed
+                streamed = True
+                self._append_model_delta(run, kind, invocation_id, message_id, delta)
+
+            def on_reset() -> None:
+                nonlocal streamed
+                if streamed:
+                    self._reset_model_message(run, kind, invocation_id, message_id)
+                    streamed = False
+
+            delta_token = setter(on_delta) if setter is not None else None
+            reset_token = resetter(on_reset) if resetter is not None else None
+            cancel_token = cancel_setter(self._cancel_event(run.id)) if cancel_setter is not None else None
+
+            def clear_callbacks() -> None:
+                if cancel_resetter is not None and cancel_token is not None:
+                    cancel_resetter(cancel_token)
+                if reset_stream is not None and reset_token is not None:
+                    reset_stream(reset_token)
+                elif resetter is not None:
+                    resetter(None)
+                if reset_delta is not None and delta_token is not None:
+                    reset_delta(delta_token)
+                elif setter is not None:
+                    setter(None)
+            try:
+                self._assert_execution(run.id)
+                result = await method(*args)
+                self._assert_execution(run.id)
+            except asyncio.CancelledError:
+                clear_callbacks()
                 if not persistent_calls:
                     self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
                 return None
-            if not persistent_calls:
-                self.events.append(
-                    run.id,
-                    run.goal_id,
-                    "model.attempt_finished",
-                    "runtime",
-                    {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "failed", "error_kind": exc.kind},
-                )
-                self.events.append(
-                    run.id,
-                    run.goal_id,
-                    "model.invocation_finished",
-                    "runtime",
-                    {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
-                )
-            current = self.get_run(run.id)
-            reason_code = f"MODEL_{exc.kind.upper()}"
-            message = reason_message(reason_code, "模型请求未完成")
-            if current.state == AgentState.RECEIVED:
-                self._transition(current, AgentState.FAILED, {"reason_code": reason_code, "message": message})
-                self.events.append(
-                    run.id,
-                    run.goal_id,
-                    "run.failed",
-                    "runtime",
-                    {"reason_code": reason_code, "message": message},
-                )
-                self._save_checkpoint(run.id, message)
-                await self._finish_exposure(run.id, success=False)
-            elif current.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
-                self._block(
-                    run.id,
-                    reason_code,
-                    message,
-                    current.budget,
-                    "run.blocked",
-                )
-            return None
-        else:
-            clear_callbacks()
-            if self._is_cancelled(run.id):
+            except Exception as exc:
+                clear_callbacks()
+                from .model_gateway import GatewayError
+
+                if not isinstance(exc, GatewayError):
+                    raise
+                if exc.kind == "cancelled" or self._is_cancelled(run.id):
+                    if not persistent_calls:
+                        self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                    return None
                 if not persistent_calls:
-                    self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                    self.events.append(
+                        run.id,
+                        run.goal_id,
+                        "model.attempt_finished",
+                        "runtime",
+                        {"model_invocation_id": invocation_id, "model_attempt_id": attempt_id, "status": "failed", "error_kind": exc.kind},
+                    )
+                    self.events.append(
+                        run.id,
+                        run.goal_id,
+                        "model.invocation_finished",
+                        "runtime",
+                        {"model_invocation_id": invocation_id, "kind": kind, "status": "failed", "error_kind": exc.kind},
+                    )
+                current = self.get_run(run.id)
+                reason_code = f"MODEL_{exc.kind.upper()}"
+                message = reason_message(reason_code, "模型请求未完成")
+                if current.state == AgentState.RECEIVED:
+                    failed = False
+                    with self.db.transaction() as connection:
+                        self._require_execution(connection, run.id)
+                        if self.db.backend == "postgresql":
+                            connection.execute("SELECT id FROM runs WHERE id=? FOR UPDATE", (run.id,)).fetchone()
+                        current = self.get_run(run.id, connection=connection)
+                        if current.state == AgentState.RECEIVED and not self._cancel_event(run.id).is_set():
+                            from .outcome_adapters import exception_outcome
+                            from .execution_outcome import Scope
+                            self._transition(current, AgentState.FAILED,
+                                {"reason_code": reason_code, "message": message}, connection=connection)
+                            self.events.append(run.id, run.goal_id, "run.failed", "runtime",
+                                {"reason_code": reason_code, "message": message,
+                                 "outcome": exception_outcome(exc, scope=Scope.TASK).to_dict()}, connection=connection)
+                            self._save_checkpoint(run.id, message, connection=connection)
+                            failed = True
+                    if failed:
+                        if self.events.projector is not None:
+                            self.events.projector.project(run.id)
+                        await self._finish_exposure(run.id, success=False)
+                elif current.state not in {AgentState.COMPLETED, AgentState.FAILED, AgentState.CANCELLED}:
+                    self._block(
+                        run.id,
+                        reason_code,
+                        message,
+                        current.budget,
+                        "run.blocked",
+                    )
                 return None
-            response = getattr(self.model, "last_response", None)
-            if not persistent_calls:
-                self._record_model_response(run, invocation_id, attempt_id, response)
-            self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
-            if not persistent_calls:
-                self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
-            if snapshot is not None:
-                self._record_applied_context(run, kind, invocation_id, snapshot)
-            return result
+            else:
+                clear_callbacks()
+                if self._is_cancelled(run.id):
+                    if not persistent_calls:
+                        self._record_cancelled_model_call(run, invocation_id, attempt_id, kind)
+                    return None
+                response = getattr(self.model, "last_response", None)
+                if not persistent_calls:
+                    self._record_model_response(run, invocation_id, attempt_id, response)
+                self._append_model_message(run, kind, invocation_id, response, result, message_id=message_id)
+                if not persistent_calls:
+                    self.events.append(run.id, run.goal_id, "model.invocation_finished", "runtime", {"model_invocation_id": invocation_id, "kind": kind, "status": "success"})
+                if snapshot is not None:
+                    self._record_applied_context(run, kind, invocation_id, snapshot)
+                return result
         finally:
             if persistent_calls and call_context_token is not None:
                 gateway.reset_call_context(call_context_token)
@@ -1334,6 +1450,7 @@ class AgentRuntime:
         revision_ids = [item.id for item in snapshot.memories if item.source_type == "revision"]
         episode_ids = [item.id for item in snapshot.memories if item.source_type == "episode"]
         with self.db.transaction() as connection:
+            self._require_execution(connection, run.id)
             applied = connection.execute(
                 "SELECT data_json FROM events WHERE run_id=? AND type='memory.context_applied'",
                 (run.id,),
@@ -1434,6 +1551,7 @@ class AgentRuntime:
         interaction_id = self._latest_interaction_id(run.id)
         now = _now()
         with self.db.transaction() as connection:
+            self._require_execution(connection, run.id)
             connection.execute(
                 "INSERT INTO messages(id, run_id, interaction_id, role, content, created_at) VALUES (?, ?, ?, 'assistant', '', ?)",
                 (message_id, run.id, interaction_id, now),
@@ -1451,6 +1569,7 @@ class AgentRuntime:
         if not delta:
             return
         with self.db.transaction() as connection:
+            self._require_execution(connection, run.id)
             connection.execute(
                 "UPDATE messages SET content = content || ? WHERE id = ? AND run_id = ?",
                 (delta, message_id, run.id),
@@ -1482,6 +1601,7 @@ class AgentRuntime:
         message_id: str,
     ) -> None:
         with self.db.transaction() as connection:
+            self._require_execution(connection, run.id)
             connection.execute(
                 "UPDATE messages SET content = '' WHERE id = ? AND run_id = ?",
                 (message_id, run.id),
@@ -1515,6 +1635,7 @@ class AgentRuntime:
         interaction_id = self._latest_interaction_id(run.id)
         now = _now()
         with self.db.transaction() as connection:
+            self._require_execution(connection, run.id)
             existing = connection.execute(
                 "SELECT id FROM messages WHERE id = ? AND run_id = ?",
                 (message_id, run.id),
@@ -1575,10 +1696,55 @@ class AgentRuntime:
         result["react_iteration"] = 0
         result["consecutive_tool_errors"] = 0
         result["identical_actions"] = {}
+        result.pop("agent_loop_guards", None)
         return result
 
-    def _lock(self, run_id: str) -> asyncio.Lock:
-        return self._locks.setdefault(run_id, asyncio.Lock())
+    @asynccontextmanager
+    async def _lock(self, run_id: str):
+        async with self._locks.setdefault(run_id, asyncio.Lock()):
+            with self.db.transaction() as connection:
+                attempt = self.tasks.claim(connection, TaskRef(TaskKind.GOAL, run_id),
+                                           f"goal-worker-{uuid.uuid4().hex}", self.execution_lease_seconds)
+                if attempt is None:
+                    raise LeaseLost("goal execution is already active")
+            marker = self._execution_token.set(attempt.token)
+            owner_task = asyncio.current_task()
+            loop = asyncio.get_running_loop()
+
+            def heartbeat():
+                nonlocal pulse
+                try:
+                    with self.db.transaction() as connection:
+                        self.tasks.heartbeat(connection, attempt.token, self.execution_lease_seconds)
+                except Exception:
+                    owner_task.cancel("goal execution lease lost")
+                    return
+                pulse = loop.call_later(self.execution_lease_seconds / 3, heartbeat)
+
+            pulse = loop.call_later(self.execution_lease_seconds / 3, heartbeat)
+            try:
+                from .send_authority import send_authority
+                with send_authority(lambda: self._assert_execution(run_id)):
+                    yield
+            finally:
+                pulse.cancel()
+                self._execution_token.reset(marker)
+                with self.db.transaction() as connection:
+                    try:
+                        self.tasks.finish(connection, attempt.token, "QUEUED")
+                    except LeaseLost:
+                        pass
+
+    def _require_execution(self, connection, run_id: str, *, allow_cancelled=True):
+        token = self._execution_token.get()
+        if token is not None:
+            if token.task.id != run_id:
+                raise LeaseLost("goal execution token belongs to another run")
+            self.tasks.require(connection, token, allow_cancelled=allow_cancelled)
+
+    def _assert_execution(self, run_id: str) -> None:
+        with self.db.transaction() as connection:
+            self._require_execution(connection, run_id, allow_cancelled=False)
 
     def _cancel_event(self, run_id: str) -> asyncio.Event:
         return self._cancel_events.setdefault(run_id, asyncio.Event())
@@ -1673,6 +1839,9 @@ class AgentRuntime:
         from .chat_tools import GOAL_TOOL_NAMES
 
         allowed = set(GOAL_TOOL_NAMES)
+        from .config import agent_loop_mode
+        if agent_loop_mode() == "loop":
+            allowed |= {"start_research", "delegate_experts", "remember", "publish_plan_document", "get_task", "cancel_task"}
         # MCP tools are added only when their server is configured *and* their
         # definitions are currently registered. The catalogue, the model-visible
         # schema set and the execution authorization stay three separate things:
@@ -1718,6 +1887,17 @@ class AgentRuntime:
                 ))
             except (KeyError, ValueError) as exc:
                 raise ToolRejected("execution preview unavailable") from exc
+        spec = self.tools.find(call.name)
+        if spec is not None and spec.source != "mcp" and self.tools.executor.risk_of(call.name, call.params).value == "WRITE":
+            digest = spec.approval_digest()
+            with self.db.connection() as connection:
+                previous = connection.execute(
+                    "SELECT binding_json FROM approvals WHERE run_id=? AND tool_call_id=? ORDER BY created_at DESC LIMIT 1",
+                    (run.id, call.id),
+                ).fetchone()
+            if previous is not None and json.loads(previous["binding_json"] or "{}").get("capability_digest") != digest:
+                raise ToolRejected("approved capability definition changed; create a new logical call")
+            authorization["capability_digest"] = digest
         return authorization or None
 
     def approval_details(self, run_id: str) -> dict[str, Any]:

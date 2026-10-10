@@ -9,7 +9,10 @@ from typing import Any
 
 from ..db import Database
 from ..events import ThreadEventStore
+from ..execution_outcome import ExecutionOutcome, Scope, Status
+from ..policy_engine import PolicyAction, PolicyInput, decide
 from .models import Evidence, ResearchPlan, Source
+from ..task_runtime import TaskRuntime, TaskKind, TaskRef, LeaseToken, LeaseLost
 
 
 TERMINAL = {"COMPLETED", "PARTIAL", "FAILED", "CANCELLED"}
@@ -45,14 +48,17 @@ class ResearchJob:
     failure_details: dict[str, Any] | None = None
     traceability: tuple[dict[str, Any], ...] = ()
     missing_requirements: tuple[str, ...] = ()
+    lease_epoch: int = 0
 
 
 class ResearchService:
     def __init__(self, db: Database, events: ThreadEventStore, engine=None) -> None:
         self.db = db
+        self.tasks = TaskRuntime(db)
         self.events = events
         self.engine = engine
         self.notifications = None
+        self.model_control = None
 
     def create_manual(
         self, thread_id: str, topic: str, client_request_id: str,
@@ -82,7 +88,6 @@ class ResearchService:
             connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,research_job_id,created_at) VALUES (?,?,?,'assistant','','streaming',1,0,?,'standard',?,?)", (message_id, turn["thread_id"], turn_id, next_seq, job_id, now))
             connection.execute("INSERT INTO research_reports(job_id,assistant_message_id,created_at,updated_at) VALUES (?,?,?,?)", (job_id, message_id, now, now))
             connection.execute("UPDATE turns SET status='COMPLETED',policy='start_research',content_shape='research',reason_code='explicit_deep_research',version=version+1,updated_at=? WHERE id=?", (now, turn_id))
-            connection.execute("UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=? WHERE turn_id=?", (now, turn_id))
             self.events.append(turn["thread_id"], turn_id, "research.queued", "research_worker", {"job_id": job_id, "trigger_kind": "manual"}, connection=connection, occurred_at=now)
             self.events.append(turn["thread_id"], turn_id, "message.started", "research_worker", {"message_id": message_id, "generation": 1, "presentation": "standard", "research_job_id": job_id}, connection=connection, occurred_at=now)
             return self._job(job_id, connection)
@@ -103,7 +108,7 @@ class ResearchService:
             existing = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (occurrence_key,)).fetchone()
             if existing: return self._job(existing["id"], connection)
             thread = connection.execute(
-                "SELECT active_turn_id,owner_id FROM threads WHERE id=? AND deleted_at IS NULL", (thread_id,),
+                "SELECT active_turn_id,owner_id,project_id FROM threads WHERE id=? AND deleted_at IS NULL", (thread_id,),
             ).fetchone()
             if not thread: raise KeyError(thread_id)
             if thread["active_turn_id"]:
@@ -139,6 +144,12 @@ class ResearchService:
                     runtime_bundle_id, root_budget_id, now, now,
                 ),
             )
+            from ..harness_context_store import HarnessContextStore
+            HarnessContextStore(self.db).load_or_create_turn_context(
+                turn_id, owner_id=thread["owner_id"], thread_id=thread_id,
+                project_id=thread["project_id"], runtime_bundle_id=runtime_bundle_id,
+                root_budget_id=root_budget_id, connection=connection,
+            )
             next_seq = int(connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (thread_id,)).fetchone()[0])
             connection.execute(
                 "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,created_at,completed_at) "
@@ -164,33 +175,40 @@ class ResearchService:
         return self.get(job_id)
 
     def claim_next(self, owner: str, lease_seconds: int) -> ResearchJob | None:
-        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
         with self.db.transaction() as connection:
-            exhausted=connection.execute("SELECT * FROM research_jobs WHERE status='RUNNING' AND attempts>=max_attempts AND lease_until<=? ORDER BY created_at,id",(now,)).fetchall()
+            now = self.tasks.now(connection).isoformat()
+            lock = " FOR UPDATE SKIP LOCKED" if self.db.backend == "postgresql" else ""
+            exhausted=connection.execute("SELECT * FROM research_jobs WHERE status='RUNNING' AND attempts>=max_attempts AND lease_until<=? ORDER BY created_at,id" + lock,(now,)).fetchall()
             for stale in exhausted:
+                terminal = "CANCELLED" if stale["cancel_requested_at"] else "FAILED"
+                if not self.tasks.recover_expired(connection, TaskRef(TaskKind.RESEARCH, stale["id"]), terminal):
+                    continue
                 if stale["cancel_requested_at"]:
                     message_id=connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?",(stale["id"],)).fetchone()[0]
-                    connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?",(now,now,stale["id"]))
+                    connection.execute("UPDATE research_jobs SET phase='cancelled',finished_at=?,updated_at=? WHERE id=?",(now,now,stale["id"]))
                     connection.execute("UPDATE research_job_attempts SET status='CANCELLED',finished_at=? WHERE job_id=? AND status='RUNNING'",(now,stale["id"]))
                     connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=? AND status='streaming'",(now,stale["id"]))
                     self.events.append(stale["thread_id"],stale["source_turn_id"],"research.cancelled","research_worker",{"job_id":stale["id"]},connection=connection,occurred_at=now)
                     self.events.append(stale["thread_id"],stale["source_turn_id"],"message.completed","research_worker",{"message_id":message_id,"generation":1,"finish_reason":"cancelled"},connection=connection,occurred_at=now)
                     continue
-                connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=?,last_error_json=? WHERE id=?",(now,now,json.dumps({"reason_code":"max_attempts_exhausted"}),stale["id"]))
+                connection.execute("UPDATE research_jobs SET phase='failed',finished_at=?,updated_at=?,last_error_json=? WHERE id=?",(now,now,json.dumps({"reason_code":"max_attempts_exhausted"}),stale["id"]))
                 connection.execute("UPDATE research_job_attempts SET status='LEASE_LOST',finished_at=? WHERE job_id=? AND status='RUNNING'",(now,stale["id"]))
                 self.events.append(stale["thread_id"],stale["source_turn_id"],"research.failed","research_worker",{"job_id":stale["id"],"reason_code":"max_attempts_exhausted","retryable":False},connection=connection,occurred_at=now)
                 self._fail_message(stale,"max_attempts_exhausted",connection,now)
             row = connection.execute(
-                "SELECT * FROM research_jobs WHERE attempts < max_attempts AND available_at<=? AND (status='QUEUED' OR (status='RUNNING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1",
+                "SELECT * FROM research_jobs WHERE attempts < max_attempts AND available_at<=? AND (status='QUEUED' OR (status='RUNNING' AND lease_until<=?)) ORDER BY created_at,id LIMIT 1" + lock,
                 (now, now),
             ).fetchone()
             if not row: return None
             if row["status"] == "RUNNING":
                 connection.execute("UPDATE research_job_attempts SET status='LEASE_LOST',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, row["id"]))
-            attempt = int(row["attempts"]) + 1
+            claimed = self.tasks.claim(connection, TaskRef(TaskKind.RESEARCH, row["id"]), owner, lease_seconds)
+            if claimed is None:
+                return None
+            attempt = claimed.number
             connection.execute(
-                "UPDATE research_jobs SET status='RUNNING',phase=CASE WHEN phase='queued' THEN 'planning' ELSE phase END,lease_owner=?,lease_until=?,attempts=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=?",
-                (owner, until, attempt, now, now, row["id"]),
+                "UPDATE research_jobs SET phase=CASE WHEN phase='queued' THEN 'planning' ELSE phase END,"
+                "started_at=COALESCE(started_at,?),updated_at=? WHERE id=?", (now, now, row["id"]),
             )
             connection.execute(
                 "INSERT INTO research_job_attempts(id,job_id,attempt,lease_owner,status,started_at) VALUES (?,?,?,?,'RUNNING',?)",
@@ -201,22 +219,22 @@ class ResearchService:
 
     def claim(self, job_id: str, owner: str, lease_seconds: int) -> ResearchJob | None:
         """Claim one known queued job without consuming another owner's queue item."""
-        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
         with self.db.transaction() as connection:
+            now = self.tasks.now(connection).isoformat()
             row = connection.execute(
                 "SELECT * FROM research_jobs WHERE id=? AND status='QUEUED' "
                 "AND attempts<max_attempts AND available_at<=?", (job_id, now),
             ).fetchone()
             if row is None:
                 return None
-            attempt = int(row["attempts"]) + 1
-            updated = connection.execute(
-                "UPDATE research_jobs SET status='RUNNING',phase='planning',lease_owner=?,lease_until=?,"
-                "attempts=?,started_at=COALESCE(started_at,?),updated_at=? WHERE id=? AND status='QUEUED'",
-                (owner, until, attempt, now, now, job_id),
-            )
-            if updated.rowcount != 1:
+            claimed = self.tasks.claim(connection, TaskRef(TaskKind.RESEARCH, job_id), owner, lease_seconds)
+            if claimed is None:
                 return None
+            attempt = claimed.number
+            connection.execute(
+                "UPDATE research_jobs SET phase='planning',started_at=COALESCE(started_at,?),updated_at=? WHERE id=?",
+                (now, now, job_id),
+            )
             connection.execute(
                 "INSERT INTO research_job_attempts(id,job_id,attempt,lease_owner,status,started_at) "
                 "VALUES (?,?,?,?,'RUNNING',?)",
@@ -228,24 +246,26 @@ class ResearchService:
             )
             return self._job(job_id, connection)
 
-    def renew(self, job_id: str, owner: str, lease_seconds: int) -> bool:
-        now = _now(); until = (datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)).isoformat()
-        with self.db.transaction() as connection:
-            result = connection.execute("UPDATE research_jobs SET lease_until=?,updated_at=? WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_until>?", (until, now, job_id, owner, now))
-            return result.rowcount == 1
+    def renew(self, job_id: str, owner: str, lease_seconds: int, *, epoch: int) -> bool:
+        try:
+            with self.db.transaction() as connection:
+                self.tasks.heartbeat(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch), lease_seconds)
+            return True
+        except LeaseLost:
+            return False
 
-    def set_phase(self, job_id: str, owner: str, phase: str, detail: str = "") -> ResearchJob:
+    def set_phase(self, job_id: str, owner: str, phase: str, detail: str = "", *, epoch: int) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
-            row = self._owned(job_id, owner, connection)
+            row = self._owned(job_id, owner, connection, epoch=epoch)
             connection.execute("UPDATE research_jobs SET phase=?,updated_at=? WHERE id=?", (phase, now, job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "research.phase_changed", "research_worker", {"job_id": job_id, "phase": phase, "detail": detail[:300]}, connection=connection, occurred_at=now)
         return self.get(job_id)
 
-    def apply_event(self, job_id: str, owner: str, event) -> None:
-        if event.type == "phase": self.set_phase(job_id, owner, event.phase, str(event.data.get("detail", ""))); return
+    def apply_event(self, job_id: str, owner: str, event, *, epoch: int) -> None:
+        if event.type == "phase": self.set_phase(job_id, owner, event.phase, str(event.data.get("detail", "")), epoch=epoch); return
         with self.db.transaction() as connection:
-            row = self._owned(job_id, owner, connection); now = _now()
+            row = self._owned(job_id, owner, connection, epoch=epoch); now = _now()
             if event.type == "plan":
                 connection.execute("UPDATE research_reports SET title=?,outline_json=?,updated_at=? WHERE job_id=?", (event.data.get("title"), json.dumps(event.data, ensure_ascii=False), now, job_id))
                 kind = "research.plan_ready"; data = {"job_id": job_id, "title": event.data.get("title"), "section_count": len(event.data.get("sections", [])), "query_count": len(event.data.get("queries", []))}
@@ -279,34 +299,53 @@ class ResearchService:
 
     def complete(
         self, job_id: str, owner: str, title: str, markdown: str,
-        source_count: int, evidence_count: int, traceability=(),
+        source_count: int, evidence_count: int, traceability=(), *, epoch: int,
     ) -> ResearchJob:
         return self._complete_delivery(
             job_id, owner, title, markdown, source_count, evidence_count,
-            "COMPLETED", "completed", traceability, (),
+            "COMPLETED", "completed", traceability, (), epoch=epoch,
         )
 
     def complete_partial(
         self, job_id: str, owner: str, title: str, markdown: str,
-        source_count: int, evidence_count: int, traceability, missing_requirements,
+        source_count: int, evidence_count: int, traceability, missing_requirements, *, epoch: int,
     ) -> ResearchJob:
         missing = tuple(str(item).strip()[:300] for item in missing_requirements if str(item).strip())[:12]
         if not missing:
             raise ValueError("partial research requires missing requirements")
         return self._complete_delivery(
             job_id, owner, title, markdown, source_count, evidence_count,
-            "PARTIAL", "partial", traceability, missing,
+            "PARTIAL", "partial", traceability, missing, epoch=epoch,
         )
 
     def _complete_delivery(
         self, job_id: str, owner: str, title: str, markdown: str,
         source_count: int, evidence_count: int, status: str, phase: str,
-        traceability, missing_requirements,
+        traceability, missing_requirements, *, epoch: int,
     ) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
-            row = self._owned(job_id, owner, connection)
+            lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            current = connection.execute("SELECT * FROM research_jobs WHERE id=?" + lock, (job_id,)).fetchone()
+            if current and current["status"] in {"COMPLETED", "PARTIAL"}:
+                attempt = connection.execute(
+                    "SELECT lease_owner FROM research_job_attempts WHERE job_id=? AND attempt=? AND status='COMPLETED'",
+                    (job_id, current["attempts"]),
+                ).fetchone()
+                if attempt is None or attempt["lease_owner"] != owner or current["lease_epoch"] != epoch:
+                    raise PermissionError("research job lease lost")
+                report = connection.execute("SELECT * FROM research_reports WHERE job_id=?", (job_id,)).fetchone()
+                summary = json.loads(report["summary_json"])
+                if (current["status"] != status or report["title"] != title or report["markdown"] != markdown
+                        or report["source_count"] != source_count or report["evidence_count"] != evidence_count
+                        or summary["traceability"] != list(traceability)
+                        or summary["missing_requirements"] != list(missing_requirements)):
+                    raise ResearchConflict("completed research differs from submitted result")
+                return self._job(job_id, connection)
+            row = self._owned(job_id, owner, connection, epoch=epoch, allow_cancelled=True)
             if row["cancel_requested_at"]:raise ResearchConflict("research was cancelled before completion")
+            from ..task_delivery import require_delivery_sources
+            require_delivery_sources(self.db, connection, run_id=job_id, control_store=self.model_control)
             report = connection.execute("SELECT assistant_message_id FROM research_reports WHERE job_id=?", (job_id,)).fetchone()
             message_id = report["assistant_message_id"]
             summary = json.dumps({
@@ -316,7 +355,8 @@ class ResearchService:
             }, ensure_ascii=False)
             connection.execute("UPDATE research_reports SET title=?,summary_json=?,markdown=?,partial_markdown=?,source_count=?,evidence_count=?,updated_at=?,completed_at=? WHERE job_id=?", (title, summary, markdown, markdown, source_count, evidence_count, now, now, job_id))
             connection.execute("UPDATE thread_messages SET content=?,content_length=?,status='ready',completed_at=? WHERE id=?", (markdown, len(markdown), now, message_id))
-            connection.execute("UPDATE research_jobs SET status=?,phase=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (status, phase, now, now, job_id))
+            self.tasks.finish(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch), status)
+            connection.execute("UPDATE research_jobs SET phase=?,finished_at=?,updated_at=? WHERE id=?", (phase, now, now, job_id))
             connection.execute("UPDATE research_job_attempts SET status='COMPLETED',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "message.snapshot", "research_worker", {"message_id": message_id, "generation": 1, "content": markdown, "offset": len(markdown)}, connection=connection, occurred_at=now)
             self.events.append(row["thread_id"], row["source_turn_id"], "message.completed", "research_worker", {"message_id": message_id, "generation": 1, "finish_reason": phase}, connection=connection, occurred_at=now)
@@ -325,20 +365,27 @@ class ResearchService:
         return self.get(job_id)
 
     def fail(self, job_id: str, owner: str, reason: str, retryable: bool = False,
-             diagnostics: dict[str, Any] | None = None) -> ResearchJob:
+             diagnostics: dict[str, Any] | None = None, *, epoch: int, outcome: ExecutionOutcome | None = None) -> ResearchJob:
         now = _now()
         error = {"reason_code": reason, **_safe_failure_details(diagnostics)}
+        outcome_data = {}
+        if outcome is not None:
+            if not isinstance(outcome, ExecutionOutcome) or outcome.scope != Scope.TASK or outcome.status != Status.FAILED:
+                raise ValueError("research failure requires a failed task outcome")
+            outcome_data = {"outcome": outcome.to_dict()}
         with self.db.transaction() as connection:
-            row = self._owned(job_id, owner, connection)
+            row = self._owned(job_id, owner, connection, epoch=epoch)
             if retryable and int(row["attempts"]) < int(row["max_attempts"]):
+                self.tasks.finish(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch), "QUEUED")
                 available=(datetime.now(timezone.utc)+timedelta(seconds=2**int(row["attempts"]))).isoformat()
-                connection.execute("UPDATE research_jobs SET status='QUEUED',last_error_json=?,lease_owner=NULL,lease_until=NULL,available_at=?,updated_at=? WHERE id=?",(json.dumps(error,ensure_ascii=False),available,now,job_id))
+                connection.execute("UPDATE research_jobs SET last_error_json=?,available_at=?,updated_at=? WHERE id=?",(json.dumps(error,ensure_ascii=False),available,now,job_id))
                 connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'",(now,json.dumps(error,ensure_ascii=False),job_id))
                 self.events.append(row["thread_id"],row["source_turn_id"],"research.retry_scheduled","research_worker",{"job_id":job_id,"attempt":row["attempts"],"available_at":available,"reason_code":reason},connection=connection,occurred_at=now)
                 return self._job(job_id,connection)
-            connection.execute("UPDATE research_jobs SET status='FAILED',phase='failed',last_error_json=?,lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (json.dumps(error,ensure_ascii=False), now, now, job_id))
+            self.tasks.finish(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch), "FAILED")
+            connection.execute("UPDATE research_jobs SET phase='failed',last_error_json=?,finished_at=?,updated_at=? WHERE id=?", (json.dumps(error,ensure_ascii=False), now, now, job_id))
             connection.execute("UPDATE research_job_attempts SET status='FAILED',finished_at=?,error_json=? WHERE job_id=? AND status='RUNNING'", (now, json.dumps(error,ensure_ascii=False), job_id))
-            self.events.append(row["thread_id"], row["source_turn_id"], "research.failed", "research_worker", {"job_id": job_id, "reason_code": reason, "retryable": retryable}, connection=connection, occurred_at=now)
+            self.events.append(row["thread_id"], row["source_turn_id"], "research.failed", "research_worker", {"job_id": job_id, "reason_code": reason, "retryable": retryable, **outcome_data}, connection=connection, occurred_at=now)
             self._fail_message(row,reason,connection,now)
         return self.get(job_id)
 
@@ -375,32 +422,36 @@ class ResearchService:
         connection.execute("UPDATE thread_messages SET status='failed',completed_at=? WHERE id=? AND status='streaming'",(now,message_id))
         self.events.append(row["thread_id"],row["source_turn_id"],"message.completed","research_worker",{"message_id":message_id,"generation":1,"finish_reason":"failed","reason_code":reason},connection=connection,occurred_at=now)
 
-    def finish_cancelled(self, job_id: str, owner: str) -> ResearchJob:
+    def finish_cancelled(self, job_id: str, owner: str, *, epoch: int) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
-            row = self._owned(job_id, owner, connection)
-            connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+            row = self._owned(job_id, owner, connection, epoch=epoch, allow_cancelled=True)
+            self.tasks.finish(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch), "CANCELLED")
+            connection.execute("UPDATE research_jobs SET phase='cancelled',finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
             connection.execute("UPDATE research_job_attempts SET status='CANCELLED',finished_at=? WHERE job_id=? AND status='RUNNING'", (now, job_id))
             connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=?", (now, job_id))
             self.events.append(row["thread_id"], row["source_turn_id"], "research.cancelled", "research_worker", {"job_id": job_id}, connection=connection, occurred_at=now)
         return self.get(job_id)
 
-    def cancel(self, job_id: str) -> ResearchJob:
+    def cancel(self, job_id: str, *, owner_id: str | None = None) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
-            row = connection.execute("SELECT * FROM research_jobs WHERE id=?", (job_id,)).fetchone()
+            self._authorize_job(connection, job_id, owner_id)
+            lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            row = connection.execute("SELECT * FROM research_jobs WHERE id=?" + lock, (job_id,)).fetchone()
             if not row: raise KeyError(job_id)
             if row["status"] in TERMINAL: return self._job(job_id, connection)
+            self.tasks.request_cancel(connection, TaskRef(TaskKind.RESEARCH, job_id))
             if row["status"] == "RUNNING":
-                connection.execute("UPDATE research_jobs SET cancel_requested_at=?,updated_at=? WHERE id=?", (now, now, job_id))
+                connection.execute("UPDATE research_jobs SET updated_at=? WHERE id=?", (now, job_id))
             else:
-                connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',cancel_requested_at=?,finished_at=?,updated_at=? WHERE id=?", (now, now, now, job_id))
+                connection.execute("UPDATE research_jobs SET status='CANCELLED',phase='cancelled',finished_at=?,updated_at=? WHERE id=?", (now, now, job_id))
                 connection.execute("UPDATE thread_messages SET status='cancelled',completed_at=? WHERE research_job_id=?", (now, job_id))
                 self.events.append(row["thread_id"], row["source_turn_id"], "research.cancelled", "research_worker", {"job_id": job_id}, connection=connection, occurred_at=now)
         return self.get(job_id)
 
-    def retry(self, job_id: str, topic: str | None, client_key: str) -> ResearchJob:
-        old = self.get(job_id); key = f"retry:{job_id}:{client_key}"
+    def retry(self, job_id: str, topic: str | None, client_key: str, *, owner_id: str | None = None) -> ResearchJob:
+        old = self.get(job_id, owner_id=owner_id); key = f"retry:{job_id}:{client_key}"
         with self.db.connection() as connection:
             prior = connection.execute("SELECT id FROM research_jobs WHERE occurrence_key=?", (key,)).fetchone()
             source = connection.execute("SELECT root_budget_id FROM research_jobs WHERE id=?", (job_id,)).fetchone()
@@ -419,8 +470,9 @@ class ResearchService:
             ).fetchone()
         return row["runtime_bundle_id"] if row else None
 
-    def delete(self, job_id: str) -> None:
+    def delete(self, job_id: str, *, owner_id: str | None = None) -> None:
         with self.db.transaction() as connection:
+            self._authorize_job(connection, job_id, owner_id)
             row = connection.execute("SELECT status FROM research_jobs WHERE id=?", (job_id,)).fetchone()
             if not row: raise KeyError(job_id)
             if row["status"] not in TERMINAL:
@@ -434,11 +486,28 @@ class ResearchService:
             )
             connection.execute("DELETE FROM research_jobs WHERE id=?", (job_id,))
 
-    def get(self, job_id: str) -> ResearchJob:
-        with self.db.connection() as connection: return self._job(job_id, connection)
+    def _authorize_job(self, connection, job_id: str, owner_id: str | None) -> None:
+        # Internal workers use their lease checks. User-facing callers must
+        # supply the authenticated owner; never accept it from model arguments.
+        if owner_id is None:
+            return
+        row = connection.execute(
+            "SELECT 1 FROM research_jobs j JOIN threads t ON t.id=j.thread_id "
+            "WHERE j.id=? AND t.owner_id=? AND t.deleted_at IS NULL", (job_id, owner_id),
+        ).fetchone()
+        if decide(PolicyInput(True, True, row is not None)).action == PolicyAction.DENY:
+            raise KeyError(job_id)
 
-    def list(self, *, thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0) -> list[ResearchJob]:
+    def get(self, job_id: str, *, owner_id: str | None = None) -> ResearchJob:
+        with self.db.connection() as connection:
+            self._authorize_job(connection, job_id, owner_id)
+            return self._job(job_id, connection)
+
+    def list(self, *, thread_id: str | None = None, schedule_id: str | None = None, status: str | None = None, limit: int = 50, offset: int = 0, owner_id: str | None = None) -> list[ResearchJob]:
         clauses, args = [], []
+        if owner_id is not None:
+            clauses.append("EXISTS (SELECT 1 FROM threads t WHERE t.id=j.thread_id AND t.owner_id=? AND t.deleted_at IS NULL)")
+            args.append(owner_id)
         for field, value in (("thread_id", thread_id), ("schedule_id", schedule_id), ("status", status)):
             if value: clauses.append(f"j.{field}=?"); args.append(value)
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
@@ -446,11 +515,9 @@ class ResearchService:
             rows = connection.execute(f"SELECT j.id FROM research_jobs j{where} ORDER BY j.created_at DESC,j.id LIMIT ? OFFSET ?", (*args, min(max(limit, 1), 100), max(offset, 0))).fetchall()
             return [self._job(row["id"], connection) for row in rows]
 
-    @staticmethod
-    def _owned(job_id: str, owner: str, connection):
-        row = connection.execute("SELECT * FROM research_jobs WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_until>?", (job_id, owner, _now())).fetchone()
-        if not row: raise PermissionError("research job lease lost")
-        return row
+    def _owned(self, job_id: str, owner: str, connection, *, epoch: int, allow_cancelled=False):
+        return self.tasks.require(connection, LeaseToken(TaskRef(TaskKind.RESEARCH, job_id), owner, epoch),
+                                  allow_cancelled=allow_cancelled)
 
     def _job(self, job_id: str, connection) -> ResearchJob:
         greatest = "GREATEST" if self.db.backend == "postgresql" else "MAX"
@@ -465,7 +532,7 @@ class ResearchService:
         error = json.loads(row["last_error_json"] or "{}")
         summary = json.loads(row["summary_json"] or "{}")
         details = {key:value for key,value in error.items() if key != "reason_code"}
-        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"), details or None, tuple(summary.get("traceability", ())), tuple(summary.get("missing_requirements", ())))
+        return ResearchJob(row["id"], row["thread_id"], row["source_turn_id"], row["schedule_id"], row["retry_of_job_id"], row["trigger_kind"], row["occurrence_key"], row["topic"], tuple(json.loads(row["source_scopes_json"])), row["status"], row["phase"], int(row["attempts"]), int(row["max_attempts"]), row["cancel_requested_at"], row["created_at"], row["updated_at"], row["report_title"], row["report_markdown"], int(row["source_count"] or 0), int(row["evidence_count"] or 0), row["assistant_message_id"], error.get("reason_code"), details or None, tuple(summary.get("traceability", ())), tuple(summary.get("missing_requirements", ())), int(row["lease_epoch"]))
 
 
 def _now() -> str: return datetime.now(timezone.utc).isoformat()

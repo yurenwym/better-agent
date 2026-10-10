@@ -1,0 +1,43 @@
+{
+  "head": "8e4217c7349a6363665ac1e42e4d6a9770a33d1f",
+  "dirty": true,
+  "suite_digest": "534db10b49e4df15c0c758fe3fd4def4e0c5a13e52c00babe3f3a69bcde30485",
+  "model": "deepseek-flash",
+  "cost_mode": "enforce",
+  "shared_budget_microusd": 1000000,
+  "final_batch": "agent-loop-live-v4",
+  "test_mapping": "test-mapping.md",
+  "code_digests": {
+    "legacy": "2b40169f0e741ffde7103489dcb1045128d36cdce6e9f80c48160f4149b35507",
+    "loop": "b48fc8734c224e3730c8f8a0327cd10648e6d5ae64a804a6b85e8b3ee26ad077"
+  },
+  "final_changes_after_paid_batch": [
+    "default loop configuration",
+    "explicit legacy test fixtures"
+  ],
+  "holdout": {
+    "suite": "agent-loop-routing-v1",
+    "count": 24,
+    "sha256": "7b4b4b28b9f0b76b4535a7ced2775c883fc12a8d37f75dae009e645d6ffbd686"
+  },
+  "budget": {
+    "known_cost_microusd": 540775,
+    "attempts": 558,
+    "unknown_cost_attempts": 0
+  },
+  "database_backup": {
+    "path": "outputs/agent-loop-eval.dump",
+    "sha256": "4fcb2493b8bcb26b17673ff4eeac83a6c89b19e6db7703f9dc6b69e681c80908",
+    "format": "pg_dump custom",
+    "toc_verified": true
+  },
+  "final_gate": {
+    "command": "python scripts/test_all.py",
+    "exit_code": 0,
+    "backend_passed": 2291,
+    "backend_skipped": 7,
+    "frontend_passed": 345,
+    "build": "PASS",
+    "log": "logs/agent-loop-final-all.log"
+  }
+}

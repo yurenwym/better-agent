@@ -30,11 +30,11 @@ def test_checkpoint_persists_runtime_state_and_deduplicates_completed_side_effec
     assert store.completed_tool_result("run-1", "call-2") is None
 import pytest
 
-from test_runtime import make_runtime
+from test_runtime import make_runtime, historical_run_identity
 
 
 @pytest.mark.asyncio
-async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path) -> None:
+async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path, historical_run_identity) -> None:
     from app.memory_v2 import MemoryContextProvider, MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 

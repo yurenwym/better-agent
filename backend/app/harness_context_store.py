@@ -20,6 +20,7 @@ interchangeable and neither one substitutes for the other.
 from __future__ import annotations
 
 from typing import Any
+from contextlib import nullcontext
 
 from .db import Database
 from .execution_context import (
@@ -74,15 +75,22 @@ class HarnessContextStore:
         run_id: str | None = None,
         root_budget_id: str | None = None,
         runtime_bundle_id: str | None = None,
+        connection: Any | None = None,
     ) -> HarnessExecutionContext:
         """The turn's trace root.  A restart re-reads it instead of re-minting."""
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
             if row is None:
                 raise HarnessContextError(f"turn {turn_id} does not exist")
             payload, _ = _stored(row)
             if payload is not None:
                 return self._read(connection, "turns", row)
+            prior = connection.execute(
+                "SELECT 1 FROM thread_events WHERE turn_id=? AND envelope_json IS NOT NULL LIMIT 1",
+                (turn_id,),
+            ).fetchone()
+            if prior is not None:
+                raise ContextStoreConflict("turn execution context was removed after acceptance")
             # The chat run scope is a property of the turn, not of the caller: a
             # tool call bound to this turn can only ever carry `chat-turn:<id>`,
             # so defaulting here removes a way to mint an unusable root.
@@ -101,8 +109,8 @@ class HarnessContextStore:
             raise HarnessContextError(f"turn {turn_id} does not exist")
         self._write(connection, "turns", row, context)
 
-    def load_turn_context(self, turn_id: str) -> HarnessExecutionContext:
-        with self.db.connection() as connection:
+    def load_turn_context(self, turn_id: str, *, connection: Any | None = None) -> HarnessExecutionContext:
+        with (self.db.connection() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute("SELECT * FROM turns WHERE id=?", (turn_id,)).fetchone()
             if row is None:
                 raise HarnessContextError(f"turn {turn_id} does not exist")

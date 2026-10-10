@@ -1,0 +1,13 @@
+
+> better-agent-ui@1.0.0 test
+> vitest --run
+
+
+ RUN  v4.1.10 D:/RAG/better/frontend
+
+
+ Test Files  50 passed (50)
+      Tests  345 passed (345)
+   Start at  22:16:03
+   Duration  22.72s (transform 14.05s, setup 0ms, import 50.69s, tests 51.63s, environment 169.46s)
+

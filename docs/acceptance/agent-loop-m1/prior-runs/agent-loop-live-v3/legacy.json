@@ -1,0 +1,2559 @@
+{
+  "mode": "legacy",
+  "provider": "real",
+  "suite_digest": "534db10b49e4df15c0c758fe3fd4def4e0c5a13e52c00babe3f3a69bcde30485",
+  "code": "8e4217c7349a6363665ac1e42e4d6a9770a33d1f",
+  "dirty": true,
+  "cost_mode": "enforce",
+  "budget_cap_microusd": 1000000,
+  "planned": 70,
+  "cases": [
+    {
+      "case_id": "routing-direct-01",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5304,
+      "cost_microusd": 1672,
+      "first_token_ms": 2325.435100006871,
+      "turn_id": "turn_5f30c4ed37b14f01bafb4230930cba10",
+      "attempts": [
+        {
+          "cost_microusd": 1672,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 5215,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 89,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-direct-02",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5758,
+      "cost_microusd": 1726,
+      "first_token_ms": 2209.2307999846525,
+      "turn_id": "turn_e415ba13f803464683689755c99789fe",
+      "attempts": [
+        {
+          "cost_microusd": 1726,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3553,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 541,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-direct-03",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 6215,
+      "cost_microusd": 2274,
+      "first_token_ms": 2418.13629999524,
+      "turn_id": "turn_f8443f6b8e704266b35ab975e156303c",
+      "attempts": [
+        {
+          "cost_microusd": 2274,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3553,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 998,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-direct-04",
+      "partition": "DEV",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5553,
+      "cost_microusd": 1478,
+      "first_token_ms": 2162.9160000011325,
+      "turn_id": "turn_474534e5b7bf47f29dbb5f961ef731a8",
+      "attempts": [
+        {
+          "cost_microusd": 1478,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3555,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 334,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-direct-05",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5815,
+      "cost_microusd": 1797,
+      "first_token_ms": 2333.508100011386,
+      "turn_id": "turn_a55617420532418ab3b2d1ec10d6e267",
+      "attempts": [
+        {
+          "cost_microusd": 1797,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3550,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 601,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-direct-06",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5594,
+      "cost_microusd": 1529,
+      "first_token_ms": 2189.914199989289,
+      "turn_id": "turn_0b5157e390594c259d76385f9aa0b76d",
+      "attempts": [
+        {
+          "cost_microusd": 1529,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3553,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 377,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-01",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_1f5afa47a82c4edcb786479b75d9fefe",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-02",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_e8788bbaf169438fb972c55163b6bbc9",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-03",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_3de1d4b225ce428db1e7a4cea130ee11",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-04",
+      "partition": "DEV",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_f4ceaab9ad4f46e293b9eb6c7d2fb62a",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-05",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_7610b71b87824839a2293c76b96ca76a",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-research-06",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "expected": [
+        "handoff:research"
+      ],
+      "forbidden": [
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_0454d32ed1604e6dbb159f61a15d24a5",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-01",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 6065,
+      "cost_microusd": 2093,
+      "first_token_ms": 4072.5779999629594,
+      "turn_id": "turn_e507a2c3f26a4c3eaddaea887d48f473",
+      "attempts": [
+        {
+          "cost_microusd": 2093,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3554,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 847,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-02",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 6227,
+      "cost_microusd": 2285,
+      "first_token_ms": 2252.848099975381,
+      "turn_id": "turn_5ca34a46b3da4e54bcb4c0a394f429a9",
+      "attempts": [
+        {
+          "cost_microusd": 2285,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3557,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 1006,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-03",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5563,
+      "cost_microusd": 1491,
+      "first_token_ms": 3071.206099994015,
+      "turn_id": "turn_3c6bd7e2dd164822ae94a2d912303ed9",
+      "attempts": [
+        {
+          "cost_microusd": 1491,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3554,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 345,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-04",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5862,
+      "cost_microusd": 1848,
+      "first_token_ms": 2671.874599996954,
+      "turn_id": "turn_6c885d82de8e4b148807f7c6f720b16f",
+      "attempts": [
+        {
+          "cost_microusd": 1848,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3556,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 642,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-05",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 5837,
+      "cost_microusd": 1730,
+      "first_token_ms": 2505.632799991872,
+      "turn_id": "turn_6f30a7fc541c4f9bad743b8c079e4a6b",
+      "attempts": [
+        {
+          "cost_microusd": 42,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 96,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 11,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1688,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3557,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 509,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-implicit_research-06",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 6215,
+      "cost_microusd": 2274,
+      "first_token_ms": 2096.3335999986157,
+      "turn_id": "turn_53706bd635d3466e897558f06d8f3c2f",
+      "attempts": [
+        {
+          "cost_microusd": 2274,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3553,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 998,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-01",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 1,
+      "tokens": 5289,
+      "cost_microusd": 1162,
+      "first_token_ms": 2381.7119000013918,
+      "turn_id": "turn_00e7241ce0fb4ddc9aa0eab582246960",
+      "attempts": [
+        {
+          "cost_microusd": 1162,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3554,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 71,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-02",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_1078b46c12df445386c2a6d16c4e9bf7",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-03",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 2,
+      "tokens": 5397,
+      "cost_microusd": 1199,
+      "first_token_ms": 2229.1451999917626,
+      "turn_id": "turn_121a4d0265954414b061bb3d12560f73",
+      "attempts": [
+        {
+          "cost_microusd": 43,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 98,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 11,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1156,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3559,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 65,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-04",
+      "partition": "DEV",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 1,
+      "tokens": 5289,
+      "cost_microusd": 1161,
+      "first_token_ms": 2406.4284000196494,
+      "turn_id": "turn_8736dee3c97b469e8b0a672c626158ba",
+      "attempts": [
+        {
+          "cost_microusd": 1161,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3555,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 70,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-05",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 1,
+      "tokens": 5273,
+      "cost_microusd": 1141,
+      "first_token_ms": 2290.5643000267446,
+      "turn_id": "turn_d81480246a6742ff9585942604292aaf",
+      "attempts": [
+        {
+          "cost_microusd": 1141,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3556,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 53,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-expert-06",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "expected": [
+        "handoff:expert"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:expert"
+      ],
+      "model_calls": 1,
+      "tokens": 5285,
+      "cost_microusd": 1155,
+      "first_token_ms": 2304.6585000120103,
+      "turn_id": "turn_adcb01533c4c486cade305e57cefd1c9",
+      "attempts": [
+        {
+          "cost_microusd": 1155,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3556,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 65,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-01",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 146,
+      "cost_microusd": 69,
+      "first_token_ms": null,
+      "turn_id": "turn_cde3c2432ff44be98c9d837a5ce7f317",
+      "attempts": [
+        {
+          "cost_microusd": 69,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 119,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 27,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-02",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 143,
+      "cost_microusd": 66,
+      "first_token_ms": null,
+      "turn_id": "turn_5f52ed2caeb04e8991455bab1a1a903a",
+      "attempts": [
+        {
+          "cost_microusd": 66,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 118,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 25,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-03",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 148,
+      "cost_microusd": 69,
+      "first_token_ms": null,
+      "turn_id": "turn_14dada6f5d9a4008bf4f9c23cfa3ad8d",
+      "attempts": [
+        {
+          "cost_microusd": 69,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 121,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 27,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-04",
+      "partition": "DEV",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 143,
+      "cost_microusd": 65,
+      "first_token_ms": null,
+      "turn_id": "turn_c9cea87f57b54383bcade618f7d0f562",
+      "attempts": [
+        {
+          "cost_microusd": 65,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 119,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 24,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-05",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 146,
+      "cost_microusd": 69,
+      "first_token_ms": null,
+      "turn_id": "turn_bf19666549324edc85ba89eb931e504b",
+      "attempts": [
+        {
+          "cost_microusd": 69,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 119,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 27,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-remember-06",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 148,
+      "cost_microusd": 70,
+      "first_token_ms": null,
+      "turn_id": "turn_5022a6f9d19d46c2a92106707ec3197c",
+      "attempts": [
+        {
+          "cost_microusd": 70,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 120,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 28,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-01",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5309,
+      "cost_microusd": 1189,
+      "first_token_ms": 2381.0893000336364,
+      "turn_id": "turn_08273a785aa748bbbab065732fd2e595",
+      "attempts": [
+        {
+          "cost_microusd": 1189,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 94,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-02",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "ask"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_ca9e7461e4b84942b9ec66e75c6a6d38",
+      "attempts": [],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-03",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5364,
+      "cost_microusd": 1255,
+      "first_token_ms": 2293.420000001788,
+      "turn_id": "turn_a43b40ab78444d6ab315df5767c350dc",
+      "attempts": [
+        {
+          "cost_microusd": 1255,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 149,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-04",
+      "partition": "DEV",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5334,
+      "cost_microusd": 1220,
+      "first_token_ms": 2283.6429000017233,
+      "turn_id": "turn_09904faed2164196837f01be4483420a",
+      "attempts": [
+        {
+          "cost_microusd": 1220,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3549,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 121,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-05",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "ask"
+      ],
+      "model_calls": 2,
+      "tokens": 9023,
+      "cost_microusd": 2320,
+      "first_token_ms": null,
+      "turn_id": "turn_1ae6d3db4dcb4e22a6e934a745eb461a",
+      "attempts": [
+        {
+          "cost_microusd": 1573,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3549,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 415,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 747,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 301,
+          "cache_read_tokens": 2560,
+          "cache_write_tokens": 0,
+          "output_tokens": 534,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-clarify-06",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "expected": [
+        "ask"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert",
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10740,
+      "cost_microusd": 1443,
+      "first_token_ms": null,
+      "turn_id": "turn_9aee82c68d784353a843d5b0c147870b",
+      "attempts": [
+        {
+          "cost_microusd": 1123,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 39,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 320,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 167,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 199,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-01",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10691,
+      "cost_microusd": 1384,
+      "first_token_ms": null,
+      "turn_id": "turn_11333f898ca94527a31d8d2d20214104",
+      "attempts": [
+        {
+          "cost_microusd": 1123,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 39,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 261,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 167,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 150,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-02",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10723,
+      "cost_microusd": 1424,
+      "first_token_ms": 2223.2310000108555,
+      "turn_id": "turn_4ffebcc229054c10961b7461b3cd0049",
+      "attempts": [
+        {
+          "cost_microusd": 267,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 166,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 155,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1157,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3550,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 68,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-03",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10728,
+      "cost_microusd": 1430,
+      "first_token_ms": 2443.0298000224866,
+      "turn_id": "turn_ab95dd73a88f4beb98dd246908a0c3fa",
+      "attempts": [
+        {
+          "cost_microusd": 1149,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3550,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 61,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 281,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 166,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 167,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-04",
+      "partition": "DEV",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10713,
+      "cost_microusd": 1405,
+      "first_token_ms": 2642.621600010898,
+      "turn_id": "turn_c57ab52c15564be981e01b570a7b9966",
+      "attempts": [
+        {
+          "cost_microusd": 255,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 170,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 144,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1150,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3554,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 61,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-05",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10757,
+      "cost_microusd": 1464,
+      "first_token_ms": 2090.454699995462,
+      "turn_id": "turn_4bbe98240a6241c1828f0b499c4be082",
+      "attempts": [
+        {
+          "cost_microusd": 1159,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 69,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 305,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 167,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 186,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_read-06",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "expected": [
+        "tool:query_goals"
+      ],
+      "forbidden": [
+        "approval"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "model_calls": 2,
+      "tokens": 10823,
+      "cost_microusd": 1543,
+      "first_token_ms": 2514.846900012344,
+      "turn_id": "turn_cd41eeef254a464f94ae13e61f041c92",
+      "attempts": [
+        {
+          "cost_microusd": 354,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 167,
+          "cache_read_tokens": 5120,
+          "cache_write_tokens": 0,
+          "output_tokens": 227,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1189,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3551,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 94,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-01",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 5838,
+      "cost_microusd": 1531,
+      "first_token_ms": 2334.6090000122786,
+      "turn_id": "turn_c9fcef0847794c8196e690e4ea239ee2",
+      "attempts": [
+        {
+          "cost_microusd": 1483,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3748,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 290,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 48,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 128,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-02",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 5677,
+      "cost_microusd": 1338,
+      "first_token_ms": 2418.3756999555044,
+      "turn_id": "turn_848635593c284f5f9de697681be711d9",
+      "attempts": [
+        {
+          "cost_microusd": 1289,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3746,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 129,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 49,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 130,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-03",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 5681,
+      "cost_microusd": 1339,
+      "first_token_ms": 2370.982799970079,
+      "turn_id": "turn_50002809c1aa40e7b21432ddac8eba55",
+      "attempts": [
+        {
+          "cost_microusd": 1290,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3750,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 129,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 49,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 130,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-04",
+      "partition": "DEV",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "approval"
+      ],
+      "model_calls": 2,
+      "tokens": 12262,
+      "cost_microusd": 2627,
+      "first_token_ms": 2219.5309000089765,
+      "turn_id": "turn_24e6fd036c664341ab198c1d3eb4927a",
+      "attempts": [
+        {
+          "cost_microusd": 1305,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3751,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 141,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1322,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 341,
+          "cache_read_tokens": 5376,
+          "cache_write_tokens": 0,
+          "output_tokens": 989,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-05",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "approval"
+      ],
+      "model_calls": 2,
+      "tokens": 11373,
+      "cost_microusd": 1593,
+      "first_token_ms": 3042.153700022027,
+      "turn_id": "turn_c9f84114041146b887dab08cf4063fb5",
+      "attempts": [
+        {
+          "cost_microusd": 320,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 308,
+          "cache_read_tokens": 5376,
+          "cache_write_tokens": 0,
+          "output_tokens": 162,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 1273,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3748,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 115,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-goal_write-06",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "expected": [
+        "approval"
+      ],
+      "forbidden": [
+        "handoff:research"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 6514,
+      "cost_microusd": 2340,
+      "first_token_ms": 2600.4185000201687,
+      "turn_id": "turn_6be944e3263048e9882ba6c533dcce12",
+      "attempts": [
+        {
+          "cost_microusd": 2291,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3750,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 963,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 49,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 129,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-01",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 6092,
+      "cost_microusd": 2043,
+      "first_token_ms": 2380.4774999734946,
+      "turn_id": "turn_ad3f556542064b0f8f2bccc1cae0eac8",
+      "attempts": [
+        {
+          "cost_microusd": 42,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 93,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 11,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 2001,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3554,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 770,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-02",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_810073c130644cfd83643b9c9d483f3a",
+      "attempts": [],
+      "matched": false,
+      "forbidden_hit": true,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-03",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5716,
+      "cost_microusd": 1673,
+      "first_token_ms": 2543.925700010732,
+      "turn_id": "turn_4411bbb9ce954a26821d5b543e1bca37",
+      "attempts": [
+        {
+          "cost_microusd": 1673,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3555,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 497,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-04",
+      "partition": "DEV",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 2,
+      "tokens": 5913,
+      "cost_microusd": 1822,
+      "first_token_ms": 2781.484899984207,
+      "turn_id": "turn_654dc00108604436a1e8aa3d48d6d562",
+      "attempts": [
+        {
+          "cost_microusd": 1777,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3557,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 583,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 45,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 96,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 13,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-05",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final"
+      ],
+      "model_calls": 1,
+      "tokens": 5694,
+      "cost_microusd": 1646,
+      "first_token_ms": 2510.913999984041,
+      "turn_id": "turn_6be1fc6fabc9445988ad2d22a9ab54e2",
+      "attempts": [
+        {
+          "cost_microusd": 1646,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3556,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 474,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-negation-06",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "expected": [
+        "final"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "handoff:research"
+      ],
+      "model_calls": 0,
+      "tokens": 0,
+      "cost_microusd": 0,
+      "first_token_ms": null,
+      "turn_id": "turn_13e29edf1e724cc3a328b524f89eb0b9",
+      "attempts": [],
+      "matched": false,
+      "forbidden_hit": true,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-01",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 191,
+      "cost_microusd": 116,
+      "first_token_ms": null,
+      "turn_id": "turn_07952765f6ef483f95291bb40e4574f2",
+      "attempts": [
+        {
+          "cost_microusd": 116,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 126,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 65,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-02",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 151,
+      "cost_microusd": 68,
+      "first_token_ms": null,
+      "turn_id": "turn_497fc0129dc94a58a7ad77e71b87a670",
+      "attempts": [
+        {
+          "cost_microusd": 68,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 126,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 25,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-03",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 151,
+      "cost_microusd": 67,
+      "first_token_ms": null,
+      "turn_id": "turn_af096f24e3cc40ec87423760dcf537aa",
+      "attempts": [
+        {
+          "cost_microusd": 67,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 127,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 24,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-04",
+      "partition": "DEV",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 153,
+      "cost_microusd": 70,
+      "first_token_ms": null,
+      "turn_id": "turn_475058b352534e41bb99d0a60af75e94",
+      "attempts": [
+        {
+          "cost_microusd": 70,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 127,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 26,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-05",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 151,
+      "cost_microusd": 67,
+      "first_token_ms": null,
+      "turn_id": "turn_f8d301fadb354831baa94b15a30428f0",
+      "attempts": [
+        {
+          "cost_microusd": 67,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 127,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 24,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-mixed-06",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "expected": [
+        "tool:remember"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final",
+        "tool:remember"
+      ],
+      "model_calls": 1,
+      "tokens": 151,
+      "cost_microusd": 67,
+      "first_token_ms": null,
+      "turn_id": "turn_4fe366b7d2bf4f349bd3c2dda9dd036c",
+      "attempts": [
+        {
+          "cost_microusd": 67,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 127,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 24,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-01",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 6202,
+      "cost_microusd": 2136,
+      "first_token_ms": 2049.3301999522373,
+      "turn_id": "turn_791634e771aa4319abac976596e7bd05",
+      "attempts": [
+        {
+          "cost_microusd": 2086,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3558,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 840,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 50,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 132,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-02",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 1,
+      "tokens": 6584,
+      "cost_microusd": 2712,
+      "first_token_ms": 2107.5554999988526,
+      "turn_id": "turn_2271094e4e254342949324214a1f393c",
+      "attempts": [
+        {
+          "cost_microusd": 2712,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3558,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 1362,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-03",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 6871,
+      "cost_microusd": 2944,
+      "first_token_ms": 2322.224000003189,
+      "turn_id": "turn_f77243297b49469ebdbfe2942c368586",
+      "attempts": [
+        {
+          "cost_microusd": 2895,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3555,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 1515,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 49,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 129,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-04",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 6827,
+      "cost_microusd": 2887,
+      "first_token_ms": 2274.523100000806,
+      "turn_id": "turn_07e0a716d88246be8d9ade37fdafe413",
+      "attempts": [
+        {
+          "cost_microusd": 2838,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3557,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 1467,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 49,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 131,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 8,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-05",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 1,
+      "tokens": 6095,
+      "cost_microusd": 2125,
+      "first_token_ms": 2250.9081999887712,
+      "turn_id": "turn_baf8ad130d3c4dafb6c4f299734ecae1",
+      "attempts": [
+        {
+          "cost_microusd": 2125,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3558,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 873,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_publish-06",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "ask"
+      ],
+      "model_calls": 2,
+      "tokens": 9271,
+      "cost_microusd": 2601,
+      "first_token_ms": 2209.3074999866076,
+      "turn_id": "turn_1551481c273a4e14b26633c294f24757",
+      "attempts": [
+        {
+          "cost_microusd": 1800,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 3558,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 602,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 801,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 310,
+          "cache_read_tokens": 2560,
+          "cache_write_tokens": 0,
+          "output_tokens": 577,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": false,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_save-01",
+      "partition": "DEV",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 2232,
+      "cost_microusd": 265,
+      "first_token_ms": 2208.2041000248864,
+      "turn_id": "turn_57b5ba9daa964666af0051de38a36a20",
+      "attempts": [
+        {
+          "cost_microusd": 58,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 156,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 9,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 207,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 319,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 84,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_save-02",
+      "partition": "DEV",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 1,
+      "tokens": 2069,
+      "cost_microusd": 208,
+      "first_token_ms": 2271.0679000010714,
+      "turn_id": "turn_b1b51f20847747919a882064ca1e146b",
+      "attempts": [
+        {
+          "cost_microusd": 208,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 321,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 84,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_save-03",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 2234,
+      "cost_microusd": 265,
+      "first_token_ms": 2592.333899985533,
+      "turn_id": "turn_19d9f4781125419d8107e7914aea4a4f",
+      "attempts": [
+        {
+          "cost_microusd": 207,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 320,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 84,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 58,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 157,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 9,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    },
+    {
+      "case_id": "routing-plan_save-04",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "expected": [
+        "final+plan_document"
+      ],
+      "forbidden": [
+        "handoff:research",
+        "handoff:expert"
+      ],
+      "status": "valid",
+      "observed": [
+        "final+plan_document"
+      ],
+      "model_calls": 2,
+      "tokens": 2238,
+      "cost_microusd": 267,
+      "first_token_ms": 2765.577000041958,
+      "turn_id": "turn_ae63dfe45fa74294af3dc2e13d4e46d3",
+      "attempts": [
+        {
+          "cost_microusd": 59,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 159,
+          "cache_read_tokens": 0,
+          "cache_write_tokens": 0,
+          "output_tokens": 9,
+          "reasoning_tokens": 0
+        },
+        {
+          "cost_microusd": 208,
+          "cost_status": "ESTIMATED_COMPLETE",
+          "uncached_input_tokens": 322,
+          "cache_read_tokens": 1664,
+          "cache_write_tokens": 0,
+          "output_tokens": 84,
+          "reasoning_tokens": 0
+        }
+      ],
+      "matched": true,
+      "forbidden_hit": false,
+      "bundle_id": "bundle_32db978bf19563d4dfb54be6"
+    }
+  ],
+  "status": "COMPLETED"
+}

@@ -298,7 +298,7 @@ def test_migration_47_creates_the_model_input_snapshot_table_and_binding(tmp_pat
         }
         foreign_keys = [tuple(row) for row in connection.execute("PRAGMA foreign_key_list(model_invocations)")]
 
-    assert versions[-1] == 47
+    assert versions[-1] == 48
     assert "model_input_snapshots" in tables
     assert columns == {"id", "owner_id", "schema_version", "content_json", "content_digest", "created_at"}
     assert {"idx_model_input_snapshots_owner", "idx_model_input_snapshots_digest"} <= indexes

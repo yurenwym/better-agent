@@ -1,531 +1,56 @@
-from __future__ import annotations
+"""Builtin tools and compatibility facade for existing registry callers.
 
-import asyncio
+Execution callers use .executor. Forwarders preserve direct tool integrations
+and existing registry consumers; remove them when those callers migrate.
+"""
+from __future__ import annotations
 import ast
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
-import inspect
-import json
 import os
 import tempfile
-import uuid
-from dataclasses import dataclass, field, replace
+from pathlib import Path
 from datetime import datetime
-from enum import StrEnum
-from pathlib import Path, PurePath
-from typing import Any, Callable
-
+from typing import Any
 from .db import Database
-from .domain import ApprovalRequired, ApprovalService, normalized_params_hash
-from .execution_context import (
-    HarnessContextError,
-    HarnessExecutionContext,
-    check_context_alignment,
-)
-from .trusted_connectors import ConnectorReconciliationRequired, ConnectorSecurityError, TrustedConnectorService
+from .domain import ApprovalService
+from .trusted_connectors import ConnectorSecurityError, TrustedConnectorService
+from .tool_contracts import (ToolSpec, ToolCall, ToolResult, ToolRisk, ToolExecutionContext,
+    ToolRejected, ToolArgumentError, ToolReconciliationRequired)
+from .capability_registry import CapabilityRegistry
+from .tool_executor import ToolExecutor
 
 
-class ToolRisk(StrEnum):
-    PURE = "PURE"
-    READ = "READ"
-    WRITE = "WRITE"
+class ToolRegistry(CapabilityRegistry):
+    def __init__(self, workspace: str | Path, db: Database | None = None,
+                 approval_service: ApprovalService | None = None):
+        super().__init__()
+        self.executor = ToolExecutor(self, workspace, db, approval_service)
 
+    @property
+    def workspace(self):
+        return self.executor.workspace
 
-class ToolRejected(PermissionError):
-    pass
+    @property
+    def db(self):
+        return self.executor.db
 
+    @property
+    def approval_service(self):
+        return self.executor.approval_service
 
-class ToolReconciliationRequired(ToolRejected):
-    pass
+    def risk_of(self, name, params):
+        return self.executor.risk_of(name, params)
 
+    def authorize(self, call, *, run_id, skill_tools, authorization=None):
+        return self.executor.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
 
-@dataclass(frozen=True)
-class ToolCall:
-    id: str
-    name: str
-    params: dict[str, Any]
+    def execute(self, call, *, run_id, skill_tools, authorization=None):
+        return self.executor.execute(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
 
+    async def execute_async(self, call, *, context, skill_tools, authorization=None):
+        return await self.executor.execute_async(call, context=context, skill_tools=skill_tools, authorization=authorization)
 
-@dataclass(frozen=True)
-class ToolResult:
-    ok: bool
-    summary: str
-    data: dict[str, Any] = field(default_factory=dict)
-    artifact_ref: str | None = None
-    error: str | None = None
-    meta: dict[str, Any] = field(default_factory=dict)
-
-    def as_dict(self) -> dict[str, Any]:
-        return {
-            "ok": self.ok,
-            "summary": self.summary,
-            "data": self.data,
-            "artifact_ref": self.artifact_ref,
-            "error": self.error,
-            "meta": self.meta,
-        }
-
-
-Handler = Callable[[dict[str, Any]], ToolResult]
-
-
-@dataclass(frozen=True)
-class ToolExecutionContext:
-    """Trusted server-side identity for one tool invocation.
-
-    Built from the durable run/approval records by the Runtime, never from
-    model-supplied parameters. Business handlers read ``owner_id`` from here so
-    two owners running concurrently can never share an identity through a
-    global or ambient variable.
-    """
-
-    owner_id: str
-    run_id: str
-    tool_call_id: str
-    thread_id: str | None = None
-    turn_id: str | None = None
-    project_id: str | None = None
-    # Budget/bundle identity of the originating run, so a tool-triggered model
-    # compile can share the run's root budget instead of creating an unrelated
-    # goal_operation budget.
-    root_budget_id: str | None = None
-    runtime_bundle_id: str | None = None
-    authorization: dict[str, Any] | None = None
-    # Span identity of the logical tool call.  An approval that waits for a
-    # human keeps this span; only a genuinely new internal model call gets a
-    # child span of it.
-    trace_id: str | None = None
-    span_id: str | None = None
-    parent_span_id: str | None = None
-    task_id: str | None = None
-    parent_task_id: str | None = None
-    root_task_id: str | None = None
-    harness: HarnessExecutionContext | None = None
-
-    def __post_init__(self) -> None:
-        check_context_alignment(self)
-
-    @classmethod
-    def from_harness(
-        cls,
-        harness: HarnessExecutionContext,
-        *,
-        tool_call_id: str,
-        authorization: dict[str, Any] | None = None,
-    ) -> "ToolExecutionContext":
-        """Convert a harness context into a tool call identity.
-
-        A conversion, not a factory: no trace/span is minted and no task or
-        budget is created.  A tool call without a run binding is refused rather
-        than silently given one.
-        """
-        if not isinstance(harness, HarnessExecutionContext):
-            raise HarnessContextError("harness must be a HarnessExecutionContext")
-        if not harness.run_id:
-            raise HarnessContextError("a tool call requires a run binding")
-        return cls(
-            owner_id=harness.owner_id,
-            run_id=harness.run_id,
-            tool_call_id=tool_call_id,
-            thread_id=harness.thread_id,
-            turn_id=harness.turn_id,
-            project_id=harness.project_id,
-            root_budget_id=harness.root_budget_id,
-            runtime_bundle_id=harness.runtime_bundle_id,
-            authorization=authorization,
-            trace_id=harness.trace_id,
-            span_id=harness.span_id,
-            parent_span_id=harness.parent_span_id,
-            task_id=harness.task_id,
-            parent_task_id=harness.parent_task_id,
-            root_task_id=harness.root_task_id,
-            harness=harness,
-        )
-
-    def public_view(self) -> dict[str, Any]:
-        return {
-            "owner_id": self.owner_id,
-            "run_id": self.run_id,
-            "tool_call_id": self.tool_call_id,
-            "thread_id": self.thread_id,
-            "project_id": self.project_id,
-            "root_budget_id": self.root_budget_id,
-            "runtime_bundle_id": self.runtime_bundle_id,
-        }
-
-
-ContextHandler = Callable[[dict[str, Any], ToolExecutionContext], ToolResult]
-Validator = Callable[[dict[str, Any]], None]
-
-# Parameters a model must never supply: identity and idempotency are injected by
-# the harness. A tool whose params carry any of these is rejected before
-# approval or execution.
-IDENTITY_PARAMETER_NAMES = frozenset({
-    "owner_id", "run_id", "tool_call_id", "thread_id", "project_id",
-    "idempotency_key", "operation_key",
-})
-
-
-@dataclass(frozen=True)
-class ToolSpec:
-    name: str
-    description: str
-    schema: dict[str, Any]
-    risk: ToolRisk
-    handler: Handler
-    timeout_seconds: float = 30
-    path_fields: tuple[str, ...] = ()
-    # A context-aware handler replaces ``handler`` when present; it receives the
-    # trusted execution context. The Runtime awaits it through
-    # ``ToolRegistry.execute_async``.
-    context_handler: ContextHandler | None = None
-    # Pre-approval/pre-execution argument validation. Must raise ToolRejected
-    # for invalid input so the model never sees an unvalidated call reach an
-    # approval record.
-    validator: Validator | None = None
-    # Context tools reject harness-owned parameter names outright.
-    reject_identity_params: bool = False
-    # Read-only reconciliation: return only a proven committed business result.
-    recover_result: ContextHandler | None = None
-    # Provenance. Native tools leave these at their defaults; an MCP tool must
-    # be locatable by source, stable server identity, remote name and the
-    # digest of the definition the model was actually shown.
-    source: str = "native"
-    server_id: str | None = None
-    remote_name: str | None = None
-    definition_digest: str | None = None
-
-
-class ToolRegistry:
-    def __init__(
-        self,
-        workspace: str | Path,
-        db: Database | None = None,
-        approval_service: ApprovalService | None = None,
-    ) -> None:
-        self.workspace = Path(workspace).resolve()
-        self.workspace.mkdir(parents=True, exist_ok=True)
-        self.db = db
-        self.approval_service = approval_service
-        self._tools: dict[str, ToolSpec] = {}
-
-    def register(self, spec: ToolSpec) -> None:
-        if spec.name in self._tools:
-            raise ValueError(f"duplicate tool: {spec.name}")
-        self._tools[spec.name] = spec
-
-    def unregister(self, name: str) -> None:
-        """Remove one tool.
-
-        Only the catalogue refresh path uses this, and it swaps a whole source's
-        tool set in one pass so no caller ever observes a half-updated registry.
-        """
-        self._tools.pop(name, None)
-
-    def specs(self) -> tuple[ToolSpec, ...]:
-        return tuple(self._tools.values())
-
-    def describe(self) -> list[dict[str, Any]]:
-        return [
-            {
-                "type": "function",
-                "function": {
-                    "name": spec.name,
-                    "description": spec.description,
-                    "parameters": spec.schema,
-                },
-            }
-            for spec in self._tools.values()
-        ]
-
-    def spec(self, name: str) -> ToolSpec:
-        spec = self._tools.get(name)
-        if spec is None:
-            raise ToolRejected("unknown tool")
-        return spec
-
-    def risk_of(self, name: str, params: dict[str, Any]) -> ToolRisk:
-        return self._risk(self.spec(name), ToolCall(id="", name=name, params=params))
-
-    def execute(
-        self,
-        call: ToolCall,
-        *,
-        run_id: str,
-        skill_tools: set[str] | None,
-        authorization: dict[str, Any] | None = None,
-    ) -> ToolResult:
-        try:
-            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
-        except ToolRejected as exc:
-            self._run_event(run_id, "tool.authorization.denied", {
-                "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
-            })
-            raise
-        risk = self._risk(spec, call)
-        params_hash = normalized_params_hash(call.params)
-        existing = self._existing_call(call.id)
-        if existing:
-            if existing["run_id"] != run_id or existing["params_hash"] != params_hash:
-                raise ToolRejected("tool_call_id binding changed")
-            if existing["status"] == "completed":
-                return ToolResult(**json.loads(existing["result_json"]))
-        if risk == ToolRisk.WRITE:
-            if self.approval_service is None:
-                raise ApprovalRequired("WRITE tool requires approval")
-            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
-        claimed = self._claim_execution(call, run_id, params_hash, risk)
-        if isinstance(claimed, ToolResult):
-            return claimed
-        executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="better-agent-tool")
-        future = executor.submit(spec.handler, call.params)
-        try:
-            result = future.result(timeout=spec.timeout_seconds)
-        except ConnectorReconciliationRequired as exc:
-            future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            self._mark_reconciliation(call, run_id, params_hash, str(exc))
-            raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
-        except FutureTimeout as exc:
-            future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
-            # A running thread cannot be cancelled; WRITE effects may still land.
-            if risk == ToolRisk.WRITE:
-                self._mark_reconciliation(call, run_id, params_hash, "timeout")
-                raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
-            timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
-            self._record_call(call, run_id, params_hash, risk, timeout_result)
-            return timeout_result
-        else:
-            executor.shutdown(wait=True)
-        if not isinstance(result, ToolResult):
-            raise TypeError("tool handler must return ToolResult")
-        self._record_call(call, run_id, params_hash, risk, result)
-        return result
-
-    async def execute_async(
-        self,
-        call: ToolCall,
-        *,
-        context: ToolExecutionContext,
-        skill_tools: set[str] | None,
-        authorization: dict[str, Any] | None = None,
-    ) -> ToolResult:
-        """Awaitable execution path for context-aware (possibly async) tools.
-
-        Shares authorization, approval, execution claims, persistence and
-        timeout/reconciliation with the synchronous :meth:`execute`. Sync
-        handlers keep running in a worker thread; async context handlers are
-        awaited directly, so a model-backed compile can use the existing
-        gateway lifecycle instead of a nested ``asyncio.run``.
-        """
-        context = replace(context, authorization=authorization)
-        run_id = context.run_id
-        try:
-            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
-        except ToolRejected as exc:
-            self._run_event(run_id, "tool.authorization.denied", {
-                "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
-            })
-            raise
-        risk = self._risk(spec, call)
-        params_hash = normalized_params_hash(call.params)
-        existing = self._existing_call(call.id)
-        if existing:
-            if existing["run_id"] != run_id or existing["params_hash"] != params_hash:
-                raise ToolRejected("tool_call_id binding changed")
-            if existing["status"] == "completed":
-                return ToolResult(**json.loads(existing["result_json"]))
-        if risk == ToolRisk.WRITE:
-            if self.approval_service is None:
-                raise ApprovalRequired("WRITE tool requires approval")
-            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
-        try:
-            claimed = self._claim_execution(call, run_id, params_hash, risk)
-        except ToolReconciliationRequired:
-            if spec.recover_result is None:
-                raise
-            if inspect.iscoroutinefunction(spec.recover_result):
-                # An MCP receipt lookup is a real remote read, so it is awaited
-                # under the same deadline as the original call.
-                recovered = await asyncio.wait_for(
-                    spec.recover_result(call.params, context), timeout=spec.timeout_seconds,
-                )
-            else:
-                recovered = await asyncio.to_thread(spec.recover_result, call.params, context)
-            if recovered is None or not recovered.ok:
-                raise
-            self._record_call(call, run_id, params_hash, risk, recovered)
-            return recovered
-        if isinstance(claimed, ToolResult):
-            return claimed
-        try:
-            if spec.context_handler is not None:
-                if inspect.iscoroutinefunction(spec.context_handler):
-                    awaitable = spec.context_handler(call.params, context)
-                else:
-                    awaitable = asyncio.to_thread(spec.context_handler, call.params, context)
-            else:
-                awaitable = asyncio.to_thread(spec.handler, call.params)
-            result = await asyncio.wait_for(awaitable, timeout=spec.timeout_seconds)
-        except (ConnectorReconciliationRequired, ToolReconciliationRequired) as exc:
-            # A handler may already know its effect is unverifiable - an MCP
-            # write whose connection dropped, for example. Persist the claim as
-            # RECONCILIATION_REQUIRED instead of leaving it RUNNING.
-            self._mark_reconciliation(call, run_id, params_hash, str(exc))
-            raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
-        except asyncio.TimeoutError as exc:
-            if risk == ToolRisk.WRITE:
-                self._mark_reconciliation(call, run_id, params_hash, "timeout")
-                raise ToolReconciliationRequired("tool execution requires reconciliation") from exc
-            timeout_result = ToolResult(False, "tool timed out", error="timeout", meta={"timeout_seconds": spec.timeout_seconds})
-            self._record_call(call, run_id, params_hash, risk, timeout_result)
-            return timeout_result
-        if not isinstance(result, ToolResult):
-            raise TypeError("tool handler must return ToolResult")
-        self._record_call(call, run_id, params_hash, risk, result)
-        return result
-
-    def authorize(
-        self,
-        call: ToolCall,
-        *,
-        run_id: str,
-        skill_tools: set[str] | None,
-        authorization: dict[str, Any] | None = None,
-    ) -> ToolSpec:
-        spec = self._tools.get(call.name)
-        if spec is None:
-            raise ToolRejected("unknown tool")
-        if skill_tools is not None and call.name not in skill_tools:
-            raise ToolRejected("skill does not allow tool")
-        if spec.reject_identity_params:
-            supplied = IDENTITY_PARAMETER_NAMES & set(call.params)
-            if supplied:
-                raise ToolRejected(
-                    "identity parameters are injected by the harness: "
-                    + ",".join(sorted(supplied))
-                )
-        _validate_schema(spec.schema, call.params)
-        if spec.validator is not None:
-            spec.validator(call.params)
-        for field_name in spec.path_fields:
-            self.safe_path(call.params[field_name])
-        if self._risk(spec, call) == ToolRisk.WRITE:
-            if self.approval_service is None:
-                raise ApprovalRequired("WRITE tool requires approval")
-            self.approval_service.require_granted(run_id, call.id, call.params, authorization)
-        return spec
-
-    @staticmethod
-    def _risk(spec: ToolSpec, call: ToolCall) -> ToolRisk:
-        if spec.name == "trusted_connector":
-            return ToolRisk.WRITE if str(call.params.get("method", "")).upper() in {"POST", "PUT", "PATCH", "DELETE"} else ToolRisk.READ
-        return spec.risk
-
-    def safe_path(self, value: str) -> Path:
-        if not isinstance(value, str) or not value.strip():
-            raise ToolRejected("path must be a non-empty string")
-        candidate = Path(value)
-        if candidate.is_absolute() or os.path.splitdrive(value)[0] or ".." in PurePath(value).parts:
-            raise ToolRejected("path must stay inside the workspace")
-        resolved = (self.workspace / candidate).resolve(strict=False)
-        try:
-            resolved.relative_to(self.workspace)
-        except ValueError as exc:
-            raise ToolRejected("path escapes the workspace") from exc
-        return resolved
-
-    def _existing_call(self, call_id: str):
-        if self.db is None:
-            return None
-        with self.db.connection() as connection:
-            return connection.execute("SELECT * FROM tool_calls WHERE id = ?", (call_id,)).fetchone()
-
-    def _claim_execution(self, call: ToolCall, run_id: str, params_hash: str, risk: ToolRisk) -> ToolResult | None:
-        if self.db is None:
-            return None
-        now = datetime.now().astimezone().isoformat()
-        logical_key = f"{run_id}:{call.id}"
-        reconciliation_required = False
-        with self.db.transaction() as connection:
-            row = connection.execute("SELECT * FROM tool_execution_claims WHERE logical_action_key=?", (logical_key,)).fetchone()
-            if row:
-                if row["run_id"] != run_id or row["tool_name"] != call.name or row["params_hash"] != params_hash:
-                    raise ToolRejected("tool execution binding changed")
-                if row["status"] == "COMPLETED" and row["result_json"]:
-                    return ToolResult(**json.loads(row["result_json"]))
-                if row["status"] == "RECONCILIATION_REQUIRED":
-                    reconciliation_required = True
-                elif row["status"] == "RUNNING" and risk == ToolRisk.WRITE:
-                    connection.execute("UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',updated_at=? WHERE logical_action_key=?", (now, logical_key))
-                    self._run_event(run_id, "tool.reconciliation_required", {
-                        "tool_call_id": call.id, "tool_name": call.name,
-                    }, connection=connection)
-                    reconciliation_required = True
-                else:
-                    raise ToolRejected("tool execution already running")
-            else:
-                connection.execute(
-                    "INSERT INTO tool_execution_claims(logical_action_key,run_id,tool_call_id,tool_name,params_hash,status,created_at,updated_at) VALUES (?,?,?,?,?,'RUNNING',?,?)",
-                    (logical_key, run_id, call.id, call.name, params_hash, now, now),
-                )
-        if reconciliation_required:
-            raise ToolReconciliationRequired("tool execution requires reconciliation")
-        return None
-
-    def _mark_reconciliation(self, call: ToolCall, run_id: str, params_hash: str, error: str) -> None:
-        if self.db is None:
-            return
-        now = datetime.now().astimezone().isoformat()
-        with self.db.transaction() as connection:
-            changed = connection.execute(
-                "UPDATE tool_execution_claims SET status='RECONCILIATION_REQUIRED',error_code=?,updated_at=? "
-                "WHERE logical_action_key=? AND run_id=? AND params_hash=? AND status<>'RECONCILIATION_REQUIRED'",
-                (error, now, f"{run_id}:{call.id}", run_id, params_hash),
-            ).rowcount
-            if changed:
-                self._run_event(run_id, "tool.reconciliation_required", {
-                    "tool_call_id": call.id, "tool_name": call.name,
-                }, connection=connection)
-
-    def _run_event(self, run_id: str, event_type: str, data: dict[str, Any], *, connection=None) -> None:
-        if self.db is None:
-            return
-        def append(active) -> None:
-            row = active.execute("SELECT goal_id FROM runs WHERE id=?", (run_id,)).fetchone()
-            if row is not None:
-                from .events import EventStore
-                EventStore(self.db).append(run_id, row["goal_id"], event_type, "runtime", data, connection=active)
-        if connection is not None:
-            append(connection)
-        else:
-            with self.db.transaction() as active:
-                append(active)
-
-    def _record_call(
-        self,
-        call: ToolCall,
-        run_id: str,
-        params_hash: str,
-        risk: ToolRisk,
-        result: ToolResult,
-    ) -> None:
-        if self.db is None:
-            return
-        now = datetime.now().astimezone().isoformat()
-        with self.db.transaction() as connection:
-            connection.execute(
-                "INSERT INTO tool_calls(id, run_id, tool_name, params_hash, risk, status, result_json, "
-                "created_at, completed_at) VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?) "
-                "ON CONFLICT(id) DO UPDATE SET run_id=excluded.run_id,tool_name=excluded.tool_name,"
-                "params_hash=excluded.params_hash,risk=excluded.risk,status=excluded.status,"
-                "result_json=excluded.result_json,created_at=excluded.created_at,completed_at=excluded.completed_at",
-                (call.id, run_id, call.name, params_hash, risk.value, json.dumps(result.as_dict()), now, now),
-            )
-            connection.execute(
-                "UPDATE tool_execution_claims SET status=?,result_json=?,error_code=?,updated_at=?,completed_at=? WHERE logical_action_key=?",
-                ("COMPLETED" if result.ok else "FAILED", json.dumps(result.as_dict()), result.error, now, now, f"{run_id}:{call.id}"),
-            )
+    def safe_path(self, value):
+        return self.executor.safe_path(value)
 
 
 def create_default_registry(
@@ -682,20 +207,3 @@ def _eval_node(node: ast.AST) -> int | float:
             ast.Mod: lambda: left % right,
         }[type(node.op)]()
     raise ToolRejected("calculator expression is not allowed")
-
-
-def _validate_schema(schema: dict[str, Any], params: dict[str, Any]) -> None:
-    if schema.get("type") == "object" and not isinstance(params, dict):
-        raise ToolRejected("tool parameters must be an object")
-    for required in schema.get("required", []):
-        if required not in params:
-            raise ToolRejected(f"missing parameter: {required}")
-    properties = schema.get("properties", {})
-    if schema.get("additionalProperties") is False:
-        unknown = set(params) - set(properties)
-        if unknown:
-            raise ToolRejected("unknown tool parameter")
-    for name, value in params.items():
-        expected = properties.get(name, {}).get("type")
-        if expected == "string" and not isinstance(value, str):
-            raise ToolRejected(f"parameter {name} must be a string")

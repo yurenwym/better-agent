@@ -47,6 +47,27 @@ def build(tmp_path):
     return db, conversation, ResearchService(db, conversation.events, CompletingEngine())
 
 
+def test_owner_scope_prevents_research_read_and_mutation(tmp_path):
+    db, conversation, service = build(tmp_path)
+    try:
+        job = service.create_manual(conversation.create_thread().id, "private", "private", ("web",))
+        assert service.get(job.id, owner_id="local-user").id == job.id
+        assert service.list(owner_id="other") == []
+        for operation in (
+            lambda: service.get(job.id, owner_id="other"),
+            lambda: service.cancel(job.id, owner_id="other"),
+            lambda: service.delete(job.id, owner_id="other"),
+            lambda: service.retry(job.id, None, "retry", owner_id="other"),
+        ):
+            with pytest.raises(KeyError):
+                operation()
+        assert service.get(job.id).status == "QUEUED"
+        assert len(service.list()) == 1
+        assert service.cancel(job.id, owner_id="local-user").status == "CANCELLED"
+    finally:
+        db.close()
+
+
 def test_create_job_is_idempotent_and_creates_anchor_and_streaming_message(tmp_path) -> None:
     db, conversation, service = build(tmp_path)
     thread = conversation.create_thread("研究")
@@ -58,6 +79,13 @@ def test_create_job_is_idempotent_and_creates_anchor_and_streaming_message(tmp_p
     assert len(messages) == 2
     assert messages[-1].status == "streaming"
     assert [event.type for event in conversation.events.list(thread.id)].count("research.queued") == 1
+    import json
+    from app.event_envelope import EventMetadata
+    root = conversation.harness_context.load_turn_context(first.source_turn_id)
+    queued = next(event for event in conversation.events.list(thread.id) if event.type == "research.queued")
+    context = EventMetadata.from_dict(json.loads(queued.envelope_json)).context
+    assert context.trace_id == root.trace_id
+    assert context.parent_span_id == root.span_id
 
 
 def test_manual_research_rejects_thread_with_active_turn(tmp_path) -> None:
@@ -78,8 +106,8 @@ def test_claim_lease_takeover_and_old_owner_cannot_finalize(tmp_path) -> None:
     takeover = service.claim_next("worker-b", 30)
     assert takeover and takeover.attempts == 2
     with pytest.raises(PermissionError):
-        service.complete(job.id, "worker-a", "wrong", "# Wrong", 1, 1)
-    service.complete(job.id, "worker-b", "ok", "# Correct", 1, 1)
+        service.complete(job.id, "worker-a", "wrong", "# Wrong", 1, 1, epoch=claimed.lease_epoch)
+    service.complete(job.id, "worker-b", "ok", "# Correct", 1, 1, epoch=takeover.lease_epoch)
     snapshot = service.get(job.id)
     assert snapshot.status == "COMPLETED"
     with db.connection() as connection:
@@ -90,7 +118,7 @@ def test_claim_lease_takeover_and_old_owner_cannot_finalize(tmp_path) -> None:
 def test_partial_delivery_is_terminal_and_persists_traceability(tmp_path) -> None:
     _, conversation, service = build(tmp_path)
     job = service.create_manual(conversation.create_thread().id, "研究", "partial", ("web",))
-    service.claim_next("worker", 30)
+    lease_1 = service.claim_next("worker", 30)
     traceability = ({
         "requirement": "已支持项", "conclusion": "结论", "evidence_ids": ["e1"],
         "source_ids": ["s1"], "citation_source_ids": ["s1"],
@@ -100,6 +128,7 @@ def test_partial_delivery_is_terminal_and_persists_traceability(tmp_path) -> Non
     partial = service.complete_partial(
         job.id, "worker", "部分报告", "# 部分报告", 1, 1,
         traceability, ("缺失项",),
+        epoch=lease_1.lease_epoch,
     )
     assert partial.status == "PARTIAL" and partial.phase == "partial"
     assert partial.missing_requirements == ("缺失项",)
@@ -120,8 +149,8 @@ def test_manual_research_pins_runtime_bundle_and_retry_preserves_it(tmp_path) ->
             "SELECT runtime_bundle_id FROM turns WHERE id=?", (first.source_turn_id,),
         ).fetchone()["runtime_bundle_id"]
     assert pinned == bundle_id
-    service.claim_next("worker", 30)
-    service.fail(first.id, "worker", "permanent", retryable=False)
+    lease_1 = service.claim_next("worker", 30)
+    service.fail(first.id, "worker", "permanent", retryable=False, epoch=lease_1.lease_epoch)
     retried = service.retry(first.id, None, "bundle-pin-retry")
     with db.connection() as connection:
         retry_pinned = connection.execute(
@@ -142,14 +171,14 @@ def test_exact_claim_does_not_consume_an_unrelated_queued_job(tmp_path) -> None:
 def test_recovery_accepts_citation_alias_without_source_prefix(tmp_path) -> None:
     db, conversation, service = build(tmp_path)
     job = service.create_manual(conversation.create_thread().id, "alias", "citation-alias", ("web",))
-    service.claim_next("worker", 30)
+    lease_1 = service.claim_next("worker", 30)
     source_id = "source_abc123"
     source = Source(source_id, 1, "web", "https://example.com", None, "source", "quoted evidence", None, "now", .9, "hash")
     evidence = Evidence("evidence_alias", source_id, "quoted evidence", None, .9)
-    service.apply_event(job.id, "worker", ResearchEvent("plan", "planning", {"title":"alias","sections":["answer"],"queries":["alias"]}))
-    service.apply_event(job.id, "worker", ResearchEvent("sources", "retrieving", {"items":[source]}))
-    service.apply_event(job.id, "worker", ResearchEvent("evidence", "distilling", {"items":[evidence]}))
-    service.apply_event(job.id, "worker", ResearchEvent("section", "writing", {"ordinal":1,"heading":"answer","markdown":"## answer\n\nquoted evidence [[source:abc123]]","summary":"answer"}))
+    service.apply_event(job.id, "worker", ResearchEvent("plan", "planning", {"title":"alias","sections":["answer"],"queries":["alias"]}), epoch=lease_1.lease_epoch)
+    service.apply_event(job.id, "worker", ResearchEvent("sources", "retrieving", {"items":[source]}), epoch=lease_1.lease_epoch)
+    service.apply_event(job.id, "worker", ResearchEvent("evidence", "distilling", {"items":[evidence]}), epoch=lease_1.lease_epoch)
+    service.apply_event(job.id, "worker", ResearchEvent("section", "writing", {"ordinal":1,"heading":"answer","markdown":"## answer\n\nquoted evidence [[source:abc123]]","summary":"answer"}), epoch=lease_1.lease_epoch)
     sections, sources, evidence_rows, plan = service.recovery_context(job.id)
     assert sections and [item.id for item in sources] == [source_id]
     assert [item.id for item in evidence_rows] == [evidence.id]
@@ -200,12 +229,12 @@ def test_delete_rejects_an_active_research(tmp_path):
  assert service.get(job.id).status=="QUEUED"
 
 def test_retryable_failure_requeues_until_max_attempts(tmp_path):
- _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","retryable",("web",));service.claim_next("w",30)
- queued=service.fail(job.id,"w","timeout",True);assert queued.status=="QUEUED"
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","retryable",("web",));lease_1 = service.claim_next("w",30)
+ queued=service.fail(job.id,"w","timeout",True, epoch=lease_1.lease_epoch);assert queued.status=="QUEUED"
 
 def test_terminal_failure_exposes_only_a_stable_reason_code(tmp_path):
- _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-reason",("web",));service.claim_next("w",30)
- failed=service.fail(job.id,"w","unknowncitation",False)
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-reason",("web",));lease_1 = service.claim_next("w",30)
+ failed=service.fail(job.id,"w","unknowncitation",False, epoch=lease_1.lease_epoch)
  assert failed.failure_reason_code=="unknowncitation"
 
 def test_expired_last_attempt_is_failed_instead_of_stuck(tmp_path):
@@ -217,29 +246,29 @@ def test_expired_last_attempt_is_failed_instead_of_stuck(tmp_path):
  assert conversation.events.list(job.thread_id)[-1].type=="message.completed"
 
 def test_recovery_context_restores_sections_sources_and_evidence(tmp_path):
- db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","recover",("web",));service.claim_next("w",30)
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","recover",("web",));lease_1 = service.claim_next("w",30)
  source=Source("old-source",1,"web","https://example.com/old",None,"Old","body",None,"now",.8,"hash")
  evidence=Evidence("old-evidence",source.id,"fact",None,.9)
- service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":1,"items":[source]}))
- service.apply_event(job.id,"w",ResearchEvent("evidence","distilling",{"count":1,"items":[evidence]}))
- service.apply_event(job.id,"w",ResearchEvent("section","writing",{"ordinal":1,"heading":"Old","markdown":"## Old\n\nfact [[source:old-source]]","summary":"old"}))
+ service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":1,"items":[source]}), epoch=lease_1.lease_epoch)
+ service.apply_event(job.id,"w",ResearchEvent("evidence","distilling",{"count":1,"items":[evidence]}), epoch=lease_1.lease_epoch)
+ service.apply_event(job.id,"w",ResearchEvent("section","writing",{"ordinal":1,"heading":"Old","markdown":"## Old\n\nfact [[source:old-source]]","summary":"old"}), epoch=lease_1.lease_epoch)
  sections,sources,evidence_items,plan=service.recovery_context(job.id)
  assert sections[1]["heading"]=="Old"
  assert [item.id for item in sources]==["old-source"]
  assert [item.id for item in evidence_items]==["old-evidence"]
 
 def test_failed_research_keeps_collected_source_and_evidence_counts(tmp_path):
- db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-counts",("web",));service.claim_next("w",30)
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-counts",("web",));lease_1 = service.claim_next("w",30)
  source=Source("source-one",1,"web","https://example.com/one",None,"One","body",None,"now",.8,"hash")
  evidence=Evidence("evidence-one",source.id,"fact",None,.9)
- service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":1,"items":[source]}))
- service.apply_event(job.id,"w",ResearchEvent("evidence","distilling",{"count":1,"items":[evidence]}))
- failed=service.fail(job.id,"w","unknowncitation")
+ service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":1,"items":[source]}), epoch=lease_1.lease_epoch)
+ service.apply_event(job.id,"w",ResearchEvent("evidence","distilling",{"count":1,"items":[evidence]}), epoch=lease_1.lease_epoch)
+ failed=service.fail(job.id,"w","unknowncitation", epoch=lease_1.lease_epoch)
  assert (failed.source_count,failed.evidence_count)==(1,1)
 
 def test_failed_research_persists_safe_failure_diagnostics(tmp_path):
- db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-details",("web",));service.claim_next("w",30)
- failed=service.fail(job.id,"w","topiccoverageerror",diagnostics={"missing_requirements":["岗位要求","投递渠道"]})
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","failed-details",("web",));lease_1 = service.claim_next("w",30)
+ failed=service.fail(job.id,"w","topiccoverageerror",diagnostics={"missing_requirements":["岗位要求","投递渠道"]}, epoch=lease_1.lease_epoch)
  assert failed.failure_details=={"missing_requirements":["岗位要求","投递渠道"]}
 
 @pytest.mark.asyncio
@@ -251,9 +280,9 @@ async def test_worker_persists_engine_failure_diagnostics(tmp_path):
  assert failed.failure_details=={"missing_requirements":["岗位要求","投递渠道"]}
 
 def test_source_event_exposes_only_safe_retrieval_diagnostics(tmp_path):
- _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"private query","safe-diagnostics",("web",));service.claim_next("w",30)
+ _,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"private query","safe-diagnostics",("web",));lease_1 = service.claim_next("w",30)
  diagnostics={"attempted_queries":2,"successful_queries":0,"raw_sources":0,"accepted_sources":0,"failure_counts":{"search_timeout":2}}
- service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":0,"diagnostics":diagnostics}))
+ service.apply_event(job.id,"w",ResearchEvent("sources","retrieving",{"count":0,"diagnostics":diagnostics}), epoch=lease_1.lease_epoch)
  event=conversation.events.list(job.thread_id)[-1]
  assert event.type=="research.sources_updated" and event.data["diagnostics"]==diagnostics
  serialized=str(event.data)
@@ -268,10 +297,10 @@ def test_expired_cancelled_last_attempt_finishes_cancelled(tmp_path):
  assert conversation.events.list(job.thread_id)[-1].type=="message.completed"
 
 def test_complete_rejects_a_concurrent_cancel_request(tmp_path):
- db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","cancel-before-commit",("web",));service.claim_next("w",30)
+ db,conversation,service=build(tmp_path);job=service.create_manual(conversation.create_thread().id,"x","cancel-before-commit",("web",));lease_1 = service.claim_next("w",30)
  service.cancel(job.id)
  with pytest.raises(ResearchConflict,match="cancelled"):
-  service.complete(job.id,"w","wrong","# Wrong",1,1)
+  service.complete(job.id,"w","wrong","# Wrong",1,1, epoch=lease_1.lease_epoch)
  assert service.get(job.id).status=="RUNNING"
 
 @pytest.mark.asyncio

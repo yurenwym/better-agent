@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20260930_0025"
+POSTGRES_SCHEMA_HEAD = "20261010_0027"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1647,6 +1647,12 @@ MIGRATIONS = (
 )
 
 
+MIGRATIONS = (*MIGRATIONS, (48, """
+ALTER TABLE events ADD COLUMN envelope_json TEXT;
+ALTER TABLE thread_events ADD COLUMN envelope_json TEXT;
+"""))
+
+
 class Database:
     def __init__(self, path: str | Path, workspace: str | Path | None = None) -> None:
         self.backend = "postgresql" if _is_postgres_url(path) else "sqlite"
@@ -1776,6 +1782,13 @@ class Database:
                         "INSERT INTO schema_migrations(version,checksum,applied_at) VALUES (?,?,datetime('now'))",
                         (version, checksum),
                     )
+            self._add_column(connection, "research_jobs", "lease_epoch INTEGER NOT NULL DEFAULT 0")
+            for field in ("execution_status TEXT NOT NULL DEFAULT 'QUEUED'", "execution_owner TEXT",
+                          "execution_until TEXT", "execution_epoch INTEGER NOT NULL DEFAULT 0",
+                          "execution_attempts INTEGER NOT NULL DEFAULT 0"):
+                self._add_column(connection, "runs", field)
+            self._add_column(connection, "turns", "direction_projection_epoch INTEGER NOT NULL DEFAULT 0")
+            self._add_column(connection, "turns", "direction_projection_attempts INTEGER NOT NULL DEFAULT 0")
             connection.execute("INSERT OR IGNORE INTO app_settings(id,human_mode,updated_at) VALUES (1,0,datetime('now'))")
             try:
                 connection.execute("CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(entry_id UNINDEXED,owner_id UNINDEXED,content,tokenize='trigram')")

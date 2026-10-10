@@ -456,6 +456,16 @@ class ModelGateway:
                 on_text_reset()
             if on_attempt_started is not None:
                 on_attempt_started(attempt_count, reason)
+            from .policy_engine import PolicyAction, PolicyInput, decide
+            decision = decide(PolicyInput(True, True, True,
+                cancelled=cancel_event is not None and cancel_event.is_set()))
+            if decision.action == PolicyAction.DENY:
+                if handle is not None:
+                    self.control_store.finish_invocation(handle, "cancelled")
+                raise GatewayError("model request cancelled", "cancelled", attempt_count - 1)
+            if handle is None:
+                from .send_authority import assert_send_authority
+                assert_send_authority()
             if handle is not None:
                 # The send-time asset check.  It runs *after* every caller
                 # callback and immediately before the wire, so a callback that

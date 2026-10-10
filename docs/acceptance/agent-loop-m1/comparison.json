@@ -1,0 +1,1426 @@
+{
+  "engineering": "PASS",
+  "routing_quality": "PASS",
+  "gates": {
+    "accuracy": true,
+    "categories": true,
+    "forbidden": true,
+    "safety": true,
+    "tokens": true,
+    "cost": true,
+    "direct_ttft": true
+  },
+  "all_tie": false,
+  "legacy": {
+    "planned": 70,
+    "matched": 57,
+    "forbidden_hits": 2,
+    "invalid": 0,
+    "cancelled": 0,
+    "mean_tokens": 4517.714285714285,
+    "mean_cost_microusd": 1099.2428571428572,
+    "mean_model_calls": 1.2142857142857142,
+    "direct_ttft_p50_ms": 2464.5987499970943
+  },
+  "loop": {
+    "planned": 70,
+    "matched": 64,
+    "forbidden_hits": 0,
+    "invalid": 0,
+    "cancelled": 0,
+    "mean_tokens": 6238.842857142857,
+    "mean_cost_microusd": 1547.6714285714286,
+    "mean_model_calls": 1.3857142857142857,
+    "direct_ttft_p50_ms": 2175.7291500107385
+  },
+  "by_category": {
+    "clarify": {
+      "legacy": {
+        "planned": 6,
+        "matched": 1,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 5344.666666666667,
+        "mean_cost_microusd": 1051.8333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 1,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4286.833333333333,
+        "mean_cost_microusd": 1101.8333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "direct": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 5707.5,
+        "mean_cost_microusd": 1665.3333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": 2464.5987499970943
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4450.5,
+        "mean_cost_microusd": 1495.3333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": 2175.7291500107385
+      }
+    },
+    "expert": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4450.833333333333,
+        "mean_cost_microusd": 979.8333333333334,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 5,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 5881.5,
+        "mean_cost_microusd": 1473.5,
+        "mean_model_calls": 1.3333333333333333,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "goal_read": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 10750.5,
+        "mean_cost_microusd": 1455.1666666666667,
+        "mean_model_calls": 2,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 8555.166666666666,
+        "mean_cost_microusd": 1384.3333333333333,
+        "mean_model_calls": 2,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "goal_write": {
+      "legacy": {
+        "planned": 6,
+        "matched": 1,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 7869.666666666667,
+        "mean_cost_microusd": 1727.8333333333333,
+        "mean_model_calls": 2.1666666666666665,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 9537,
+        "mean_cost_microusd": 1887.8333333333333,
+        "mean_model_calls": 2,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "implicit_research": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 5963.5,
+        "mean_cost_microusd": 1906.8333333333333,
+        "mean_model_calls": 1.1666666666666667,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4658.5,
+        "mean_cost_microusd": 1693.5,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "mixed": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 162.5,
+        "mean_cost_microusd": 81.33333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 9010.5,
+        "mean_cost_microusd": 1544.1666666666667,
+        "mean_model_calls": 2,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "negation": {
+      "legacy": {
+        "planned": 6,
+        "matched": 4,
+        "forbidden_hits": 2,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 3903.1666666666665,
+        "mean_cost_microusd": 1187.3333333333333,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4509.5,
+        "mean_cost_microusd": 1552.5,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "plan_publish": {
+      "legacy": {
+        "planned": 6,
+        "matched": 5,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 6946.5,
+        "mean_cost_microusd": 2533.5,
+        "mean_model_calls": 1.6666666666666667,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 5839.333333333333,
+        "mean_cost_microusd": 2314.3333333333335,
+        "mean_model_calls": 1.1666666666666667,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "plan_save": {
+      "legacy": {
+        "planned": 4,
+        "matched": 4,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 2193.25,
+        "mean_cost_microusd": 251.25,
+        "mean_model_calls": 1.75,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 4,
+        "matched": 4,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4295.5,
+        "mean_cost_microusd": 1270.5,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "remember": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 145.66666666666666,
+        "mean_cost_microusd": 68,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 8855.166666666666,
+        "mean_cost_microusd": 1426.1666666666667,
+        "mean_model_calls": 2,
+        "direct_ttft_p50_ms": null
+      }
+    },
+    "research": {
+      "legacy": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 0,
+        "mean_cost_microusd": 0,
+        "mean_model_calls": 0,
+        "direct_ttft_p50_ms": null
+      },
+      "loop": {
+        "planned": 6,
+        "matched": 6,
+        "forbidden_hits": 0,
+        "invalid": 0,
+        "cancelled": 0,
+        "mean_tokens": 4338.833333333333,
+        "mean_cost_microusd": 1335.6666666666667,
+        "mean_model_calls": 1,
+        "direct_ttft_p50_ms": null
+      }
+    }
+  },
+  "cases": [
+    {
+      "case_id": "routing-direct-01",
+      "partition": "DEV",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-direct-02",
+      "partition": "DEV",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-direct-03",
+      "partition": "DEV",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-direct-04",
+      "partition": "DEV",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-direct-05",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-direct-06",
+      "partition": "HOLDOUT",
+      "category": "direct",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-01",
+      "partition": "DEV",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-02",
+      "partition": "DEV",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-03",
+      "partition": "DEV",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-04",
+      "partition": "DEV",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-05",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-research-06",
+      "partition": "HOLDOUT",
+      "category": "research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "handoff:research"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-01",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-02",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-03",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-04",
+      "partition": "DEV",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-05",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-implicit_research-06",
+      "partition": "HOLDOUT",
+      "category": "implicit_research",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-expert-01",
+      "partition": "DEV",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "ask",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-expert-02",
+      "partition": "DEV",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "handoff:expert"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-expert-03",
+      "partition": "DEV",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "handoff:expert",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-expert-04",
+      "partition": "DEV",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "handoff:expert"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-expert-05",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "handoff:expert"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-expert-06",
+      "partition": "HOLDOUT",
+      "category": "expert",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:expert"
+      ],
+      "loop_observed": [
+        "handoff:expert"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-01",
+      "partition": "DEV",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-02",
+      "partition": "DEV",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-03",
+      "partition": "DEV",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-04",
+      "partition": "DEV",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-05",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-remember-06",
+      "partition": "HOLDOUT",
+      "category": "remember",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-clarify-01",
+      "partition": "DEV",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": false,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-clarify-02",
+      "partition": "DEV",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "ask"
+      ],
+      "loop_observed": [
+        "ask"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-clarify-03",
+      "partition": "DEV",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-clarify-04",
+      "partition": "DEV",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-clarify-05",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-clarify-06",
+      "partition": "HOLDOUT",
+      "category": "clarify",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": false
+    },
+    {
+      "case_id": "routing-goal_read-01",
+      "partition": "DEV",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_read-02",
+      "partition": "DEV",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_read-03",
+      "partition": "DEV",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_read-04",
+      "partition": "DEV",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_read-05",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_read-06",
+      "partition": "HOLDOUT",
+      "category": "goal_read",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:query_goals"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-01",
+      "partition": "DEV",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-02",
+      "partition": "DEV",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "approval"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-03",
+      "partition": "DEV",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-04",
+      "partition": "DEV",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-05",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-goal_write-06",
+      "partition": "HOLDOUT",
+      "category": "goal_write",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "approval"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-01",
+      "partition": "DEV",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-02",
+      "partition": "DEV",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-03",
+      "partition": "DEV",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-04",
+      "partition": "DEV",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-05",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-negation-06",
+      "partition": "HOLDOUT",
+      "category": "negation",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "handoff:research"
+      ],
+      "loop_observed": [
+        "final"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-01",
+      "partition": "DEV",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-02",
+      "partition": "DEV",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-03",
+      "partition": "DEV",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-04",
+      "partition": "DEV",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-05",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-mixed-06",
+      "partition": "HOLDOUT",
+      "category": "mixed",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "loop_observed": [
+        "final",
+        "tool:remember"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-01",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-02",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-03",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-04",
+      "partition": "DEV",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-05",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_publish-06",
+      "partition": "HOLDOUT",
+      "category": "plan_publish",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "ask"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": false,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_save-01",
+      "partition": "DEV",
+      "category": "plan_save",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_save-02",
+      "partition": "DEV",
+      "category": "plan_save",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_save-03",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    },
+    {
+      "case_id": "routing-plan_save-04",
+      "partition": "HOLDOUT",
+      "category": "plan_save",
+      "legacy_status": "valid",
+      "loop_status": "valid",
+      "legacy_observed": [
+        "final+plan_document"
+      ],
+      "loop_observed": [
+        "final+plan_document"
+      ],
+      "legacy_matched": true,
+      "loop_matched": true
+    }
+  ],
+  "token_explanation": "完整原生工具目录和按需读取增加输入；缓存输入计入 token。本阶段接受开销以统一主链路，保留后续按能力缩减目录的空间，不另加分类调用。费用按调用账本计全。",
+  "safety_failures": 0,
+  "safety_evidence": [
+    "test_conversation_capabilities.py",
+    "test_conversation_handoff.py",
+    "test_goal_loop.py",
+    "integration/test_agent_loop_goal_postgres.py"
+  ]
+}

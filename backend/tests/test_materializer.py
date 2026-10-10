@@ -33,7 +33,8 @@ def _count(runtime, table: str) -> int:
 
 
 @pytest.mark.asyncio
-async def test_execution_materializes_once_only_after_confirmed_direction(tmp_path) -> None:
+@pytest.mark.parametrize("native_goal", [False, True])
+async def test_execution_materializes_once_only_after_confirmed_direction(tmp_path, monkeypatch, native_goal) -> None:
     runtime = make_runtime(tmp_path, MaterializerModel())
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
@@ -50,6 +51,8 @@ async def test_execution_materializes_once_only_after_confirmed_direction(tmp_pa
 
     assert turn.status == "AWAITING_DIRECTION"
     assert _count(runtime, "goals") == 0
+    if native_goal:
+        monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     first = await runtime.conversation.select_direction(
         turn.id, "continue_execution", turn.version, "action-1"
     )
@@ -66,6 +69,20 @@ async def test_execution_materializes_once_only_after_confirmed_direction(tmp_pa
             "SELECT source_turn_id FROM runs WHERE id = ?", (first.materialized_run_id,)
         ).fetchone()
     assert row["source_turn_id"] == turn.id
+    if native_goal:
+        import json
+        from app.event_envelope import EventMetadata
+        from app.execution_context import deserialize_context
+        root = runtime.conversation.harness_context.load_turn_context(turn.id)
+        run = runtime.get_run(first.materialized_run_id)
+        context = deserialize_context(run.budget["agent_loop_context"])
+        assert context.trace_id == root.trace_id
+        assert context.parent_span_id == root.span_id
+        assert context.run_id == run.id
+        created = next(event for event in runtime.events.list(run.id) if event.type == "run.created")
+        handoff = next(event for event in runtime.conversation.events.list(thread.id)
+                       if event.type == "execution.materialized")
+        assert EventMetadata.from_dict(json.loads(created.envelope_json)).causation_event_id == handoff.event_id
     assert any(
         event.type == "execution.materialized"
         for event in runtime.conversation.events.list(thread.id)

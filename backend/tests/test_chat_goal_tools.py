@@ -17,6 +17,12 @@ import pytest
 from test_runtime import make_runtime
 
 
+@pytest.fixture(autouse=True)
+def legacy_wire_contract(monkeypatch):
+    """This suite intentionally emits v1/v2 headers and the retired draft tool."""
+    monkeypatch.setenv('BETTER_AGENT_LOOP_MODE', 'legacy')
+
+
 def _tool_call(name: str, arguments: dict | None = None) -> dict:
     return {
         "id": f"call_{uuid.uuid4().hex[:12]}",

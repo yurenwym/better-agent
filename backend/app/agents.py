@@ -5,6 +5,7 @@ import json
 import logging
 import uuid
 from contextlib import nullcontext
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import asyncio
 import contextlib
@@ -12,6 +13,8 @@ from typing import Any
 
 from .db import Database
 from .model_gateway import GatewayError, ModelRequest
+from .execution_outcome import ExecutionError, ExecutionOutcome, Scope, Status
+from .outcome_adapters import error_from_exception
 
 
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
@@ -86,11 +89,16 @@ def _validate_artifact(schema: str, content: dict[str, Any]) -> None:
             raise ValueError("expert_result.v1 source_refs are invalid")
 
 
+from .task_runtime import TaskRuntime, TaskRef, TaskKind, LeaseToken
+
+
 class AgentTaskService:
     def __init__(self, db: Database, *, thread_events=None, evolution=None, max_depth: int = 3, max_children: int = 16) -> None:
         self.db = db
+        self.tasks_runtime = TaskRuntime(db)
         self.thread_events = thread_events
         self.evolution = evolution
+        self.model_control = None
         self.max_depth = max_depth
         self.max_children = max_children
 
@@ -100,12 +108,18 @@ class AgentTaskService:
         expert_roles: tuple[str, ...] = (), connection=None, parent_turn_id: str | None = None,
         root_budget_id: str | None = None,
     ) -> dict[str, Any]:
+        if not isinstance(owner_id, str) or not owner_id.strip():
+            raise PermissionError("expert run requires an authorized owner")
         objective = objective.strip()
         if not objective: raise ValueError("objective is required")
         roles = tuple(dict.fromkeys(expert_roles))
         if any(role not in EXPERT_ROLES for role in roles):
             raise ValueError("expert roles are invalid")
         context = {**context, "expert_roles": list(roles)}
+        if parent_turn_id is not None:
+            if context.get("source_turn_id") not in (None, parent_turn_id):
+                raise AgentTaskConflict("agent source turn differs from parent turn")
+            context["source_turn_id"] = parent_turn_id
         now = _now(); context_hash = _hash(context)
         with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             if parent_turn_id is not None:
@@ -184,40 +198,66 @@ class AgentTaskService:
                     "VALUES (?,?,?,'user',?,'ready',1,?,?,'standard',?,?)",
                     (message_id, thread_id, task_id, objective, len(objective), seq, now, now),
                 )
-            self._event(connection, run_id, task_id, "agent.run.created", "coordinator", {"mode": "expert"})
+            from .execution_context import create_root_context, create_child_context, serialize_context
+            if parent_turn_id is not None:
+                from .harness_context_store import HarnessContextStore
+                root = HarnessContextStore(self.db).load_turn_context(parent_turn_id, connection=connection)
+                harness = replace(create_child_context(root), run_id=None, task_id=task_id,
+                    root_task_id=task_id, runtime_bundle_id=runtime_bundle_id, root_budget_id=root_budget_id)
+            else:
+                harness = create_root_context(owner_id=owner_id, thread_id=thread_id,
+                    task_id=task_id, runtime_bundle_id=runtime_bundle_id,
+                    root_budget_id=root_budget_id)
+            self._event(connection, run_id, task_id, "agent.run.created", "coordinator",
+                {"mode": "expert", "execution_context": serialize_context(harness)})
             if thread_id and self.thread_events is not None:
-                self.thread_events.append(thread_id, task_id, "expert.run.queued", "coordinator", {"agent_run_id":run_id,"objective":objective}, connection=connection, occurred_at=now)
+                self.thread_events.append(thread_id, parent_turn_id or task_id, "expert.run.queued", "coordinator", {"agent_run_id":run_id,"objective":objective}, connection=connection, occurred_at=now)
             return self._run(run_id, connection)
 
     def claim_next(self, owner: str, lease_seconds: int) -> dict[str, Any] | None:
-        now = _now()
+        claim_lock = " FOR UPDATE OF r SKIP LOCKED" if self.db.backend == "postgresql" else ""
         with self.db.transaction() as connection:
+            now = self.tasks_runtime.now(connection).isoformat()
             stale = connection.execute(
-                "SELECT * FROM agent_tasks WHERE status='RUNNING' AND lease_until<=? ORDER BY created_at,id", (now,)
+                "SELECT t.* FROM agent_tasks t JOIN agent_runs r ON r.id=t.agent_run_id "
+                "WHERE t.status='RUNNING' AND t.lease_until<=? ORDER BY r.id,t.id" + claim_lock, (now,)
             ).fetchall()
             for row in stale:
+                row = connection.execute(
+                    "SELECT * FROM agent_tasks WHERE id=? AND status='RUNNING' AND lease_until<=?",
+                    (row["id"], now),
+                ).fetchone()
+                if row is None:
+                    continue
                 connection.execute(
                     "UPDATE agent_task_attempts SET status='LEASE_LOST',finished_at=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'",
                     (now, row["id"], row["lease_epoch"]),
                 )
                 status = "QUEUED" if row["attempts"] < row["max_attempts"] else "FAILED"
+                if not self.tasks_runtime.recover_expired(connection, TaskRef(TaskKind.EXPERT, row["id"]), status):
+                    continue
                 connection.execute(
-                    "UPDATE agent_tasks SET status=?,lease_owner=NULL,lease_until=NULL,updated_at=?,finished_at=CASE WHEN ?='FAILED' THEN ? ELSE NULL END WHERE id=?",
-                    (status, now, status, now, row["id"]),
+                    "UPDATE agent_tasks SET updated_at=?,finished_at=CASE WHEN ?='FAILED' THEN ? ELSE NULL END WHERE id=?",
+                    (now, status, now, row["id"]),
                 )
                 self._event(connection, row["agent_run_id"], row["id"], "agent.task.lease_lost", "worker", {"lease_epoch": row["lease_epoch"]})
                 if status == "FAILED":
                     terminal_row = connection.execute("SELECT * FROM agent_tasks WHERE id=?", (row["id"],)).fetchone()
                     self._after_terminal(connection, terminal_row, now)
             row = connection.execute(
-                "SELECT * FROM agent_tasks WHERE status='QUEUED' AND available_at<=? ORDER BY priority DESC,created_at,id LIMIT 1", (now,)
+                "SELECT t.* FROM agent_tasks t JOIN agent_runs r ON r.id=t.agent_run_id "
+                "WHERE t.status='QUEUED' AND t.available_at<=? "
+                "ORDER BY t.priority DESC,t.created_at,t.id LIMIT 1" + claim_lock, (now,)
             ).fetchone()
             if row is None: return None
-            epoch = int(row["lease_epoch"]) + 1; attempt = int(row["attempts"]) + 1
-            connection.execute(
-                "UPDATE agent_tasks SET status='RUNNING',lease_owner=?,lease_epoch=?,lease_until=?,attempts=?,version=version+1,updated_at=? WHERE id=? AND status='QUEUED'",
-                (owner, epoch, _after(lease_seconds), attempt, now, row["id"]),
-            )
+            # The run lock may have waited for a state transition; refresh the task.
+            row = connection.execute("SELECT * FROM agent_tasks WHERE id=? AND status='QUEUED'", (row["id"],)).fetchone()
+            if row is None: return None
+            claimed = self.tasks_runtime.claim(connection, TaskRef(TaskKind.EXPERT, row["id"]), owner, lease_seconds)
+            if claimed is None:
+                return None
+            epoch, attempt = claimed.token.epoch, claimed.number
+            connection.execute("UPDATE agent_tasks SET version=version+1,updated_at=? WHERE id=?", (now, row["id"]))
             connection.execute(
                 "INSERT INTO agent_task_attempts(id,task_id,attempt_no,lease_owner,lease_epoch,status,started_at,heartbeat_at) VALUES (?,?,?,?,?,'RUNNING',?,?)",
                 (f"agent_attempt_{uuid.uuid4().hex}", row["id"], attempt, owner, epoch, now, now),
@@ -230,7 +270,8 @@ class AgentTaskService:
         with self.db.transaction() as connection:
             row = self._owned(connection, task_id, owner, epoch)
             now = _now()
-            connection.execute("UPDATE agent_tasks SET lease_until=?,updated_at=? WHERE id=?", (_after(lease_seconds), now, task_id))
+            self.tasks_runtime.heartbeat(connection, LeaseToken(TaskRef(TaskKind.EXPERT, task_id), owner, epoch), lease_seconds)
+            connection.execute("UPDATE agent_tasks SET updated_at=? WHERE id=?", (now, task_id))
             connection.execute("UPDATE agent_task_attempts SET heartbeat_at=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'", (now, task_id, epoch))
             return self._task(row["id"], connection)
 
@@ -240,6 +281,7 @@ class AgentTaskService:
         keys = [str(item.get("child_key", "")).strip() for item in children]
         if any(not key for key in keys) or len(set(keys)) != len(keys): raise AgentTaskConflict("child keys must be unique")
         with self.db.transaction() as connection:
+            self._lock_task_run(connection, parent_id)
             existing = connection.execute("SELECT * FROM agent_tasks WHERE parent_task_id=? ORDER BY child_key,id", (parent_id,)).fetchall()
             if existing:
                 expected = sorted((
@@ -271,8 +313,9 @@ class AgentTaskService:
                 )
                 self._event(connection, parent["agent_run_id"], task_id, "agent.task.created", "coordinator", {"role": item.get("role", "expert"), "child_key": item["child_key"]})
                 created.append(self._task(task_id, connection))
+            self.tasks_runtime.finish(connection, LeaseToken(TaskRef(TaskKind.EXPERT, parent_id), owner, epoch), "WAITING_CHILDREN")
             connection.execute(
-                "UPDATE agent_tasks SET status='WAITING_CHILDREN',join_policy=?,children_closed_at=?,lease_owner=NULL,lease_until=NULL,version=version+1,updated_at=? WHERE id=?",
+                "UPDATE agent_tasks SET join_policy=?,children_closed_at=?,version=version+1,updated_at=? WHERE id=?",
                 (join_policy, now, now, parent_id),
             )
             connection.execute("UPDATE agent_task_attempts SET status='SUCCEEDED',finished_at=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'", (now, parent_id, epoch))
@@ -302,14 +345,31 @@ class AgentTaskService:
         now = _now()
         try:
             with self.db.transaction() as connection:
+                self._lock_task_run(connection, task_id)
+                previous = connection.execute(
+                    "SELECT a.artifact_type,a.content_json FROM agent_tasks t "
+                    "JOIN agent_artifacts a ON a.id=t.result_artifact_id "
+                    "JOIN agent_task_attempts p ON p.task_id=t.id AND p.lease_epoch=a.lease_epoch "
+                    "WHERE t.id=? AND t.status='SUCCEEDED' AND a.lease_epoch=? AND p.lease_owner=?",
+                    (task_id, epoch, owner),
+                ).fetchone()
+                if previous is not None:
+                    if previous["artifact_type"] != artifact_type or json.loads(previous["content_json"]) != content:
+                        raise AgentTaskConflict("completed artifact differs from submitted result")
+                    return self._task(task_id, connection)
                 row = self._owned(connection, task_id, owner, epoch)
+                from .task_delivery import require_delivery_sources
+                require_delivery_sources(self.db, connection, run_id=row["agent_run_id"],
+                    agent_task_id=None if row["role"] == "coordinator" else task_id, expert=True,
+                    control_store=self.model_control)
                 _validate_artifact(row["output_schema"], content)
                 artifact_id = f"agent_artifact_{uuid.uuid4().hex}"; content_json = _json(content)
                 connection.execute(
                     "INSERT INTO agent_artifacts(id,task_id,attempt_no,lease_epoch,artifact_type,content_json,content_hash,created_at) VALUES (?,?,?,?,?,?,?,?)",
                     (artifact_id, task_id, row["attempts"], epoch, artifact_type, content_json, hashlib.sha256(content_json.encode()).hexdigest(), now),
                 )
-                connection.execute("UPDATE agent_tasks SET status='SUCCEEDED',result_artifact_id=?,lease_owner=NULL,lease_until=NULL,version=version+1,updated_at=?,finished_at=? WHERE id=?", (artifact_id, now, now, task_id))
+                self.tasks_runtime.finish(connection, LeaseToken(TaskRef(TaskKind.EXPERT, task_id), owner, epoch), "SUCCEEDED")
+                connection.execute("UPDATE agent_tasks SET result_artifact_id=?,version=version+1,updated_at=?,finished_at=? WHERE id=?", (artifact_id, now, now, task_id))
                 connection.execute("UPDATE agent_task_attempts SET status='SUCCEEDED',finished_at=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'", (now, task_id, epoch))
                 self._event(connection, row["agent_run_id"], task_id, "agent.artifact.committed", "worker", {"artifact_id": artifact_id, "artifact_type": artifact_type})
                 self._after_terminal(connection, row, now)
@@ -319,31 +379,41 @@ class AgentTaskService:
                 self._late(connection, task_id, epoch, artifact_type, content)
             raise
 
-    def fail(self, task_id: str, owner: str, epoch: int, code: str, *, retryable: bool) -> dict[str, Any]:
+    def fail(self, task_id: str, owner: str, epoch: int, code: str, *, retryable: bool,
+             error: ExecutionError | None = None) -> dict[str, Any]:
         now = _now()
         with self.db.transaction() as connection:
             row = self._owned(connection, task_id, owner, epoch)
             status = "QUEUED" if retryable and row["attempts"] < row["max_attempts"] else "FAILED"
-            connection.execute("UPDATE agent_tasks SET status=?,error_code=?,lease_owner=NULL,lease_until=NULL,version=version+1,updated_at=?,finished_at=? WHERE id=?", (status, code, now, None if status == "QUEUED" else now, task_id))
-            connection.execute("UPDATE agent_task_attempts SET status='FAILED',finished_at=?,error_json=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'", (now, _json({"code": code}), task_id, epoch))
-            self._event(connection, row["agent_run_id"], task_id, "agent.task.retrying" if status == "QUEUED" else "agent.task.failed", "worker", {"code": code})
-            if status in TERMINAL: self._after_terminal(connection, row, now)
+            self.tasks_runtime.finish(connection, LeaseToken(TaskRef(TaskKind.EXPERT, task_id), owner, epoch), status)
+            connection.execute("UPDATE agent_tasks SET error_code=?,version=version+1,updated_at=?,finished_at=? WHERE id=?", (code, now, None if status == "QUEUED" else now, task_id))
+            failure = {"code": code}
+            outcome = ExecutionOutcome(Scope.LOOP if status == "QUEUED" else Scope.TASK,
+                                       Status.FAILED, error=error) if error else None
+            if outcome is not None:
+                failure["outcome"] = outcome.to_dict()
+            connection.execute("UPDATE agent_task_attempts SET status='FAILED',finished_at=?,error_json=? WHERE task_id=? AND lease_epoch=? AND status='RUNNING'", (now, _json(failure), task_id, epoch))
+            self._event(connection, row["agent_run_id"], task_id, "agent.task.retrying" if status == "QUEUED" else "agent.task.failed", "worker", failure)
+            if status in TERMINAL: self._after_terminal(connection, row, now, outcome=outcome)
             return self._task(task_id, connection)
 
     def cancel_run(self, run_id: str, reason: str) -> dict[str, Any]:
         now = _now()
         with self.db.transaction() as connection:
-            run = connection.execute("SELECT * FROM agent_runs WHERE id=?", (run_id,)).fetchone()
+            lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            run = connection.execute("SELECT * FROM agent_runs WHERE id=?" + lock, (run_id,)).fetchone()
             if run is None: raise KeyError(run_id)
             if run["status"] in TERMINAL:
                 raise AgentTaskConflict("agent run is already finished")
             rows = connection.execute("SELECT * FROM agent_tasks WHERE agent_run_id=? AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED')", (run_id,)).fetchall()
             for row in rows:
-                connection.execute("UPDATE agent_tasks SET status='CANCELLED',cancel_requested_at=?,cancel_reason=?,lease_owner=NULL,lease_until=NULL,lease_epoch=lease_epoch+1,version=version+1,updated_at=?,finished_at=? WHERE id=?", (now, reason, now, now, row["id"]))
+                self.tasks_runtime.cancel_now(connection, TaskRef(TaskKind.EXPERT, row["id"]))
+                connection.execute("UPDATE agent_tasks SET cancel_reason=?,version=version+1,updated_at=?,finished_at=? WHERE id=?", (reason, now, now, row["id"]))
                 connection.execute("UPDATE agent_task_attempts SET status='CANCELLED',finished_at=? WHERE task_id=? AND status='RUNNING'", (now, row["id"]))
                 self._event(connection, run_id, row["id"], "agent.task.cancelled", "user", {"reason": reason})
             connection.execute("UPDATE agent_runs SET status='CANCELLED',cancel_requested_at=?,version=version+1,updated_at=?,finished_at=? WHERE id=?", (now, now, now, run_id))
             self._event(connection, run_id, run["coordinator_task_id"], "agent.run.cancelled", "user", {"reason": reason})
+            self._thread_terminal(connection, run_id, "cancelled", now)
             if self.evolution is not None:
                 self.evolution.finish_run_exposure(run_id, success=False, connection=connection)
         return self.get_run(run_id)
@@ -424,13 +494,18 @@ class AgentTaskService:
             rows = connection.execute(query, args).fetchall()
         return [{**dict(row), "data": json.loads(row["data_json"])} for row in rows]
 
-    @staticmethod
-    def _owned(connection, task_id: str, owner: str, epoch: int):
-        row = connection.execute("SELECT * FROM agent_tasks WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_epoch=? AND lease_until>?", (task_id, owner, epoch, _now())).fetchone()
-        if row is None: raise PermissionError("agent task lease lost")
-        return row
+    def _lock_task_run(self, connection, task_id: str) -> None:
+        # Always lock run before task: completion can also release a parent join.
+        if self.db.backend == "postgresql":
+            connection.execute(
+                "SELECT id FROM agent_runs WHERE id=(SELECT agent_run_id FROM agent_tasks WHERE id=?) FOR UPDATE",
+                (task_id,),
+            ).fetchone()
 
-    def _after_terminal(self, connection, row, now: str) -> None:
+    def _owned(self, connection, task_id: str, owner: str, epoch: int):
+        return self.tasks_runtime.require(connection, LeaseToken(TaskRef(TaskKind.EXPERT, task_id), owner, epoch))
+
+    def _after_terminal(self, connection, row, now: str, *, outcome: ExecutionOutcome | None = None) -> None:
         parent_id = row["parent_task_id"]
         if parent_id:
             parent = connection.execute("SELECT * FROM agent_tasks WHERE id=?", (parent_id,)).fetchone()
@@ -442,12 +517,17 @@ class AgentTaskService:
             )
             failed = parent and parent["join_policy"] == "ALL_SUCCESS" and any(status == "FAILED" for status in statuses)
             if ready:
-                connection.execute("UPDATE agent_tasks SET status='QUEUED',available_at=?,updated_at=? WHERE id=? AND status='WAITING_CHILDREN'", (now, now, parent_id))
+                changed = connection.execute("UPDATE agent_tasks SET status='QUEUED',available_at=?,updated_at=? WHERE id=? AND status='WAITING_CHILDREN'", (now, now, parent_id)).rowcount
+                if not changed:
+                    return
                 connection.execute("UPDATE agent_runs SET status='QUEUED',updated_at=? WHERE id=?", (now, row["agent_run_id"]))
                 self._event(connection, row["agent_run_id"], parent_id, "agent.join.ready", "coordinator", {"statuses": statuses})
             elif failed:
-                connection.execute("UPDATE agent_tasks SET status='FAILED',error_code='CHILD_FAILED',updated_at=?,finished_at=? WHERE id=? AND status='WAITING_CHILDREN'", (now, now, parent_id))
+                changed = connection.execute("UPDATE agent_tasks SET status='FAILED',error_code='CHILD_FAILED',updated_at=?,finished_at=? WHERE id=? AND status='WAITING_CHILDREN'", (now, now, parent_id)).rowcount
+                if not changed:
+                    return
                 connection.execute("UPDATE agent_runs SET status='FAILED',updated_at=?,finished_at=? WHERE id=?", (now, now, row["agent_run_id"]))
+                self._thread_terminal(connection, row["agent_run_id"], "failed", now, outcome=outcome)
                 if self.evolution is not None:
                     self.evolution.finish_run_exposure(row["agent_run_id"], success=False, connection=connection)
         elif row["role"] == "coordinator":
@@ -470,16 +550,37 @@ class AgentTaskService:
                 "agent.run.completed" if succeeded else "agent.run.failed", "coordinator", {},
             )
             if not succeeded:
+                self._thread_terminal(connection, row["agent_run_id"], "failed", now, outcome=outcome)
                 return
-            run = connection.execute("SELECT thread_id,objective FROM agent_runs WHERE id=?", (row["agent_run_id"],)).fetchone()
+            run = connection.execute(
+                "SELECT r.thread_id,r.objective,s.content_json FROM agent_runs r "
+                "JOIN agent_context_snapshots s ON s.id=r.context_snapshot_id WHERE r.id=?",
+                (row["agent_run_id"],),
+            ).fetchone()
             if run["thread_id"] and self.thread_events is not None:
                 artifact = connection.execute("SELECT content_json FROM agent_artifacts WHERE id=(SELECT result_artifact_id FROM agent_tasks WHERE id=?)", (row["id"],)).fetchone()
                 content = json.loads(artifact["content_json"]) if artifact else {}
                 message_id = f"message_{uuid.uuid4().hex}"
                 seq = connection.execute("SELECT COALESCE(MAX(message_seq),0)+1 FROM thread_messages WHERE thread_id=?", (run["thread_id"],)).fetchone()[0]
                 markdown = _render_synthesis(content)
-                connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,created_at,completed_at) VALUES (?,?,?,'assistant',?,'ready',1,?,?, 'standard',?,?)", (message_id, run["thread_id"], row["id"], markdown, len(markdown), seq, now, now))
-                self.thread_events.append(run["thread_id"], row["id"], "expert.run.completed", "coordinator", {"agent_run_id":row["agent_run_id"],"message_id":message_id,"incomplete":bool(content.get("incomplete"))}, connection=connection, occurred_at=now)
+                source_turn = json.loads(run["content_json"]).get("source_turn_id")
+                connection.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,presentation,created_at,completed_at) VALUES (?,?,?,'assistant',?,'ready',1,?,?, 'standard',?,?)", (message_id, run["thread_id"], source_turn or row["id"], markdown, len(markdown), seq, now, now))
+                self.thread_events.append(run["thread_id"], source_turn or row["id"], "expert.run.completed", "coordinator", {"agent_run_id":row["agent_run_id"],"message_id":message_id,"incomplete":bool(content.get("incomplete"))}, connection=connection, occurred_at=now)
+
+    def _thread_terminal(self, connection, run_id, status, now, *, outcome: ExecutionOutcome | None = None):
+        if self.thread_events is None:
+            return
+        run = connection.execute(
+            "SELECT r.thread_id,r.coordinator_task_id,s.content_json FROM agent_runs r "
+            "JOIN agent_context_snapshots s ON s.id=r.context_snapshot_id WHERE r.id=?", (run_id,),
+        ).fetchone()
+        if run["thread_id"]:
+            source = json.loads(run["content_json"]).get("source_turn_id") or run["coordinator_task_id"]
+            data = {"agent_run_id": run_id}
+            if outcome is not None:
+                data["outcome"] = outcome.to_dict()
+            self.thread_events.append(run["thread_id"], source, f"expert.run.{status}", "coordinator",
+                data, connection=connection, occurred_at=now)
 
     def _late(self, connection, task_id: str, epoch: int, artifact_type: str, content: dict[str, Any]) -> None:
         row = connection.execute("SELECT agent_run_id FROM agent_tasks WHERE id=?", (task_id,)).fetchone()
@@ -496,9 +597,10 @@ class AgentTaskService:
 
     @staticmethod
     def _event(connection, run_id: str, task_id: str | None, event_type: str, actor: str, data: dict[str, Any]) -> None:
-        row = connection.execute("SELECT next_event_seq FROM agent_runs WHERE id=?", (run_id,)).fetchone()
-        seq = int(row["next_event_seq"])
-        connection.execute("UPDATE agent_runs SET next_event_seq=? WHERE id=?", (seq + 1, run_id))
+        row = connection.execute(
+            "UPDATE agent_runs SET next_event_seq=next_event_seq+1 WHERE id=? RETURNING next_event_seq", (run_id,)
+        ).fetchone()
+        seq = int(row["next_event_seq"]) - 1
         connection.execute("INSERT INTO agent_events(event_id,agent_run_id,seq,task_id,type,actor,data_json,occurred_at) VALUES (?,?,?,?,?,?,?,?)", (f"agent_event_{uuid.uuid4().hex}", run_id, seq, task_id, event_type, actor, _json(data), _now()))
 
     @staticmethod
@@ -601,6 +703,17 @@ class ManagedAgentWorker:
         return True
 
     async def _execute_claimed(self, task: dict[str, Any]) -> None:
+        from .send_authority import send_authority
+        with send_authority(lambda: self._assert_send_authority(task)):
+            await self._execute_owned(task)
+
+    def _assert_send_authority(self, task: dict[str, Any]) -> None:
+        with self.service.db.transaction() as connection:
+            row = self.service._owned(connection, task["id"], self.owner, task["lease_epoch"])
+            if row["cancel_requested_at"] is not None:
+                raise PermissionError("agent task cancelled")
+
+    async def _execute_owned(self, task: dict[str, Any]) -> None:
         try:
             if task["role"] == "coordinator": await self._coordinate(task)
             elif self.model is None:
@@ -621,12 +734,8 @@ class ManagedAgentWorker:
                     gateway = getattr(self.safety_judge, "gateway", None)
                     token = None
                     if getattr(gateway, "control_store", None) is not None:
-                        from .model_control import ModelCallContext
-                        token = gateway.set_call_context(ModelCallContext(
-                            role="judge_safety", purpose="judge_expert_output", thread_id=run["thread_id"],
-                            agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
-                            owner_id=run["owner_id"], root_budget_id=run["root_budget_id"],
-                        ))
+                        token = gateway.set_call_context(self._model_context(
+                            task, run, "judge_safety", "judge_expert_output"))
                     try:
                         safety_pass = await self._await_with_heartbeat(task, self.safety_judge.judge(result))
                         if safety_pass is None:
@@ -647,7 +756,9 @@ class ManagedAgentWorker:
                 code = "EXPERT_" + exc.kind.upper()
                 if "truncated" in str(exc):
                     code = "EXPERT_OUTPUT_TRUNCATED"
-            with contextlib.suppress(PermissionError): self.service.fail(task["id"], self.owner, task["lease_epoch"], code, retryable=False)
+            with contextlib.suppress(PermissionError):
+                self.service.fail(task["id"], self.owner, task["lease_epoch"], code,
+                                  retryable=False, error=error_from_exception(exc))
 
     async def _execute_with_heartbeat(
         self, task: dict[str, Any], context: dict[str, Any], inputs: list[dict[str, Any]],
@@ -661,12 +772,8 @@ class ManagedAgentWorker:
         gateway = getattr(self.model, "gateway", None)
         context_token = None
         if getattr(gateway, "control_store", None) is not None:
-            from .model_control import ModelCallContext
-            context_token = gateway.set_call_context(ModelCallContext(
-                role="expert", purpose=f"expert_{task['role']}", owner_id=run["owner_id"], thread_id=run["thread_id"],
-                agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
-                price_snapshot_id=price_snapshot_id, root_budget_id=run["root_budget_id"],
-            ))
+            context_token = gateway.set_call_context(self._model_context(
+                task, run, "expert", f"expert_{task['role']}", price_snapshot_id))
         if hasattr(self.model, "execute_bundle"):
             invocation = self.model.execute_bundle(
                 task["role"], task["objective"], context, inputs, self.service.runtime_bundle(task["id"]),
@@ -678,6 +785,32 @@ class ManagedAgentWorker:
         finally:
             if context_token is not None:
                 gateway.reset_call_context(context_token)
+
+    def _model_context(self, task, run, role, purpose, price_snapshot_id=None):
+        from .model_control import ModelCallContext
+        from .execution_context import create_child_context, deserialize_context, LegacyContextMissing, ContextIdentityConflict
+        with self.service.db.connection() as connection:
+            row = connection.execute(
+                "SELECT data_json FROM agent_events WHERE agent_run_id=? AND type='agent.run.created' ORDER BY seq LIMIT 1",
+                (task["agent_run_id"],),
+            ).fetchone()
+        saved = json.loads(row["data_json"]).get("execution_context") if row else None
+        if saved is None:
+            raise LegacyContextMissing("expert execution requires a persisted context")
+        root = deserialize_context(saved)
+        expected = {key: run[key] for key in ("owner_id", "thread_id", "runtime_bundle_id", "root_budget_id")}
+        expected["root_task_id"] = task["root_task_id"]
+        expected["turn_id"] = self.service.context(task["context_snapshot_id"]).get("source_turn_id")
+        if any(getattr(root, key) != value for key, value in expected.items()):
+            raise ContextIdentityConflict("expert execution identity changed")
+        if root.turn_id is not None:
+            from .harness_context_store import HarnessContextStore
+            source = HarnessContextStore(self.service.db).load_turn_context(root.turn_id)
+            if source.trace_id != root.trace_id or source.owner_id != root.owner_id or source.thread_id != root.thread_id:
+                raise ContextIdentityConflict("expert source identity changed")
+        harness = replace(create_child_context(root), task_id=task["id"], parent_task_id=task["parent_task_id"])
+        return ModelCallContext.from_harness(harness, role=role, purpose=purpose,
+            price_snapshot_id=price_snapshot_id)
 
     async def _await_with_heartbeat(self, task: dict[str, Any], invocation):
         call = asyncio.create_task(invocation)
@@ -746,12 +879,8 @@ class ManagedAgentWorker:
         gateway = getattr(self.model, "gateway", None)
         token = None
         if getattr(gateway, "control_store", None) is not None:
-            from .model_control import ModelCallContext
-            token = gateway.set_call_context(ModelCallContext(
-                role="coordinator", purpose="synthesize_experts", owner_id=run["owner_id"], thread_id=run["thread_id"],
-                agent_task_id=task["id"], runtime_bundle_id=run["runtime_bundle_id"],
-                price_snapshot_id=price_snapshot_id, root_budget_id=run["root_budget_id"],
-            ))
+            token = gateway.set_call_context(self._model_context(
+                task, run, "coordinator", "synthesize_experts", price_snapshot_id))
         try:
             context = self.service.context(task["context_snapshot_id"])
             synthesis = (self.model.synthesize_user_task(task["objective"], experts, failed_roles)

@@ -97,9 +97,12 @@ class OwnerAwareProposer(Proposer):
         return super().__call__(current, pattern, bundle_id)
 
 
-def test_observer_is_projection_only_uses_real_cursor_and_marks_unknown_bundle(tmp_path):
+def test_observer_is_projection_only_uses_real_cursor_and_marks_unknown_bundle(tmp_path, monkeypatch):
     runtime = build_runtime(tmp_path)
     assert runtime.observer_worker.candidate_generator is None
+    # Historical unknown-bundle records never had an execution root. Construct
+    # that state at creation rather than corrupting a bound modern identity.
+    monkeypatch.setattr(runtime, "_persist_run_root", lambda *args: None)
     run = asyncio.run(runtime.create_goal("目标", "验收未知版本"))
     with runtime.db.transaction() as connection:
         connection.execute("UPDATE runs SET runtime_bundle_id=NULL WHERE id=?", (run.id,))

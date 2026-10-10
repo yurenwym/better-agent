@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import StrEnum
@@ -117,8 +118,9 @@ class PlanVersionService:
         steps: Iterable[dict[str, Any]],
         summary: str = "",
         source_document_version_id: str | None = None,
+        *, connection=None,
     ) -> PlanVersion:
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             current = connection.execute(
                 "SELECT COALESCE(MAX(version), 0) FROM plan_versions WHERE run_id = ?",
                 (run_id,),
@@ -126,7 +128,7 @@ class PlanVersionService:
             version = current + 1
             plan_id = f"pv_{uuid.uuid4().hex}"
             self._insert(connection, plan_id, run_id, goal_id, version, summary, None, steps, source_document_version_id)
-        return self.get(plan_id)
+            return self.get(plan_id, connection=connection)
 
     def revise(
         self,
@@ -136,8 +138,9 @@ class PlanVersionService:
         steps: Iterable[dict[str, Any]],
         summary: str = "",
         source_document_version_id: str | None = None,
+        *, connection=None,
     ) -> PlanVersion:
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             current_row = connection.execute(
                 "SELECT * FROM plan_versions WHERE run_id = ? ORDER BY version DESC LIMIT 1",
                 (run_id,),
@@ -172,10 +175,10 @@ class PlanVersionService:
                 normalized_steps,
                 source_document_version_id,
             )
-        return self.get(plan_id)
+            return self.get(plan_id, connection=connection)
 
-    def approve(self, plan_id: str) -> PlanVersion:
-        with self.db.transaction() as connection:
+    def approve(self, plan_id: str, *, connection=None) -> PlanVersion:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute("SELECT * FROM plan_versions WHERE id = ?", (plan_id,)).fetchone()
             if row is None:
                 raise PlanConflict("unknown plan version")
@@ -188,10 +191,10 @@ class PlanVersionService:
                 "UPDATE plan_versions SET status = 'approved', approved_at = ? WHERE id = ?",
                 (_now(), plan_id),
             )
-        return self.get(plan_id)
+            return self.get(plan_id, connection=connection)
 
-    def mark_step_completed(self, plan_id: str, step_id: str) -> None:
-        with self.db.transaction() as connection:
+    def mark_step_completed(self, plan_id: str, step_id: str, *, connection=None) -> None:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             updated = connection.execute(
                 "UPDATE plan_steps SET status = 'completed', completed_at = ? "
                 "WHERE plan_version_id = ? AND id = ?",
@@ -200,8 +203,8 @@ class PlanVersionService:
             if updated != 1:
                 raise PlanConflict("unknown plan step")
 
-    def mark_step_cancelled(self, plan_id: str, step_id: str) -> None:
-        with self.db.transaction() as connection:
+    def mark_step_cancelled(self, plan_id: str, step_id: str, *, connection=None) -> None:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             updated = connection.execute(
                 "UPDATE plan_steps SET status = 'cancelled', canceled_at = ? "
                 "WHERE plan_version_id = ? AND id = ? AND status NOT IN ('completed', 'cancelled')",
@@ -220,8 +223,8 @@ class PlanVersionService:
             raise PlanConflict("run has no plan")
         return self.get(row["id"])
 
-    def get(self, plan_id: str) -> PlanVersion:
-        with self.db.connection() as connection:
+    def get(self, plan_id: str, *, connection=None) -> PlanVersion:
+        with (self.db.connection() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute("SELECT * FROM plan_versions WHERE id = ?", (plan_id,)).fetchone()
             if row is None:
                 raise PlanConflict("unknown plan version")
@@ -307,12 +310,14 @@ class ApprovalService:
         params: dict[str, Any],
         expires_at: str | None = None,
         binding: dict[str, Any] | None = None,
+        *, connection=None,
     ) -> Approval:
         approval_id = f"approval_{uuid.uuid4().hex}"
         params_hash = normalized_params_hash(params)
         binding_json = json.dumps(binding or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         binding_digest = hashlib.sha256(binding_json.encode("utf-8")).hexdigest()
-        with self.db.transaction() as connection:
+        from contextlib import nullcontext
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             existing = connection.execute(
                 "SELECT * FROM approvals WHERE run_id = ? AND tool_call_id = ? AND params_hash = ? AND binding_digest = ?",
                 (run_id, tool_call_id, params_hash, binding_digest),
@@ -332,11 +337,11 @@ class ApprovalService:
             )
         return Approval(approval_id, run_id, tool_call_id, params_hash, "pending")
 
-    def grant(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> Approval:
-        return self._act(approval_id, run_id, tool_call_id, params, "granted", binding)
+    def grant(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None, *, connection=None) -> Approval:
+        return self._act(approval_id, run_id, tool_call_id, params, "granted", binding, connection=connection)
 
-    def reject(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> Approval:
-        return self._act(approval_id, run_id, tool_call_id, params, "rejected", binding)
+    def reject(self, approval_id: str, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None, *, connection=None) -> Approval:
+        return self._act(approval_id, run_id, tool_call_id, params, "rejected", binding, connection=connection)
 
     def require_granted(self, run_id: str, tool_call_id: str, params: dict[str, Any], binding: dict[str, Any] | None = None) -> None:
         params_hash = normalized_params_hash(params)
@@ -359,11 +364,13 @@ class ApprovalService:
         params: dict[str, Any],
         status: str,
         binding: dict[str, Any] | None,
+        *, connection=None,
     ) -> Approval:
         params_hash = normalized_params_hash(params)
         binding_json = json.dumps(binding or {}, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
         binding_digest = hashlib.sha256(binding_json.encode("utf-8")).hexdigest()
-        with self.db.transaction() as connection:
+        from contextlib import nullcontext
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             row = connection.execute("SELECT * FROM approvals WHERE id = ?", (approval_id,)).fetchone()
             if (
                 row is None
@@ -404,7 +411,7 @@ class CheckpointStore:
     def __init__(self, db: Database) -> None:
         self.db = db
 
-    def save(self, checkpoint: Checkpoint) -> Checkpoint:
+    def save(self, checkpoint: Checkpoint, *, connection=None) -> Checkpoint:
         checkpoint_id = checkpoint.id or f"checkpoint_{uuid.uuid4().hex}"
         payload = {
             "completed_steps": checkpoint.completed_steps,
@@ -416,7 +423,8 @@ class CheckpointStore:
             "applied_memory_versions": checkpoint.applied_memory_versions,
             "pending_actions": checkpoint.pending_actions,
         }
-        with self.db.transaction() as connection:
+        from contextlib import nullcontext
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             connection.execute(
                 "INSERT INTO checkpoints(id, run_id, state, plan_version_id, step_id, payload_json, "
                 "last_event_seq, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",

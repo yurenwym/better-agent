@@ -31,7 +31,7 @@ from .plan_documents import (
     PlanDocumentService,
     PlanDocumentValidationError,
 )
-from .tools import ToolExecutionContext, ToolRejected, ToolRegistry, ToolResult, ToolRisk, ToolSpec
+from .tools import ToolArgumentError, ToolExecutionContext, ToolRejected, ToolRegistry, ToolResult, ToolRisk, ToolSpec
 
 log = logging.getLogger("better-agent.goal-tools")
 
@@ -228,17 +228,21 @@ def _ok(summary: str, data: dict[str, Any] | None = None) -> ToolResult:
 
 
 def _err(code: str, summary: str, data: dict[str, Any] | None = None) -> ToolResult:
-    return ToolResult(False, summary, data or {}, error=code)
+    from .execution_outcome import Effect
+    # Known validation/conflict failures precede a write or roll its database
+    # transaction back. An unexpected internal failure makes no such promise.
+    return ToolResult(False, summary, data or {}, error=code,
+                      effect=Effect.UNKNOWN if code == INTERNAL_ERROR else Effect.NOT_STARTED)
 
 
 def _validate(model: type[BaseModel], params: dict[str, Any]) -> BaseModel:
-    """Registry-side validator: raises ToolRejected with a stable prefix."""
+    """Reject invalid model arguments before approval or execution."""
     try:
         return model.model_validate(params)
     except ValidationError as exc:
         first = exc.errors()[0] if exc.errors() else {}
         detail = f"{'.'.join(str(part) for part in first.get('loc', ()))}: {first.get('msg', 'invalid')}"
-        raise ToolRejected(f"invalid arguments: {detail}") from exc
+        raise ToolArgumentError(f"invalid arguments: {detail}") from exc
 
 
 def _failure(exc: Exception, *, tool: str, context: ToolExecutionContext) -> ToolResult:

@@ -4,7 +4,7 @@ import hashlib
 import json
 import re
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -35,6 +35,45 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _metadata_json(metadata) -> str | None:
+    from .event_envelope import EventMetadata
+    if metadata is None:
+        return None
+    if not isinstance(metadata, EventMetadata):
+        raise TypeError("metadata must be EventMetadata")
+    return _json(metadata.to_dict())
+
+
+def _lock_stream(connection, backend: str, kind: str, stream_id: str) -> None:
+    if backend == "postgresql":
+        # Transaction-scoped lock also works before a domain run row exists.
+        # SQLite writers already hold BEGIN IMMEDIATE.
+        if kind == "thread":
+            connection.execute("SELECT id FROM threads WHERE id=? FOR UPDATE", (stream_id,)).fetchone()
+        else:
+            connection.execute("SELECT pg_advisory_xact_lock(hashtextextended(?,0))", (kind + ":" + stream_id,))
+
+
+def _duplicate(connection, table, event, decode):
+    row = connection.execute(f"SELECT * FROM {table} WHERE event_id=?", (event.event_id,)).fetchone()
+    if row is None:
+        return None
+    previous = decode(row)
+    fields = ("type", "actor", "data", "thread_id", "turn_id") if table == "thread_events" else (
+        "type", "actor", "data", "run_id", "goal_id", "correlation")
+    if any(getattr(previous, key) != getattr(event, key) for key in fields):
+        raise ValueError("event id reused with different content")
+    if event.envelope_json is not None and previous.envelope_json != event.envelope_json:
+        raise ValueError("event id reused with different metadata")
+    return previous
+
+
+def _bind_metadata(connection, event):
+    """Resolve existing durable identities; never invent a root for old data."""
+    from .event_metadata import bind_event_metadata
+    return bind_event_metadata(connection, event)
+
+
 @dataclass(frozen=True)
 class Event:
     schema_version: int
@@ -47,6 +86,7 @@ class Event:
     actor: str
     correlation: dict[str, Any]
     data: dict[str, Any]
+    envelope_json: str | None = None
 
 
 @dataclass(frozen=True)
@@ -60,6 +100,7 @@ class ThreadEvent:
     occurred_at: str
     actor: str
     data: dict[str, Any]
+    envelope_json: str | None = None
 
 
 class ThreadEventStore:
@@ -78,11 +119,13 @@ class ThreadEventStore:
         *,
         connection: Any | None = None,
         occurred_at: str | None = None,
+        event_id: str | None = None,
+        metadata=None,
     ) -> ThreadEvent:
         timestamp = occurred_at or utc_now()
         event = ThreadEvent(
             schema_version=1,
-            event_id=f"tevt_{uuid.uuid4().hex}",
+            event_id=event_id or f"tevt_{uuid.uuid4().hex}",
             seq=0,
             thread_id=thread_id,
             turn_id=turn_id,
@@ -90,14 +133,19 @@ class ThreadEventStore:
             occurred_at=timestamp,
             actor=actor,
             data=data,
+            envelope_json=_metadata_json(metadata),
         )
         if connection is None:
             with self.db.transaction() as transaction:
                 return self._append(transaction, event)
         return self._append(connection, event)
 
-    @staticmethod
-    def _append(connection: Any, event: ThreadEvent) -> ThreadEvent:
+    def _append(self, connection: Any, event: ThreadEvent) -> ThreadEvent:
+        _lock_stream(connection, self.db.backend, "thread", event.thread_id)
+        previous = _duplicate(connection, "thread_events", event, _row_to_thread_event)
+        if previous is not None:
+            return previous
+        event = _bind_metadata(connection, event)
         row = connection.execute(
             "SELECT next_event_seq FROM threads WHERE id = ?",
             (event.thread_id,),
@@ -113,8 +161,8 @@ class ThreadEventStore:
             """
             INSERT INTO thread_events(
                 schema_version, event_id, seq, thread_id, turn_id, type,
-                occurred_at, actor, data_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                occurred_at, actor, data_json, envelope_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.schema_version,
@@ -126,9 +174,10 @@ class ThreadEventStore:
                 event.occurred_at,
                 event.actor,
                 _json(event.data),
+                event.envelope_json,
             ),
         )
-        return ThreadEvent(**{**asdict(event), "seq": seq})
+        return replace(event, seq=seq)
 
     def list(self, thread_id: str, after_seq: int = 0) -> list[ThreadEvent]:
         with self.db.connection() as connection:
@@ -155,10 +204,11 @@ class EventStore:
         correlation: dict[str, Any] | None = None,
         occurred_at: str | None = None,
         connection: Any | None = None,
+        *, event_id: str | None = None, metadata=None,
     ) -> Event:
         event = Event(
             schema_version=1,
-            event_id=f"evt_{uuid.uuid4().hex}",
+            event_id=event_id or f"evt_{uuid.uuid4().hex}",
             seq=0,
             run_id=run_id,
             goal_id=goal_id,
@@ -167,6 +217,7 @@ class EventStore:
             actor=actor,
             correlation=correlation or {},
             data=data,
+            envelope_json=_metadata_json(metadata),
         )
         if connection is None:
             with self.db.transaction() as transaction:
@@ -177,8 +228,12 @@ class EventStore:
             self.projector.project(run_id)
         return stored
 
-    @staticmethod
-    def _append(connection: Any, event: Event) -> Event:
+    def _append(self, connection: Any, event: Event) -> Event:
+        _lock_stream(connection, self.db.backend, "run", event.run_id)
+        previous = _duplicate(connection, "events", event, _row_to_event)
+        if previous is not None:
+            return previous
+        event = _bind_metadata(connection, event)
         next_seq = connection.execute(
             "SELECT COALESCE(MAX(seq), 0) + 1 FROM events WHERE run_id = ?",
             (event.run_id,),
@@ -187,8 +242,8 @@ class EventStore:
             """
             INSERT INTO events(
                 schema_version, event_id, seq, run_id, goal_id, type,
-                occurred_at, actor, correlation_json, data_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                occurred_at, actor, correlation_json, data_json, envelope_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.schema_version,
@@ -201,9 +256,10 @@ class EventStore:
                 event.actor,
                 _json(event.correlation),
                 _json(event.data),
+                event.envelope_json,
             ),
         )
-        return Event(**{**asdict(event), "seq": next_seq})
+        return replace(event, seq=next_seq)
 
     def list(self, run_id: str, after_seq: int = 0) -> list[Event]:
         with self.db.connection() as connection:
@@ -230,6 +286,7 @@ def _row_to_event(row: Any) -> Event:
         actor=row["actor"],
         correlation=json.loads(row["correlation_json"]),
         data=json.loads(row["data_json"]),
+        envelope_json=row["envelope_json"] if "envelope_json" in row.keys() else None,
     )
 
 
@@ -244,6 +301,7 @@ def _row_to_thread_event(row: Any) -> ThreadEvent:
         occurred_at=row["occurred_at"],
         actor=row["actor"],
         data=json.loads(row["data_json"]),
+        envelope_json=row["envelope_json"] if "envelope_json" in row.keys() else None,
     )
 
 
@@ -257,6 +315,8 @@ def export_jsonl(
     try:
         for event in events:
             payload = asdict(event)
+            # The legacy export shape never includes private execution metadata.
+            payload.pop("envelope_json", None)
             if mode == "redacted":
                 payload["data"] = _redact_value(payload["data"], root, "data")
                 payload["correlation"] = _redact_value(payload["correlation"], root, "correlation")

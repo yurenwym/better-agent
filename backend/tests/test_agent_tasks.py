@@ -32,6 +32,9 @@ def test_claim_takeover_fences_the_expired_worker_and_commits_one_artifact(tmp_p
     completed = tasks.complete(second["id"], "worker-b", 2, "answer", {"text": "ok"})
     assert completed["status"] == "SUCCEEDED"
     assert tasks.artifact(completed["result_artifact_id"])["content"] == {"text": "ok"}
+    assert tasks.complete(second["id"], "worker-b", 2, "answer", {"text": "ok"})["result_artifact_id"] == completed["result_artifact_id"]
+    with pytest.raises(AgentTaskConflict, match="differs"):
+        tasks.complete(second["id"], "worker-b", 2, "answer", {"text": "different"})
     assert [event["seq"] for event in tasks.events(run["id"])] == list(range(1, len(tasks.events(run["id"])) + 1))
 
 

@@ -147,6 +147,14 @@ async def test_a01_restart_restores_the_original_context_and_span(tmp_path, monk
     assert events[0].data["trace_id"] == original_tool["trace_id"]
     assert events[0].data["span_id"] == original_tool["span_id"]
     assert events[0].data["parent_span_id"] == original_tool["parent_span_id"]
+    from app.event_envelope import EventMetadata
+    metadata = EventMetadata.from_dict(json.loads(events[0].envelope_json))
+    assert metadata.context.trace_id == original_tool["trace_id"]
+    assert metadata.context.span_id != original_tool["span_id"]
+    assert metadata.context.parent_span_id == original_tool["span_id"]
+    assert metadata.operation_id == pending.id
+    assert metadata.attempt == 2
+    assert metadata.causation_event_id is not None
     # The event does not rewrite the context.
     assert _identity(reopened, pending.id)[1] == original_digest
 
@@ -154,7 +162,7 @@ async def test_a01_restart_restores_the_original_context_and_span(tmp_path, monk
     planners = _planner_rows(reopened)
     assert len(planners) == 1
     planner = stored_context(planners[0])
-    assert planner["parent_span_id"] == original_tool["span_id"]
+    assert planner["parent_span_id"] == metadata.context.span_id
     assert planner["trace_id"] == original_tool["trace_id"]
     assert planner["turn_id"] == accepted.turn_id
     assert planner["root_budget_id"] == original_tool["root_budget_id"]
@@ -177,13 +185,18 @@ async def test_a02_continuation_budget_bundle_and_trace_do_not_replace_the_origi
     script = _preview_script()
     runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
 
-    # Give the original turn a real budget root *before* it runs, so "the
-    # original root survived" is not vacuous.
-    accepted = runtime.conversation.accept_turn(thread.id, "a02-turn", "生成执行预览", [])
-    with runtime.db.transaction() as connection:
+    # Supply environments before acceptance freezes each root; mutating a
+    # frozen turn afterwards must be rejected as an identity conflict.
+    persist_root = runtime.conversation._persist_turn_root
+    environment = {"budget": "budget-original", "bundle": runtime.bundle_id}
+    def persist_with_environment(connection, turn_id):
         connection.execute(
-            "UPDATE turns SET root_budget_id=? WHERE id=?", ("budget-original", accepted.turn_id),
+            "UPDATE turns SET root_budget_id=?, runtime_bundle_id=? WHERE id=?",
+            (environment["budget"], environment["bundle"], turn_id),
         )
+        persist_root(connection, turn_id)
+    monkeypatch.setattr(runtime.conversation, "_persist_turn_root", persist_with_environment)
+    accepted = runtime.conversation.accept_turn(thread.id, "a02-turn", "生成执行预览", [])
     await runtime.turn_worker.run_once()
     paused = runtime.conversation.turn(accepted.turn_id)
     assert paused.status == "AWAITING_TOOL_APPROVAL"
@@ -196,14 +209,10 @@ async def test_a02_continuation_budget_bundle_and_trace_do_not_replace_the_origi
     other_bundle = _owner_bundle(
         runtime, monkeypatch, "local-user", env_prefix="ALT", profile_suffix="-alt",
     )
+    environment.update(budget="budget-continuation", bundle=other_bundle)
     continuation = runtime.conversation.decide_tool_call(
         accepted.turn_id, "approve", paused.version, "a02-approve",
     )
-    with runtime.db.transaction() as connection:
-        connection.execute(
-            "UPDATE turns SET runtime_bundle_id=?, root_budget_id=? WHERE id=?",
-            (other_bundle, "budget-continuation", continuation.id),
-        )
 
     assert await runtime.turn_worker.run_once() is True
     assert runtime.conversation.turn(continuation.id).status == "COMPLETED"
@@ -249,6 +258,12 @@ async def test_a03_revoked_tool_is_refused_without_side_effects(tmp_path, monkey
 
     stored = runtime.conversation.chat_tool_calls.get(pending.id)
     assert stored.status == "FAILED" and stored.error_code == "TOOL_NOT_ALLOWED"
+    assert stored.result["effect"] == "not_started"
+    finished = [event for event in runtime.conversation.events.list(thread.id)
+                if event.type == "tool.execution.finished" and event.data.get("call_id") == pending.id]
+    assert len(finished) == 1
+    assert finished[0].data["outcome"]["status"] == "failed"
+    assert finished[0].data["outcome"]["error"]["code"] == "TOOL_AUTHORIZATION_DENIED"
     assert _count(runtime, "goal_programs") == 0
     assert _planner_rows(runtime) == []
     assert _identity(runtime, pending.id) == before
@@ -555,28 +570,29 @@ async def test_a08_crash_before_result_persistence_recovers_one_side_effect(
 
 @pytest.mark.asyncio
 async def test_a09_unclear_write_outcome_is_not_retried(tmp_path, monkeypatch) -> None:
-    from app.tools import ToolReconciliationRequired, ToolRegistry
+    from app.tools import ToolReconciliationRequired
+    from app.tool_executor import ToolExecutor
 
     script = _preview_script()
     runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     before = _identity(runtime, pending.id)
 
-    original = ToolRegistry.execute_async
+    original = ToolExecutor.execute_async
     calls = []
 
     async def unclear(self, call, **kwargs):
         calls.append(call.name)
         raise ToolReconciliationRequired("remote outcome unknown")
 
-    monkeypatch.setattr(ToolRegistry, "execute_async", unclear)
+    monkeypatch.setattr(ToolExecutor, "execute_async", unclear)
     try:
         continuation = runtime.conversation.decide_tool_call(
             accepted.turn_id, "approve", paused.version, "a09-approve",
         )
         await runtime.turn_worker.run_once()
     finally:
-        monkeypatch.setattr(ToolRegistry, "execute_async", original)
+        monkeypatch.setattr(ToolExecutor, "execute_async", original)
 
     assert calls == ["activate_goal_plan"]  # exactly one attempt, no automatic retry
     # An unclear outcome is neither success nor failure: the chat row keeps the

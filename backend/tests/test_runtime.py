@@ -1,6 +1,13 @@
 import pytest
 
 
+@pytest.fixture
+def historical_run_identity(monkeypatch):
+    """Construct pre-context runs at creation, without erasing trusted events."""
+    from app.runtime import AgentRuntime
+    monkeypatch.setattr(AgentRuntime, "_persist_run_root", lambda *args: None)
+
+
 def make_runtime(tmp_path, model):
     from app.db import Database
     from app.domain import ApprovalService, CheckpointStore, PlanVersionService
@@ -22,6 +29,28 @@ def make_runtime(tmp_path, model):
         tools=create_default_registry(tmp_path / "workspace", db=db, approval_service=approvals),
         model=model,
     )
+
+
+@pytest.mark.asyncio
+async def test_run_completion_event_failure_rolls_back_terminal_state(tmp_path, monkeypatch):
+    from app.runtime import MockModelGateway, ModelDecision
+    runtime = make_runtime(tmp_path, MockModelGateway(
+        plan_steps=[{"id": "s", "title": "step"}], decisions=[ModelDecision.complete("done")]))
+    run = await runtime.create_goal("goal", "goal")
+    await runtime.handle_message(run.id, "start")
+    append = runtime.events.append
+
+    def interrupted(*args, **kwargs):
+        event = append(*args, **kwargs)
+        if event.type == "run.completed":
+            raise RuntimeError("terminal commit interrupted")
+        return event
+
+    monkeypatch.setattr(runtime.events, "append", interrupted)
+    with pytest.raises(RuntimeError, match="terminal commit interrupted"):
+        await runtime.approve_plan(run.id, 1)
+    assert runtime.get_run(run.id).state == "REFLECTING"
+    assert not any(event.type == "run.completed" for event in runtime.events.list(run.id))
 
 
 @pytest.mark.asyncio
@@ -163,7 +192,7 @@ async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path) -> None:
+async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path, historical_run_identity) -> None:
     from app.domain import AgentState
     from app.runtime import MockModelGateway
 
@@ -209,7 +238,7 @@ async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_configured(tmp_path) -> None:
+async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_configured(tmp_path, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -258,7 +287,7 @@ async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_conf
 
 
 @pytest.mark.asyncio
-async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp_path) -> None:
+async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp_path, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -296,7 +325,9 @@ async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp
 
 
 @pytest.mark.asyncio
-async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path) -> None:
+async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path, monkeypatch, historical_run_identity) -> None:
+    # Legacy reflection contract; loop rejects the missing identity before execution.
+    monkeypatch.setenv('BETTER_AGENT_LOOP_MODE', 'legacy')
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -322,7 +353,7 @@ async def test_reflection_with_missing_source_turn_does_not_write_default_owner(
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_non_preference_reflection_memory(tmp_path) -> None:
+async def test_runtime_rejects_non_preference_reflection_memory(tmp_path, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -552,7 +583,7 @@ async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path) -> None:
+async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path, historical_run_identity) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     class EvidenceModel(MockModelGateway):
@@ -583,7 +614,7 @@ async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog(tmp_path) -> None:
+async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog(tmp_path, historical_run_identity) -> None:
     from app.runtime import MockModelGateway
 
     class ContextModel(MockModelGateway):
@@ -618,3 +649,45 @@ def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path) -> N
 
     assert "write_note" in runtime._skill_tools_for("react")
     assert "shell" not in runtime._skill_tools_for("react")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["identity", "snapshot"])
+async def test_model_preflight_failure_releases_context_and_active_task(tmp_path, monkeypatch, failure):
+    from types import SimpleNamespace
+    from app.runtime import MockModelGateway
+    from app.execution_context import LegacyContextMissing
+
+    runtime = make_runtime(tmp_path, MockModelGateway())
+    run = await runtime.create_goal("goal", "goal")
+    active = ["outer"]
+
+    def set_context(context):
+        active.append(context)
+        return "token"
+
+    def reset_context(token):
+        assert token == "token"
+        active.pop()
+
+    runtime.model.gateway = SimpleNamespace(control_store=object(),
+        set_call_context=set_context, reset_call_context=reset_context)
+    if failure == "identity":
+        run.budget.pop("agent_loop_context")
+        expected = LegacyContextMissing
+    else:
+        def interrupted(*args):
+            raise RuntimeError("snapshot unavailable")
+        monkeypatch.setattr(runtime, "_prepare_model_context", interrupted)
+        expected = RuntimeError
+
+    async def forbidden():
+        pytest.fail("preflight failure must not send")
+
+    try:
+        with pytest.raises(expected):
+            await runtime._model_call(run, "planning", forbidden)
+        assert active == ["outer"]
+        assert run.id not in runtime._active_model_tasks
+    finally:
+        runtime.db.close()

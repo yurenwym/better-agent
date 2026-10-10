@@ -173,20 +173,29 @@ class ConversationReferenceResolver:
         if not 1 <= count <= 10:
             raise ValueError("reference history turns must be 1..10")
         history = []
+        task_reference = False
         if mode != "off" and REFERENCE.search(query):
             transcript = builder.build(turn.thread_id, expected_owner_id=owner, exclude_turn_id=turn.id, through_sequence=through)
             for prior in [t for t in transcript.turns if t.outcome.lower() == "completed"][-count:]:
                 for event in prior.events:
+                    if event.event_type == "tool_result" and event.tool_name in {"start_research", "delegate_experts", "get_task"}:
+                        task_reference = True
                     if event.role in {"user", "assistant"} and event.message_id:
                         history.append(dict(id=event.message_id, role=event.role, content=event.content))
         # Never crop partial source content and then pretend the fragment is complete.
         too_large = sum(len(m["content"].encode()) for m in history) + len(query.encode()) > 12000
-        result = clarify(query, "history_too_large") if too_large and REFERENCE.search(query) else await resolve(
-            query, history, mode=mode, gateway=gateway, cancel_event=cancel_event,
-            context=ModelCallContext("coordinator", "resolve_memory_reference", owner_id=owner,
-                thread_id=turn.thread_id, turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
-                root_budget_id=getattr(turn, "root_budget_id", None),
-                invocation_id=f"conversation:{turn.id}:reference", idempotency_key=f"conversation:{turn.id}:reference"))
+        # Task references are resolved by AgentLoop from persisted tool results.
+        # This resolver's service/project entity vocabulary cannot resolve them.
+        from .config import agent_loop_mode
+        if task_reference and agent_loop_mode() == "loop" and re.search(r"研究|专家|任务", query) and not entities(query):
+            result = Resolution("direct", query, method="task_reference")
+        else:
+            result = clarify(query, "history_too_large") if too_large and REFERENCE.search(query) else await resolve(
+                query, history, mode=mode, gateway=gateway, cancel_event=cancel_event,
+                context=ModelCallContext("coordinator", "resolve_memory_reference", owner_id=owner,
+                    thread_id=turn.thread_id, turn_id=turn.id, runtime_bundle_id=turn.runtime_bundle_id,
+                    root_budget_id=getattr(turn, "root_budget_id", None),
+                    invocation_id=f"conversation:{turn.id}:reference", idempotency_key=f"conversation:{turn.id}:reference"))
         snapshot = dict(version=VERSION, mode=mode, owner_id=owner, project_id=scope.project_id,
             original_query=query, history_through=through, history_hash=fingerprint(history),
             history_message_ids=[m["id"] for m in history], resolution=result.as_dict(),

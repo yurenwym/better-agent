@@ -13,6 +13,69 @@ from test_snapshot_gateway import _answer, _configured_control_plane
 
 
 @pytest.mark.asyncio
+async def test_historical_expert_without_root_does_not_send_or_create_identity(tmp_path, monkeypatch):
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    service = AgentTaskService(db)
+    append = service._event
+
+    def historical(connection, run_id, task_id, kind, actor, data):
+        if kind == "agent.run.created":
+            data = {key: value for key, value in data.items() if key != "execution_context"}
+        return append(connection, run_id, task_id, kind, actor, data)
+
+    monkeypatch.setattr(service, "_event", historical)
+    run = service.create_run("local-user", "topic", {}, bundle.id, idempotency_key="legacy",
+        expert_roles=("critic",), append_thread_message=False)
+    sends = []
+
+    async def execute(*args, **kwargs):
+        sends.append(True)
+        return _answer("unused")
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    worker = ManagedAgentWorker(service, LiveExpertModel(gateway))
+    for _ in range(3):
+        await worker.run_once()
+    assert sends == []
+    assert service.get_run(run["id"])["status"] == "FAILED"
+    created = service.events(run["id"])[0]
+    assert "execution_context" not in created["data"]
+
+
+@pytest.mark.asyncio
+async def test_conversation_expert_models_inherit_source_trace(tmp_path, monkeypatch):
+    from app.behavior import BehaviorBundleService
+    from app.conversation import ConversationService
+    from app.harness_context_store import HarnessContextStore
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    BehaviorBundleService(db).activate("stable", bundle.id, "expert-trace")
+    conversation = ConversationService(db)
+    thread = conversation.create_thread("expert")
+    source = conversation.accept_turn(thread.id, "source", "expert request", [])
+    service = AgentTaskService(db, thread_events=conversation.events)
+    run = service.create_run("local-user", "topic", {}, bundle.id, thread_id=thread.id,
+        idempotency_key="trace", parent_turn_id=source.turn_id, append_thread_message=False,
+        expert_roles=("critic",))
+    seen = []
+
+    async def execute(profile, request, **kwargs):
+        seen.append(gateway.current_call_context())
+        return _answer(json.dumps({"summary": "result", "findings": [], "risks": [], "open_questions": []})
+            if request.purpose.startswith("expert_") else "summary")
+
+    gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=execute)
+    worker = ManagedAgentWorker(service, LiveExpertModel(gateway))
+    for _ in range(3):
+        assert await worker.run_once()
+    assert service.get_run(run["id"])["status"] == "SUCCEEDED"
+    root = HarnessContextStore(db).load_turn_context(source.turn_id)
+    assert len(seen) == 2
+    assert all(context.harness and context.harness.trace_id == root.trace_id for context in seen)
+    assert all(context.turn_id == source.turn_id and context.owner_id == root.owner_id for context in seen)
+    assert len({context.task_id for context in seen}) == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("user_task", [False, True])
 async def test_t09_t10_expert_workers_isolate_interleaved_owners_and_judges(tmp_path, monkeypatch, user_task):
     await exercise_interleaved_experts(tmp_path, monkeypatch, user_task)
@@ -96,6 +159,16 @@ async def exercise_interleaved_experts(tmp_path, monkeypatch, user_task, databas
         ).fetchall()
     assert len(rows) == 9
     assert all(row["owner_id"] == row["run_owner"] and row["runtime_bundle_id"] == row["run_bundle"] for row in rows)
+    from app.execution_context import deserialize_context
+    with db.connection() as connection:
+        trace_by_owner = {}
+        for owner, run in runs.items():
+            created = connection.execute(
+                "SELECT data_json FROM agent_events WHERE agent_run_id=? AND type='agent.run.created'", (run["id"],),
+            ).fetchone()
+            trace_by_owner[owner] = deserialize_context(json.loads(created["data_json"])["execution_context"]).trace_id
+    assert len(set(trace_by_owner.values())) == 2
+    assert all(deserialize_context(row["execution_context_json"]).trace_id == trace_by_owner[row["owner_id"]] for row in rows)
     if roots:
         assert all(row["root_budget_id"] == roots[row["owner_id"]] for row in rows)
         with db.connection() as connection:

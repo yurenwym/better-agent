@@ -340,7 +340,9 @@ def test_p02_the_declared_head_is_reachable_without_rewriting_history() -> None:
     assert script.get_heads() == [POSTGRES_SCHEMA_HEAD]
 
     revisions = {revision.revision: revision.down_revision for revision in script.walk_revisions()}
-    assert revisions[POSTGRES_SCHEMA_HEAD] == PREVIOUS_HEAD
+    assert revisions["20260930_0025"] == PREVIOUS_HEAD
+    assert revisions["20261009_0026"] == "20260930_0025"
+    assert revisions[POSTGRES_SCHEMA_HEAD] == "20261009_0026"
     assert revisions[PREVIOUS_HEAD] == PREVIOUS_PREVIOUS_HEAD
     # Only the one new revision may point at the old head; if an older migration
     # had been edited to chain differently, more than one parent would appear.

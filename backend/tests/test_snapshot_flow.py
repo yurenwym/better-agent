@@ -571,7 +571,12 @@ async def test_s01_a_real_compiler_repair_is_a_second_logical_call(tmp_path, mon
 
     # Two spans, both hanging off the tool's span, inside the tool's trace.
     assert contexts[0]["span_id"] != contexts[1]["span_id"]
-    assert {context["parent_span_id"] for context in contexts} == {tool["span_id"]}
+    from app.event_envelope import EventMetadata
+    resumed = next(event for event in runtime.conversation.events.list(tool["thread_id"])
+                   if event.type == "chat_tool.context_resumed")
+    attempt = EventMetadata.from_dict(_json.loads(resumed.envelope_json)).context
+    assert attempt.parent_span_id == tool["span_id"]
+    assert {context["parent_span_id"] for context in contexts} == {attempt.span_id}
     assert {context["trace_id"] for context in contexts} == {tool["trace_id"]}
 
     # Two frozen inputs, and the repair never rewrites the first one.
@@ -843,10 +848,15 @@ async def test_s05_a_resumed_compile_keeps_its_tool_identity_and_pinned_bundle(
     rows = _planner_rows(runtime.db)
     assert rows, "the resumed compile never reached the planner"
     tool = [context for context in tool_contexts(runtime, accepted.turn_id) if context][0]
+    from app.event_envelope import EventMetadata
+    resumed = next(event for event in runtime.conversation.events.list(tool["thread_id"])
+                   if event.type == "chat_tool.context_resumed")
+    attempt = EventMetadata.from_dict(_json.loads(resumed.envelope_json)).context
+    assert attempt.parent_span_id == tool["span_id"]
     for row in rows:
         context = stored_context(row)
         # The tool identity does not drift...
-        assert context["parent_span_id"] == tool["span_id"]
+        assert context["parent_span_id"] == attempt.span_id
         assert context["trace_id"] == tool["trace_id"]
         # ...the LLM call has its own child span...
         assert context["span_id"] != tool["span_id"]

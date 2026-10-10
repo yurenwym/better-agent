@@ -106,7 +106,7 @@ async def test_explicit_memory_is_used_and_audited_in_a_later_isolated_conversat
 
 
 @pytest.mark.asyncio
-async def test_reflection_proposal_approval_and_later_conversation_form_one_audited_flow(tmp_path) -> None:
+async def test_reflection_proposal_approval_and_later_conversation_form_one_audited_flow(tmp_path, monkeypatch) -> None:
     from app.memory_v2 import MemoryContextProvider, MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -150,8 +150,18 @@ async def test_reflection_proposal_approval_and_later_conversation_form_one_audi
     )
     assert await runtime.turn_worker.run_once() is True
 
+    def bind_source(connection, run_id):
+        from dataclasses import replace
+        from app.execution_context import create_child_context, serialize_context
+        root = runtime.conversation.harness_context.load_turn_context(source.turn_id, connection=connection)
+        current = runtime.get_run(run_id, connection=connection)
+        budget = dict(current.budget)
+        budget["agent_loop_context"] = serialize_context(replace(create_child_context(root),
+            run_id=run_id, runtime_bundle_id=current.runtime_bundle_id, root_budget_id=current.root_budget_id))
+        runtime._set_run_fields(run_id, source_turn_id=source.turn_id, budget=budget, connection=connection)
+
+    monkeypatch.setattr(runtime, "_persist_run_root", bind_source)
     run = await runtime.create_goal("完成示例任务", "产生可复用的回答偏好")
-    runtime._set_run_fields(run.id, source_turn_id=source.turn_id)
     await runtime.handle_message(run.id, "完成任务")
     await runtime.approve_plan(run.id, 1)
 

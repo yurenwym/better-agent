@@ -986,6 +986,10 @@ class LiveConversationModel:
         branch_state: ConversationBranchState | None,
     ) -> list[dict[str, Any]]:
         """The one construction both the pre-check and the send use."""
+        from .config import agent_loop_mode
+        if agent_loop_mode() == "loop":
+            from .conversation_loop import loop_messages
+            return loop_messages(content, history, live=self, human_mode=human_mode)
         policy = self.runtime_prompt_policy() if self.runtime_prompt_policy is not None else None
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": _with_runtime_policy(conversation_instruction(), policy)
@@ -1017,6 +1021,9 @@ class LiveConversationModel:
         so a branch instruction added at send time is always part of the
         measured request as well.
         """
+        from .config import agent_loop_mode
+        if agent_loop_mode() == "loop":
+            return ConversationBranchState(inherited_plan_document_intent=False, save_existing_plan=False)
         inherited = bool(
             ask_parent_request
             and _has_explicit_plan_document_signal(ask_parent_request, [])
@@ -1120,6 +1127,15 @@ class LiveConversationModel:
         harness=None,
         context_sources: dict[str, Any] | None = None,
     ) -> Any:
+        from .config import agent_loop_mode
+        if agent_loop_mode() == "loop":
+            from .conversation_loop import run_conversation_loop
+            return await run_conversation_loop(self, content=content, history=history,
+                on_text_delta=on_text_delta, on_text_reset=on_text_reset, cancel_event=cancel_event,
+                owner_id=owner_id, tool_loop=tool_loop, harness=harness,
+                human_mode=bool(self.settings and self.settings.get().human_mode),
+                memory_context_content=memory_context_content, context_sources=context_sources,
+                on_memory_context_applied=on_memory_context_applied)
         continuation_messages = [
             item for item in history
             if item.get("_context_group") == "conversation-continuation"
@@ -1231,6 +1247,7 @@ class LiveConversationModel:
             *,
             tools=None,
             purpose: str = "route_and_respond",
+            loop_context=None,
         ):
             decoder = ControlHeadDecoder()
             buffered: list[str] = []
@@ -1359,7 +1376,7 @@ class LiveConversationModel:
                 cancel_event=cancel_event,
                 on_text_delta=emit,
                 on_text_reset=reset,
-                context=call_context("conversation", purpose),
+                context=loop_context if loop_context is not None else call_context("conversation", purpose),
                 provenance=provenance,
             )
             if skill_trace is not None:
@@ -1516,78 +1533,82 @@ class LiveConversationModel:
             ([*CONVERSATION_TOOL_SCHEMAS, *tool_loop.schemas()] if tool_loop is not None else None)
         )
         working_messages = messages
-        last_failed_signature: str | None = None
-        for _iteration in range(MAX_CHAT_TOOL_ITERATIONS):
-            # Each tool result changes the request. Keep the first invocation's
-            # historical identity; subsequent rounds need distinct ledger keys.
-            purpose = "route_and_respond" if _iteration == 0 else f"route_and_respond_tool_{_iteration}"
-            response, valid = await complete_once(working_messages, tools=send_tools, purpose=purpose)
-            if valid != "tool" or not isinstance(response, HarnessToolCalls):
-                break
-            exchanges: list[dict[str, Any]] = []
-            pending_request: ToolApprovalRequest | None = None
-            stop_for_answer = False
-            for call in response.calls:
-                if call.invalid_arguments or not isinstance(call.params, dict):
-                    exchanges.extend(_tool_exchange_messages(
-                        call.provider_call_id or call.name, call.name, {},
-                        json.dumps(
-                            {"ok": False, "error": "INVALID_ARGUMENT", "summary": "工具参数不是有效的 JSON 对象"},
-                            ensure_ascii=False,
-                        ),
-                    ))
-                    signature = f"{call.name}:invalid"
-                    if signature == last_failed_signature:
-                        stop_for_answer = True
-                    last_failed_signature = signature
-                    continue
+        from .agent_loop import (
+            AgentLoop, AgentProfile, CapabilityOutcome, CapabilitySet, Cancelled,
+            Exhausted, Failed, LoopGuards, LoopInput, Suspended,
+        )
+        # This adapter preserves legacy routing/decoding outside the shared loop.
+        loop_state: dict[str, Any] = {}
+
+        class ConversationLoopModel:
+            async def complete(adapter, request_messages, tools, context, callbacks):
+                nonlocal working_messages
+                working_messages = request_messages
+                if context is not None and context.harness is not None:
+                    from dataclasses import replace
+                    base = llm_state["base_invocation_id"]
+                    context = replace(context, invocation_id=(base if context.purpose == "route_and_respond" else f"{base}:{context.purpose}") if base else context.invocation_id)
+                    llm_state["harness"] = context.harness
+                response, valid = await complete_once(
+                    request_messages, tools=tools if send_tools is not None else None,
+                    purpose=context.purpose if context is not None else loop_state.get("purpose", "route_and_respond"),
+                    loop_context=context if context is not None and context.harness is not None else None,
+                )
+                loop_state["response"], loop_state["valid"] = response, valid
+                iteration = loop_state.get("iteration", 0) + 1
+                loop_state["iteration"] = iteration
+                loop_state["purpose"] = f"route_and_respond_tool_{iteration}"
+                if valid == "tool" and isinstance(response, HarnessToolCalls):
+                    return SimpleNamespace(message="", tool_calls=[{
+                        "id": call.provider_call_id or call.name,
+                        "type": "function", "function": {
+                            "name": call.name,
+                            "arguments": "[" if call.invalid_arguments else json.dumps(call.params, ensure_ascii=False),
+                        },
+                    } for call in response.calls])
+                return SimpleNamespace(message=getattr(response, "message", ""), tool_calls=[])
+
+        class ConversationExecutor:
+            async def execute(adapter, call, *, bound_text=None):
                 outcome = await tool_loop.execute(
-                    tool_name=call.name,
-                    params=call.params,
-                    provider_call_id=call.provider_call_id,
+                    tool_name=call.name, params=call.params, provider_call_id=call.id,
                     parent_harness=llm_state["harness"],
                 )
                 if outcome.pending:
-                    pending_request = ToolApprovalRequest(
-                        call_id=outcome.call_id,
-                        approval_id=outcome.approval_id or "",
-                        tool_name=call.name,
-                        params=call.params,
-                        binding=outcome.binding or {},
-                    )
-                    break
-                observation = (
-                    _tool_result_observation(outcome.result) if outcome.result is not None
-                    else json.dumps({"ok": False, "error": "INTERNAL_ERROR", "summary": "工具未返回结果"}, ensure_ascii=False)
+                    return CapabilityOutcome(kind="pending", continuation=ToolApprovalRequest(
+                        call_id=outcome.call_id, approval_id=outcome.approval_id or "",
+                        tool_name=call.name, params=call.params, binding=outcome.binding or {},
+                    ))
+                observation = _tool_result_observation(outcome.result) if outcome.result is not None else json.dumps(
+                    {"ok": False, "error": "INTERNAL_ERROR", "summary": "工具未返回结果"}, ensure_ascii=False,
                 )
-                exchanges.extend(_tool_exchange_messages(
-                    outcome.call_id or call.provider_call_id or call.name,
-                    call.name, call.params, observation,
-                ))
-                signature = f"{call.name}:{json.dumps(call.params, ensure_ascii=False, sort_keys=True)}"
-                if outcome.result is None or not outcome.result.ok:
-                    if signature == last_failed_signature:
-                        # A model that repeats an identically failing call must
-                        # not burn the whole loop: stop tools and answer.
-                        stop_for_answer = True
-                    last_failed_signature = signature
-            working_messages = [*working_messages, *exchanges]
-            if pending_request is not None:
-                return pending_request
-            if stop_for_answer:
-                working_messages = [*working_messages, {
-                    "role": "system",
-                    "content": (
-                        "同一工具调用已经重复失败。停止重试，不要再次调用工具；"
-                        "向用户说明失败原因，并给出可执行的下一步或需要补充的信息。"
-                    ),
-                }]
-                response, valid = await complete_once(
-                    working_messages, tools=[], purpose=f"route_and_respond_tool_stop_{_iteration}",
-                )
-                break
-        else:
+                return CapabilityOutcome(result=observation, ok=outcome.result is not None and outcome.result.ok,
+                                         call_id=outcome.call_id)
+
+        conversation_profile = AgentProfile(
+            name="conversation-legacy", role="conversation", purpose_prefix="route_and_respond",
+            system_prompt=lambda _: [], capabilities=lambda _: CapabilitySet(tuple(send_tools or ())),
+            # The migration step preserves the previous eight-round behavior;
+            # tighter shared guards are enabled with the new conversation profile.
+            guards=LoopGuards(max_iterations=MAX_CHAT_TOOL_ITERATIONS,
+                              max_identical_actions=MAX_CHAT_TOOL_ITERATIONS * 100,
+                              max_consecutive_tool_errors=MAX_CHAT_TOOL_ITERATIONS * 100),
+        )
+        outcome = await AgentLoop(ConversationLoopModel(), ConversationExecutor()).run(
+            conversation_profile, LoopInput(messages, harness, cancel_event),
+        )
+        from .execution_outcome import Status
+        from .outcome_adapters import loop_outcome
+        semantics = loop_outcome(outcome, operation_ref=harness.turn_id if harness else "legacy-conversation")
+        if semantics.status in {Status.AWAITING_INPUT, Status.AWAITING_APPROVAL}:
+            return outcome.continuation
+        if semantics.status == Status.CANCELLED:
+            raise asyncio.CancelledError()
+        if semantics.status in {Status.FAILED, Status.RECONCILIATION_REQUIRED}:
+            raise outcome.error
+        if semantics.status == Status.EXHAUSTED:
             raise GatewayError("conversation tool loop exceeded its iteration budget", "structure")
+        response, valid = loop_state["response"], loop_state["valid"]
 
         if not valid and not _has_explicit_plan_document_signal(content, history):
             response = _wrap_plain_answer(response)

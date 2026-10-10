@@ -328,6 +328,7 @@ def build_runtime(    data_root: str | Path,
     research_model = LiveResearchModel(gateway) if gateway else None
     engine = ResearchEngine(research_model, CombinedRetriever(web_retriever, LocalNoteRetriever(root / "research_notes"))) if gateway else None
     runtime.research = ResearchService(db, runtime.conversation.events, engine)
+    runtime.research.model_control = control_store
     runtime.research_worker = ManagedResearchWorker(runtime.research) if engine else None
     from .research.scheduler import ManagedScheduler, ScheduleService
     runtime.schedules = ScheduleService(db, runtime.conversation, runtime.research)
@@ -373,6 +374,11 @@ def build_runtime(    data_root: str | Path,
         "fallback_models": fallback_manifests,
         "skills": skill_manifest,
         "policy": "personal-agent-v1",
+        "agent_profiles": {
+            "conversation": {"version": "1", "prompt_digest": hashlib.sha256(
+                __import__("app.conversation_loop", fromlist=["CONVERSATION_LOOP_PROMPT"]).CONVERSATION_LOOP_PROMPT.encode()).hexdigest()},
+            "goal_step": {"version": "1"},
+        },
         "prompts": {
             "version": "live-model-v1",
             "researcher": {
@@ -431,6 +437,7 @@ def build_runtime(    data_root: str | Path,
     # started exclusively through an explicitly approved generation batch.
     runtime.observer_worker = ManagedExperienceObserver(runtime.observer)
     runtime.agent_tasks = AgentTaskService(db, thread_events=runtime.conversation.events, evolution=runtime.evolution)
+    runtime.agent_tasks.model_control = control_store
     runtime.agent_worker = ManagedAgentWorker(
         runtime.agent_tasks, LiveExpertModel(gateway, thinking=False) if gateway else None,
         safety_judge=LiveSafetyJudge(gateway) if gateway else None,

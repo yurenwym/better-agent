@@ -80,7 +80,12 @@ async def test_a01_a_resumed_approval_keeps_the_tool_identity_and_freezes_its_ow
     assert snapshot.runtime_bundle_id == original_tool["runtime_bundle_id"]
 
     planner_context = stored_context(planner)
-    assert planner_context["parent_span_id"] == original_tool["span_id"]
+    from app.event_envelope import EventMetadata
+    resumed = next(event for event in reopened.conversation.events.list(thread.id)
+                   if event.type == "chat_tool.context_resumed")
+    attempt = EventMetadata.from_dict(json.loads(resumed.envelope_json)).context
+    assert attempt.parent_span_id == original_tool["span_id"]
+    assert planner_context["parent_span_id"] == attempt.span_id
     assert planner_context["trace_id"] == original_tool["trace_id"]
     assert planner_context["span_id"] != original_tool["span_id"]
 

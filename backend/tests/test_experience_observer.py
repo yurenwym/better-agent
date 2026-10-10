@@ -78,11 +78,11 @@ def test_observer_groups_research_retries_and_excludes_acceptance_from_productio
     runtime = build_runtime(tmp_path)
     thread = runtime.conversation.create_thread("research observer")
     first = runtime.research.create_manual(thread.id, "[ACCEPT-OBSERVER] synthetic", "accept-first", ("web",))
-    runtime.research.claim(first.id, "research-worker", 30)
-    runtime.research.fail(first.id, "research-worker", "topiccoverageerror")
+    lease_1 = runtime.research.claim(first.id, "research-worker", 30)
+    runtime.research.fail(first.id, "research-worker", "topiccoverageerror", epoch=lease_1.lease_epoch)
     retry = runtime.research.retry(first.id, None, "accept-retry")
-    runtime.research.claim(retry.id, "research-worker", 30)
-    runtime.research.fail(retry.id, "research-worker", "topiccoverageerror")
+    lease_2 = runtime.research.claim(retry.id, "research-worker", 30)
+    runtime.research.fail(retry.id, "research-worker", "topiccoverageerror", epoch=lease_2.lease_epoch)
 
     result = runtime.observer.observe()
     records = [item for item in runtime.evolution.list_experiences() if item["source_kind"] == "research"]

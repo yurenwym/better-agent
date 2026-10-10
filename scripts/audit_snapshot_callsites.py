@@ -17,7 +17,7 @@ ACCEPTANCE = ROOT / "docs/acceptance/context-snapshot-phase2"
 
 # Stable symbols, not line numbers. Several logical entries share one adapter.
 SYMBOLS = {
-    "ManagedAgentWorker._execute_claimed": ["CS-AG-02"],
+    "ManagedAgentWorker._execute_owned": ["CS-AG-02"],
     "LiveExpertModel.execute_bundle": ["CS-AG-01"],
     "LiveExpertModel.synthesize_user_task": ["CS-AG-01"],
     "LiveExpertModel.synthesize": ["CS-AG-01"],
@@ -34,6 +34,8 @@ SYMBOLS = {
     "_complete_logical_call": ["CS-CA-01"],
     "LiveRuntimeModel._json": ["CS-GR-01", "CS-GR-03"],
     "LiveConversationModel._complete": ["CS-CA-01"],
+    "AgentLoop._run.complete": ["CS-CA-01", "CS-GR-01"],
+    "execute_goal_step.Model.complete": ["CS-GR-01"],
     "LiveEpisodeSummarizer.__call__": ["CS-MA-01"],
     "resolve": ["CS-MR-01"],
     "ModelAdminService._verify_live": ["CS-MD-01"],

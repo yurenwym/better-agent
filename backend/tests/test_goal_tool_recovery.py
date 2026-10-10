@@ -75,14 +75,14 @@ def test_travel_delivery_recovers_without_creating_execution(recovery_db, tmp_pa
     conversation, service, tools, context = setup(recovery_db, tmp_path)
     call = draft_call()
     grant(tools, call, context)
-    original = tools._record_call
+    original = tools.executor._record_call
     def crash(*args, **kwargs):
         raise RuntimeError("simulated crash after commit")
-    monkeypatch.setattr(tools, "_record_call", crash)
+    monkeypatch.setattr(tools.executor, "_record_call", crash)
     with pytest.raises(RuntimeError, match="after commit"):
         execute(tools, call, context)
     version = conversation.plan_documents.get_by_thread(context.thread_id).current_version_id
-    monkeypatch.setattr(tools, "_record_call", original)
+    monkeypatch.setattr(tools.executor, "_record_call", original)
     result = execute(tools, call, context)
     assert result.ok and result.data["version_id"] == version
     assert result.data["delivery_ready"] and not result.data["follow_up_enabled"]
@@ -108,13 +108,13 @@ def test_activation_recovers_commit_before_tool_result(recovery_db, tmp_path, mo
     _, service, tools, context = setup(recovery_db, tmp_path)
     _, call, ctx, binding = prepare_preview(service, tools, context)
     grant(tools, call, ctx, binding)
-    original = tools._record_call
+    original = tools.executor._record_call
     def crash(*args, **kwargs):
         raise RuntimeError("simulated crash after activation")
-    monkeypatch.setattr(tools, "_record_call", crash)
+    monkeypatch.setattr(tools.executor, "_record_call", crash)
     with pytest.raises(RuntimeError, match="after activation"):
         execute(tools, call, ctx, binding)
-    monkeypatch.setattr(tools, "_record_call", original)
+    monkeypatch.setattr(tools.executor, "_record_call", original)
     result = execute(tools, call, ctx, binding)
     assert result.ok and result.data["status"] == "ACTIVE"
     with recovery_db.connection() as c:
