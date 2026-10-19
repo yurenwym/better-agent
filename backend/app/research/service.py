@@ -10,7 +10,6 @@ from typing import Any
 from ..db import Database
 from ..events import ThreadEventStore
 from ..execution_outcome import ExecutionOutcome, Scope, Status
-from ..policy_engine import PolicyAction, PolicyInput, decide
 from .models import Evidence, ResearchPlan, Source
 from ..task_runtime import TaskRuntime, TaskKind, TaskRef, LeaseToken, LeaseLost
 
@@ -436,7 +435,7 @@ class ResearchService:
     def cancel(self, job_id: str, *, owner_id: str | None = None) -> ResearchJob:
         now = _now()
         with self.db.transaction() as connection:
-            self._authorize_job(connection, job_id, owner_id)
+            self._authorize_job(connection, job_id, owner_id, cancel=True)
             lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
             row = connection.execute("SELECT * FROM research_jobs WHERE id=?" + lock, (job_id,)).fetchone()
             if not row: raise KeyError(job_id)
@@ -486,16 +485,14 @@ class ResearchService:
             )
             connection.execute("DELETE FROM research_jobs WHERE id=?", (job_id,))
 
-    def _authorize_job(self, connection, job_id: str, owner_id: str | None) -> None:
+    def _authorize_job(self, connection, job_id: str, owner_id: str | None, *, cancel: bool = False) -> None:
         # Internal workers use their lease checks. User-facing callers must
         # supply the authenticated owner; never accept it from model arguments.
         if owner_id is None:
             return
-        row = connection.execute(
-            "SELECT 1 FROM research_jobs j JOIN threads t ON t.id=j.thread_id "
-            "WHERE j.id=? AND t.owner_id=? AND t.deleted_at IS NULL", (job_id, owner_id),
-        ).fetchone()
-        if decide(PolicyInput(True, True, row is not None)).action == PolicyAction.DENY:
+        from ..task_capabilities import load_task_control, task_is_allowed
+        row = load_task_control(connection, "research", job_id)
+        if not task_is_allowed(row, owner_id=owner_id, caller_thread_id=None, task_kind="research", cancel=cancel):
             raise KeyError(job_id)
 
     def get(self, job_id: str, *, owner_id: str | None = None) -> ResearchJob:

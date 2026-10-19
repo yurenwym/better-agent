@@ -156,16 +156,30 @@ class LearningService(LegacyLearningBranches):
             return len(rows)
 
     def claim(self, owner_id="local-user", *, lease_seconds=60):
+        """Claim one queued job for the owner stored on that job.
+
+        Expired work is recovered first. A job that already recorded
+        ``dispatched_at`` becomes UNKNOWN and is not claimed again, so a restart
+        cannot repeat the paid call. The returned row's ``owner_id`` is the
+        persisted business owner.
+        """
         if type(lease_seconds) is not int or not 1 <= lease_seconds <= 3600:
             raise ValueError("invalid learning lease")
         with self.db.transaction() as connection:
             policy = self.policy(owner_id, connection=connection)
+            timestamp = now()
+            expired_sql, expired_params = self._expired_lease()
+            recovered = connection.execute(
+                "UPDATE learning_jobs SET status=CASE WHEN dispatched_at IS NULL THEN 'QUEUED' ELSE 'UNKNOWN' END,"
+                "lease_token=NULL,lease_until=NULL,version=version+1,updated_at=? "
+                "WHERE owner_id=? AND status='RUNNING' AND " + expired_sql +
+                " RETURNING id,owner_id,status,source_kind,source_id,dispatched_at",
+                (timestamp, owner_id, *expired_params),
+            ).fetchall()
+            for item in recovered:
+                self._trace(connection, item, "learning.recovered")
             if policy["paused"]:
                 return None
-            timestamp = now()
-            connection.execute("UPDATE learning_jobs SET status=CASE WHEN dispatched_at IS NULL THEN 'QUEUED' ELSE 'UNKNOWN' END,"
-                               "lease_token=NULL,lease_until=NULL,version=version+1,updated_at=? WHERE owner_id=? AND status='RUNNING' AND lease_until<=?",
-                               (timestamp, owner_id, timestamp))
             suffix = " FOR UPDATE SKIP LOCKED" if self.db.backend == "postgresql" else ""
             row = connection.execute("SELECT * FROM learning_jobs WHERE owner_id=? AND status='QUEUED' ORDER BY created_at,id LIMIT 1" + suffix, (owner_id,)).fetchone()
             if row is None:
@@ -176,19 +190,140 @@ class LearningService(LegacyLearningBranches):
                                          "WHERE id=? AND status='QUEUED' AND version=?", (token, until, policy["version"], timestamp, row["id"], row["version"])).rowcount
             if changed != 1:
                 return None
-            return dict(connection.execute("SELECT * FROM learning_jobs WHERE id=?", (row["id"],)).fetchone())
+            claimed = dict(connection.execute("SELECT * FROM learning_jobs WHERE id=?", (row["id"],)).fetchone())
+            self._trace(connection, claimed, "learning.claimed")
+            return claimed
+
+    def _live_lease(self) -> tuple[str, tuple]:
+        """SQL that matches a lease only while the database clock says it is live."""
+        if self.db.backend == "postgresql":
+            return "lease_until::timestamptz > clock_timestamp()", ()
+        return "lease_until > ?", (now(),)
+
+    def _expired_lease(self) -> tuple[str, tuple]:
+        if self.db.backend == "postgresql":
+            return "lease_until::timestamptz <= clock_timestamp()", ()
+        return "lease_until<=?", (now(),)
 
     def _owned(self, connection, job):
         # Policy-row lock serializes adoption with a pause/configuration change.
         suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
         connection.execute("SELECT owner_id FROM learning_policies WHERE owner_id=?" + suffix, (job["owner_id"],)).fetchone()
         policy = self.policy(job["owner_id"], connection=connection)
-        current = connection.execute("SELECT * FROM learning_jobs WHERE id=? AND owner_id=?" + suffix, (job["id"], job["owner_id"])).fetchone()
-        if current is None or current["status"] != "RUNNING" or current["lease_token"] != job["lease_token"] or current["lease_until"] <= now():
+        live_sql, live_params = self._live_lease()
+        current = connection.execute(
+            "SELECT * FROM learning_jobs WHERE id=? AND owner_id=? AND status='RUNNING' AND lease_token=? AND " + live_sql + suffix,
+            (job["id"], job["owner_id"], job["lease_token"], *live_params),
+        ).fetchone()
+        if current is None:
             raise LearningConflict("learning lease lost")
         if policy["paused"] or policy["version"] != current["policy_version"]:
             raise LearningConflict("learning authority paused or changed")
         return current, policy
+
+    def assert_adoption(self, connection, job) -> None:
+        """Refuse an adoption write whose lease or policy is no longer current.
+
+        The caller owns the transaction and already holds the target asset lock.
+        This then locks the learning policy and the job, in that order, and
+        applies the database clock on PostgreSQL. Call it again after the
+        business rows are written so an expiry during the write rolls them back.
+        """
+        suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+        connection.execute("SELECT owner_id FROM learning_policies WHERE owner_id=?" + suffix, (job["owner_id"],)).fetchone()
+        policy = self.policy(job["owner_id"], connection=connection)
+        live_sql, live_params = self._live_lease()
+        current = connection.execute(
+            "SELECT policy_version FROM learning_jobs WHERE id=? AND owner_id=? AND status='RUNNING' AND lease_token=? AND "
+            + live_sql + suffix,
+            (job["id"], job["owner_id"], job["lease_token"], *live_params),
+        ).fetchone()
+        if current is None:
+            raise LearningConflict("learning lease lost")
+        if policy["paused"] or policy["version"] != current["policy_version"]:
+            raise LearningConflict("learning authority paused or changed")
+
+    def recheck_adoption(self, connection, job) -> None:
+        """Database-clock check after the adoption rows exist and before commit."""
+        self.assert_adoption(connection, job)
+
+    def assert_source(self, connection, job) -> None:
+        """Refuse a write when this job's persisted source was revoked or edited.
+
+        The caller owns the transaction and already holds the target row. This
+        locks the source row next.
+        """
+        suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+        if job["source_kind"] == "experience":
+            row = connection.execute(
+                "SELECT source_state FROM evolution_experiences WHERE id=? AND owner_id=?" + suffix,
+                (job["source_id"], job["owner_id"]),
+            ).fetchone()
+            if row is None or row["source_state"] != "ACTIVE":
+                raise LearningConflict("learning source revoked")
+            return
+        if job["source_kind"] == "thread_message":
+            row = connection.execute(
+                "SELECT m.content,t.owner_id,t.deleted_at FROM thread_messages m "
+                "JOIN threads t ON t.id=m.thread_id WHERE m.id=?" + suffix,
+                (job["source_id"],),
+            ).fetchone()
+            if row is None or row["owner_id"] != job["owner_id"] or row["deleted_at"] or digest(row["content"]) != job["source_hash"]:
+                raise LearningConflict("learning source revoked")
+            return
+        raise LearningConflict("learning source revoked")
+
+    def assert_release(self, connection, *, owner_id: str, candidate_id: str) -> None:
+        """Authorize a stable behavior release after the generation lease has ended.
+
+        The persistent basis is the CANARY_STARTED promotion written while that
+        lease was live. This re-checks the current policy and the job's own
+        source. The candidate's other evidence is locked in the same transaction
+        by EvolutionService, in experience id order, and held until commit.
+        """
+        promotion = connection.execute(
+            "SELECT job_id FROM learning_promotions WHERE owner_id=? AND candidate_id=? AND outcome='CANARY_STARTED' "
+            "ORDER BY created_at,id",
+            (owner_id, candidate_id),
+        ).fetchone()
+        if promotion is None or not promotion["job_id"]:
+            raise LearningConflict("learning release is not authorized")
+        job = connection.execute(
+            "SELECT * FROM learning_jobs WHERE id=? AND owner_id=?",
+            (promotion["job_id"], owner_id),
+        ).fetchone()
+        if job is None:
+            raise LearningConflict("learning release is not authorized")
+        suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+        connection.execute("SELECT owner_id FROM learning_policies WHERE owner_id=?" + suffix, (owner_id,)).fetchone()
+        policy = self.policy(owner_id, connection=connection)
+        allowed = policy["config"].get("allowed_assets", [])
+        if policy["paused"] or "prompt" not in allowed:
+            raise LearningConflict("learning authority paused or changed")
+        self.assert_source(connection, job)
+
+    def _trace(self, connection, job, event_type: str) -> None:
+        """Record a recovery or claim on the turn that already owns this source.
+
+        Jobs without a live user message do not get a synthetic turn. The
+        business owner is the one stored on the job row.
+        """
+        if job["source_kind"] != "thread_message":
+            return
+        linked = connection.execute(
+            "SELECT m.thread_id,m.turn_id FROM thread_messages m "
+            "JOIN threads t ON t.id=m.thread_id AND t.owner_id=? AND t.deleted_at IS NULL "
+            "JOIN turns tu ON tu.id=m.turn_id AND tu.thread_id=m.thread_id WHERE m.id=?",
+            (job["owner_id"], job["source_id"]),
+        ).fetchone()
+        if linked is None:
+            return
+        from .events import ThreadEventStore
+        ThreadEventStore(self.db).append(linked["thread_id"], linked["turn_id"], event_type, "worker", {
+            "job_id": job["id"], "owner_id": job["owner_id"], "status": job["status"],
+            "source_kind": job["source_kind"], "source_id": job["source_id"],
+            "dispatched": bool(job["dispatched_at"]),
+        }, connection=connection)
 
     def dispatch(self, job):
         """Commit a unique independent budget and send marker BEFORE network I/O."""
@@ -215,7 +350,14 @@ class LearningService(LegacyLearningBranches):
                     raise LearningConflict("owner aggregate budget is not configured")
             root = self.costs.create_root_budget(job["owner_id"], "learning", job["id"], max_attempts=config["max_attempts"],
                                                 deadline_at=current["lease_until"], limit_microusd=config["cycle_microusd"], connection=connection)
-            connection.execute("UPDATE learning_jobs SET dispatched_at=?,root_budget_id=?,version=version+1,updated_at=? WHERE id=?", (now(), root["id"], now(), job["id"]))
+            live_sql, live_params = self._live_lease()
+            changed = connection.execute(
+                "UPDATE learning_jobs SET dispatched_at=?,root_budget_id=?,version=version+1,updated_at=? "
+                "WHERE id=? AND status='RUNNING' AND lease_token=? AND dispatched_at IS NULL AND " + live_sql,
+                (now(), root["id"], now(), job["id"], job["lease_token"], *live_params),
+            ).rowcount
+            if changed != 1:
+                raise LearningConflict("learning lease lost")
             return root["id"]
 
     def assert_learning_call_allowed(self, owner_id, root_id):
@@ -245,9 +387,12 @@ class LearningService(LegacyLearningBranches):
             sources.extend(("feedback", identity) for identity in (checkpoint or {}).get("feedback_ids", []))
             sources.extend(("experience", identity) for identity in (checkpoint or {}).get("experience_ids", []))
             self.assets.depend(job["id"], job["owner_id"], sources, connection=connection)
-        changed = connection.execute("UPDATE learning_jobs SET status=?,change_set_json=?,checkpoint_json=?,reason=?,lease_token=NULL,lease_until=NULL,"
-                                     "version=version+1,updated_at=? WHERE id=? AND status='RUNNING' AND lease_token=?",
-                                     (status, encode(changes or []), encode(checkpoint or {}), reason, now(), job["id"], job["lease_token"])).rowcount
+        live_sql, live_params = self._live_lease()
+        changed = connection.execute(
+            "UPDATE learning_jobs SET status=?,change_set_json=?,checkpoint_json=?,reason=?,lease_token=NULL,lease_until=NULL,"
+            "version=version+1,updated_at=? WHERE id=? AND status='RUNNING' AND lease_token=? AND " + live_sql,
+            (status, encode(changes or []), encode(checkpoint or {}), reason, now(), job["id"], job["lease_token"], *live_params),
+        ).rowcount
         if changed != 1:
             raise LearningConflict("learning lease lost")
 
@@ -282,13 +427,17 @@ class LearningService(LegacyLearningBranches):
     def abandon(self, job, exc):
         """Close a failed cycle. A dispatched request is never replayed (V3 §48)."""
         with self.db.transaction() as connection:
+            live_sql, live_params = self._live_lease()
             current = connection.execute(
-                "SELECT dispatched_at,checkpoint_json,status,lease_token FROM learning_jobs WHERE id=?",
-                (job["id"],)).fetchone()
-            if current["status"] == "RUNNING" and current["lease_token"] == job["lease_token"]:
-                self._finish(connection, job, "UNKNOWN" if current["dispatched_at"] else "REJECTED",
-                             checkpoint=json.loads(current["checkpoint_json"]),
-                             reason=type(exc).__name__ + ": " + str(exc)[:400])
+                "SELECT dispatched_at,checkpoint_json,status,lease_token FROM learning_jobs "
+                "WHERE id=? AND status='RUNNING' AND lease_token=? AND " + live_sql,
+                (job["id"], job["lease_token"], *live_params),
+            ).fetchone()
+            if current is None:
+                return
+            self._finish(connection, job, "UNKNOWN" if current["dispatched_at"] else "REJECTED",
+                         checkpoint=json.loads(current["checkpoint_json"]),
+                         reason=type(exc).__name__ + ": " + str(exc)[:400])
 
     def resolve_research_policy(self, owner_id, project_id, fallback):
         if self.policy(owner_id)["paused"]:

@@ -145,11 +145,12 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
   currentConversation.current = conversationId;
   const mounted = useRef(true);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
+  const [followGeneration, setFollowGeneration] = useState(0);
   const telemetry = useRunTelemetry(run?.id ?? null, run?.version ?? 0);
   const onMaterialized = useCallback((runId: string) => {
     void getRun(runId).then(onRun).catch(() => undefined);
   }, [onRun]);
-  const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized);
+  const threadTelemetry = useThreadTelemetry(conversationId, onMaterialized, followGeneration);
   const toolApprovalTurn = threadTelemetry.activeTurn?.status === "AWAITING_TOOL_APPROVAL" ? threadTelemetry.activeTurn : null;
   const toolApprovalTurnId = toolApprovalTurn?.id ?? null;
   const toolApprovalVersion = toolApprovalTurn?.version ?? 0;
@@ -258,7 +259,9 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
       if (onThread && typeof createThread === "function" && typeof submitTurn === "function" && (!run || conversationId)) {
         const firstLine = content.split(/\r?\n/)[0].trim();
         let id = conversationId;
+        let createdThread = false;
         if (!id) {
+          createdThread = true;
           const created = await createThread({ title: firstLine.slice(0, 80) || "新的对话" }, csrfToken);
           id = created.id;
           moveConversationDraft("new",id);
@@ -274,6 +277,9 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
           content,
           skill_names: selectedSkills,
         }, csrfToken);
+        // A completed turn closes its event stream. The next send on the same
+        // thread has to open a new one, or a later approval never reaches the page.
+        if (!createdThread) setFollowGeneration((value) => value + 1);
         clearConversationDraft(id);
         if(isCurrent())setLocalMessages(current => current.map(item => item.id === optimisticId ? {...item,run_id:id,status:"sent"} : item));
         return true;

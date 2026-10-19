@@ -6,7 +6,42 @@ import json
 
 from .event_envelope import EventMetadata
 from .execution_context import deserialize_context, create_child_context
-from .execution_outcome import ExecutionError, ExecutionOutcome, Phase, Scope, Status
+from .execution_outcome import Effect, ExecutionError, ExecutionOutcome, Phase, Scope, Status
+
+
+# Authoritative trace sources. Connected rows are read from the existing
+# streams. Deferred domains stay out of this query until their W-phase writers
+# exist; the query reports them instead of inventing events.
+EVENT_SOURCES = (
+    {"domain": "thread", "store": "thread_events", "status": "connected"},
+    {"domain": "run", "store": "events", "status": "connected"},
+    {"domain": "expert", "store": "thread_events", "status": "connected", "internal_log": "agent_events"},
+    {"domain": "archive", "store": "thread_events", "status": "connected"},
+    {"domain": "embedding", "store": "thread_events", "status": "connected"},
+    {"domain": "learning", "store": "thread_events", "status": "connected"},
+    {"domain": "notification", "store": "thread_events", "status": "connected"},
+)
+
+
+def _event_phase(event_type: str) -> Phase | None:
+    """The lifecycle phase an event belongs to, from its semantic type.
+
+    Only used for the fixed association field on the envelope; it is not an
+    authorization input and never overrides an outcome's own error phase.
+    """
+    if event_type.startswith(("model.", "cost.")):
+        return Phase.MODEL
+    if event_type.startswith("tool."):
+        return Phase.TOOL
+    if event_type.startswith("chat_tool."):
+        return Phase.AUTHORIZATION
+    if event_type.startswith(("research.", "expert.run.")):
+        return Phase.TASK
+    if event_type.startswith(("turn.", "run.", "loop.")):
+        return Phase.LOOP
+    if event_type.startswith(("archive.", "embedding.", "learning.", "notification.")):
+        return Phase.TASK
+    return None
 
 
 def _context(connection, event):
@@ -66,7 +101,6 @@ def _outcome(connection, event):
         run_id = "chat-turn:" + event.turn_id if kind == "turn.cancelled" else event.run_id
         row = connection.execute("SELECT tool_call_id FROM tool_execution_claims WHERE run_id=? AND status='RECONCILIATION_REQUIRED' ORDER BY updated_at DESC LIMIT 1", (run_id,)).fetchone()
         if row:
-            from .execution_outcome import Effect
             return ExecutionOutcome(Scope.TASK, Status.CANCELLED, reason="CANCELLED",
                 effect=Effect.UNKNOWN, reconciliation_ref=row["tool_call_id"])
         return ExecutionOutcome(Scope.TASK, Status.CANCELLED, reason="CANCELLED")
@@ -113,6 +147,34 @@ def _outcome(connection, event):
         return exception_outcome(GatewayError("", "cancelled" if data["status"] == "cancelled" else data.get("error_kind") or "unknown"), scope=Scope.MODEL)
     if kind == "loop.finished":
         return ExecutionOutcome.from_dict(data["outcome"])
+    if kind in {"archive.committed", "embedding.committed"}:
+        return ExecutionOutcome(Scope.TASK, Status.COMPLETED)
+    if kind == "embedding.recovered":
+        return ExecutionOutcome(Scope.TASK, Status.FAILED,
+            error=ExecutionError("EMBEDDING_LEASE_RECLAIMED", Phase.TASK, True, "向量任务的执行权已交给当前执行者。"))
+    if kind == "notification.unknown":
+        return ExecutionOutcome(Scope.TASK, Status.RECONCILIATION_REQUIRED,
+            error=ExecutionError("NOTIFICATION_RESULT_UNKNOWN", Phase.TASK, False, "通知结果没有确认，不会自动再次发送。"),
+            effect=Effect.UNKNOWN, reconciliation_ref=str(data.get("delivery_id") or ""))
+    if kind == "notification.sent":
+        return ExecutionOutcome(Scope.TASK, Status.COMPLETED)
+    if kind == "notification.failed":
+        retryable = data.get("error_code") in {"NOT_SENT", "RETRY_WAIT"}
+        return ExecutionOutcome(Scope.TASK, Status.FAILED,
+            error=ExecutionError("NOTIFICATION_NOT_SENT", Phase.TASK, retryable, "通知没有发出。"))
+    if kind == "learning.recovered":
+        if data.get("status") == "QUEUED":
+            return ExecutionOutcome(Scope.TASK, Status.FAILED,
+                error=ExecutionError("LEARNING_LEASE_EXPIRED", Phase.TASK, True, "未发送的学习任务已交还。"))
+        return ExecutionOutcome(Scope.TASK, Status.RECONCILIATION_REQUIRED,
+            error=ExecutionError("LEARNING_LEASE_EXPIRED", Phase.TASK, False, "学习请求已发出但结果未落盘，不会自动再次付费。"),
+            effect=Effect.UNKNOWN, reconciliation_ref=str(data["job_id"]))
+    if kind in {"archive.failed", "archive.recovered"}:
+        terminal = data.get("status") == "DEAD_LETTER"
+        code = "ARCHIVE_LEASE_EXPIRED" if kind == "archive.recovered" else "ARCHIVE_ATTEMPT_FAILED"
+        detail = "归档租约已过期，已交还执行权。" if kind == "archive.recovered" else "归档这次尝试未完成。"
+        return ExecutionOutcome(Scope.TASK, Status.FAILED,
+            error=ExecutionError(code, Phase.TASK, not terminal, detail))
     return None
 
 
@@ -201,9 +263,14 @@ def bind_event_metadata(connection, event):
         elif event.type.startswith(("model.attempt.", "model.attempt_")):
             context = attempt_context or create_child_context(trusted)
         source = "model_control" if event.type.startswith(("model.", "cost.")) else (
+            "archive" if event.type.startswith("archive.") else
+            "embedding" if event.type.startswith("embedding.") else
+            "learning" if event.type.startswith("learning.") else
+            "notification" if event.type.startswith("notification.") else
             "research" if event.type.startswith("research.") else "conversation" if thread else "runtime")
         metadata = EventMetadata(context, source, operation, attempt,
-            causation_event_id=previous[0] if previous else None, outcome=_outcome(connection, event))
+            causation_event_id=previous[0] if previous else None, outcome=_outcome(connection, event),
+            phase=_event_phase(event.type))
         if not thread and event.type == "run.created" and trusted.turn_id:
             parent = connection.execute(
                 "SELECT event_id,data_json FROM thread_events WHERE thread_id=? AND turn_id=? "

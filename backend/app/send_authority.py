@@ -3,8 +3,6 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Callable, Iterator
 
-from .policy_engine import PolicyAction, PolicyInput, decide
-
 
 _guard: ContextVar[Callable[[], None] | None] = ContextVar("send_authority", default=None)
 
@@ -18,13 +16,27 @@ def send_authority(check: Callable[[], None]) -> Iterator[None]:
         _guard.reset(token)
 
 
-def assert_send_authority() -> None:
+def execution_authority() -> Exception | None:
+    """Evaluate the installed guard and return the refusal it raised, if any.
+
+    This is a *fact* for the decision boundary, not a decision here.  A model or
+    tool adapter folds ``execution_valid = execution_authority() is None`` into
+    its :class:`~app.policy_engine.PolicyRequest`, so the single
+    ``decide_request`` call owns the decision and the original domain error is
+    raised unchanged when execution rights were lost.
+    """
     check = _guard.get()
-    if check is not None:
-        failure = None
-        try:
-            check()
-        except Exception as exc:
-            failure = exc
-        if decide(PolicyInput(True, True, True, execution_valid=failure is None)).action == PolicyAction.DENY:
-            raise failure
+    if check is None:
+        return None
+    try:
+        check()
+    except Exception as exc:
+        return exc
+    return None
+
+
+def assert_send_authority() -> None:
+    """Assert execution rights directly, for boundaries that issue no request."""
+    failure = execution_authority()
+    if failure is not None:
+        raise failure

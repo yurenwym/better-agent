@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EventRecord, ThreadEvent } from "../types";
-import { describeEvent, describeThreadEvent, formatDuration, groupEvents, keyTrajectoryEvents, latestArchiveStatus } from "../trajectory";
+import type { TraceEvent } from "../types";
+import { describeEvent, describeThreadEvent, describeTraceEvent, formatDuration, groupEvents, keyTrajectoryEvents, latestArchiveStatus } from "../trajectory";
 
 function event(type: string, data: Record<string, unknown> = {}, seq = 1): EventRecord {
   return {
@@ -14,6 +15,20 @@ function event(type: string, data: Record<string, unknown> = {}, seq = 1): Event
     actor: "runtime",
     correlation: {},
     data,
+  };
+}
+
+function learningRecovery(status: string, outcome: TraceEvent["outcome"]): TraceEvent {
+  return {
+    event_id: "thread-evt-learning",
+    seq: 4,
+    type: "learning.recovered",
+    occurred_at: "2026-08-18T00:00:00Z",
+    actor: "worker",
+    stream_kind: "thread",
+    stream_id: "thread-1",
+    payload: { status, job_id: "learning_job" },
+    outcome,
   };
 }
 
@@ -167,6 +182,39 @@ describe("trajectory view model", () => {
 
   // R2-04: the waiting state must read as a *context* status, never as model
   // output, so that "正在整理历史" can never be mistaken for a first token.
+  it("explains archive lease transitions without treating them as a summary", () => {
+    expect(describeThreadEvent(threadEvent("archive.committed", { coverage_through: 4 })).title).toBe("历史摘要已提交");
+    expect(describeThreadEvent(threadEvent("archive.recovered", { status: "RETRY_WAIT" })).title).toBe("过期归档已交还");
+    const stopped = describeThreadEvent(threadEvent("archive.recovered", { status: "DEAD_LETTER" }));
+    expect(stopped.title).toBe("过期归档已停止");
+    expect(stopped.detail).toContain("没有前进");
+    expect(describeThreadEvent(threadEvent("embedding.claimed", { lease_epoch: 1 })).title).toBe("向量任务已领取");
+    expect(describeThreadEvent(threadEvent("embedding.recovered", { lease_epoch: 2 })).title).toBe("过期向量任务已接管");
+    expect(describeThreadEvent(threadEvent("embedding.committed", {})).title).toBe("向量已写入");
+    expect(describeThreadEvent(threadEvent("learning.claimed", {})).title).toBe("学习任务已领取");
+    expect(describeThreadEvent(threadEvent("learning.recovered", { status: "QUEUED" })).title).toBe("过期学习任务已交还");
+    expect(describeThreadEvent(threadEvent("learning.recovered", { status: "UNKNOWN" })).title).toBe("已发送的学习任务已停止");
+    expect(describeThreadEvent(threadEvent("notification.claimed", {})).title).toBe("通知已开始发送");
+    expect(describeThreadEvent(threadEvent("notification.sent", {})).title).toBe("通知已确认送达");
+    const unknownNotice = describeThreadEvent(threadEvent("notification.unknown", { error_code: "RESULT_UNKNOWN" }));
+    expect(unknownNotice.title).toBe("通知结果未知");
+    expect(unknownNotice.detail).toContain("不会自动再次发送");
+    expect(describeThreadEvent(threadEvent("notification.failed", {})).title).toBe("通知未发出");
+    const returned = describeTraceEvent(learningRecovery("QUEUED", {
+      status: "failed", effect: "not_applicable", reconciliation_ref: null,
+      error: { code: "LEARNING_LEASE_EXPIRED", phase: "task", retryable: true, public_message: "未发送的学习任务已交还。", attempts: 0 },
+    }));
+    expect(returned.detail).toContain("可以重试");
+    expect(returned.detail).not.toContain("结果未知");
+    const unknown = describeTraceEvent(learningRecovery("UNKNOWN", {
+      status: "reconciliation_required", effect: "unknown", reconciliation_ref: "learning_job",
+      error: { code: "LEARNING_LEASE_EXPIRED", phase: "task", retryable: false, public_message: "学习请求已发出但结果未落盘，不会自动再次付费。", attempts: 0 },
+    }));
+    expect(unknown.title).toBe("已发送的学习任务已停止");
+    expect(unknown.detail).toContain("结果未知");
+    expect(unknown.detail).toContain("不能重试");
+  });
+
   it("renders the archival wait as a context status, not model output", () => {
     for (const state of ["waiting", "ready", "cancelled", "timeout"]) {
       const item = describeThreadEvent(

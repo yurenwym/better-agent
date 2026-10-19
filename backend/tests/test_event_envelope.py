@@ -19,6 +19,50 @@ def test_metadata_roundtrip_and_version():
         EventMetadata.from_dict(invalid)
 
 
+def test_envelope_exposes_fixed_association_fields_and_phase():
+    from app.event_metadata import _event_phase
+    from app.execution_outcome import Phase
+    assert _event_phase("model.attempt.started") is Phase.MODEL
+    assert _event_phase("cost.recorded") is Phase.MODEL
+    assert _event_phase("tool.execution.finished") is Phase.TOOL
+    assert _event_phase("chat_tool.approved") is Phase.AUTHORIZATION
+    assert _event_phase("research.started") is Phase.TASK
+    assert _event_phase("expert.run.completed") is Phase.TASK
+    assert _event_phase("turn.completed") is Phase.LOOP
+    assert _event_phase("custom") is None
+
+    context = create_root_context(owner_id="owner", run_id="run")
+    metadata = EventMetadata(context, "runtime", "run", phase=Phase.LOOP)
+    assert metadata.trace_id == context.trace_id and metadata.parent_span_id is None
+    restored = EventMetadata.from_dict(json.loads(json.dumps(metadata.to_dict())))
+    assert restored.phase is Phase.LOOP and restored.trace_id == context.trace_id
+    # A retry keeps the same trace and only changes attempt; a child span keeps
+    # the trace and exposes the parent it hangs from.
+    retry = replace(metadata, attempt=2)
+    assert retry.trace_id == metadata.trace_id and retry.attempt == 2
+    child = EventMetadata(
+        replace(context, span_id="a" * 32, parent_span_id=context.span_id),
+        "runtime", "run", phase=Phase.MODEL,
+    )
+    assert child.trace_id == context.trace_id and child.parent_span_id == context.span_id
+    # An envelope may never carry a secret or a raw prompt.
+    assert "api_key" not in json.dumps(metadata.to_dict())
+
+
+def test_real_conversation_events_share_one_trace_with_phase(tmp_path):
+    from app.conversation import ConversationService
+    from app.db import Database
+    service = ConversationService(Database(tmp_path / "trace.db"))
+    thread = service.create_thread("trace")
+    service.accept_turn(thread.id, "one", "hello", [])
+    events = [event for event in service.events.list(thread.id) if event.envelope_json]
+    metadata = [EventMetadata.from_dict(json.loads(event.envelope_json)) for event in events]
+    assert metadata and all(item.phase is not None for item in metadata)
+    assert len({item.trace_id for item in metadata}) == 1
+    raw = " ".join(event.envelope_json for event in events)
+    assert "api_key" not in raw and "hello" not in raw
+
+
 @pytest.mark.parametrize("terminal,expected", [("cancel", Status.CANCELLED), ("partial", Status.FAILED), ("retry", Status.FAILED)])
 def test_research_lifecycle_outcomes_keep_partial_and_retry_distinct(tmp_path, terminal, expected):
     from test_research_service import build

@@ -287,6 +287,10 @@ def open_model_invocation(
     return handle, snapshot, frozen
 
 
+class InvocationAccessError(PermissionError):
+    """The caller is not the persisted owner of this invocation."""
+
+
 class ModelControlStore:
     def __init__(self, db: Database, *, events: Any | None = None, costs: Any | None = None) -> None:
         self.db = db
@@ -317,16 +321,14 @@ class ModelControlStore:
         repair: the caller must not retry, must not fall back, and must not
         replace the frozen input.
         """
-        from .send_authority import assert_send_authority
-
-        assert_send_authority()
         self.assert_sources_active(invocation_id, context)
 
     def assert_sources_active(self, invocation_id: str, context: ModelCallContext) -> None:
         """Revalidate frozen source dependencies at send and result delivery."""
         from .learning import LearningConflict
         from .evolution import EvolutionGateError
-        from .policy_engine import PolicyAction, PolicyInput, decide
+        from .policy_engine import PolicyAction, PolicyPhase, PolicyReason, VerifiedFacts, decide
+        from .send_authority import execution_authority
 
         source_error = None
         try:
@@ -338,9 +340,58 @@ class ModelControlStore:
                 learning.assert_pinned_prompt_active(context.owner_id, context.runtime_bundle_id)
         except (LearningConflict, EvolutionGateError) as exc:
             source_error = exc
-        decision = decide(PolicyInput(True, True, True, source_valid=source_error is None))
+        failure = execution_authority()
+        if context.owner_id:
+            decision = self.decide_model_send(
+                context=context, invocation_id=invocation_id, phase=PolicyPhase.SEND,
+                cancelled=False, source_valid=source_error is None, execution_valid=failure is None,
+            )
+        else:
+            # A context without an owner cannot form a subject.  The send path
+            # refuses such calls before they reach here, so this is only a
+            # degenerate low-level probe; keep the source/execution decision.
+            decision = decide(VerifiedFacts(True, True, True,
+                source_valid=source_error is None, execution_valid=failure is None))
         if decision.action == PolicyAction.DENY:
+            if decision.reason == PolicyReason.EXECUTION_RIGHT_LOST and failure is not None:
+                raise failure
             raise source_error
+
+    def invocation_scope(self, invocation_id: str):
+        """Owner and thread persisted on the invocation, or None when it is absent."""
+        with self.db.connection() as connection:
+            return connection.execute(
+                "SELECT owner_id, thread_id FROM model_invocations WHERE id=?",
+                (invocation_id,),
+            ).fetchone()
+
+    def decide_model_send(
+        self, *, context, invocation_id: str, phase, cancelled: bool,
+        source_valid: bool, execution_valid: bool,
+    ):
+        """Decide a send from the invocation row, not from the caller's identity.
+
+        A missing row or a different owner raises :class:`InvocationAccessError`
+        and does not write.  Thread disagreement is the same refusal: the
+        resource thread is the stored one, and the kernel rejects a mismatch.
+        """
+        from .policy_adapters import model_send_request
+        from .policy_engine import decide_request
+
+        scope = self.invocation_scope(invocation_id)
+        if scope is None or scope["owner_id"] != context.owner_id:
+            raise InvocationAccessError(invocation_id)
+        try:
+            return decide_request(model_send_request(
+                owner_id=context.owner_id, resource_owner_id=scope["owner_id"],
+                resource_thread_id=scope["thread_id"], phase=phase, invocation_id=invocation_id,
+                thread_id=context.thread_id, turn_id=context.turn_id,
+                registered=True, allowed=True, identity_valid=True,
+                source_valid=source_valid, budget_available=True, execution_valid=execution_valid,
+                cancelled=cancelled,
+            ))
+        except ValueError as exc:
+            raise InvocationAccessError(invocation_id) from exc
 
     def begin_invocation(
         self, profile: Any, request: Any, context: ModelCallContext,
@@ -1058,9 +1109,16 @@ class RoutedModelGateway:
                     on_text_reset()
                 if on_attempt_started is not None:
                     on_attempt_started(ordinal, reason)
-                from .policy_engine import PolicyAction, PolicyInput, decide
-                decision = decide(PolicyInput(True, True, True,
-                    cancelled=cancel_event is not None and cancel_event.is_set()))
+                from .policy_engine import PolicyAction, PolicyPhase
+                try:
+                    decision = self.control_store.decide_model_send(
+                        context=context, invocation_id=handle.invocation_id,
+                        phase=PolicyPhase.SEND if reason == "primary" else PolicyPhase.RETRY,
+                        cancelled=cancel_event is not None and cancel_event.is_set(),
+                        source_valid=True, execution_valid=True,
+                    )
+                except InvocationAccessError as exc:
+                    raise GatewayError("model invocation is not accessible", "identity") from exc
                 if decision.action == PolicyAction.DENY:
                     self.control_store.finish_invocation(handle, "cancelled")
                     raise GatewayError("model request cancelled", "cancelled", ordinal - 1)
@@ -1068,6 +1126,8 @@ class RoutedModelGateway:
                 # callback and immediately before the wire, on every attempt.
                 try:
                     self.control_store.assert_request_active(handle.invocation_id, context)
+                except InvocationAccessError as exc:
+                    raise GatewayError("model invocation is not accessible", "identity") from exc
                 except Exception:
                     self.control_store.finish_invocation(handle, "failed")
                     raise
@@ -1116,6 +1176,8 @@ class RoutedModelGateway:
                         # usage record.
                         try:
                             self.control_store.assert_request_active(handle.invocation_id, context)
+                        except InvocationAccessError:
+                            raise
                         except Exception:
                             self.control_store.finish_attempt(active, ordinal, "failed", "asset_revoked", response)
                             self.control_store.finish_invocation(active, "failed")
@@ -1128,6 +1190,8 @@ class RoutedModelGateway:
                 except asyncio.CancelledError:
                     self.control_store.finish_attempt(active, ordinal, "cancelled", "cancelled", None)
                     self.control_store.finish_invocation(active, "cancelled")
+                    raise
+                except InvocationAccessError:
                     raise
                 except GatewayError as error:
                     last_error = error

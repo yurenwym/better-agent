@@ -159,6 +159,23 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=503, detail="Agent 运行时尚未配置")
         return value
 
+    def task_control_allowed(db, kind: str, task_id: str, owner_id: str, *, cancel: bool) -> bool:
+        from .task_capabilities import load_task_control, task_is_allowed
+        with db.connection() as connection:
+            row = load_task_control(connection, kind, task_id)
+        return task_is_allowed(
+            row, owner_id=owner_id, caller_thread_id=None, task_kind=kind, cancel=cancel,
+        )
+
+    def _trace_audit_granted(requested: bool) -> bool:
+        """The audit query flag is not a permission.
+
+        Resource ownership is checked inside the query. No existing trusted
+        auditor credential is carried by an HTTP caller, so the flag cannot
+        widen the projection.
+        """
+        return bool(requested) and False
+
     def owner_id(request: Request) -> str:
         # The current local deployment has no external auth provider yet. Keep
         # the compatibility identity explicit and injectable for multi-user
@@ -616,18 +633,56 @@ def register_routes(app) -> None:
             raise HTTPException(status_code=404, detail="thread not found") from exc
 
     @app.get("/api/threads/{thread_id}/events")
-    async def get_thread_events(thread_id: str, request: Request, after_seq: int = 0, envelope: bool = False, service=Depends(conversation)) -> dict[str, Any]:
+    async def get_thread_events(thread_id: str, request: Request, after_seq: int = 0, envelope: bool = False,
+                                service=Depends(conversation), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
         try:
-            service.thread(thread_id)
+            service.thread(thread_id, current_owner)
             events = service.events.list(thread_id, after_seq)
             if envelope:
                 from .event_projection import project_authorized_event
-                # These conversation endpoints are local-owner scoped, just
-                # like service.thread above; a header cannot change that scope.
-                return {"events": [project_authorized_event(event, owner_id="local-user") for event in events]}
+                # The envelope projection is scoped to the trusted request
+                # identity, not a fixed literal, so a foreign owner cannot read
+                # another thread's execution metadata.
+                return {"events": [project_authorized_event(event, owner_id=current_owner) for event in events]}
             return {"events": [_thread_event_json(event) for event in events]}
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="thread not found") from exc
+
+    @app.get("/api/traces/{trace_id}")
+    async def get_trace(trace_id: str, request: Request, audit: bool = False, limit: int | None = None,
+                        cursor: str | None = None, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        from .trace_query import TraceNotFound, TraceQuery
+        try:
+            return TraceQuery(service.db).by_trace(trace_id, owner_id=current_owner, audit=_trace_audit_granted(audit),
+                                                   limit=limit, cursor=cursor)
+        except TraceNotFound as exc:
+            raise HTTPException(status_code=404, detail="trace not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/threads/{thread_id}/trace")
+    async def get_thread_trace(thread_id: str, request: Request, audit: bool = False, limit: int | None = None,
+                               cursor: str | None = None, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        from .trace_query import TraceNotFound, TraceQuery
+        try:
+            return TraceQuery(service.db).by_thread(thread_id, owner_id=current_owner, audit=_trace_audit_granted(audit),
+                                                    limit=limit, cursor=cursor)
+        except TraceNotFound as exc:
+            raise HTTPException(status_code=404, detail="thread not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/api/tasks/{kind}/{task_id}/trace")
+    async def get_task_trace(kind: str, task_id: str, request: Request, audit: bool = False, limit: int | None = None,
+                             cursor: str | None = None, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        from .trace_query import TraceNotFound, TraceQuery
+        try:
+            return TraceQuery(service.db).by_task(kind, task_id, owner_id=current_owner, audit=_trace_audit_granted(audit),
+                                                  limit=limit, cursor=cursor)
+        except TraceNotFound as exc:
+            raise HTTPException(status_code=404, detail="task not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @app.get("/api/threads/{thread_id}/events/stream")
     async def thread_event_stream(thread_id: str, request: Request, follow: bool = True, service=Depends(conversation)) -> StreamingResponse:
@@ -752,6 +807,8 @@ def register_routes(app) -> None:
 
     @app.get("/api/agent-runs/{run_id}")
     async def get_agent_run(run_id: str, service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        if not task_control_allowed(service.db, "expert", run_id, current_owner, cancel=False):
+            raise HTTPException(status_code=404, detail="expert run not found")
         try: return _agent_run_json(service.get_run(run_id, current_owner))
         except KeyError as exc: raise HTTPException(status_code=404, detail="expert run not found") from exc
 
@@ -771,6 +828,8 @@ def register_routes(app) -> None:
 
     @app.post("/api/agent-runs/{run_id}/cancel", dependencies=[Depends(mutate)])
     async def cancel_agent_run(run_id: str, payload: dict[str, Any], service=Depends(agent_tasks), current_owner: str = Depends(owner_id)):
+        if not task_control_allowed(service.db, "expert", run_id, current_owner, cancel=True):
+            raise HTTPException(status_code=404, detail="expert run not found")
         try:
             service.get_run(run_id, current_owner)
             return _agent_run_json(service.cancel_run(run_id, str(payload.get("reason") or "user cancelled")))
@@ -1152,6 +1211,8 @@ def register_routes(app) -> None:
 
     @app.get("/api/research/jobs/{job_id}")
     async def get_research_job(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if not task_control_allowed(service.db, "research", job_id, current_owner, cancel=False):
+            raise HTTPException(status_code=404, detail="research job not found")
         try: return _research_job_json(service.research.get(job_id, owner_id=current_owner))
         except (AttributeError, KeyError) as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
@@ -1173,6 +1234,8 @@ def register_routes(app) -> None:
 
     @app.post("/api/research/jobs/{job_id}/cancel", dependencies=[Depends(mutate)])
     async def cancel_research(job_id: str, service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        if not task_control_allowed(service.db, "research", job_id, current_owner, cancel=True):
+            raise HTTPException(status_code=404, detail="research job not found")
         try: return _research_job_json(service.research.cancel(job_id, owner_id=current_owner))
         except KeyError as exc: raise HTTPException(status_code=404, detail="research job not found") from exc
 
@@ -1235,33 +1298,51 @@ def register_routes(app) -> None:
         return {"jobs":[_research_job_json(job) for job in service.research.list(schedule_id=schedule_id)]}
 
     @app.post("/api/notification/channels", status_code=201, dependencies=[Depends(mutate)])
-    async def create_channel(payload: dict[str, Any], service=Depends(runtime)) -> dict[str, Any]:
-        try:return _channel_json(service.notifications.create(payload.get("name",""),payload.get("channel_type",""),payload.get("secret_env_name",""),payload.get("enabled",True)))
+    async def create_channel(payload: dict[str, Any], service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        try:return _channel_json(service.notifications.create(payload.get("name",""),payload.get("channel_type",""),payload.get("secret_env_name",""),payload.get("enabled",True),owner_id=current_owner))
         except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.get("/api/notification/channels")
-    async def list_channels(service=Depends(runtime)) -> dict[str, Any]:return {"channels":[_channel_json(x) for x in service.notifications.list()]}
+    async def list_channels(service=Depends(runtime), current_owner: str = Depends(owner_id)) -> dict[str, Any]:
+        return {"channels":[_channel_json(x) for x in service.notifications.list(owner_id=current_owner)]}
 
     @app.put("/api/notification/channels/{channel_id}",dependencies=[Depends(mutate)])
-    async def update_channel(channel_id:str,payload:dict[str,Any],service=Depends(runtime))->dict[str,Any]:
-        try:return _channel_json(service.notifications.update(channel_id,name=payload.get("name"),enabled=payload.get("enabled"),secret_env_name=payload.get("secret_env_name")))
+    async def update_channel(channel_id:str,payload:dict[str,Any],service=Depends(runtime), current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return _channel_json(service.notifications.update(channel_id,owner_id=current_owner,name=payload.get("name"),enabled=payload.get("enabled"),secret_env_name=payload.get("secret_env_name")))
         except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
         except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.delete("/api/notification/channels/{channel_id}",status_code=204,dependencies=[Depends(mutate)])
-    async def delete_channel(channel_id:str,service=Depends(runtime))->Response:
-        try:service.notifications.delete(channel_id);return Response(status_code=204)
+    async def delete_channel(channel_id:str,service=Depends(runtime), current_owner: str = Depends(owner_id))->Response:
+        try:service.notifications.delete(channel_id,owner_id=current_owner);return Response(status_code=204)
         except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
 
     @app.post("/api/notification/channels/{channel_id}/test", dependencies=[Depends(mutate)])
-    async def test_channel(channel_id:str,service=Depends(runtime))->dict[str,Any]:
-        try:return vars(await service.notifications.test(channel_id))
+    async def test_channel(channel_id:str,service=Depends(runtime), current_owner: str = Depends(owner_id))->dict[str,Any]:
+        try:return vars(await service.notifications.test(channel_id, owner_id=current_owner))
         except KeyError as exc:raise HTTPException(status_code=404,detail="channel not found") from exc
 
     @app.post("/api/research/jobs/{job_id}/notifications/{channel_id}/retry",dependencies=[Depends(mutate)])
-    async def retry_notification(job_id:str,channel_id:str,service=Depends(runtime))->dict[str,Any]:
-        try:return vars(await service.notifications.retry(job_id,channel_id))
+    async def retry_notification(job_id:str,channel_id:str,request:Request,service=Depends(runtime), current_owner: str = Depends(owner_id))->dict[str,Any]:
+        body: dict[str, Any] = {}
+        if "application/json" in request.headers.get("content-type", ""):
+            parsed = await request.json()
+            if not isinstance(parsed, dict):
+                raise HTTPException(status_code=422, detail="invalid retry request")
+            body = parsed
+        key = body.get("idempotency_key") or request.headers.get("idempotency-key")
+        if not isinstance(key, str) or not key.strip():
+            raise HTTPException(status_code=422, detail="idempotency_key is required")
+        prior = body.get("prior_delivery_id")
+        if prior is not None and not isinstance(prior, str):
+            raise HTTPException(status_code=422, detail="prior_delivery_id is invalid")
+        try:
+            return vars(await service.notifications.retry(
+                job_id, channel_id, owner_id=current_owner, idempotency_key=key.strip(),
+                confirm_duplicate=body.get("confirm_duplicate") is True, prior_delivery_id=prior,
+            ))
         except KeyError as exc:raise HTTPException(status_code=404,detail="report or channel not found") from exc
+        except ValueError as exc:raise HTTPException(status_code=422,detail=str(exc)) from exc
 
     @app.get("/api/skills")
     async def list_skills(request: Request, include_disabled: bool = False) -> dict[str, Any]:
@@ -2106,7 +2187,7 @@ def _schedule_json(item) -> dict[str, Any]:
 
 
 def _channel_json(item) -> dict[str, Any]:
-    return {"id":item.id,"name":item.name,"channel_type":item.channel_type,"secret_env_name":item.secret_env_name,"enabled":item.enabled,"configured":item.configured}
+    return {"id":item.id,"name":item.name,"channel_type":item.channel_type,"secret_env_name":item.secret_env_name,"enabled":item.enabled,"configured":item.configured,"owner_id":item.owner_id}
 
 
 def _plan_document_json(

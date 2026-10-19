@@ -73,7 +73,12 @@ def test_expert_terminal_race_preserves_one_result(migrated_postgres_url, tmp_pa
         with ThreadPoolExecutor(max_workers=2) as pool:
             results = list(pool.map(submit, ["complete", rival]))
         status = service.get_run(run["id"])["status"]
-        assert sorted(results) == sorted([status, "refused"] if rival == "cancel" else ["SUCCEEDED", "SUCCEEDED"])
+        if rival == "cancel" and "refused" in results:
+            assert sorted(results) == sorted([status, "refused"])
+            assert status == "CANCELLED"
+        else:
+            assert results == ["SUCCEEDED", "SUCCEEDED"]
+            assert status == "SUCCEEDED"
         assert service.get_task(task["id"])["status"] == status
         terminal = [event for event in service.events(run["id"]) if event["type"] in {"agent.run.completed", "agent.run.cancelled"}]
         assert len(terminal) == 1

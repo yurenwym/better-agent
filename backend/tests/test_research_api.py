@@ -49,7 +49,10 @@ def test_research_routes_do_not_expose_or_mutate_another_owners_job(tmp_path):
     for suffix in ("", "/report", "/sources"):
         assert http.get(base + suffix, headers=headers).status_code == 404
     assert http.get("/api/research/jobs", headers=headers).json() == {"jobs": []}
+    calls = []
+    runtime.research.cancel = lambda *args, **kwargs: calls.append("cancel")
     assert http.post(base + "/cancel", headers=headers).status_code == 404
+    assert calls == []
     assert http.post(base + "/retry", headers=headers, json={"client_request_id": "other"}).status_code == 404
     assert http.delete(base, headers=headers).status_code == 404
     assert http.post(f"/api/threads/{thread.id}/research", headers=headers,

@@ -128,6 +128,7 @@ class ConversationArchiver:
         self, db, store, summarizer: Summarizer | None = None, *, keep_messages: int | None = None,
         keep_tokens: int | None = 12_000, max_attempts: int = 3, lease_seconds: int = 30,
         worker_id: str | None = None, max_summary_tokens: int = 12_000,
+        on_lifecycle: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
         self.db = db
         self.store = store
@@ -143,6 +144,56 @@ class ConversationArchiver:
         self.max_summary_tokens = max_summary_tokens
         self.worker_id = worker_id or f"archiver-{uuid.uuid4().hex}"
         self.transcripts = CanonicalTurnTranscriptBuilder(db)
+        # Optional low-sensitivity lifecycle sink.  Reporting never changes
+        # lease semantics: a broken observer cannot lose or extend a lease.
+        self.on_lifecycle = on_lifecycle
+
+    def _lifecycle(self, event: str, **fields: Any) -> None:
+        if self.on_lifecycle is None:
+            return
+        try:
+            self.on_lifecycle({"event": event, **fields})
+        except Exception:
+            # Observability is best-effort; it must never alter execution.
+            pass
+
+    def _trace(self, connection, *, thread_id: str, owner_id: str, turn_id: str | None,
+               event_type: str, data: dict[str, Any]) -> None:
+        """Append one lifecycle fact on the turn that already owns this job.
+
+        The turn comes from the queued event written at enqueue, or from the
+        caller when that event is being written. A missing turn is not replaced
+        with a synthetic one, and this does not invent an execution context:
+        the existing event binder uses the turn's stored context or records a
+        legacy row. The caller invokes this only after the matching state
+        change has succeeded in the same transaction.
+        """
+        job_id = data.get("job_id")
+        if turn_id is None and job_id:
+            turn_id = self._linked_turn(connection, thread_id, str(job_id))
+        if not turn_id:
+            return
+        row = connection.execute(
+            "SELECT t.id FROM turns t JOIN threads th ON th.id=t.thread_id "
+            "WHERE t.id=? AND t.thread_id=? AND th.owner_id=? AND th.deleted_at IS NULL",
+            (turn_id, thread_id, owner_id),
+        ).fetchone()
+        if row is None:
+            return
+        from .events import ThreadEventStore
+        ThreadEventStore(self.db).append(thread_id, turn_id, event_type, "worker", data, connection=connection)
+
+    def _linked_turn(self, connection, thread_id: str, job_id: str) -> str | None:
+        if self.db.backend == "postgresql":
+            job_expr = "(data_json::json->>'job_id')"
+        else:
+            job_expr = "json_extract(data_json, '$.job_id')"
+        row = connection.execute(
+            f"SELECT turn_id FROM thread_events WHERE thread_id=? AND type='archive.queued' "
+            f"AND {job_expr}=? ORDER BY seq DESC LIMIT 1",
+            (thread_id, job_id),
+        ).fetchone()
+        return row["turn_id"] if row else None
 
     async def archive_thread(self, thread_id: str, owner_id: str | None = None):
         """Compatibility entry point: enqueue, claim and process one batch."""
@@ -273,14 +324,16 @@ class ConversationArchiver:
         counter: Any | None = None,
     ) -> str | None:
         scope = self.transcripts.resolve_scope(thread_id, owner_id)
+        associated_turn_id = source_turn_id
         with self.db.connection() as connection:
             state = connection.execute(
                 "SELECT archived_through_seq FROM conversation_archive_state WHERE owner_id=? AND thread_id=?",
                 (scope.owner_id, thread_id),
             ).fetchone()
+            binding = None
             if source_turn_id is not None:
                 binding = connection.execute(
-                    "SELECT t.runtime_bundle_id,t.root_budget_id FROM turns t JOIN threads th ON th.id=t.thread_id "
+                    "SELECT t.id,t.runtime_bundle_id,t.root_budget_id FROM turns t JOIN threads th ON th.id=t.thread_id "
                     "WHERE t.id=? AND t.thread_id=? AND th.owner_id=?",
                     (source_turn_id, thread_id, scope.owner_id),
                 ).fetchone()
@@ -288,10 +341,12 @@ class ConversationArchiver:
                     raise ArchiveBindingMissing("archive source turn is missing or outside the owner scope")
             elif runtime_bundle_id is None or root_budget_id is None:
                 binding = connection.execute(
-                    "SELECT runtime_bundle_id,root_budget_id FROM turns WHERE thread_id=? "
+                    "SELECT id,runtime_bundle_id,root_budget_id FROM turns WHERE thread_id=? "
                     "ORDER BY created_at DESC,id DESC LIMIT 1",
                     (thread_id,),
                 ).fetchone()
+                if binding is not None:
+                    associated_turn_id = binding["id"]
             if binding is not None:
                 if runtime_bundle_id is not None and runtime_bundle_id != binding["runtime_bundle_id"]:
                     raise ArchiveBindingMissing("archive runtime bundle does not match its source turn")
@@ -330,7 +385,7 @@ class ConversationArchiver:
                 "INSERT OR IGNORE INTO conversation_archive_state(owner_id,thread_id) VALUES (?,?)",
                 (scope.owner_id, thread_id),
             )
-            connection.execute(
+            inserted = connection.execute(
                 "INSERT OR IGNORE INTO memory_archive_jobs("
                 "id,owner_id,thread_id,start_message_seq,end_message_seq,source_hash,prompt_version,tokenizer_version,"
                 "status,available_at,max_attempts,created_at,updated_at,runtime_bundle_id,root_budget_id,"
@@ -343,19 +398,27 @@ class ConversationArchiver:
                     static_policy.version if static_policy is not None else None,
                     budget_profile_version_id,
                 ),
-            )
+            ).rowcount
             row = connection.execute(
                 "SELECT id FROM memory_archive_jobs WHERE owner_id=? AND thread_id=? AND start_message_seq=? "
                 "AND end_message_seq=? AND source_hash=? AND prompt_version=?",
                 (scope.owner_id, thread_id, start, end, selected.source_hash, PROMPT_VERSION),
             ).fetchone()
+            if inserted == 1:
+                self._trace(connection, thread_id=thread_id, owner_id=scope.owner_id, turn_id=associated_turn_id,
+                            event_type="archive.queued", data={
+                                "job_id": row["id"], "status": "QUEUED", "attempt": 1, "lease_epoch": 0,
+                                "start_message_seq": start, "end_message_seq": end,
+                                "source_hash": selected.source_hash,
+                            })
         return row["id"]
 
     def status(self, thread_id: str, owner_id: str) -> dict[str, Any]:
         self.transcripts.resolve_scope(thread_id, owner_id)
         with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT id,status,attempts,max_attempts,last_error_code,start_message_seq,end_message_seq,updated_at "
+                "SELECT id,status,attempts,max_attempts,last_error_code,start_message_seq,end_message_seq,"
+                "finished_at,updated_at "
                 "FROM memory_archive_jobs WHERE owner_id=? AND thread_id=? ORDER BY created_at DESC,id DESC LIMIT 20",
                 (owner_id, thread_id),
             ).fetchall()
@@ -415,6 +478,14 @@ class ConversationArchiver:
             ).rowcount
             if changed != 1:
                 return None
+            self._trace(connection, thread_id=row["thread_id"], owner_id=row["owner_id"], turn_id=None,
+                        event_type="archive.claimed", data={
+                            "job_id": row["id"], "status": "RUNNING", "attempt": attempts, "lease_epoch": epoch,
+                            "start_message_seq": int(row["start_message_seq"]),
+                            "end_message_seq": int(row["end_message_seq"]), "source_hash": row["source_hash"],
+                        })
+        self._lifecycle("claimed", job_id=row["id"], owner_id=row["owner_id"], thread_id=row["thread_id"],
+                        attempt=attempts, lease_epoch=epoch)
         return ArchiveClaim(
             row["id"], row["owner_id"], row["thread_id"], int(row["start_message_seq"]),
             int(row["end_message_seq"]), row["source_hash"], self.worker_id, epoch, attempts,
@@ -515,16 +586,104 @@ class ConversationArchiver:
             except asyncio.TimeoutError:
                 self._renew_lease(claim)
 
+    def require_lease(self, claim: ArchiveClaim) -> None:
+        """Assert this worker still owns a live, matching lease for its input.
+
+        The archive's domain guard - status, owner, epoch and source hash - is
+        the same fence the commit uses; this reads it without changing state so
+        a worker can check its execution right at any point.
+        """
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT status,lease_owner,lease_epoch,lease_until,source_hash,prompt_version,tokenizer_version "
+                "FROM memory_archive_jobs WHERE id=?", (claim.job_id,),
+            ).fetchone()
+        if not _owns(row, claim) or not _lease_live(row):
+            raise ArchiveLeaseLost("archive lease is not live")
+
+    def heartbeat(self, claim: ArchiveClaim) -> None:
+        """Shared-vocabulary name for extending an in-progress archival lease."""
+        self._renew_lease(claim)
+
+    def recover_expired(self) -> int:
+        """Release RUNNING jobs whose lease expired so a later claim can retry.
+
+        Recovery is deliberately separate from ``claim``: claim re-allocates an
+        epoch for a single job, while recovery makes every abandoned lease
+        observable and reports it.  A job that still has attempts left returns to
+        ``RETRY_WAIT`` with a clean lease; one that has exhausted its attempts
+        settles into ``DEAD_LETTER`` with a ``finished_at`` stamp.  Both record
+        ``lease_expired`` so an operator can tell abandonment from a real error,
+        and both bump the epoch so the old worker can no longer commit.  The
+        committed coverage cursor is never advanced here: recovery restores
+        *execution rights*, it does not claim the prefix was summarized.
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        error_json = json.dumps({"message": "archive lease expired; recovered"}, ensure_ascii=False)
+        with self.db.transaction() as connection:
+            rows = connection.execute(
+                "SELECT id,owner_id,thread_id,attempts,max_attempts,lease_epoch,start_message_seq,"
+                "end_message_seq,source_hash FROM memory_archive_jobs "
+                "WHERE status='RUNNING' AND lease_until IS NOT NULL AND lease_until<?",
+                (now,),
+            ).fetchall()
+            recovered = 0
+            for row in rows:
+                terminal = int(row["attempts"]) >= int(row["max_attempts"])
+                status = "DEAD_LETTER" if terminal else "RETRY_WAIT"
+                changed = connection.execute(
+                    "UPDATE memory_archive_jobs SET status=?,lease_owner=NULL,lease_until=NULL,"
+                    "lease_epoch=lease_epoch+1,available_at=?,updated_at=?,last_error_code='lease_expired',"
+                    "last_error_json=?,finished_at=? "
+                    "WHERE id=? AND status='RUNNING' AND lease_until<?",
+                    (status, now, now, error_json, now if terminal else None, row["id"], now),
+                ).rowcount
+                if changed != 1:
+                    continue
+                recovered += 1
+                connection.execute(
+                    "UPDATE conversation_archive_state SET state=?,error=?,lease_owner=NULL,lease_until=NULL "
+                    "WHERE owner_id=? AND thread_id=?",
+                    ("FAILED" if terminal else "IDLE", "lease_expired" if terminal else None,
+                     row["owner_id"], row["thread_id"]),
+                )
+                self._trace(connection, thread_id=row["thread_id"], owner_id=row["owner_id"], turn_id=None,
+                            event_type="archive.recovered", data={
+                                "job_id": row["id"], "status": status, "attempt": int(row["attempts"]),
+                                "lease_epoch": int(row["lease_epoch"]) + 1,
+                                "start_message_seq": int(row["start_message_seq"]),
+                                "end_message_seq": int(row["end_message_seq"]), "source_hash": row["source_hash"],
+                            })
+                self._lifecycle("recovered", job_id=row["id"], owner_id=row["owner_id"],
+                                thread_id=row["thread_id"], status=status)
+        return recovered
+
+    def _live_predicate(self) -> tuple[str, tuple]:
+        """A write matches only while ``lease_until`` is still ahead of the clock.
+
+        The comparison is part of the UPDATE, not a read that precedes it.
+        PostgreSQL uses ``clock_timestamp()`` so the database clock decides.
+        SQLite stores the same instant as text and compares that text in the write.
+        """
+        if self.db.backend == "postgresql":
+            return "lease_until::timestamptz > clock_timestamp()", ()
+        return "lease_until > ?", (_now(),)
+
     def _renew_lease(self, claim: ArchiveClaim) -> None:
         until = (datetime.now(timezone.utc) + timedelta(seconds=self.lease_seconds)).isoformat()
+        live_sql, live_params = self._live_predicate()
         with self.db.transaction() as connection:
             changed = connection.execute(
                 "UPDATE memory_archive_jobs SET lease_until=?,updated_at=? WHERE id=? AND status='RUNNING' "
-                "AND lease_owner=? AND lease_epoch=? AND source_hash=?",
-                (until, _now(), claim.job_id, claim.lease_owner, claim.lease_epoch, claim.source_hash),
+                "AND lease_owner=? AND lease_epoch=? AND source_hash=? AND prompt_version=? AND tokenizer_version=? "
+                f"AND {live_sql}",
+                (until, _now(), claim.job_id, claim.lease_owner, claim.lease_epoch, claim.source_hash,
+                 claim.prompt_version, claim.tokenizer_version, *live_params),
             ).rowcount
         if changed != 1:
             raise ArchiveLeaseLost("archive lease was lost during summarization")
+        self._lifecycle("heartbeat", job_id=claim.job_id, owner_id=claim.owner_id,
+                        thread_id=claim.thread_id, lease_epoch=claim.lease_epoch)
 
     def _chunk_payloads(self, transcript: CanonicalTranscript) -> list[dict[str, Any]]:
         """Split an oversized transcript by event content without splitting source identity."""
@@ -720,13 +879,26 @@ class ConversationArchiver:
                 "WHERE owner_id=? AND thread_id=?",
                 (claim.end_sequence, claim.end_sequence, claim.owner_id, claim.thread_id),
             )
+            live_sql, live_params = self._live_predicate()
             changed = connection.execute(
                 "UPDATE memory_archive_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=?,updated_at=? "
-                "WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_epoch=? AND source_hash=?",
-                (_now(), _now(), claim.job_id, claim.lease_owner, claim.lease_epoch, claim.source_hash),
+                "WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_epoch=? AND source_hash=? "
+                "AND prompt_version=? AND tokenizer_version=? "
+                f"AND {live_sql}",
+                (_now(), _now(), claim.job_id, claim.lease_owner, claim.lease_epoch, claim.source_hash,
+                 claim.prompt_version, claim.tokenizer_version, *live_params),
             ).rowcount
             if changed != 1:
                 raise ArchiveLeaseLost("archive lease was lost during commit")
+            self._trace(connection, thread_id=claim.thread_id, owner_id=claim.owner_id, turn_id=None,
+                        event_type="archive.committed", data={
+                            "job_id": claim.job_id, "status": "COMPLETED", "attempt": claim.attempts,
+                            "lease_epoch": claim.lease_epoch, "start_message_seq": claim.start_sequence,
+                            "end_message_seq": claim.end_sequence, "source_hash": claim.source_hash,
+                            "coverage_through": claim.end_sequence,
+                        })
+        self._lifecycle("committed", job_id=claim.job_id, owner_id=claim.owner_id,
+                        thread_id=claim.thread_id, lease_epoch=claim.lease_epoch)
         return episode
 
     def _fail(self, claim: ArchiveClaim, exc: Exception) -> None:
@@ -738,24 +910,37 @@ class ConversationArchiver:
         ) or claim.attempts >= self.max_attempts
         status = "DEAD_LETTER" if terminal else "RETRY_WAIT"
         available = now if terminal else now + timedelta(seconds=min(2 ** claim.attempts, 60))
+        live_sql, live_params = self._live_predicate()
         with self.db.transaction() as connection:
             changed = connection.execute(
                 "UPDATE memory_archive_jobs SET status=?,available_at=?,lease_owner=NULL,lease_until=NULL,"
                 "last_error_code=?,last_error_json=?,updated_at=?,finished_at=? "
-                "WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_epoch=?",
+                "WHERE id=? AND status='RUNNING' AND lease_owner=? AND lease_epoch=? "
+                "AND source_hash=? AND prompt_version=? AND tokenizer_version=? "
+                f"AND {live_sql}",
                 (
                     status, available.isoformat(), getattr(exc, "code", type(exc).__name__),
                     json.dumps({"message": str(exc)[:240]}, ensure_ascii=False), now.isoformat(),
                     now.isoformat() if terminal else None, claim.job_id, claim.lease_owner, claim.lease_epoch,
+                    claim.source_hash, claim.prompt_version, claim.tokenizer_version, *live_params,
                 ),
             ).rowcount
             if changed != 1:
                 return
+            self._trace(connection, thread_id=claim.thread_id, owner_id=claim.owner_id, turn_id=None,
+                        event_type="archive.failed", data={
+                            "job_id": claim.job_id, "status": status, "attempt": claim.attempts,
+                            "lease_epoch": claim.lease_epoch, "error_code": getattr(exc, "code", type(exc).__name__),
+                            "start_message_seq": claim.start_sequence, "end_message_seq": claim.end_sequence,
+                            "source_hash": claim.source_hash,
+                        })
             connection.execute(
                 "UPDATE conversation_archive_state SET state='FAILED',error=?,lease_owner=NULL,lease_until=NULL "
                 "WHERE owner_id=? AND thread_id=?",
                 (str(exc)[:240], claim.owner_id, claim.thread_id),
             )
+        self._lifecycle("failed", job_id=claim.job_id, owner_id=claim.owner_id,
+                        thread_id=claim.thread_id, status=status, error=getattr(exc, "code", type(exc).__name__))
         if isinstance(exc, ArchiveSourceChanged):
             # The signal may already have been acknowledged.  Rebuild a job
             # against the current canonical hash so a changed transcript is
@@ -1000,9 +1185,19 @@ class ManagedArchiveWorker:
         self._task: asyncio.Task | None = None
         self._recent_jobs: deque[float] = deque()
 
+    def _recover(self) -> int:
+        """Reclaim expired leases; a failure never stops the worker loop."""
+        try:
+            return self.archiver.recover_expired()
+        except Exception:
+            return 0
+
     async def start(self) -> None:
         if self._task is not None and not self._task.done():
             return
+        # Recover once before polling so leases abandoned by a crashed previous
+        # process are claimable immediately rather than after a full poll.
+        self._recover()
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(self._run(), name="memory-archive-worker")
 
@@ -1043,14 +1238,17 @@ class ManagedArchiveWorker:
     async def run_once(self) -> bool:
         if self._foreground_busy():
             return False
+        # Reclaim expired leases before deciding what to do this round; a
+        # recovery is real progress, so the loop continues without sleeping.
+        recovered = self._recover()
         signal = self._next_signal()
         if signal is not None:
-            return self._consume_signal(signal)
+            return self._consume_signal(signal) or recovered > 0
         if not self._rate_allows():
-            return False
+            return recovered > 0
         claim = self.archiver.claim()
         if claim is None:
-            return False
+            return recovered > 0
         try:
             await self.archiver.process(claim)
         except ArchiveLeaseLost:
@@ -1168,7 +1366,17 @@ def _owns(row: Any, claim: ArchiveClaim) -> bool:
     return bool(
         row is not None and row["status"] == "RUNNING" and row["lease_owner"] == claim.lease_owner
         and int(row["lease_epoch"]) == claim.lease_epoch and row["source_hash"] == claim.source_hash
+        and row["prompt_version"] == claim.prompt_version
+        and row["tokenizer_version"] == claim.tokenizer_version
     )
+
+
+def _lease_live(row: Any) -> bool:
+    if row is None or row["lease_until"] is None:
+        return False
+    until = row["lease_until"]
+    until = datetime.fromisoformat(until) if isinstance(until, str) else until
+    return until > datetime.now(timezone.utc)
 
 
 def _now() -> str:

@@ -19,6 +19,8 @@ import type {
   SkillDefinition,
   Stats,
   Thread,
+  TracePage,
+  TraceScope,
   ThreadEvent,
   ThreadMessage,
   ThreadPlanResponse,
@@ -490,6 +492,18 @@ export async function getThreadMessages(threadId: string, fetcher: Fetcher = fet
 
 export async function getThreadEvents(threadId: string, afterSeq = 0, fetcher: Fetcher = fetch): Promise<{ events: ThreadEvent[] }> {
   return json<{ events: ThreadEvent[] }>(await fetcher(`/api/threads/${threadId}/events?after_seq=${afterSeq}`));
+}
+
+export async function getTrace(scope: TraceScope, cursor: string | null = null, fetcher: Fetcher = fetch, signal?: AbortSignal): Promise<TracePage> {
+  const params = new URLSearchParams();
+  if (cursor) params.set("cursor", cursor);
+  const query = params.toString();
+  const path = scope.kind === "thread"
+    ? `/api/threads/${encodeURIComponent(scope.id)}/trace`
+    : scope.kind === "trace"
+      ? `/api/traces/${encodeURIComponent(scope.id)}`
+      : `/api/tasks/${encodeURIComponent(scope.taskKind)}/${encodeURIComponent(scope.id)}/trace`;
+  return json<TracePage>(await fetcher(`${path}${query ? `?${query}` : ""}`, signal ? { signal } : undefined));
 }
 
 export async function getResearchJobs(threadId?: string, fetcher: Fetcher = fetch): Promise<{jobs:ResearchJob[]}> { return json(await fetcher(`/api/research/jobs${threadId ? `?thread_id=${encodeURIComponent(threadId)}` : ""}`)); }

@@ -173,13 +173,72 @@ async def test_task_from_another_owner_is_not_accessible(tmp_path, monkeypatch, 
             task_id = run["coordinator_task_id"]
         else:
             task_id = job.id
+        calls = []
+        original_get = runtime.research.get
+        original_cancel = runtime.research.cancel
+        original_expert_cancel = runtime.agent_tasks.cancel_run
+        runtime.research.cancel = lambda *args, **kwargs: calls.append("research")
+        runtime.agent_tasks.cancel_run = lambda *args, **kwargs: calls.append("expert")
+        runtime.research.get = lambda *args, **kwargs: calls.append("get")
         gateway.responses = iter([("", [tool(operation, {"kind": kind, "id": "missing" if missing else task_id})]), ("不可访问。", [])])
         thread = runtime.conversation.create_thread("local")
         accepted = runtime.conversation.accept_turn(thread.id, "one", operation, [])
         await runtime.turn_worker.run_once()
         result = runtime.conversation.chat_tool_calls.for_turn(accepted.turn_id)[0].result
+        runtime.research.get = original_get
+        runtime.research.cancel = original_cancel
+        runtime.agent_tasks.cancel_run = original_expert_cancel
         assert result["error"] == "TASK_NOT_ACCESSIBLE"
+        assert calls == []
         assert runtime.research.get(job.id).status == "QUEUED"
         assert runtime.research.get(job.id).cancel_requested_at is None
+    finally:
+        runtime.db.close()
+
+
+@pytest.mark.asyncio
+async def test_same_owner_other_thread_is_not_accessible(tmp_path, monkeypatch):
+    monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
+    runtime = build_runtime(tmp_path, conversation_model=LiveConversationModel(Gateway([])))
+    try:
+        private = runtime.conversation.create_thread("private")
+        job = runtime.research.create_manual(private.id, "topic", "one", ("web",))
+        calls = []
+        original_cancel = runtime.research.cancel
+        runtime.research.cancel = lambda *args, **kwargs: calls.append("cancel")
+        gateway = Gateway([("", [tool("cancel_task", {"kind": "research", "id": job.id})]), ("不可访问。", [])])
+        runtime.conversation.route_model = LiveConversationModel(gateway)
+        other = runtime.conversation.create_thread("other")
+        accepted = runtime.conversation.accept_turn(other.id, "one", "cancel", [])
+        await runtime.turn_worker.run_once()
+        result = runtime.conversation.chat_tool_calls.for_turn(accepted.turn_id)[0].result
+        runtime.research.cancel = original_cancel
+        assert result["error"] == "TASK_NOT_ACCESSIBLE"
+        assert calls == []
+        assert runtime.research.get(job.id).status == "QUEUED"
+    finally:
+        runtime.db.close()
+
+
+@pytest.mark.asyncio
+async def test_exhausted_budget_still_allows_query_and_cancel(tmp_path, monkeypatch):
+    monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
+    gateway = Gateway([])
+    runtime = build_runtime(tmp_path, conversation_model=LiveConversationModel(gateway))
+    try:
+        thread = runtime.conversation.create_thread("budget")
+        job = runtime.research.create_manual(thread.id, "topic", "budget", ("web",))
+        with runtime.db.transaction() as connection:
+            connection.execute(
+                "INSERT INTO cost_budgets(owner_id,period_kind,period_key,limit_microusd,reserved_microusd,charged_microusd,updated_at) "
+                "VALUES ('local-user','DAILY','2026-10-14',0,0,0,'2026-10-14T00:00:00+00:00')",
+            )
+        ref = {"kind": "research", "id": job.id}
+        for name, expected in (("get_task", "QUEUED"), ("cancel_task", "CANCELLED")):
+            gateway.responses = iter([("", [tool(name, ref)]), ("已处理。", [])])
+            accepted = runtime.conversation.accept_turn(thread.id, name, name, [])
+            await runtime.turn_worker.run_once()
+            result = runtime.conversation.chat_tool_calls.for_turn(accepted.turn_id)[0].result
+            assert result["ok"] and result["data"]["status"] == expected
     finally:
         runtime.db.close()

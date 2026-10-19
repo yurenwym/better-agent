@@ -456,9 +456,22 @@ class ModelGateway:
                 on_text_reset()
             if on_attempt_started is not None:
                 on_attempt_started(attempt_count, reason)
-            from .policy_engine import PolicyAction, PolicyInput, decide
-            decision = decide(PolicyInput(True, True, True,
-                cancelled=cancel_event is not None and cancel_event.is_set()))
+            from .model_control import InvocationAccessError
+            from .policy_engine import PolicyAction, PolicyPhase, VerifiedFacts, decide
+            cancelled = cancel_event is not None and cancel_event.is_set()
+            if handle is not None and effective_context is not None and effective_context.owner_id:
+                try:
+                    decision = self.control_store.decide_model_send(
+                        context=effective_context, invocation_id=handle.invocation_id,
+                        phase=PolicyPhase.SEND if attempt_count == 1 else PolicyPhase.RETRY,
+                        cancelled=cancelled, source_valid=True, execution_valid=True,
+                    )
+                except InvocationAccessError as exc:
+                    raise GatewayError("model invocation is not accessible", "identity") from exc
+            else:
+                # No persisted invocation: do not stamp the caller onto a
+                # synthetic resource.  Only cancellation is decided here.
+                decision = decide(VerifiedFacts(True, True, True, cancelled=cancelled))
             if decision.action == PolicyAction.DENY:
                 if handle is not None:
                     self.control_store.finish_invocation(handle, "cancelled")
@@ -476,6 +489,8 @@ class ModelGateway:
                 # drift into different revocation rules.
                 try:
                     self.control_store.assert_request_active(handle.invocation_id, effective_context)
+                except InvocationAccessError as exc:
+                    raise GatewayError("model invocation is not accessible", "identity") from exc
                 except Exception:
                     # A refusal is not a repair: no retry, no fallback, no new
                     # snapshot - and no invocation left RUNNING behind.

@@ -745,7 +745,8 @@ class EvolutionService:
             idempotency_key=idempotency_key, owner_id=owner_id,
         )
 
-    def approve_current(self, candidate_id: str, *, expires_at: str, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
+    def approve_current(self, candidate_id: str, *, expires_at: str, idempotency_key: str, owner_id: str = OWNER_ID,
+                        connection=None, learning_guard=None) -> dict[str, Any]:
         item = self.get_candidate(candidate_id, owner_id)
         evaluation = self.get_evaluation(item["current_evaluation_id"])
         return self.approve(
@@ -753,6 +754,7 @@ class EvolutionService:
             candidate_digest=item["proposed_digest"], evaluation_report_digest=evaluation["report_digest"],
             permission_diff_digest=item["permission_diff_digest"], target_bundle_digest=item["target_bundle_digest"],
             expires_at=expires_at, actor="user", idempotency_key=idempotency_key, owner_id=owner_id,
+            connection=connection, learning_guard=learning_guard,
         )
 
     def approve_builtin(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
@@ -778,6 +780,7 @@ class EvolutionService:
         self, candidate_id: str, *, expected_version: int, evaluation_id: str, candidate_digest: str,
         evaluation_report_digest: str, permission_diff_digest: str, target_bundle_digest: str,
         expires_at: str, actor: str, idempotency_key: str, owner_id: str = OWNER_ID, connection=None,
+        learning_guard=None,
     ) -> dict[str, Any]:
         if not _future(expires_at):
             raise EvolutionGateError("approval expiry must be in the future")
@@ -790,11 +793,14 @@ class EvolutionService:
             cached = self._cached(connection, "evolution_decisions", idempotency_key, request_digest)
             if cached is not None:
                 return self._decision(cached)
-            candidate = self._candidate_db(connection, candidate_id, owner_id)
+            candidate = self._candidate_for_write(connection, candidate_id, owner_id, lock=learning_guard is not None)
+            self._validate_candidate_sources(candidate, connection=connection)
+            if learning_guard is not None:
+                learning_guard(connection)
             evaluation = connection.execute("SELECT * FROM evolution_evaluations WHERE id=? AND candidate_id=?", (evaluation_id, candidate_id)).fetchone()
             if candidate["status"] != "EVALUATED" or candidate["version"] != expected_version or evaluation is None:
                 raise EvolutionConflict("candidate is not awaiting approval")
-            self._validate_approvable_evidence(candidate,evaluation)
+            self._validate_approvable_evidence(candidate, evaluation, connection=connection)
             binding = (candidate["proposed_digest"], evaluation["report_digest"], candidate["permission_diff_digest"], candidate["target_bundle_digest"])
             if binding != (candidate_digest, evaluation_report_digest, permission_diff_digest, target_bundle_digest):
                 raise EvolutionConflict("approval binding does not match frozen candidate")
@@ -809,6 +815,7 @@ class EvolutionService:
             )
             self._advance(connection, candidate_id, expected_version, "APPROVED", approval_id=decision_id)
             self._event(connection, candidate_id, "evolution.approval.decided", actor, {"decision": "APPROVE", "decision_id": decision_id}, f"approval:{idempotency_key}")
+            self._validate_candidate_sources(candidate, connection=connection)
             return self._decision(connection.execute("SELECT * FROM evolution_decisions WHERE id=?", (decision_id,)).fetchone())
 
     def reject(self, candidate_id: str, *, expected_version: int, reason: str, actor: str,
@@ -840,7 +847,7 @@ class EvolutionService:
         self, candidate_id: str, *, expected_version: int, approval_id: str, allocation_percent: int,
         assignment_unit: str, idempotency_key: str, owner_id: str = OWNER_ID,
         target_role: str = "", target_purpose: str = "", budget_microusd: int | None = None,
-        deadline_at: str | None = None, max_calls: int | None = None,
+        deadline_at: str | None = None, max_calls: int | None = None, connection=None, learning_guard=None,
     ) -> dict[str, Any]:
         if isinstance(allocation_percent, bool) or not 1 <= allocation_percent <= 100:
             raise ValueError("allocation_percent must be between 1 and 100")
@@ -849,14 +856,17 @@ class EvolutionService:
                    "target_role": target_role, "target_purpose": target_purpose,
                    "budget_microusd": budget_microusd, "deadline_at": deadline_at, "max_calls": max_calls}
         request_digest = _digest(payload)
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             cached = self._cached(connection, "canary_deployments", idempotency_key, request_digest)
             if cached is not None:
                 return self._deployment(cached)
             connection.execute("UPDATE runtime_channels SET version=version WHERE name='stable'")
             if connection.execute("SELECT 1 FROM canary_deployments WHERE status='ACTIVE'").fetchone() is not None:
                 raise EvolutionConflict("another canary deployment is already active")
-            candidate = self._candidate_db(connection, candidate_id, owner_id)
+            candidate = self._candidate_for_write(connection, candidate_id, owner_id, lock=learning_guard is not None)
+            self._validate_candidate_sources(candidate, connection=connection)
+            if learning_guard is not None:
+                learning_guard(connection)
             if candidate["candidate_type"] not in {"prompt", "policy"}:
                 raise EvolutionGateError("candidate type does not have an online runtime adapter")
             if candidate["release_contract_version"] and (
@@ -872,7 +882,7 @@ class EvolutionService:
             ).fetchone()
             if candidate["status"] != "APPROVED" or candidate["version"] != expected_version or approval is None:
                 raise EvolutionConflict("candidate is not approved for canary")
-            self._validate_approval(candidate, approval)
+            self._validate_approval(candidate, approval, connection=connection)
             deployment_id = f"canary_{uuid.uuid4().hex}"
             stable = connection.execute("SELECT bundle_id,version FROM runtime_channels WHERE name='stable'").fetchone()
             if stable is None or stable["bundle_id"] != candidate["base_bundle_id"]:
@@ -893,6 +903,7 @@ class EvolutionService:
             self._switch_channel(connection, "canary", candidate["target_bundle_id"], f"evolution-canary:{idempotency_key}")
             self._advance(connection, candidate_id, expected_version, "CANARY", deployment_id=deployment_id)
             self._event(connection, candidate_id, "evolution.canary.started", "release-manager", {"deployment_id": deployment_id}, f"canary:{idempotency_key}")
+            self._validate_candidate_sources(candidate, connection=connection)
             return self._deployment(connection.execute("SELECT * FROM canary_deployments WHERE id=?", (deployment_id,)).fetchone())
 
     @staticmethod
@@ -1193,19 +1204,23 @@ class EvolutionService:
         if stable["bundle_id"] != deployment["champion_bundle_id"] or stable["version"] != deployment["stable_version"]:
             raise EvolutionGateError("stable changed during canary")
 
-    def promote(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID) -> dict[str, Any]:
+    def promote(self, candidate_id: str, *, expected_version: int, idempotency_key: str, owner_id: str = OWNER_ID,
+                connection=None, learning_guard=None) -> dict[str, Any]:
         request_digest = _digest({"candidate_id": candidate_id, "expected_version": expected_version})
-        with self.db.transaction() as connection:
+        with (self.db.transaction() if connection is None else nullcontext(connection)) as connection:
             prior = connection.execute("SELECT * FROM evolution_decisions WHERE idempotency_key=?", (idempotency_key,)).fetchone()
             if prior is not None:
                 if prior["request_digest"] != request_digest:
                     raise EvolutionConflict("idempotency key payload changed")
                 return self._candidate_row(connection, candidate_id, owner_id)
-            candidate = self._candidate_db(connection, candidate_id, owner_id)
+            candidate = self._candidate_for_write(connection, candidate_id, owner_id, lock=learning_guard is not None)
+            self._validate_candidate_sources(candidate, connection=connection)
+            if learning_guard is not None:
+                learning_guard(connection)
             if candidate["status"] != "CANARY" or candidate["version"] != expected_version:
                 raise EvolutionConflict("candidate is not in canary")
             approval = connection.execute("SELECT * FROM evolution_decisions WHERE id=?", (candidate["approval_id"],)).fetchone()
-            self._validate_approval(candidate, approval)
+            self._validate_approval(candidate, approval, connection=connection)
             deployment = connection.execute("SELECT * FROM canary_deployments WHERE id=? AND status='ACTIVE'", (candidate["deployment_id"],)).fetchone()
             if deployment is None:
                 raise EvolutionGateError("active canary deployment is missing")
@@ -1241,6 +1256,7 @@ class EvolutionService:
             connection.execute("UPDATE canary_deployments SET status='PROMOTED',updated_at=? WHERE id=? AND status='ACTIVE'", (now, deployment["id"]))
             self._advance(connection, candidate_id, expected_version, "PROMOTED")
             self._event(connection, candidate_id, "evolution.promoted", "release-manager", {"deployment_id": deployment["id"]}, f"promote:{idempotency_key}")
+            self._validate_candidate_sources(candidate, connection=connection)
             return self._candidate_row(connection, candidate_id, owner_id)
 
     def rollback(
@@ -1318,8 +1334,8 @@ class EvolutionService:
                  "type": row["type"], "actor": row["actor"], "data": json.loads(row["data_json"]),
                  "occurred_at": row["occurred_at"]} for row in rows]
 
-    def _validate_approvable_evidence(self,candidate,evaluation) -> None:
-        self._validate_candidate_sources(candidate)
+    def _validate_approvable_evidence(self, candidate, evaluation, connection=None) -> None:
+        self._validate_candidate_sources(candidate, connection=connection)
         if not evaluation["deterministic_pass"]:
             raise EvolutionGateError("deterministic evaluation failed")
         self._validate_release_version(candidate,evaluation)
@@ -1346,46 +1362,64 @@ class EvolutionService:
         if candidate["candidate_type"] == "policy" and metrics.get("kind") != "paired_release_evaluation":
             raise EvolutionGateError("policy requires an authoritative paired release evaluation")
 
-    def _validate_approval(self, candidate: Any, approval: Any) -> None:
+    def _validate_approval(self, candidate: Any, approval: Any, connection=None) -> None:
         if approval is None or not approval["expires_at"] or not _future(approval["expires_at"]):
             raise EvolutionGateError("approval is expired")
-        self._validate_candidate_sources(candidate)
-        with self.db.connection() as connection:
+        self._validate_candidate_sources(candidate, connection=connection)
+        if connection is None:
+            with self.db.connection() as owned:
+                evaluation = owned.execute("SELECT * FROM evolution_evaluations WHERE id=?", (approval["evaluation_id"],)).fetchone()
+        else:
             evaluation = connection.execute("SELECT * FROM evolution_evaluations WHERE id=?", (approval["evaluation_id"],)).fetchone()
-            self._validate_release_version(candidate, evaluation)
+        self._validate_release_version(candidate, evaluation)
         self._validate_approval_binding(candidate, approval)
 
-    def _validate_candidate_sources(self, candidate: Any) -> None:
+    def _validate_candidate_sources(self, candidate: Any, connection=None) -> None:
+        """Check every cited experience. A write connection locks them until commit.
+
+        Rows are locked in id order, then the content authorization when the
+        candidate has one. Callers that only read keep the unlocked check.
+        """
         ids = json.loads(candidate["experience_ids_json"]) if not isinstance(candidate, dict) else candidate.get("experience_ids", [])
         owner_id = candidate["owner_id"]
-        with self.db.connection() as connection:
-            rows = self._experience_rows(connection, owner_id, ids)
+        lock = connection is not None and self.db.backend == "postgresql"
+
+        def check(bound) -> None:
+            rows = self._experience_rows(bound, owner_id, ids, lock=lock)
             if len(rows) != len(ids) or any(row["source_state"] != "ACTIVE" for row in rows):
                 raise EvolutionGateError("candidate evidence source was deleted or revoked")
             contract = json.loads(candidate["contract_json"] or "{}") if "contract_json" in candidate.keys() else candidate.get("contract", {})
             authorization_id = contract.get("content_authorization_id")
             if authorization_id:
-                self._validate_content_authorization(connection, authorization_id, owner_id, ids)
+                self._validate_content_authorization(bound, authorization_id, owner_id, ids, lock=lock)
+
+        if connection is None:
+            with self.db.connection() as owned:
+                check(owned)
+            return
+        check(connection)
 
     @staticmethod
-    def _experience_rows(connection, owner_id: str, experience_ids: list[str]):
+    def _experience_rows(connection, owner_id: str, experience_ids: list[str], *, lock: bool = False):
         if not experience_ids:
             return []
         placeholders = ",".join("?" for _ in experience_ids)
+        suffix = " ORDER BY id FOR UPDATE" if lock else ""
         return connection.execute(
-            f"SELECT * FROM evolution_experiences WHERE owner_id=? AND id IN ({placeholders})",
+            f"SELECT * FROM evolution_experiences WHERE owner_id=? AND id IN ({placeholders}){suffix}",
             (owner_id, *experience_ids),
         ).fetchall()
 
     @staticmethod
-    def _validate_content_authorization(connection, authorization_id: str, owner_id: str, experience_ids: list[str]) -> None:
+    def _validate_content_authorization(connection, authorization_id: str, owner_id: str, experience_ids: list[str], *, lock: bool = False) -> None:
+        suffix = " FOR UPDATE" if lock else ""
         authorization = connection.execute(
-            "SELECT * FROM evolution_content_authorizations WHERE id=? AND owner_id=?", (authorization_id, owner_id),
+            "SELECT * FROM evolution_content_authorizations WHERE id=? AND owner_id=?" + suffix, (authorization_id, owner_id),
         ).fetchone()
         if authorization is None or authorization["revoked_at"] or not _future(authorization["expires_at"]):
             raise EvolutionGateError("content authorization is missing, revoked or expired")
         allowed = {(item.get("source_kind"), item.get("source_id")) for item in json.loads(authorization["source_scope_json"])}
-        rows = EvolutionService._experience_rows(connection, owner_id, experience_ids)
+        rows = EvolutionService._experience_rows(connection, owner_id, experience_ids, lock=lock)
         if any((row["source_kind"], row["source_id"]) not in allowed or row["source_state"] != "ACTIVE" for row in rows):
             raise EvolutionGateError("content authorization does not cover an active source")
 
@@ -1532,6 +1566,15 @@ class EvolutionService:
         else:
             result["rollback"] = None
         return result
+
+    def _candidate_for_write(self, connection, candidate_id: str, owner_id: str, *, lock: bool):
+        suffix = " FOR UPDATE" if lock and self.db.backend == "postgresql" else ""
+        row = connection.execute(
+            "SELECT * FROM evolution_candidates WHERE id=? AND owner_id=?" + suffix, (candidate_id, owner_id)
+        ).fetchone()
+        if row is None:
+            raise KeyError(candidate_id)
+        return row
 
     @staticmethod
     def _candidate_db(connection, candidate_id: str, owner_id: str):

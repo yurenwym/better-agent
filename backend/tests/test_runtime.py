@@ -192,7 +192,7 @@ async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path, historical_run_identity) -> None:
+async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path) -> None:
     from app.domain import AgentState
     from app.runtime import MockModelGateway
 
@@ -202,7 +202,7 @@ async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path, h
         run.id,
         state=AgentState.BLOCKED,
         resume_state=AgentState.EXECUTING,
-        budget={"react_iterations_remaining": 0, "blocked_reason": "react iteration budget exhausted"},
+        budget={**run.budget, "react_iterations_remaining": 0, "blocked_reason": "react iteration budget exhausted"},
     )
 
     recovered = await runtime.add_budget(run.id, 1)
@@ -326,10 +326,11 @@ async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp
 
 @pytest.mark.asyncio
 async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path, monkeypatch, historical_run_identity) -> None:
-    # Legacy reflection contract; loop rejects the missing identity before execution.
+    # Missing identity blocks execution even on the legacy entry point.
     monkeypatch.setenv('BETTER_AGENT_LOOP_MODE', 'legacy')
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
+    from app.task_runtime import LeaseLost
 
     runtime = make_runtime(
         tmp_path,
@@ -345,10 +346,11 @@ async def test_reflection_with_missing_source_turn_does_not_write_default_owner(
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     run = await runtime.create_goal("Goal", "Complete it")
     runtime._set_run_fields(run.id, source_turn_id="deleted-turn")
-    await runtime.handle_message(run.id, "Complete it")
-    completed = await runtime.approve_plan(run.id, 1)
-
-    assert completed.state.value == "COMPLETED"
+    with pytest.raises(LeaseLost):
+        await runtime.handle_message(run.id, "Complete it")
+    assert runtime.get_run(run.id).state == run.state
+    with runtime.db.connection() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM interactions WHERE run_id=?", (run.id,)).fetchone()[0] == 0
     assert runtime.memory_store.list_proposals("local-user") == []
 
 

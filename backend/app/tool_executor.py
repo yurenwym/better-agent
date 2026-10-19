@@ -14,7 +14,9 @@ from .send_authority import assert_send_authority
 from .db import Database
 from .domain import ApprovalRequired, ApprovalService, normalized_params_hash
 from .execution_outcome import Effect
-from .policy_engine import PolicyAction, PolicyInput, PolicyReason, decide
+from .policy_engine import (
+    PolicyAction, PolicyDecision, PolicyReason, SubjectRef, VerifiedFacts, decide,
+)
 from .trusted_connectors import ConnectorReconciliationRequired
 from .tool_contracts import (ToolCall, ToolSpec, ToolResult, ToolRisk, ToolExecutionContext,
     ToolRejected, ToolArgumentError, ToolReconciliationRequired, IDENTITY_PARAMETER_NAMES)
@@ -40,9 +42,11 @@ class ToolExecutor:
         run_id: str,
         skill_tools: set[str] | None,
         authorization: dict[str, Any] | None = None,
+        subject: SubjectRef | None = None,
     ) -> ToolResult:
         try:
-            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization,
+                                  subject=subject)
         except ToolRejected as exc:
             self._run_event(run_id, "tool.authorization.denied", {
                 "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
@@ -120,8 +124,12 @@ class ToolExecutor:
         """
         context = replace(context, authorization=authorization)
         run_id = context.run_id
+        subject = SubjectRef(
+            owner_id=context.owner_id, thread_id=context.thread_id, turn_id=context.turn_id,
+        ) if context.owner_id else None
         try:
-            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+            spec = self.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization,
+                                  subject=subject)
         except ToolRejected as exc:
             self._run_event(run_id, "tool.authorization.denied", {
                 "tool_call_id": call.id, "tool_name": call.name, "reason": str(exc),
@@ -208,12 +216,20 @@ class ToolExecutor:
         run_id: str,
         skill_tools: set[str] | None,
         authorization: dict[str, Any] | None = None,
+        subject: SubjectRef | None = None,
     ) -> ToolSpec:
         spec = self.registry.find(call.name)
         supplied = IDENTITY_PARAMETER_NAMES & set(call.params) if spec and spec.reject_identity_params else set()
-        facts = PolicyInput(registered=spec is not None,
-            allowed=skill_tools is None or call.name in skill_tools, identity_valid=not supplied)
-        decision = decide(facts)
+        facts = {
+            "registered": spec is not None,
+            "allowed": skill_tools is None or call.name in skill_tools,
+            "identity_valid": not supplied,
+            "source_valid": True,
+            "budget_available": True,
+            "execution_valid": True,
+            "cancelled": False,
+        }
+        decision = self._decide_tool(call, subject, **facts)
         if decision.action == PolicyAction.DENY:
             messages = {
                 PolicyReason.UNKNOWN_CAPABILITY: "unknown tool",
@@ -234,10 +250,41 @@ class ToolExecutor:
                 granted = True
             except ApprovalRequired:
                 pass
-        decision = decide(replace(facts, approval_required=approval_required, approval_granted=granted))
+        decision = self._decide_tool(call, subject, **facts,
+                                     approval_required=approval_required, approval_granted=granted)
         if decision.action == PolicyAction.REQUIRE_APPROVAL:
             raise ApprovalRequired("valid approval required" if self.approval_service else "WRITE tool requires approval")
         return spec
+
+    @staticmethod
+    def _decide_tool(
+        call: ToolCall, subject: SubjectRef | None, *,
+        registered: bool, allowed: bool, identity_valid: bool,
+        source_valid: bool, budget_available: bool, execution_valid: bool, cancelled: bool,
+        approval_required: bool = False, approval_granted: bool = False,
+    ) -> PolicyDecision:
+        """Decide a tool authorization; approval only fills ``approval_granted``.
+
+        With a verified subject the decision runs through the tool adapter.
+        Resource ownership is the trusted subject the caller already resolved;
+        the adapter does not copy it on its own.  Without a subject only the
+        verified facts are decided.
+        """
+        bundle = dict(
+            registered=registered, allowed=allowed, identity_valid=identity_valid,
+            approval_required=approval_required, approval_granted=approval_granted,
+            cancelled=cancelled, source_valid=source_valid,
+            budget_available=budget_available, execution_valid=execution_valid,
+        )
+        if subject is None:
+            return decide(VerifiedFacts(**bundle))
+        from .policy_adapters import tool_execute_request
+        from .policy_engine import decide_request
+        return decide_request(tool_execute_request(
+            owner_id=subject.owner_id, resource_owner_id=subject.owner_id,
+            tool_name=call.name, call_id=call.id, thread_id=subject.thread_id,
+            resource_thread_id=subject.thread_id, turn_id=subject.turn_id, **bundle,
+        ))
 
     @staticmethod
     def _risk(spec: ToolSpec, call: ToolCall) -> ToolRisk:

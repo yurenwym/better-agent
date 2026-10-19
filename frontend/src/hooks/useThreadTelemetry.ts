@@ -201,6 +201,7 @@ export interface ThreadTelemetry {
 export function useThreadTelemetry(
   threadId: string | null,
   onMaterialized?: (runId: string) => void,
+  followGeneration = 0,
 ): ThreadTelemetry {
   const [thread, setThread] = useState<Thread | null>(null);
   const [events, setEvents] = useState<ThreadEvent[]>([]);
@@ -283,7 +284,7 @@ export function useThreadTelemetry(
       active = false;
       close();
     };
-  }, [threadId, onMaterialized]);
+  }, [threadId, onMaterialized, followGeneration]);
 
   const activeTurn = thread?.turns?.find((turn) => turn.id === thread.active_turn_id) ?? null;
   return { thread, activeTurn, events, messages, pendingAsk, loading, error };

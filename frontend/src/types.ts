@@ -620,6 +620,69 @@ export type GoalToolName =
   | "record_action_feedback"
   | "defer_action";
 
+export type TraceScope =
+  | { kind: "thread"; id: string }
+  | { kind: "trace"; id: string }
+  | { kind: "task"; taskKind: "research" | "expert"; id: string };
+
+export interface TraceOutcomeError {
+  code: string;
+  phase: string;
+  retryable: boolean;
+  public_message: string;
+  attempts: number;
+  diagnostic_ref?: string | null;
+}
+
+export interface TraceOutcome {
+  schema_version?: number;
+  scope?: string;
+  status?: string;
+  error?: TraceOutcomeError | null;
+  reason?: string | null;
+  continuation_ref?: string | null;
+  target_ref?: string | null;
+  artifact_ref?: string | null;
+  effect?: string;
+  reconciliation_ref?: string | null;
+}
+
+export interface TraceEvent {
+  event_id: string;
+  seq: number;
+  type: string;
+  occurred_at: string;
+  actor?: string;
+  stream_kind?: string;
+  stream_id?: string;
+  attempt?: number;
+  causation_event_id?: string | null;
+  phase?: string | null;
+  outcome?: TraceOutcome | null;
+  context?: { context?: { parent_span_id?: string | null; trace_id?: string } };
+  payload?: Record<string, unknown>;
+  compatibility?: string;
+  schema_version?: number;
+  source?: string;
+  operation_id?: string;
+}
+
+export interface TraceCompleteness {
+  status: "partial" | "exact";
+  reasons: Array<{ code: string; sources?: string[] }>;
+}
+
+export interface TracePage {
+  scope: Record<string, string>;
+  count: number;
+  next_cursor: string | null;
+  order?: string[];
+  events: TraceEvent[];
+  completeness: TraceCompleteness;
+  legacy_scan_truncated?: boolean;
+  sources?: { connected: string[]; deferred: string[] };
+}
+
 export interface ChatToolCall {
   id: string;
   turn_id: string;

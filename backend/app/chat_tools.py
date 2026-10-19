@@ -36,7 +36,7 @@ from .execution_context import (
 )
 from .harness_context_store import HarnessContextStore
 from .execution_outcome import Effect
-from .policy_engine import PolicyAction, PolicyInput, decide
+from .policy_engine import PolicyAction, SubjectRef
 from .tools import (
     ToolArgumentError,
     ToolCall,
@@ -517,6 +517,41 @@ class ChatToolRunner:
     def _bound_call(self, tool_name: str, params: dict[str, Any], call_id: str) -> ToolCall:
         return ToolCall(id=call_id, name=tool_name, params=params)
 
+    def _subject(self) -> SubjectRef | None:
+        """The verified caller identity, or None when this runner has no owner."""
+        if not self.owner_id:
+            return None
+        return SubjectRef(owner_id=self.owner_id, thread_id=self.thread_id, turn_id=self.turn_id)
+
+    def _tool_request_decision(
+        self, *, tool_name: str, call_id: str, resource_owner_id: str, resource_thread_id: str | None,
+        registered: bool, allowed: bool, identity_valid: bool,
+        source_valid: bool, budget_available: bool, execution_valid: bool, cancelled: bool,
+        approval_required: bool = False, approval_granted: bool = False,
+    ):
+        """Decide a chat tool call through the shared tool adapter.
+
+        ``resource_owner_id`` is the owner loaded with the call or, before the
+        call row exists, the trusted turn owner.  It is not copied inside the
+        adapter.  Approval only sets ``approval_granted``.
+        """
+        facts = dict(
+            registered=registered, allowed=allowed, identity_valid=identity_valid,
+            source_valid=source_valid, budget_available=budget_available,
+            execution_valid=execution_valid, cancelled=cancelled,
+            approval_required=approval_required, approval_granted=approval_granted,
+        )
+        if not self.owner_id:
+            from .policy_engine import VerifiedFacts, decide
+            return decide(VerifiedFacts(**facts))
+        from .policy_adapters import tool_execute_request
+        from .policy_engine import decide_request
+        return decide_request(tool_execute_request(
+            owner_id=self.owner_id, resource_owner_id=resource_owner_id,
+            tool_name=tool_name, call_id=call_id, thread_id=self.thread_id,
+            resource_thread_id=resource_thread_id, turn_id=self.turn_id, **facts,
+        ))
+
     async def execute(
         self,
         *,
@@ -541,7 +576,7 @@ class ChatToolRunner:
         risk = self.registry.executor.risk_of(tool_name, params)
         needs_approval = False
         try:
-            self.registry.executor.authorize(call, run_id=self.run_id, skill_tools=allowed)
+            self.registry.executor.authorize(call, run_id=self.run_id, skill_tools=allowed, subject=self._subject())
         except ApprovalRequired:
             needs_approval = True
         except ToolArgumentError as exc:
@@ -557,7 +592,12 @@ class ChatToolRunner:
             identity_valid = True
         except HarnessContextError:
             identity_valid = False
-        decision = decide(PolicyInput(registered=True, allowed=True, identity_valid=identity_valid))
+        decision = self._tool_request_decision(
+            tool_name=tool_name, call_id=call_id,
+            resource_owner_id=self.owner_id, resource_thread_id=self.thread_id,
+            registered=True, allowed=True, identity_valid=identity_valid,
+            source_valid=True, budget_available=True, execution_valid=True, cancelled=False,
+        )
         if decision.action == PolicyAction.DENY:
             return ChatToolOutcome(call_id=call_id,
                 result=ToolResult(False, "执行来源身份已失效，请重新发起。", error="CONTEXT_IDENTITY_CONFLICT", effect=Effect.NOT_STARTED))
@@ -676,19 +716,29 @@ class ChatToolRunner:
         # the durable row before returning results or recording a refusal.
         with self.store.db.connection() as connection:
             row = connection.execute(
-                "SELECT c.* FROM turn_tool_calls c JOIN turns s ON s.id=c.turn_id "
+                "SELECT c.*, t.owner_id AS resource_owner_id FROM turn_tool_calls c "
+                "JOIN turns s ON s.id=c.turn_id "
                 "JOIN threads t ON t.id=s.thread_id "
                 "WHERE c.id=? AND t.id=? AND t.owner_id=? AND t.deleted_at IS NULL",
                 (call.id, self.thread_id, self.owner_id),
             ).fetchone()
-        identity = decide(PolicyInput(True, True, row is not None))
-        if identity.action == PolicyAction.DENY:
+        if row is None:
             return ToolResult(False, "待审批操作不属于当前会话，已拒绝恢复。",
                               error="CONTEXT_IDENTITY_CONFLICT", effect=Effect.NOT_STARTED)
         call = _row_to_snapshot(row)
         if call.thread_id != self.thread_id:
             return self._refuse_resume(call, "CONTEXT_IDENTITY_CONFLICT",
                                        "待审批操作与原会话的绑定不一致，已拒绝恢复。")
+        identity = self._tool_request_decision(
+            tool_name=call.tool_name, call_id=call.id,
+            resource_owner_id=row["resource_owner_id"], resource_thread_id=row["thread_id"],
+            registered=True, allowed=True, identity_valid=True,
+            source_valid=True, budget_available=True, execution_valid=True, cancelled=False,
+        )
+        if identity.action == PolicyAction.DENY:
+            return self._refuse_resume(
+                call, "CONTEXT_IDENTITY_CONFLICT", "待审批操作不属于当前会话，已拒绝恢复。",
+            )
         if call.result is not None:
             return ToolResult(**call.result)
         if call.status == STATUS_REJECTED:
@@ -711,8 +761,13 @@ class ChatToolRunner:
                 call, getattr(exc, "code", "CONTEXT_INVALID"),
                 f"待审批操作的执行上下文不可信，已拒绝恢复：{exc}",
             )
-        identity = decide(PolicyInput(registered=True, allowed=True,
-            identity_valid=bool(self.owner_id) and harness.owner_id == self.owner_id))
+        identity = self._tool_request_decision(
+            tool_name=call.tool_name, call_id=call.id,
+            resource_owner_id=row["resource_owner_id"], resource_thread_id=row["thread_id"],
+            registered=True, allowed=True,
+            identity_valid=bool(self.owner_id) and harness.owner_id == self.owner_id,
+            source_valid=True, budget_available=True, execution_valid=True, cancelled=False,
+        )
         if identity.action == PolicyAction.DENY:
             return self._refuse_resume(
                 call, "CONTEXT_IDENTITY_CONFLICT", "待审批操作属于其他用户，已拒绝恢复。",
@@ -731,8 +786,13 @@ class ChatToolRunner:
                 "SELECT 1 FROM threads WHERE id=? AND owner_id=? AND deleted_at IS NULL",
                 (call.thread_id, self.owner_id),
             ).fetchone() is not None
-        policy = decide(PolicyInput(registered=any(spec.name == call.tool_name for spec in self.registry.specs()),
-            allowed=call.tool_name in allowed, identity_valid=source_active))
+        policy = self._tool_request_decision(
+            tool_name=call.tool_name, call_id=call.id,
+            resource_owner_id=row["resource_owner_id"], resource_thread_id=call.thread_id,
+            registered=any(spec.name == call.tool_name for spec in self.registry.specs()),
+            allowed=call.tool_name in allowed, identity_valid=source_active,
+            source_valid=source_active, budget_available=True, execution_valid=True, cancelled=False,
+        )
         if policy.action == PolicyAction.DENY:
             result = ToolResult(False, "该工具当前不可用", error="TOOL_NOT_ALLOWED", effect=Effect.NOT_STARTED)
             self.store.record_result(

@@ -24,6 +24,11 @@ def test_expert_run_api_create_list_cancel_and_stream(tmp_path):
     assert "agent.run.created" in stream.text
     cancelled = http.post(f"/api/agent-runs/{run['id']}/cancel", headers=headers(app), json={"reason":"停止"})
     assert cancelled.json()["status"] == "CANCELLED"
+    before = runtime.agent_tasks.events(run["id"])
+    repeated = http.post(f"/api/agent-runs/{run["id"]}/cancel", headers=headers(app), json={"reason":"again"})
+    assert repeated.status_code == 200
+    assert repeated.json() == cancelled.json()
+    assert runtime.agent_tasks.events(run["id"]) == before
 
 
 def test_expert_run_rejects_unknown_thread_and_empty_objective(tmp_path):

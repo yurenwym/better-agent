@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20261010_0028"
+POSTGRES_SCHEMA_HEAD = "20261015_0031"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1656,6 +1656,29 @@ ALTER TABLE thread_events ADD COLUMN envelope_json TEXT;
 MIGRATIONS = (*MIGRATIONS, (49, """
 ALTER TABLE turn_jobs ADD COLUMN archive_job_id TEXT REFERENCES memory_archive_jobs(id);
 ALTER TABLE turn_jobs ADD COLUMN archive_wait_until TEXT;
+"""))
+
+# The trace id of an event's execution context, promoted from inside the
+# envelope JSON to a queryable column so a trace lookup is an index seek instead
+# of a scan of every owner event.  Legacy rows keep NULL and are handled by the
+# bounded fallback in the trace query, never back-filled (events are append-only).
+MIGRATIONS = (*MIGRATIONS, (50, """
+ALTER TABLE events ADD COLUMN trace_id TEXT;
+ALTER TABLE thread_events ADD COLUMN trace_id TEXT;
+CREATE INDEX IF NOT EXISTS idx_events_trace_id ON events(trace_id);
+CREATE INDEX IF NOT EXISTS idx_thread_events_trace_id ON thread_events(trace_id);
+CREATE INDEX IF NOT EXISTS idx_thread_events_thread_time ON thread_events(thread_id, occurred_at);
+"""))
+
+from .notification_schema import SQLITE_NOTIFICATION_UPGRADE
+
+MIGRATIONS = (*MIGRATIONS, (51, SQLITE_NOTIFICATION_UPGRADE))
+
+# Soft-deleted channels keep their delivery rows. A later retry points at the
+# unknown delivery it may duplicate.
+MIGRATIONS = (*MIGRATIONS, (52, """
+ALTER TABLE notification_channels ADD COLUMN deleted_at TEXT;
+ALTER TABLE notification_deliveries ADD COLUMN prior_delivery_id TEXT;
 """))
 
 

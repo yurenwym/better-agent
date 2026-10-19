@@ -23,6 +23,7 @@ import zipfile
 from typing import Any, ClassVar, Mapping
 
 from .learning_agent import BehaviorDraft, CandidateDraft, MemoryDraft, SkillDraft
+from .policy_adapters import AssetAuthorizationDenied
 from .learning_contract import (
     BEHAVIOR_MODEL_POLICY,
     BEHAVIOR_PROMPT,
@@ -172,18 +173,59 @@ class MemoryTargetAdapter(LearningTargetAdapter):
         return self._verdict(checks)
 
     def promote(self, candidate: Mapping[str, Any], *, owner_id: str, **kwargs: Any) -> dict[str, Any]:
-        # Recheck the exact source text immediately before accepting a proposal.
-        with self.db.connection() as connection:
+        # Owner, source text, and version are re-read in the accept transaction.
+        # Lock order when a lease is supplied: this proposal, then the learning
+        # policy, then the learning job. The model call is not inside this lock.
+        from contextlib import nullcontext
+
+        proposal_id = candidate["proposal_id"]
+        approval_required = bool(kwargs.get("approval_required", False))
+        approval_granted = bool(kwargs.get("approval_granted", False))
+        supplied = kwargs.get("connection")
+        owns_transaction = supplied is None
+        with (self.db.transaction() if owns_transaction else nullcontext(supplied)) as connection:
+            suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+            locked = connection.execute("SELECT id FROM memory_proposals WHERE id=?" + suffix, (proposal_id,)).fetchone()
+            if locked is None:
+                raise KeyError(proposal_id)
+            if kwargs.get("adoption_job") is not None:
+                kwargs["learning"].assert_adoption(connection, kwargs["adoption_job"])
+            row = connection.execute(
+                "SELECT owner_id, version, scope_type, scope_id FROM memory_proposals WHERE id=?",
+                (proposal_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(proposal_id)
+            scope_ok = bool(row["scope_type"]) and (row["scope_type"] != "project" or bool(row["scope_id"]))
+            source_valid = scope_ok
             for source in candidate.get("user_sources", []):
-                row = connection.execute("SELECT m.content FROM thread_messages m JOIN threads t ON t.id=m.thread_id "
-                    "WHERE m.id=? AND m.role='user' AND t.owner_id=? AND t.deleted_at IS NULL", (source["id"], owner_id)).fetchone()
-                if row is None or hashlib.sha256(row["content"].encode("utf-8")).hexdigest() != source["content_hash"]:
-                    raise ValueError("Memory user evidence changed or was revoked")
-        proposal = self.memory.get_proposal(candidate["proposal_id"], owner_id)
-        accepted = self.memory.decide_proposal(
-            proposal.id, owner_id, True, f"{candidate['candidate_id']}:promote",
-            expected_version=proposal.version, authority=kwargs.get("authority", "learning_promotion"),
-        )
+                message = connection.execute(
+                    "SELECT m.content FROM thread_messages m JOIN threads t ON t.id=m.thread_id "
+                    "WHERE m.id=? AND m.role='user' AND t.owner_id=? AND t.deleted_at IS NULL",
+                    (source["id"], row["owner_id"]),
+                ).fetchone()
+                digest = hashlib.sha256(message["content"].encode("utf-8")).hexdigest() if message is not None else ""
+                if message is None or digest != source["content_hash"]:
+                    source_valid = False
+                    break
+            try:
+                _require_asset_promotion(
+                    owner_id=owner_id, resource_owner_id=row["owner_id"], asset_id=proposal_id,
+                    source_valid=source_valid, approval_required=approval_required, approval_granted=approval_granted,
+                )
+            except AssetAuthorizationDenied as denied:
+                if denied.policy_reason == "SOURCE_INVALID":
+                    raise AssetAuthorizationDenied(
+                        "SOURCE_INVALID", "Memory user evidence changed or was revoked",
+                    ) from denied
+                raise
+            accepted = self.memory.decide_proposal(
+                proposal_id, owner_id, True, f"{candidate['candidate_id']}:promote",
+                expected_version=int(row["version"]), authority=kwargs.get("authority", "learning_promotion"),
+                connection=connection,
+            )
+        if owns_transaction:
+            self.memory.project(owner_id)
         return {"target": self.target, "candidate_id": candidate["candidate_id"], "status": accepted.status,
                 "revision_id": accepted.accepted_revision_id, "entry_id": accepted.target_entry_id}
 
@@ -198,6 +240,26 @@ class MemoryTargetAdapter(LearningTargetAdapter):
         restored = self.memory.rollback(entry_id, owner_id, entry.revision_no - 1, entry.revision_id)
         return {"target": self.target, "candidate_id": candidate["candidate_id"], "status": "ROLLED_BACK",
                 "entry_id": entry_id, "revision_id": restored.revision_id}
+
+
+def _require_asset_promotion(
+    *, owner_id: str, resource_owner_id: str, asset_id: str, source_valid: bool,
+    approval_required: bool, approval_granted: bool,
+) -> None:
+    """Re-check owner, source, and approval immediately before an adoption write."""
+    from .policy_adapters import decide_asset
+    from .policy_engine import PolicyAction
+
+    reason = "IDENTITY_INVALID"
+    for action in ("write", "promote"):
+        decision = decide_asset(
+            action, owner_id=owner_id, resource_owner_id=resource_owner_id, asset_id=asset_id,
+            source_valid=source_valid, approval_required=approval_required, approval_granted=approval_granted,
+        )
+        if decision is not None and decision.action is PolicyAction.ALLOW:
+            continue
+        reason = decision.reason.value if decision is not None else "IDENTITY_INVALID"
+        raise AssetAuthorizationDenied(reason)
 
 
 def skill_package(draft: SkillDraft, *, version: str) -> bytes:
@@ -268,31 +330,56 @@ class SkillTargetAdapter(LearningTargetAdapter):
         return self._verdict(checks, reason)
 
     def promote(self, candidate: Mapping[str, Any], *, owner_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Enable an already-evaluated version. Grants stay empty: no permission growth."""
+        """Enable an already-evaluated version. Grants stay empty: no permission growth.
+
+        Lock order when a lease is supplied: this skill, then the learning
+        policy, then the learning job. Enabling, the default version, and the
+        caller's adoption record share that transaction.
+        """
+        from contextlib import nullcontext
+
         from .learning import now as _now
 
         version_id = candidate["version_id"]
-        if owner_id != self.platform.owner_id:
-            raise ValueError("skill platform owner mismatch")
-        with self.db.transaction() as connection:
+        supplied = kwargs.get("connection")
+        with (self.db.transaction() if supplied is None else nullcontext(supplied)) as connection:
             suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
-            skill = connection.execute("SELECT * FROM skills WHERE id=? AND owner_id=?" + suffix,
-                                       (candidate["skill_id"], owner_id)).fetchone()
+            skill = connection.execute("SELECT * FROM skills WHERE id=?" + suffix, (candidate["skill_id"],)).fetchone()
+            if skill is None:
+                raise ValueError("skill candidate is no longer eligible for promotion")
+            if kwargs.get("adoption_job") is not None:
+                kwargs["learning"].assert_adoption(connection, kwargs["adoption_job"])
             event_key = f"{version_id}:learning-enable"
             prior = connection.execute("SELECT 1 FROM skill_events WHERE idempotency_key=?", (event_key,)).fetchone()
-            if prior:
+            if prior and skill["owner_id"] == owner_id:
                 return {"target": self.target, "candidate_id": version_id, "status": "ENABLED", "version_id": version_id, "granted_tools": []}
-            version = self.platform.version(version_id, connection=connection)
-            if (skill is None or skill["status"] == "UNINSTALLED" or version["skill_id"] != skill["id"]
-                    or version["status"] != "INSTALLED" or version["requested_tools"] or version["connectors"]):
+            version = None
+            if skill["owner_id"] == self.platform.owner_id:
+                version = self.platform.version(version_id, connection=connection)
+            source_valid = bool(
+                version is not None and skill["status"] != "UNINSTALLED" and version["skill_id"] == skill["id"]
+                and version["status"] == "INSTALLED" and not version["requested_tools"] and not version["connectors"]
+                and skill["default_version_id"] == candidate.get("base_version_id")
+            )
+            try:
+                _require_asset_promotion(
+                    owner_id=owner_id, resource_owner_id=skill["owner_id"], asset_id=version_id,
+                    source_valid=source_valid,
+                    approval_required=bool(kwargs.get("approval_required", False)),
+                    approval_granted=bool(kwargs.get("approval_granted", False)),
+                )
+            except AssetAuthorizationDenied as denied:
+                if denied.policy_reason != "SOURCE_INVALID":
+                    raise
+            if not source_valid:
+                if skill["default_version_id"] != candidate.get("base_version_id"):
+                    raise ValueError("skill baseline changed after candidate creation")
                 raise ValueError("skill candidate is no longer eligible for promotion")
             previous = skill["default_version_id"]
-            if previous != candidate.get("base_version_id"):
-                raise ValueError("skill baseline changed after candidate creation")
             connection.execute("UPDATE skill_versions SET status='ENABLED' WHERE id=?", (version_id,))
             connection.execute(
-                "UPDATE skills SET status='ENABLED',default_version_id=?,updated_at=? WHERE id=? AND status<>'UNINSTALLED'",
-                (version_id, _now(), candidate["skill_id"]))
+                "UPDATE skills SET status='ENABLED',default_version_id=?,updated_at=? WHERE id=? AND owner_id=? AND status<>'UNINSTALLED'",
+                (version_id, _now(), candidate["skill_id"], skill["owner_id"]))
             self.platform._event(connection, skill["id"], version_id, "skill.learning_enabled",
                                  {"previous_version_id": previous}, event_key, actor="learning")
         return {"target": self.target, "candidate_id": candidate["candidate_id"], "status": "ENABLED",
@@ -396,13 +483,36 @@ class BehaviorTargetAdapter(LearningTargetAdapter):
         return row["manifest_json"]
 
     def promote(self, candidate: Mapping[str, Any], *, owner_id: str, **kwargs: Any) -> dict[str, Any]:
-        """Hand the promotion to EvolutionService; this adapter only routes."""
-        stored = self.evolution.get_candidate(candidate["candidate_id"], owner_id)
-        decision = self.evolution.promote(
-            stored["id"], expected_version=stored["version"],
-            idempotency_key=f"{candidate['candidate_id']}:promote", owner_id=owner_id)
+        """Hand the promotion to EvolutionService after the asset decision."""
+        from contextlib import nullcontext
+
+        candidate_id = candidate["candidate_id"]
+        supplied = kwargs.get("connection")
+        learning = kwargs.get("learning")
+        with (nullcontext(supplied) if supplied is not None else self.db.transaction()) as connection:
+            row = connection.execute(
+                "SELECT owner_id, version, status, approval_id FROM evolution_candidates WHERE id=?",
+                (candidate_id,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(candidate_id)
+            granted = bool(kwargs.get("approval_granted", False)) and bool(row["approval_id"])
+            _require_asset_promotion(
+                owner_id=owner_id, resource_owner_id=row["owner_id"], asset_id=candidate_id,
+                source_valid=row["status"] == "CANARY",
+                approval_required=bool(kwargs.get("approval_required", False)),
+                approval_granted=granted,
+            )
+            guard = None
+            if learning is not None:
+                def guard(locked, service=learning, identity=candidate_id, owner=owner_id):
+                    service.assert_release(locked, owner_id=owner, candidate_id=identity)
+            decision = self.evolution.promote(
+                candidate_id, expected_version=int(row["version"]),
+                idempotency_key=f"{candidate['candidate_id']}:promote", owner_id=owner_id,
+                connection=connection, learning_guard=guard)
         return {"target": self.target, "candidate_id": candidate["candidate_id"], "status": decision.get("status"),
-                "bundle_id": decision.get("target_bundle_id") or stored["target_bundle_id"]}
+                "bundle_id": decision.get("target_bundle_id") or decision.get("bundle_id")}
 
     def rollback(self, candidate: Mapping[str, Any], *, owner_id: str, **kwargs: Any) -> dict[str, Any]:
         stored = self.evolution.get_candidate(candidate["candidate_id"], owner_id)

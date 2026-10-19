@@ -18,6 +18,18 @@ def scope_matches(applicability, *, program_id=None, run_id=None, turn_id=None):
     return all(value == {"program_id": program_id, "run_id": run_id, "turn_id": turn_id}.get(key) for key, value in applicability.items())
 
 
+def _asset_readable(*, owner_id: str, resource_owner_id: str, asset_id: str, source_valid: bool) -> bool:
+    """Read decision for one durable asset row. Denial performs no write."""
+    from .policy_adapters import decide_asset
+    from .policy_engine import PolicyAction
+
+    decision = decide_asset(
+        "read", owner_id=owner_id, resource_owner_id=resource_owner_id, asset_id=asset_id,
+        source_valid=source_valid, approval_required=False, approval_granted=False,
+    )
+    return decision is not None and decision.action is PolicyAction.ALLOW
+
+
 class LearningAssets:
     def __init__(self, learning):
         self.learning, self.db = learning, learning.db
@@ -51,27 +63,47 @@ class LearningAssets:
         # Compiler carries typed revision references in its structured request.
         if context.purpose == "compile_goal_program":
             for revision_id in set(re.findall(r"memory_revision_[a-f0-9]+", rendered)):
-                revision = connection.execute("SELECT r.content_hash FROM memory_revisions r JOIN memory_entries e ON e.id=r.entry_id WHERE r.id=? AND e.owner_id=?", (revision_id, context.owner_id)).fetchone()
-                if revision:
-                    assets.append({"kind": "revision", "id": revision_id, "selected": True, "included": True, "content_hash": revision[0], "consumer": "typed_compiler_constraint"})
+                revision = connection.execute(
+                    "SELECT r.content_hash, e.owner_id, e.status, e.valid_until FROM memory_revisions r "
+                    "JOIN memory_entries e ON e.id=r.entry_id WHERE r.id=? AND e.owner_id=?",
+                    (revision_id, context.owner_id),
+                ).fetchone()
+                if revision is None:
+                    raise LearningConflict("request memory revoked")
+                active = revision["status"] == "ACTIVE" and (revision["valid_until"] is None or revision["valid_until"] > now())
+                if not _asset_readable(owner_id=context.owner_id, resource_owner_id=revision["owner_id"], asset_id=revision_id, source_valid=active):
+                    raise LearningConflict("request memory revoked")
+                assets.append({"kind": "revision", "id": revision_id, "selected": True, "included": True, "content_hash": revision["content_hash"], "consumer": "typed_compiler_constraint"})
         for task_id in filter(None, (context.turn_id, context.run_id)):
             binding = connection.execute("SELECT version_ids_json,grant_snapshots_json,snapshot_digest FROM skill_bindings WHERE owner_id=? AND binding_type='RUN' AND binding_id=?",
                                          (context.owner_id, task_id)).fetchone()
             if binding:
                 for version_id in json.loads(binding["version_ids_json"]):
-                    skill = connection.execute("SELECT content,package_digest FROM skill_versions WHERE id=?", (version_id,)).fetchone()
-                    if skill:
-                        assets.append({"kind": "skill", "id": version_id, "selected": True, "included": skill["content"] in rendered,
-                                       "package_digest": skill["package_digest"], "grant_snapshot": json.loads(binding["grant_snapshots_json"]).get(version_id),
-                                       "binding_digest": binding["snapshot_digest"]})
+                    skill = connection.execute(
+                        "SELECT v.content, v.package_digest, s.owner_id FROM skill_versions v "
+                        "JOIN skills s ON s.id=v.skill_id WHERE v.id=?",
+                        (version_id,),
+                    ).fetchone()
+                    if skill is None:
+                        raise LearningConflict("request skill revoked")
+                    if not _asset_readable(owner_id=context.owner_id, resource_owner_id=skill["owner_id"], asset_id=version_id, source_valid=True):
+                        raise LearningConflict("request skill revoked")
+                    assets.append({"kind": "skill", "id": version_id, "selected": True, "included": skill["content"] in rendered,
+                                   "package_digest": skill["package_digest"], "grant_snapshot": json.loads(binding["grant_snapshots_json"]).get(version_id),
+                                   "binding_digest": binding["snapshot_digest"]})
             pins = connection.execute("SELECT revision_ids_json,rendered_hash FROM memory_context_pins WHERE owner_id=? AND parent_id=? AND invalidated_at IS NULL",
                                       (context.owner_id, task_id)).fetchall()
             for pin in pins:
                 for revision_id in json.loads(pin["revision_ids_json"]):
-                    revision = connection.execute("SELECT content,content_hash FROM memory_revisions WHERE id=?", (revision_id,)).fetchone()
-                    if revision:
-                        assets.append({"kind": "revision", "id": revision_id, "selected": True, "included": revision["content"] in rendered,
-                                       "content_hash": revision["content_hash"], "pin_digest": pin["rendered_hash"]})
+                    revision = connection.execute(
+                        "SELECT r.content, r.content_hash, e.owner_id FROM memory_revisions r "
+                        "JOIN memory_entries e ON e.id=r.entry_id WHERE r.id=?",
+                        (revision_id,),
+                    ).fetchone()
+                    if revision is None or not _asset_readable(owner_id=context.owner_id, resource_owner_id=revision["owner_id"], asset_id=revision_id, source_valid=True):
+                        raise LearningConflict("request memory revoked")
+                    assets.append({"kind": "revision", "id": revision_id, "selected": True, "included": revision["content"] in rendered,
+                                   "content_hash": revision["content_hash"], "pin_digest": pin["rendered_hash"]})
         identity = digest([context.owner_id, "invocation", invocation_id])
         connection.execute("INSERT INTO learning_snapshots(id,owner_id,task_kind,task_id,assets_json,digest,created_at) VALUES (?,?,'invocation',?,?,?,?)",
                            (identity, context.owner_id, invocation_id, encode(assets), digest({"assets": assets, "messages": request.messages}), now()))
@@ -87,14 +119,31 @@ class LearningAssets:
                 if not asset.get("included"):
                     continue
                 if asset["kind"] == "revision":
-                    valid = connection.execute("SELECT 1 FROM memory_revisions r JOIN memory_entries e ON e.id=r.entry_id WHERE r.id=? AND e.owner_id=? AND e.status='ACTIVE' "
-                                               "AND (e.valid_until IS NULL OR e.valid_until>?)", (asset["id"], owner_id, now())).fetchone()
-                    if valid is None:
+                    loaded = connection.execute(
+                        "SELECT e.owner_id, e.status, e.valid_until FROM memory_revisions r "
+                        "JOIN memory_entries e ON e.id=r.entry_id WHERE r.id=?",
+                        (asset["id"],),
+                    ).fetchone()
+                    if loaded is None:
+                        raise LearningConflict("request memory revoked")
+                    active = loaded["status"] == "ACTIVE" and (loaded["valid_until"] is None or loaded["valid_until"] > now())
+                    if not _asset_readable(owner_id=owner_id, resource_owner_id=loaded["owner_id"], asset_id=asset["id"], source_valid=active):
                         raise LearningConflict("request memory revoked")
                 elif asset["kind"] == "skill":
+                    loaded = connection.execute(
+                        "SELECT s.owner_id FROM skill_versions v JOIN skills s ON s.id=v.skill_id WHERE v.id=?",
+                        (asset["id"],),
+                    ).fetchone()
+                    if loaded is None or not _asset_readable(
+                        owner_id=owner_id, resource_owner_id=loaded["owner_id"], asset_id=asset["id"], source_valid=True,
+                    ):
+                        raise LearningConflict("request skill revoked")
                     from .skill_platform import SkillPlatform
                     item = SkillPlatform(self.db, self.learning.skill_root, owner_id).version(asset["id"], connection=connection)
-                    if item["status"] != "ENABLED" or item["grant_status"] != "ACTIVE":
+                    source_valid = item["status"] == "ENABLED" and item["grant_status"] == "ACTIVE"
+                    if not _asset_readable(
+                        owner_id=owner_id, resource_owner_id=loaded["owner_id"], asset_id=asset["id"], source_valid=source_valid,
+                    ):
                         raise LearningConflict("request skill revoked")
 
     def revoke(self, owner_id, source_kind, source_id, reason):

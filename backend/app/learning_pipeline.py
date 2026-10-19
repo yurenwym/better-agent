@@ -172,7 +172,11 @@ class LearningPipeline:
         except Exception as exc:  # noqa: BLE001 — every failure becomes a recorded outcome
             # A request that was already dispatched but never committed is
             # UNKNOWN and must never be replayed automatically (V3 §48).
+            # Another worker that lost the dispatch race must not close the job.
+            from .learning import LearningConflict
             from .skill_platform import SkillCandidateRejected
+            if isinstance(exc, LearningConflict) and str(exc) == "remote learning request already dispatched":
+                raise
             status = STATUS_UNKNOWN if state.root_id is not None and not isinstance(exc, SkillCandidateRejected) else STATUS_REJECTED
             outcome, reason = status, f"{type(exc).__name__}: {exc}"[:400]
         finally:
@@ -235,7 +239,8 @@ class LearningPipeline:
 
         state.evaluation = self._evaluate(adapter, candidate, owner_id=owner_id)
         state.promotion = self.gate.promote(candidate, state.evaluation, owner_id=owner_id,
-                                            approval=self.approval, job_id=job_id, shadow=self.shadow)
+                                            approval=self.approval, job_id=job_id, shadow=self.shadow,
+                                            job=job, learning=self.learning)
         status, outcome = self._status_for(state.promotion)
         return status, outcome, state.promotion.reason
 
@@ -317,7 +322,8 @@ class LearningPipeline:
                 state.evaluation = EvaluationResult(**checkpoint["evaluation"])
             effects_started = True
             state.promotion = self.gate.promote(candidate, state.evaluation, owner_id=owner_id, job_id=job_id,
-                                                approval={"actor": "user"} if approve else None, shadow=self.shadow)
+                                                approval={"actor": "user"} if approve else None, shadow=self.shadow,
+                                                job=job, learning=self.learning)
             status, outcome = self._status_for(state.promotion)
             reason = state.promotion.reason
         except Exception as exc:
@@ -344,6 +350,7 @@ class LearningPipeline:
         """
         if self.shadow:
             return []
+        from .learning import LearningConflict
         policy = self.learning.policy(owner_id)
         may_promote = not policy["paused"] and "prompt" in policy["config"].get("allowed_assets", [])
         advanced: list[dict[str, Any]] = []
@@ -356,19 +363,33 @@ class LearningPipeline:
                 decision = self.gate.rollback(candidate, owner_id=owner_id,
                                               reason="canary safety or success gate failed")
             elif status.get("ready") and may_promote:
-                decision = self.gate.complete_canary(candidate, owner_id=owner_id)
+                try:
+                    decision = self.gate.complete_canary(candidate, owner_id=owner_id, learning=self.learning)
+                except LearningConflict:
+                    # The release transaction re-checked policy or source and rolled back.
+                    # A pause must not turn into a terminal rejection, and must not block rollback.
+                    continue
             else:
                 continue
             advanced.append(decision.to_dict())
         return advanced
 
     def _canary_candidates(self, owner_id: str) -> list[dict[str, Any]]:
+        """Canaries whose deployment is still ACTIVE.
+
+        A release refusal records REJECTED and leaves the deployment running.
+        That row is not a terminal state: the next pass must still be able to
+        roll the canary back. PROMOTED and ROLLED_BACK are the records that
+        the deployment has already finished.
+        """
         with self.db.connection() as connection:
             rows = connection.execute(
                 "SELECT p.id,p.target,p.candidate_id FROM learning_promotions p "
+                "JOIN evolution_candidates c ON c.id=p.candidate_id AND c.owner_id=p.owner_id "
+                "JOIN canary_deployments d ON d.id=c.deployment_id AND d.status='ACTIVE' "
                 "WHERE p.owner_id=? AND p.outcome='CANARY_STARTED' "
                 "AND NOT EXISTS (SELECT 1 FROM learning_promotions done WHERE done.owner_id=p.owner_id "
-                "AND done.candidate_id=p.candidate_id AND done.outcome IN ('PROMOTED','ROLLED_BACK','REJECTED')) "
+                "AND done.candidate_id=p.candidate_id AND done.outcome IN ('PROMOTED','ROLLED_BACK')) "
                 "ORDER BY p.created_at,p.id",
                 (owner_id,),
             ).fetchall()

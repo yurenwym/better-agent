@@ -103,10 +103,46 @@ def test_cancel_cannot_overwrite_a_terminal_run(tmp_path):
     task = tasks.claim_next("worker", 30)
     tasks.complete(task["id"], "worker", task["lease_epoch"], "answer", {"text": "done"})
 
-    with pytest.raises(AgentTaskConflict, match="already finished"):
-        tasks.cancel_run(run["id"], "late cancel")
+    before = tasks.events(run["id"])
+    assert tasks.cancel_run(run["id"], "late cancel")["status"] == "SUCCEEDED"
+    assert tasks.events(run["id"]) == before
 
     assert tasks.get_run(run["id"])["status"] == "SUCCEEDED"
+
+
+def test_cancel_policy_denial_rolls_back_run_tasks_and_events(tmp_path, monkeypatch):
+    from app.policy_engine import ActionKind, PolicyAction, PolicyDecision, PolicyReason
+    from app import policy_engine
+
+    db, tasks, bundle_id = service(tmp_path)
+    try:
+        run = tasks.create_run("owner", "goal", {}, bundle_id, idempotency_key="denied-cancel")
+        parent = tasks.claim_next("worker", 30)
+        tasks.fan_out(parent["id"], "worker", parent["lease_epoch"], [
+            {"child_key": "child", "role": "r", "objective": "child"},
+        ], "ALL_DONE")
+        before_tasks = tasks.tasks(run["id"])
+        before_run = tasks.get_run(run["id"])
+        before_events = tasks.events(run["id"])
+        original = policy_engine.decide_request
+        calls = []
+
+        def deny_second_cancel(request):
+            if request.action == ActionKind.TASK_CANCEL:
+                calls.append(request)
+                if len(calls) == 2:
+                    return PolicyDecision(PolicyAction.DENY, PolicyReason.CAPABILITY_NOT_ALLOWED)
+            return original(request)
+
+        monkeypatch.setattr(policy_engine, "decide_request", deny_second_cancel)
+        with pytest.raises(AgentTaskConflict, match="cancellation denied"):
+            tasks.cancel_run(run["id"], "stop")
+        assert len(calls) == 2
+        assert tasks.tasks(run["id"]) == before_tasks
+        assert tasks.get_run(run["id"]) == before_run
+        assert tasks.events(run["id"]) == before_events
+    finally:
+        db.close()
 
 
 def test_run_idempotency_and_fanout_bind_the_full_request(tmp_path):

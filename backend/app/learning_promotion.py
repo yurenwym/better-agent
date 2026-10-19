@@ -328,7 +328,8 @@ class LearningPromotionGate:
 
     def promote(self, candidate: Mapping[str, Any], evaluation: EvaluationResult, *, owner_id: str,
                 approval: Any = None, job_id: str = "", canary: Mapping[str, Any] | None = None,
-                evaluation_id: str = "", shadow: bool = False) -> PromotionDecision:
+                evaluation_id: str = "", shadow: bool = False, job: Mapping[str, Any] | None = None,
+                learning: Any = None) -> PromotionDecision:
         """Run the gate, then apply the candidate on its target's own path.
 
         `shadow=True` runs everything except the apply step (V3 §41): the gate
@@ -361,16 +362,23 @@ class LearningPromotionGate:
                                 detail={"would_be": self._would_be(target, approval), "shadow": True}, **context)
 
         if target == TARGET_MEMORY:
-            return self._apply(target=target, candidate=candidate, owner_id=owner_id, checks=checks, **context)
+            return self._apply(target=target, candidate=candidate, owner_id=owner_id, checks=checks,
+                               approval_required=False, approval_granted=False, job=job, learning=learning, **context)
         if target == TARGET_SKILL:
             if approval is None and TARGET_SKILL not in self.policy.auto_promote:
                 return self._record(target=target, candidate_id=candidate_id, owner_id=owner_id,
                                     outcome=OUTCOME_PENDING_APPROVAL, checks=checks,
                                     reason="skill promotion requires human or policy approval", **context)
+            skill_needs_approval = TARGET_SKILL not in self.policy.auto_promote
             return self._apply(target=target, candidate=candidate, owner_id=owner_id, checks=checks,
-                               authority=_approval_actor(approval), **context)
+                               authority=_approval_actor(approval),
+                               approval_required=skill_needs_approval,
+                               approval_granted=approval is not None or not skill_needs_approval,
+                               job=job, learning=learning, **context)
+        # Approval and canary start share one EvolutionService transaction. The
+        # candidate row is locked there, then this job's lease, policy and source.
         return self._request_canary(candidate=candidate, owner_id=owner_id, checks=checks,
-                                    approval=approval, canary=canary, **context)
+                                    approval=approval, canary=canary, job=job, learning=learning, **context)
 
     @staticmethod
     def _would_be(target: str, approval: Any) -> str:
@@ -382,7 +390,7 @@ class LearningPromotionGate:
         return OUTCOME_CANARY_STARTED if approval is not None else OUTCOME_PENDING_APPROVAL
 
     def complete_canary(self, candidate: Mapping[str, Any], *, owner_id: str, job_id: str = "",
-                        evaluation_id: str = "") -> PromotionDecision:
+                        evaluation_id: str = "", learning: Any = None) -> PromotionDecision:
         """Finish a Behavior promotion once the canary has enough clean exposures."""
         prior = self._existing_promotion(owner_id, candidate["candidate_id"])
         if prior is not None:
@@ -394,8 +402,12 @@ class LearningPromotionGate:
                                 outcome=OUTCOME_CANARY_PENDING, checks={},
                                 reason=status.get("reason") or _canary_reason(status), detail=status,
                                 job_id=job_id, evaluation_id=evaluation_id)
+        if learning is not None and self.db is not None:
+            return self._release_stable(target=target, candidate=candidate, owner_id=owner_id, checks={},
+                                        detail=status, job_id=job_id, evaluation_id=evaluation_id, learning=learning)
         return self._apply(target=target, candidate=candidate, owner_id=owner_id, checks={},
-                           detail=status, job_id=job_id, evaluation_id=evaluation_id)
+                           detail=status, job_id=job_id, evaluation_id=evaluation_id,
+                           approval_required=True, approval_granted=True)
 
     def rollback(self, candidate: Mapping[str, Any], *, owner_id: str, reason: str,
                  job_id: str = "") -> PromotionDecision:
@@ -424,9 +436,54 @@ class LearningPromotionGate:
 
     def _apply(self, *, target: str, candidate: Mapping[str, Any], owner_id: str,
                checks: Mapping[str, bool], detail: Mapping[str, Any] | None = None, job_id: str = "",
-               evaluation_id: str = "", authority: str = "learning_promotion") -> PromotionDecision:
+               evaluation_id: str = "", authority: str = "learning_promotion",
+               approval_required: bool = False, approval_granted: bool = False,
+               job: Mapping[str, Any] | None = None, learning: Any = None) -> PromotionDecision:
+        from .learning import LearningConflict
+        from .policy_adapters import AssetAuthorizationDenied
+
+        if target in {TARGET_MEMORY, TARGET_SKILL} and job is not None and learning is not None and self.db is not None:
+            # The model call is already over. This transaction locks the target
+            # row, then the policy, then the job, writes the asset and the
+            # PROMOTED row, and checks the database clock again before commit.
+            try:
+                with self.db.transaction() as connection:
+                    applied = self.adapter_for(target).promote(
+                        candidate, owner_id=owner_id, authority=authority,
+                        approval_required=approval_required, approval_granted=approval_granted,
+                        connection=connection, adoption_job=job, learning=learning,
+                    )
+                    payload = dict(detail or {})
+                    payload["applied"] = applied
+                    decision = self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                            outcome=OUTCOME_PROMOTED, checks=checks, reason="", detail=payload,
+                                            job_id=job_id, evaluation_id=evaluation_id, connection=connection)
+                    learning.recheck_adoption(connection, job)
+            except LearningConflict:
+                raise
+            except AssetAuthorizationDenied as exc:
+                return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                    outcome=OUTCOME_REJECTED, checks=checks,
+                                    reason=f"authorization denied: {exc.policy_reason}",
+                                    job_id=job_id, evaluation_id=evaluation_id)
+            except (KeyError, ValueError, RuntimeError) as exc:
+                return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                    outcome=OUTCOME_REJECTED, checks=checks,
+                                    reason=f"{type(exc).__name__}: {exc}", job_id=job_id, evaluation_id=evaluation_id)
+            if target == TARGET_MEMORY:
+                self.adapter_for(target).memory.project(owner_id)
+            return decision
+
         try:
-            applied = self.adapter_for(target).promote(candidate, owner_id=owner_id, authority=authority)
+            applied = self.adapter_for(target).promote(
+                candidate, owner_id=owner_id, authority=authority,
+                approval_required=approval_required, approval_granted=approval_granted,
+            )
+        except AssetAuthorizationDenied as exc:
+            return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                outcome=OUTCOME_REJECTED, checks=checks,
+                                reason=f"authorization denied: {exc.policy_reason}",
+                                job_id=job_id, evaluation_id=evaluation_id)
         except (KeyError, ValueError, RuntimeError) as exc:
             return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
                                 outcome=OUTCOME_REJECTED, checks=checks,
@@ -437,9 +494,53 @@ class LearningPromotionGate:
                             outcome=OUTCOME_PROMOTED, checks=checks, reason="", detail=payload,
                             job_id=job_id, evaluation_id=evaluation_id)
 
+    def _release_stable(self, *, target: str, candidate: Mapping[str, Any], owner_id: str,
+                        checks: Mapping[str, bool], detail: Mapping[str, Any] | None, job_id: str,
+                        evaluation_id: str, learning: Any) -> PromotionDecision:
+        """Switch stable only while the current policy and source still authorize it.
+
+        The generation lease is already over. `assert_release` uses the
+        CANARY_STARTED row as the persistent basis and runs inside this
+        transaction, before and after the channel switch.
+        """
+        from .learning import LearningConflict
+        from .policy_adapters import AssetAuthorizationDenied
+
+        try:
+            with self.db.transaction() as connection:
+                applied = self.adapter_for(target).promote(
+                    candidate, owner_id=owner_id, authority="learning_promotion",
+                    approval_required=True, approval_granted=True,
+                    connection=connection, learning=learning,
+                )
+                payload = dict(detail or {})
+                payload["applied"] = applied
+                decision = self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                        outcome=OUTCOME_PROMOTED, checks=checks, reason="", detail=payload,
+                                        job_id=job_id, evaluation_id=evaluation_id, connection=connection)
+                learning.assert_release(connection, owner_id=owner_id, candidate_id=candidate["candidate_id"])
+                evidence = connection.execute(
+                    "SELECT * FROM evolution_candidates WHERE id=? AND owner_id=?",
+                    (candidate["candidate_id"], owner_id),
+                ).fetchone()
+                self.evolution._validate_candidate_sources(evidence, connection=connection)
+        except LearningConflict:
+            raise
+        except AssetAuthorizationDenied as exc:
+            return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                outcome=OUTCOME_REJECTED, checks=checks,
+                                reason=f"authorization denied: {exc.policy_reason}",
+                                job_id=job_id, evaluation_id=evaluation_id)
+        except (KeyError, ValueError, RuntimeError) as exc:
+            return self._record(target=target, candidate_id=candidate["candidate_id"], owner_id=owner_id,
+                                outcome=OUTCOME_REJECTED, checks=checks,
+                                reason=f"{type(exc).__name__}: {exc}", job_id=job_id, evaluation_id=evaluation_id)
+        return decision
+
     def _request_canary(self, *, candidate: Mapping[str, Any], owner_id: str, checks: Mapping[str, bool],
                         approval: Any, canary: Mapping[str, Any] | None, job_id: str = "",
-                        evaluation_id: str = "") -> PromotionDecision:
+                        evaluation_id: str = "", job: Mapping[str, Any] | None = None,
+                        learning: Any = None) -> PromotionDecision:
         candidate_id = candidate["candidate_id"]
         if approval is None:
             return self._record(target=TARGET_BEHAVIOR, candidate_id=candidate_id, owner_id=owner_id,
@@ -463,21 +564,56 @@ class LearningPromotionGate:
                                 reason=f"behavior candidate is {status!r}, not awaiting approval",
                                 job_id=job_id, evaluation_id=evaluation_id)
         settings = dict(canary or {})
+        canary_args = {
+            "allocation_percent": int(settings.get("allocation_percent", self.policy.canary_allocation_percent)),
+            "assignment_unit": "run",
+            "target_role": str(settings.get("target_role", self.policy.canary_target_role)),
+            "target_purpose": str(settings.get("target_purpose", self.policy.canary_target_purpose)),
+            "budget_microusd": settings.get("budget_microusd", self.policy.canary_budget_microusd),
+            "deadline_at": settings.get("deadline_at") or self._canary_deadline(),
+            "max_calls": int(settings.get("max_calls", self.policy.canary_max_calls)),
+        }
+        from .learning import LearningConflict
         try:
+            if job is not None and learning is not None and self.db is not None:
+                def guard(connection, service=learning, current=job):
+                    service.assert_adoption(connection, current)
+                    service.assert_source(connection, current)
+
+                with self.db.transaction() as connection:
+                    decision = self.evolution.approve_current(
+                        candidate_id, expires_at=self._expiry(),
+                        idempotency_key=f"{candidate_id}:promote-approval", owner_id=owner_id,
+                        connection=connection, learning_guard=guard)
+                    stored = connection.execute(
+                        "SELECT version FROM evolution_candidates WHERE id=?", (candidate_id,)
+                    ).fetchone()
+                    deployment = self.evolution.start_canary(
+                        candidate_id, expected_version=int(stored["version"]), approval_id=decision["id"],
+                        idempotency_key=f"{candidate_id}:canary", owner_id=owner_id,
+                        connection=connection, learning_guard=guard, **canary_args)
+                    recorded = self._record(
+                        target=TARGET_BEHAVIOR, candidate_id=candidate_id, owner_id=owner_id,
+                        outcome=OUTCOME_CANARY_STARTED, checks=checks, reason="",
+                        detail={"deployment_id": deployment["id"], "approval_id": decision["id"]},
+                        job_id=job_id, evaluation_id=evaluation_id, connection=connection)
+                    learning.recheck_adoption(connection, job)
+                    learning.assert_source(connection, job)
+                    evidence = connection.execute(
+                        "SELECT * FROM evolution_candidates WHERE id=? AND owner_id=?",
+                        (candidate_id, owner_id),
+                    ).fetchone()
+                    self.evolution._validate_candidate_sources(evidence, connection=connection)
+                return recorded
             decision = self.evolution.approve_current(
                 candidate_id, expires_at=self._expiry(),
                 idempotency_key=f"{candidate_id}:promote-approval", owner_id=owner_id)
             stored = self.evolution.get_candidate(candidate_id, owner_id)
             deployment = self.evolution.start_canary(
                 candidate_id, expected_version=stored["version"], approval_id=decision["id"],
-                allocation_percent=int(settings.get("allocation_percent", self.policy.canary_allocation_percent)),
-                assignment_unit="run", idempotency_key=f"{candidate_id}:canary", owner_id=owner_id,
-                target_role=str(settings.get("target_role", self.policy.canary_target_role)),
-                target_purpose=str(settings.get("target_purpose", self.policy.canary_target_purpose)),
-                budget_microusd=settings.get("budget_microusd", self.policy.canary_budget_microusd),
-                deadline_at=settings.get("deadline_at") or self._canary_deadline(),
-                max_calls=int(settings.get("max_calls", self.policy.canary_max_calls)),
-            )
+                idempotency_key=f"{candidate_id}:canary", owner_id=owner_id, **canary_args)
+        except LearningConflict:
+            raise
         except (KeyError, ValueError, RuntimeError) as exc:
             return self._record(target=TARGET_BEHAVIOR, candidate_id=candidate_id, owner_id=owner_id,
                                 outcome=OUTCOME_REJECTED, checks=checks,
@@ -495,7 +631,7 @@ class LearningPromotionGate:
 
     def _record(self, *, target: str, candidate_id: str, owner_id: str, outcome: str,
                 checks: Mapping[str, bool], reason: str = "", detail: Mapping[str, Any] | None = None,
-                job_id: str = "", evaluation_id: str = "") -> PromotionDecision:
+                job_id: str = "", evaluation_id: str = "", connection: Any = None) -> PromotionDecision:
         if outcome not in OUTCOMES:
             raise ValueError(f"unknown promotion outcome: {outcome!r}")
         gate = {name: bool(checks[name]) for name in GATE_CHECKS if name in checks}
@@ -508,7 +644,8 @@ class LearningPromotionGate:
             return PromotionDecision(promotion_id=f"promotion_{uuid.uuid4().hex}", target=target,
                                      candidate_id=candidate_id, outcome=outcome, gate=gate,
                                      reason=reason, detail=payload)
-        with self.db.transaction() as connection:
+        from contextlib import nullcontext
+        with (nullcontext(connection) if connection is not None else self.db.transaction()) as connection:
             prior = connection.execute(
                 "SELECT * FROM learning_promotions WHERE owner_id=? AND idempotency_key=?", (owner_id, key)
             ).fetchone()

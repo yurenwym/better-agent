@@ -81,3 +81,32 @@ def test_completion_event_failure_rolls_back_report_and_lease(research, monkeypa
         assert row["lease_epoch"] == claimed.lease_epoch
     service.complete(job.id, "worker", "report", "answer", 0, 0, epoch=claimed.lease_epoch)
     assert service.get(job.id).report_markdown == "answer"
+
+
+def test_concurrent_expert_cancel_is_idempotent(migrated_postgres_url, tmp_path):
+    from app.agents import AgentTaskService
+    from app.behavior import BehaviorBundleService
+
+    db = Database(migrated_postgres_url, workspace=tmp_path)
+    try:
+        tasks = AgentTaskService(db)
+        bundle = BehaviorBundleService(db).ensure({"code": "test"})
+        run = tasks.create_run("owner", "goal", {}, bundle.id, idempotency_key="cancel-race")
+        claimed = tasks.claim_next("worker", 60)
+        barrier = Barrier(2)
+
+        def cancel(_):
+            barrier.wait(timeout=10)
+            return tasks.cancel_run(run["id"], "stop")
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(cancel, range(2)))
+        assert results[0] == results[1]
+        assert results[0]["status"] == "CANCELLED"
+        events = tasks.events(run["id"])
+        assert sum(event["type"] == "agent.run.cancelled" for event in events) == 1
+        assert sum(event["type"] == "agent.task.cancelled" for event in events) == 1
+        with pytest.raises(PermissionError):
+            tasks.complete(claimed["id"], "worker", claimed["lease_epoch"], "answer", {"text": "late"})
+    finally:
+        db.close()

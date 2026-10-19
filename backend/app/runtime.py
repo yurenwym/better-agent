@@ -1706,6 +1706,7 @@ class AgentRuntime:
                 attempt = self.tasks.claim(connection, TaskRef(TaskKind.GOAL, run_id),
                                            f"goal-worker-{uuid.uuid4().hex}", self.execution_lease_seconds)
                 if attempt is None:
+                    self._raise_changed_goal_source(run_id)
                     raise LeaseLost("goal execution is already active")
             marker = self._execution_token.set(attempt.token)
             owner_task = asyncio.current_task()
@@ -1734,6 +1735,38 @@ class AgentRuntime:
                         self.tasks.finish(connection, attempt.token, "QUEUED")
                     except LeaseLost:
                         pass
+
+    def _raise_changed_goal_source(self, run_id: str) -> None:
+        """A free goal with a broken source is an identity refusal, not a busy lease."""
+        with self.db.connection() as connection:
+            row = connection.execute(
+                "SELECT execution_status,execution_until,budget_json,source_turn_id FROM runs WHERE id=?",
+                (run_id,),
+            ).fetchone()
+            if row is None:
+                return
+            held = {"lease_until": row["execution_until"]}
+            if row["execution_status"] == "RUNNING" and self.tasks._live(held, self.tasks.now(connection)):
+                return
+            try:
+                budget = json.loads(row["budget_json"] or "{}")
+            except (TypeError, ValueError):
+                return
+            saved = budget.get("agent_loop_context") if isinstance(budget, dict) else None
+            if not saved:
+                return
+            from .execution_context import deserialize_context
+            context = deserialize_context(saved)
+            if context.turn_id != row["source_turn_id"]:
+                raise ValueError("run source identity changed")
+            if not row["source_turn_id"]:
+                return
+            owner = connection.execute(
+                "SELECT th.owner_id,t.thread_id FROM turns t JOIN threads th ON th.id=t.thread_id WHERE t.id=?",
+                (row["source_turn_id"],),
+            ).fetchone()
+            if owner is None or context.owner_id != owner["owner_id"] or context.thread_id != owner["thread_id"]:
+                raise ValueError("run source identity changed")
 
     def _require_execution(self, connection, run_id: str, *, allow_cancelled=True):
         token = self._execution_token.get()

@@ -404,10 +404,11 @@ class AgentTaskService:
             run = connection.execute("SELECT * FROM agent_runs WHERE id=?" + lock, (run_id,)).fetchone()
             if run is None: raise KeyError(run_id)
             if run["status"] in TERMINAL:
-                raise AgentTaskConflict("agent run is already finished")
+                return self._run(run_id, connection)
             rows = connection.execute("SELECT * FROM agent_tasks WHERE agent_run_id=? AND status NOT IN ('SUCCEEDED','FAILED','CANCELLED')", (run_id,)).fetchall()
             for row in rows:
-                self.tasks_runtime.cancel_now(connection, TaskRef(TaskKind.EXPERT, row["id"]))
+                if not self.tasks_runtime.cancel_now(connection, TaskRef(TaskKind.EXPERT, row["id"])):
+                    raise AgentTaskConflict("agent task cancellation denied")
                 connection.execute("UPDATE agent_tasks SET cancel_reason=?,version=version+1,updated_at=?,finished_at=? WHERE id=?", (reason, now, now, row["id"]))
                 connection.execute("UPDATE agent_task_attempts SET status='CANCELLED',finished_at=? WHERE task_id=? AND status='RUNNING'", (now, row["id"]))
                 self._event(connection, run_id, row["id"], "agent.task.cancelled", "user", {"reason": reason})
@@ -422,8 +423,9 @@ class AgentTaskService:
         with self.db.connection() as connection:
             if owner_id is None:
                 return self._run(run_id, connection)
-            row = connection.execute("SELECT id FROM agent_runs WHERE id=? AND owner_id=?", (run_id, owner_id)).fetchone()
-            if row is None:
+            from .task_capabilities import load_task_control, task_is_allowed
+            row = load_task_control(connection, "expert", run_id)
+            if not task_is_allowed(row, owner_id=owner_id, caller_thread_id=None, task_kind="expert", cancel=False):
                 raise KeyError(run_id)
             return self._run(run_id, connection)
 

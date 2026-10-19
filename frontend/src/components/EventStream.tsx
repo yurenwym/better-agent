@@ -1,15 +1,16 @@
 import { useMemo, useState } from "react";
 import {
-  describeEvent, describeThreadEvent, formatDuration, groupEvents,
+  describeEvent, describeThreadEvent, describeTraceEvent, formatDuration, groupEvents,
   groupThreadEvents, keyTrajectoryEvents,
 } from "../trajectory";
 import type { TrajectoryStage, TrajectoryView } from "../trajectory";
-import type { EventRecord, ThreadEvent } from "../types";
+import type { EventRecord, ThreadEvent, TraceEvent } from "../types";
 
 interface EventStreamProps {
   events: EventRecord[];
   threadEvents?: ThreadEvent[];
-  mode?: "run" | "thread";
+  traceEvents?: TraceEvent[];
+  mode?: "run" | "thread" | "trace";
   loading?: boolean;
 }
 
@@ -42,34 +43,44 @@ function metricEvents(events: ThreadEvent[]): ThreadEvent[] {
   return [...latest.values()].sort((left, right) => left.seq - right.seq);
 }
 
-export default function EventStream({ events, threadEvents = [], mode = "run", loading = false }: EventStreamProps) {
+export default function EventStream({ events, threadEvents = [], traceEvents = [], mode = "run", loading = false }: EventStreamProps) {
   const [view, setView] = useState<TrajectoryView>("summary");
   const [filter, setFilter] = useState<Filter>("all");
   const [query, setQuery] = useState("");
-  const sourceEvents = mode === "thread" ? threadEvents : events;
+  const sourceEvents = mode === "thread" ? threadEvents : mode === "trace" ? traceEvents : events;
   const viewEvents = useMemo(() => {
+    if (mode === "trace") return traceEvents;
     if (mode === "thread") {
       return view === "summary" ? keyTrajectoryEvents(threadEvents, "thread") : threadEvents;
     }
     return view === "summary" ? keyTrajectoryEvents(events, "run") : events;
-  }, [events, mode, threadEvents, view]);
+  }, [events, mode, threadEvents, traceEvents, view]);
+  const loadedTraceIds = useMemo(
+    () => new Set(mode === "trace" ? traceEvents.map((event) => event.event_id) : []),
+    [mode, traceEvents],
+  );
   const visible = useMemo(() => (
-    mode === "thread"
+    mode === "trace"
+      ? (viewEvents as TraceEvent[]).map((event) => describeTraceEvent(event, loadedTraceIds))
+      : mode === "thread"
       ? (viewEvents as ThreadEvent[]).map(describeThreadEvent)
       : (viewEvents as EventRecord[]).map(describeEvent)
   ).filter((item) => {
     const searchable = `${item.stageLabel} ${item.title} ${item.detail} ${item.event.type}`.toLowerCase();
     return (filter === "all" || item.stage === filter)
       && (!query.trim() || searchable.includes(query.trim().toLowerCase()));
-  }), [filter, mode, query, viewEvents]);
+  }), [filter, loadedTraceIds, mode, query, viewEvents]);
   const groups = useMemo(() => {
     const visibleIds = new Set(visible.map((item) => item.event.event_id));
+    if (mode === "trace") {
+      return [{ id: "trace", label: "同一链路", events: visible }];
+    }
     return mode === "thread"
       ? groupThreadEvents((viewEvents as ThreadEvent[]).filter((event) => visibleIds.has(event.event_id)))
       : groupEvents((viewEvents as EventRecord[]).filter((event) => visibleIds.has(event.event_id)));
   }, [mode, viewEvents, visible]);
   const metrics = mode === "thread" ? metricEvents(threadEvents) : [];
-  const title = mode === "thread" ? "对话时间线" : "运行时间线";
+  const title = mode === "thread" ? "对话时间线" : mode === "trace" ? "统一轨迹" : "运行时间线";
 
   return (
     <section className="event-panel" aria-label={title}>
@@ -117,8 +128,8 @@ export default function EventStream({ events, threadEvents = [], mode = "run", l
                 <div className="timeline-meta"><span className="timeline-stage">{item.stageLabel}</span>{view === "debug" && <span>#{item.seq}</span>}<time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time></div>
                 <h4>{item.title}</h4><p>{item.detail}</p>
                 {view === "debug" && <details className="raw-event"><summary>查看原始事件</summary>
-                  <div className="raw-event-label">{item.event.type} · {item.event.actor}</div>
-                  <pre>{JSON.stringify(item.event.data, null, 2)}</pre>
+                  <div className="raw-event-label">{item.event.type} · {"actor" in item.event ? item.event.actor ?? "" : ""}</div>
+                  <pre>{JSON.stringify("data" in item.event ? item.event.data : { type: item.event.type }, null, 2)}</pre>
                 </details>}
               </div>
             </article>)}</div>

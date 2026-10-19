@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .conversation_capabilities import _validator
-from .policy_engine import PolicyAction, PolicyInput, decide
+from .policy_adapters import decide_task_control
 from .tool_contracts import ToolResult, ToolRisk, ToolSpec
 
 
@@ -14,24 +14,53 @@ class TaskParams(BaseModel):
     id: str = Field(min_length=1, max_length=200)
 
 
+def load_task_control(connection, kind: str, task_id: str):
+    """The persisted owner and thread for a research job or an expert run.
+
+    ``task_id`` is the research job id, the expert run id, or the coordinator
+    task id. A deleted thread yields no row. The row is not proof of access.
+    """
+    if kind == "research":
+        return connection.execute(
+            "SELECT j.id AS task_id,j.thread_id,h.owner_id FROM research_jobs j "
+            "JOIN threads h ON h.id=j.thread_id WHERE j.id=? AND h.deleted_at IS NULL",
+            (task_id,),
+        ).fetchone()
+    return connection.execute(
+        "SELECT r.id AS task_id,r.thread_id,r.owner_id FROM agent_runs r "
+        "JOIN threads h ON h.id=r.thread_id AND h.owner_id=r.owner_id "
+        "WHERE h.deleted_at IS NULL AND (r.id=? OR r.coordinator_task_id=?)",
+        (task_id, task_id),
+    ).fetchone()
+
+
+def task_is_allowed(row, *, owner_id: str, caller_thread_id: str | None, task_kind: str, cancel: bool) -> bool:
+    """True only when the loaded row may be queried or cancelled by this caller.
+
+    A chat caller is bound to ``caller_thread_id``. An HTTP caller passes None
+    and is limited to the resource owner. Neither path treats budget exhaustion
+    or an already-finished task as a reason to refuse.
+    """
+    if row is None or row["owner_id"] != owner_id:
+        return False
+    if caller_thread_id is not None and row["thread_id"] != caller_thread_id:
+        return False
+    return decide_task_control(
+        owner_id=owner_id, caller_thread_id=caller_thread_id,
+        resource_owner_id=row["owner_id"], resource_thread_id=row["thread_id"],
+        task_id=row["task_id"], task_kind=task_kind, cancel=cancel,
+    ) is not None
+
+
 def register_task_capabilities(registry, runtime):
     def operate(params, context, *, cancel):
         ref = TaskParams.model_validate(params)
         with runtime.db.connection() as connection:
-            if ref.kind == "research":
-                row = connection.execute(
-                    "SELECT j.id,j.thread_id,h.owner_id FROM research_jobs j "
-                    "JOIN threads h ON h.id=j.thread_id WHERE j.id=? AND h.deleted_at IS NULL", (ref.id,),
-                ).fetchone()
-            else:
-                row = connection.execute(
-                    "SELECT r.id,r.thread_id,r.owner_id FROM agent_tasks t JOIN agent_runs r ON r.id=t.agent_run_id "
-                    "JOIN threads h ON h.id=r.thread_id AND h.owner_id=r.owner_id "
-                    "WHERE t.id=? AND r.coordinator_task_id=t.id AND h.deleted_at IS NULL", (ref.id,),
-                ).fetchone()
-        authorized = row is not None and row["owner_id"] == context.owner_id and row["thread_id"] == context.thread_id
-        decision = decide(PolicyInput(registered=True, allowed=authorized, identity_valid=bool(context.owner_id)))
-        if decision.action == PolicyAction.DENY:
+            row = load_task_control(connection, ref.kind, ref.id)
+        if not task_is_allowed(
+            row, owner_id=context.owner_id, caller_thread_id=context.thread_id,
+            task_kind=ref.kind, cancel=cancel,
+        ):
             return ToolResult(False, "找不到可操作的任务。", error="TASK_NOT_ACCESSIBLE")
         if ref.kind == "research":
             service = runtime.research
@@ -44,7 +73,7 @@ def register_task_capabilities(registry, runtime):
         else:
             from .agents import AgentTaskConflict
             service = runtime.agent_tasks
-            run = service.get_run(row["id"], owner_id=context.owner_id)
+            run = service.get_run(row["task_id"], owner_id=context.owner_id)
             if cancel and run["status"] not in {"SUCCEEDED", "FAILED", "CANCELLED"}:
                 try:
                     run = service.cancel_run(run["id"], "user requested cancellation")

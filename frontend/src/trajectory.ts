@@ -1,4 +1,4 @@
-import type { EventRecord, ThreadEvent } from "./types";
+import type { EventRecord, ThreadEvent, TraceCompleteness, TraceEvent, TraceScope } from "./types";
 
 export type TrajectoryStage =
   | "interaction"
@@ -15,7 +15,7 @@ export type TrajectoryStage =
 export type TrajectoryTone = "accent" | "info" | "success" | "warning" | "danger" | "neutral";
 
 export interface TrajectoryItem {
-  event: EventRecord | ThreadEvent;
+  event: EventRecord | ThreadEvent | TraceEvent;
   seq: number;
   occurredAt: string;
   stage: TrajectoryStage;
@@ -51,7 +51,12 @@ const summaryThreadEvents = new Set([
   "memory.retrieval.completed", "message.completed",
   "ask.requested", "turn.awaiting_input", "ask.answered", "turn.awaiting_direction",
   "turn.direction_selected", "turn.failed", "turn.cancel_requested", "turn.cancelled",
-  "execution.materialized", "expert.requested", "research.requested", "plan.document_ready",
+  "execution.materialized", "expert.requested", "research.requested",
+  "archive.queued", "archive.claimed", "archive.recovered", "archive.committed", "archive.failed",
+  "embedding.claimed", "embedding.recovered", "embedding.committed",
+  "learning.claimed", "learning.recovered",
+  "notification.claimed", "notification.sent", "notification.unknown", "notification.failed",
+  "plan.document_ready",
   "plan.document_failed", "plan.document_conflict", "plan.execution_projection_failed",
 ]);
 
@@ -400,6 +405,39 @@ export function describeThreadEvent(event: ThreadEvent): TrajectoryItem {
       return make(event, "state", "本轮对话已停止", "后续生成已取消，之前内容仍会保留");
     case "execution.materialized":
       return make(event, "run", "已创建执行任务", "已切换到 Run 轨迹，可以继续查看执行进度");
+    case "archive.queued":
+      return make(event, "context", "归档任务已建立", "这次整理已记下范围，尚未提交摘要");
+    case "archive.claimed":
+      return make(event, "context", "归档已开始", `第 ${text(data, "lease_epoch", "?")} 次执行权`);
+    case "archive.recovered":
+      return text(data, "status") === "DEAD_LETTER"
+        ? make(event, "context", "过期归档已停止", "执行次数已用完，覆盖范围没有前进", "warning")
+        : make(event, "context", "过期归档已交还", "旧执行者不能再提交，覆盖范围没有前进");
+    case "archive.committed":
+      return make(event, "context", "历史摘要已提交", "覆盖范围只在这次有效提交后前进");
+    case "archive.failed":
+      return make(event, "context", "归档未完成", text(data, "status") === "DEAD_LETTER"
+        ? "这次尝试已停止，覆盖范围没有前进" : "这次尝试会再排队，覆盖范围没有前进", "warning");
+    case "embedding.claimed":
+      return make(event, "context", "向量任务已领取", "尚未向模型发送，也尚未写入向量");
+    case "embedding.recovered":
+      return make(event, "context", "过期向量任务已接管", "旧执行者不能再写入向量");
+    case "embedding.committed":
+      return make(event, "context", "向量已写入", "只写入了当前内容版本和当前 profile");
+    case "learning.claimed":
+      return make(event, "context", "学习任务已领取", "身份来自已保存的任务，尚未采用");
+    case "learning.recovered":
+      return text(data, "status") === "UNKNOWN"
+        ? make(event, "context", "已发送的学习任务已停止", "结果没有落盘，不会自动再次付费", "warning")
+        : make(event, "context", "过期学习任务已交还", "未发送的任务可以重新领取");
+    case "notification.claimed":
+      return make(event, "context", "通知已开始发送", "结果尚未确认，超时也不会再发一次");
+    case "notification.sent":
+      return make(event, "context", "通知已确认送达", "这一次发送已经得到确认");
+    case "notification.unknown":
+      return make(event, "context", "通知结果未知", "没有确认对方是否收到，不会自动再次发送", "warning");
+    case "notification.failed":
+      return make(event, "context", "通知未发出", "这次没有交给对方");
     default:
       return make(event, "state", "对话进展已更新", "新的线程事件已记录");
   }
@@ -511,4 +549,102 @@ export function groupThreadEvents(events: ThreadEvent[]): TrajectoryGroup[] {
 
 export function stageLabel(stage: TrajectoryStage): string {
   return stageMeta[stage].label;
+}
+
+const agentTerminalTypes = new Set(["agent.run.completed", "agent.run.failed", "agent.run.cancelled"]);
+
+export function isTerminalTrace(events: TraceEvent[], scope: TraceScope | null): boolean {
+  if (!scope || scope.kind !== "task" || scope.taskKind !== "expert") return false;
+  return events.some((event) =>
+    event.stream_kind === "agent" && event.stream_id === scope.id && agentTerminalTypes.has(event.type));
+}
+
+export function mergeTraceEvents(current: TraceEvent[], incoming: TraceEvent[]): TraceEvent[] {
+  const seen = new Set(current.map((event) => event.event_id));
+  const next = [...current];
+  for (const event of incoming) {
+    if (seen.has(event.event_id)) continue;
+    seen.add(event.event_id);
+    next.push(event);
+  }
+  return next;
+}
+
+export function describeTraceGaps(input: { completeness?: TraceCompleteness | null; legacyScanTruncated?: boolean }): string[] {
+  const lines: string[] = [];
+  for (const reason of input.completeness?.reasons ?? []) {
+    if (reason.code === "source_not_connected") {
+      const sources = (reason.sources ?? []).join("、");
+      lines.push(sources ? `这些来源尚未接入：${sources}` : "有来源尚未接入");
+    } else if (reason.code === "historical_unlinked") {
+      lines.push("有历史事件无法关联到当前轨迹");
+    } else if (reason.code === "truncated" || reason.code === "scan_budget") {
+      lines.push("这次扫描尚未读完，后面可能还有记录");
+    }
+  }
+  if (input.legacyScanTruncated && !lines.some((line) => line.includes("尚未读完"))) {
+    lines.push("旧记录扫描已到上限，结果不完整");
+  }
+  return [...new Set(lines)];
+}
+
+function traceNotes(event: TraceEvent, loadedIds: ReadonlySet<string>): string[] {
+  const notes: string[] = [];
+  if (typeof event.attempt === "number" && event.attempt > 1) notes.push(`第 ${event.attempt} 次尝试`);
+  if (event.phase) notes.push(`阶段 ${event.phase}`);
+  const outcome = event.outcome;
+  if (outcome) {
+    if (outcome.effect === "unknown" || outcome.status === "reconciliation_required") notes.push("结果未知");
+    const failure = outcome.error;
+    if (failure?.phase) notes.push(`失败阶段 ${failure.phase}`);
+    if (typeof failure?.retryable === "boolean") notes.push(failure.retryable ? "可以重试" : "不能重试");
+  }
+  if (event.causation_event_id) {
+    notes.push(loadedIds.has(event.causation_event_id)
+      ? `由事件 ${event.causation_event_id} 引起`
+      : `引用父事件 ${event.causation_event_id}，该事件尚未加载`);
+  } else if (event.context?.context?.parent_span_id) {
+    notes.push(`父 span ${event.context.context.parent_span_id} 已记录，未据此编造父事件`);
+  }
+  if (event.compatibility === "legacy_context_missing") notes.push("历史事件缺少可关联的上下文");
+  if (event.compatibility === "malformed_envelope" || event.compatibility === "unsupported_version") {
+    notes.push("这条历史记录无法按当前格式读取");
+  }
+  return notes;
+}
+
+export function describeTraceEvent(event: TraceEvent, loadedIds: ReadonlySet<string> = new Set()): TrajectoryItem {
+  const payload = event.payload ?? {};
+  const threadEvent: ThreadEvent = {
+    schema_version: event.schema_version ?? 1,
+    event_id: event.event_id,
+    seq: event.seq,
+    thread_id: event.stream_id ?? "",
+    turn_id: "",
+    type: event.type,
+    occurred_at: event.occurred_at,
+    actor: event.actor ?? "",
+    data: payload,
+  };
+  const threadItem = describeThreadEvent(threadEvent);
+  const base = threadItem.title === "对话进展已更新"
+    ? describeEvent({
+      schema_version: event.schema_version ?? 1,
+      event_id: event.event_id,
+      seq: event.seq,
+      run_id: event.stream_id ?? "",
+      goal_id: "",
+      type: event.type,
+      occurred_at: event.occurred_at,
+      actor: event.actor ?? "",
+      correlation: {},
+      data: payload,
+    })
+    : threadItem;
+  const notes = traceNotes(event, loadedIds);
+  return {
+    ...base,
+    event,
+    detail: [base.detail, ...notes].filter(Boolean).join("。"),
+  };
 }

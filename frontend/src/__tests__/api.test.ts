@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { answerAsk, createGoal, createMemoryEntry, createResearch, decideMemoryProposal, deleteMemoryEpisode, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, listEvolutionCandidates, listThreads, putPlanDocument, restoreMemoryEntry, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents, updateMemoryEpisode } from "../api";
+import { answerAsk, createGoal, createMemoryEntry, createResearch, decideMemoryProposal, deleteMemoryEpisode, deletePlanDocument, deleteThread, getBootstrap, getPendingAsk, getPlanDocument, getSkills, getThreadPlan, getTrace, listEvolutionCandidates, listThreads, putPlanDocument, restoreMemoryEntry, sendMessage, submitTurn, subscribeToEvents, subscribeToThreadEvents, updateMemoryEpisode } from "../api";
 import type { EventRecord } from "../types";
 
 describe("REST client", () => {
@@ -331,5 +331,16 @@ describe("REST client", () => {
 
     expect(close).toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+
+  it("passes a trace cursor through as an opaque query value", async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ events: [], next_cursor: null, completeness: { status: "partial", reasons: [] }, count: 0, scope: {} }) });
+    const cursor = "v1.abc/+=opaque";
+    await getTrace({ kind: "thread", id: "thread 1" }, cursor, fetcher);
+    await getTrace({ kind: "trace", id: "trace/1" }, null, fetcher);
+    await getTrace({ kind: "task", taskKind: "expert", id: "run 1" }, null, fetcher);
+    expect(fetcher).toHaveBeenNthCalledWith(1, `/api/threads/${encodeURIComponent("thread 1")}/trace?cursor=${encodeURIComponent(cursor)}`, undefined);
+    expect(fetcher).toHaveBeenNthCalledWith(2, `/api/traces/${encodeURIComponent("trace/1")}`, undefined);
+    expect(fetcher).toHaveBeenNthCalledWith(3, `/api/tasks/expert/${encodeURIComponent("run 1")}/trace`, undefined);
   });
 });

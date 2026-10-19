@@ -74,6 +74,27 @@ def _bind_metadata(connection, event):
     return bind_event_metadata(connection, event)
 
 
+def _trace_id_of(envelope_json: str | None) -> str | None:
+    """The trace id carried by an envelope, for the indexed ``trace_id`` column.
+
+    This is a read-only derivation of the already-bound envelope, not a second
+    source of identity: a row without an envelope (or with an unknown version)
+    stores NULL and is treated as legacy by the trace query.
+    """
+    if not envelope_json:
+        return None
+    try:
+        body = json.loads(envelope_json)
+    except (TypeError, ValueError):
+        return None
+    if type(body.get("schema_version")) is not int or body["schema_version"] != 1:
+        return None
+    context = body.get("context")
+    inner = context.get("context") if isinstance(context, dict) else None
+    value = inner.get("trace_id") if isinstance(inner, dict) else None
+    return value if isinstance(value, str) and value else None
+
+
 @dataclass(frozen=True)
 class Event:
     schema_version: int
@@ -161,8 +182,8 @@ class ThreadEventStore:
             """
             INSERT INTO thread_events(
                 schema_version, event_id, seq, thread_id, turn_id, type,
-                occurred_at, actor, data_json, envelope_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                occurred_at, actor, data_json, envelope_json, trace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.schema_version,
@@ -175,6 +196,7 @@ class ThreadEventStore:
                 event.actor,
                 _json(event.data),
                 event.envelope_json,
+                _trace_id_of(event.envelope_json),
             ),
         )
         return replace(event, seq=seq)
@@ -242,8 +264,8 @@ class EventStore:
             """
             INSERT INTO events(
                 schema_version, event_id, seq, run_id, goal_id, type,
-                occurred_at, actor, correlation_json, data_json, envelope_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                occurred_at, actor, correlation_json, data_json, envelope_json, trace_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 event.schema_version,
@@ -257,6 +279,7 @@ class EventStore:
                 _json(event.correlation),
                 _json(event.data),
                 event.envelope_json,
+                _trace_id_of(event.envelope_json),
             ),
         )
         return replace(event, seq=next_seq)

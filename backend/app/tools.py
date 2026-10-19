@@ -40,11 +40,13 @@ class ToolRegistry(CapabilityRegistry):
     def risk_of(self, name, params):
         return self.executor.risk_of(name, params)
 
-    def authorize(self, call, *, run_id, skill_tools, authorization=None):
-        return self.executor.authorize(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+    def authorize(self, call, *, run_id, skill_tools, authorization=None, subject=None):
+        return self.executor.authorize(call, run_id=run_id, skill_tools=skill_tools,
+                                       authorization=authorization, subject=subject)
 
-    def execute(self, call, *, run_id, skill_tools, authorization=None):
-        return self.executor.execute(call, run_id=run_id, skill_tools=skill_tools, authorization=authorization)
+    def execute(self, call, *, run_id, skill_tools, authorization=None, subject=None):
+        return self.executor.execute(call, run_id=run_id, skill_tools=skill_tools,
+                                     authorization=authorization, subject=subject)
 
     async def execute_async(self, call, *, context, skill_tools, authorization=None):
         return await self.executor.execute_async(call, context=context, skill_tools=skill_tools, authorization=authorization)
