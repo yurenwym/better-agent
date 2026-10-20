@@ -36,6 +36,10 @@ it("ignores a pending snapshot from the previous thread after switching", async 
   let resolvePrevious: (value: unknown) => void = () => undefined;
   api.getThread.mockReturnValueOnce(new Promise(resolve => { resolvePrevious = resolve; }));
   const { result, rerender } = renderHook(({ id }) => useThreadTelemetry(id), { initialProps: { id: "thread-a" } });
+  // Events-first loading issues thread-a's getThread only after its events resolve,
+  // so wait for that call before switching - otherwise thread-a cancels while still
+  // awaiting events and its deferred snapshot is wrongly consumed by thread-b.
+  await waitFor(() => expect(api.getThread).toHaveBeenCalledTimes(1));
   api.getThread.mockResolvedValue({ id: "thread-b", active_turn_id: null, turns: [] });
   api.getThreadEvents.mockResolvedValue({ events: [] });
   api.getThreadMessages.mockResolvedValue({ messages: [] });
@@ -44,5 +48,27 @@ it("ignores a pending snapshot from the previous thread after switching", async 
   await act(async () => { resolvePrevious({ id: "thread-a", active_turn_id: "turn-a", turns: [{ id: "turn-a" }] }); });
   expect(result.current.thread?.id).toBe("thread-b");
   expect(result.current.pendingAsk).toBeNull();
+  expect(result.current.messages).toEqual([]);
+});
+
+it("issues no thread request for a snapshot whose events resolve after switching", async () => {
+  let resolveLateEvents: (value: { events: unknown[] }) => void = () => undefined;
+  api.getThreadEvents.mockReturnValueOnce(new Promise(resolve => { resolveLateEvents = resolve; }));
+
+  const { result, rerender } = renderHook(({ id }) => useThreadTelemetry(id), { initialProps: { id: "thread-a" } });
+  // thread-a is still awaiting its event snapshot, so it has not requested a thread.
+  expect(api.getThread).not.toHaveBeenCalled();
+
+  api.getThreadEvents.mockResolvedValue({ events: [] });
+  api.getThread.mockResolvedValue({ id: "thread-b", active_turn_id: null, turns: [] });
+  api.getThreadMessages.mockResolvedValue({ messages: [] });
+  rerender({ id: "thread-b" });
+  await waitFor(() => expect(result.current.thread?.id).toBe("thread-b"));
+  expect(api.getThread).toHaveBeenCalledTimes(1);
+  expect(api.getThread).toHaveBeenCalledWith("thread-b");
+
+  await act(async () => { resolveLateEvents({ events: [] }); await Promise.resolve(); });
+  expect(api.getThread).toHaveBeenCalledTimes(1);
+  expect(result.current.thread?.id).toBe("thread-b");
   expect(result.current.messages).toEqual([]);
 });

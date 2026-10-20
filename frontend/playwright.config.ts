@@ -3,9 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-const e2eDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-"));
-const scriptedDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-scripted-"));
-const e2ePgRoot = fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-pg-"));
+const e2eDataRoot = process.env.BETTER_AGENT_E2E_DATA_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-"));
+const scriptedDataRoot = process.env.BETTER_AGENT_E2E_SCRIPTED_DATA_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-scripted-"));
+const e2ePgRoot = process.env.BETTER_AGENT_E2E_PG_ROOT ?? fs.mkdtempSync(path.join(os.tmpdir(), "better-agent-e2e-pg-"));
 process.env.BETTER_AGENT_E2E_PG_ROOT = e2ePgRoot;
 process.env.BETTER_AGENT_E2E_DATA_ROOT = e2eDataRoot;
 process.env.BETTER_AGENT_E2E_SCRIPTED_DATA_ROOT = scriptedDataRoot;
@@ -39,6 +39,7 @@ const isolatedCredentials = {
   DEEPSEEK_API_KEY: "",
   DEEPSEEK_BASE_URL: "",
   DEEPSEEK_MODEL: "",
+  BETTER_AGENT_LEARNING_V3: "OFF",
 };
 
 export default defineConfig({

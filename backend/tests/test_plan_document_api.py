@@ -1,8 +1,26 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
+
+_CLIENTS: list[TestClient] = []
+
+
+def _client(app):
+    client = TestClient(app)
+    _CLIENTS.append(client)
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _close_clients(database):
+    _CLIENTS.clear()
+    yield
+    for client in reversed(_CLIENTS):
+        client.close()
+    _CLIENTS.clear()
 
 
 def _headers(app):
@@ -14,11 +32,11 @@ def _headers(app):
     }
 
 
-def _seed(tmp_path):
+def _seed(database, tmp_path):
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     thread = runtime.conversation.create_thread("Plan thread")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -29,11 +47,11 @@ def _seed(tmp_path):
         actor="model",
     )
     app = create_app(runtime=runtime)
-    return runtime, app, TestClient(app), thread, first
+    return runtime, app, _client(app), thread, first
 
 
-def test_plan_document_read_routes_restore_refresh_state_without_run(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_read_routes_restore_refresh_state_without_run(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     headers = _headers(app)
 
@@ -58,8 +76,8 @@ def test_plan_document_read_routes_restore_refresh_state_without_run(tmp_path) -
     ))
 
 
-def test_plan_document_index_lists_saved_titles_without_markdown(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_index_lists_saved_titles_without_markdown(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     second_thread = runtime.conversation.create_thread("Second plan thread")
     second = runtime.plan_documents.save_model_revision(
         thread_id=second_thread.id,
@@ -90,8 +108,8 @@ def test_plan_document_index_lists_saved_titles_without_markdown(tmp_path) -> No
     assert [item["id"] for item in remaining.json()["plans"]] == [second.plan_document_id]
 
 
-def test_plan_history_routes_are_paged_and_return_metadata_only(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_history_routes_are_paged_and_return_metadata_only(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     current = first
     for index in range(2, 5):
@@ -118,8 +136,8 @@ def test_plan_history_routes_are_paged_and_return_metadata_only(tmp_path) -> Non
     assert [item["version"] for item in snapshot.json()["versions"]] == [3, 4]
 
 
-def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     headers = _headers(app)
 
@@ -152,8 +170,8 @@ def test_plan_document_put_uses_version_hash_cas_and_preserves_conflict_metadata
     assert runtime.plan_documents.current_version(document.id).markdown_content == "# Version 2\n\nUpdated"
 
 
-def test_plan_document_delete_requires_cas_and_removes_document_without_erasing_history(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_delete_requires_cas_and_removes_document_without_erasing_history(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     headers = _headers(app)
     path = runtime.plan_documents.path_for(document.id)
@@ -181,8 +199,8 @@ def test_plan_document_delete_requires_cas_and_removes_document_without_erasing_
         ).fetchone()["deleted_at"] is not None
 
 
-def test_plan_document_delete_rejects_a_stale_head_and_keeps_the_file(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_delete_rejects_a_stale_head_and_keeps_the_file(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     headers = _headers(app)
     second = runtime.plan_documents.save_model_revision(
@@ -213,8 +231,8 @@ def test_plan_document_delete_rejects_a_stale_head_and_keeps_the_file(tmp_path) 
     assert runtime.plan_documents.get_document(document.id).current_version_id == second.id
 
 
-def test_plan_document_delete_maps_an_external_file_change_to_conflict(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_delete_maps_an_external_file_change_to_conflict(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     path = runtime.plan_documents.path_for(document.id)
     path.write_text("# external\n", encoding="utf-8", newline="\n")
@@ -234,8 +252,8 @@ def test_plan_document_delete_maps_an_external_file_change_to_conflict(tmp_path)
     assert path.read_text(encoding="utf-8") == "# external\n"
 
 
-def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
 
     class FailingProjector:
@@ -262,8 +280,8 @@ def test_plan_projection_failure_returns_retryable_metadata_instead_of_500(tmp_p
     assert response.json()["current"]["file_status"] == "failed"
 
 
-def test_restore_and_sync_projection_failures_are_retryable(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_restore_and_sync_projection_failures_are_retryable(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     path = runtime.plan_documents.path_for(document.id)
     real_projector = runtime.plan_documents.projector
@@ -297,8 +315,8 @@ def test_restore_and_sync_projection_failures_are_retryable(tmp_path) -> None:
     assert write_failed.json()["retry"] is True
 
 
-def test_plan_document_restore_sync_and_retry_do_not_call_model(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_document_restore_sync_and_retry_do_not_call_model(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     headers = _headers(app)
     second = client.put(
@@ -329,8 +347,8 @@ def test_plan_document_restore_sync_and_retry_do_not_call_model(tmp_path) -> Non
     assert _count(runtime, "runs") == 0
 
 
-def test_plan_document_write_requires_local_csrf(tmp_path) -> None:
-    _, app, client, thread, _ = _seed(tmp_path)
+def test_plan_document_write_requires_local_csrf(database, tmp_path) -> None:
+    _, app, client, thread, _ = _seed(database, tmp_path)
     response = client.put(
         f"/api/plans/{thread.id}",
         headers={"host": "127.0.0.1:8000", "content-type": "application/json"},
@@ -340,8 +358,8 @@ def test_plan_document_write_requires_local_csrf(tmp_path) -> None:
     assert response.status_code == 403
 
 
-def test_plan_file_read_does_not_repair_missing_projection_without_a_write_request(tmp_path) -> None:
-    runtime, app, client, thread, _ = _seed(tmp_path)
+def test_plan_file_read_does_not_repair_missing_projection_without_a_write_request(database, tmp_path) -> None:
+    runtime, app, client, thread, _ = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     path = runtime.plan_documents.path_for(document.id)
     path.unlink()
@@ -352,8 +370,8 @@ def test_plan_file_read_does_not_repair_missing_projection_without_a_write_reque
     assert not path.exists()
 
 
-def test_plan_file_read_rejects_an_oversized_or_unstable_file(tmp_path) -> None:
-    runtime, app, client, thread, _ = _seed(tmp_path)
+def test_plan_file_read_rejects_an_oversized_or_unstable_file(database, tmp_path) -> None:
+    runtime, app, client, thread, _ = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     path = runtime.plan_documents.path_for(document.id)
     path.write_bytes(b"x" * (1024 * 1024 + 1))
@@ -363,8 +381,8 @@ def test_plan_file_read_rejects_an_oversized_or_unstable_file(tmp_path) -> None:
     assert response.status_code == 409
 
 
-def test_plan_file_read_maps_filesystem_errors_to_a_stable_message(tmp_path) -> None:
-    runtime, app, client, thread, _ = _seed(tmp_path)
+def test_plan_file_read_maps_filesystem_errors_to_a_stable_message(database, tmp_path) -> None:
+    runtime, app, client, thread, _ = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     real_projector = runtime.plan_documents.projector
 
@@ -383,8 +401,8 @@ def test_plan_file_read_maps_filesystem_errors_to_a_stable_message(tmp_path) -> 
     assert "private/server/path" not in response.text
 
 
-def test_plan_restore_requires_both_version_and_hash_cas_values(tmp_path) -> None:
-    runtime, app, client, thread, first = _seed(tmp_path)
+def test_plan_restore_requires_both_version_and_hash_cas_values(database, tmp_path) -> None:
+    runtime, app, client, thread, first = _seed(database, tmp_path)
     document = runtime.plan_documents.get_by_thread(thread.id)
     response = client.post(
         f"/api/plans/{document.id}/restore",

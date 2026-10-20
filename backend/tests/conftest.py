@@ -2,6 +2,16 @@ from __future__ import annotations
 
 import pytest
 import os
+import sys
+from pathlib import Path
+
+_TESTS_DIR = Path(__file__).resolve().parent
+if str(_TESTS_DIR) not in sys.path:
+    sys.path.insert(0, str(_TESTS_DIR))
+
+# PG01: opt-in isolated PostgreSQL fixtures for ordinary tests. They are not
+# autouse, so pure tests never start Docker; requesting one opts in explicitly.
+from pg_fixtures import isolated_postgres_test, migrated_postgres_url, postgres_url  # noqa: E402,F401
 
 
 @pytest.fixture(autouse=True)

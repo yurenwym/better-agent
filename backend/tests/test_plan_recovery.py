@@ -3,12 +3,13 @@ import json
 
 import pytest
 
+from pg02_helpers import database
 
-def _prepared_service(tmp_path, *, content="# v1\n", expected_hash=None, with_events=False):
-    from app.db import Database
+
+def _prepared_service(database, tmp_path, *, content="# v1\n", expected_hash=None, with_events=False):
     from app.plan_documents import PlanDocumentService, content_hash
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     events = None
     if with_events:
         from app.events import ThreadEventStore
@@ -44,8 +45,8 @@ def _prepared_service(tmp_path, *, content="# v1\n", expected_hash=None, with_ev
     return service, document_id, version_id, content
 
 
-def test_recover_prepared_intent_projects_and_commits(tmp_path) -> None:
-    service, document_id, version_id, content = _prepared_service(tmp_path)
+def test_recover_prepared_intent_projects_and_commits(database, tmp_path) -> None:
+    service, document_id, version_id, content = _prepared_service(database, tmp_path)
 
     service.recover_pending_intents()
 
@@ -54,8 +55,8 @@ def test_recover_prepared_intent_projects_and_commits(tmp_path) -> None:
     assert service.path_for(document_id).read_text(encoding="utf-8") == content
 
 
-def test_recover_target_hash_finalizes_without_requiring_model(tmp_path) -> None:
-    service, document_id, version_id, content = _prepared_service(tmp_path)
+def test_recover_target_hash_finalizes_without_requiring_model(database, tmp_path) -> None:
+    service, document_id, version_id, content = _prepared_service(database, tmp_path)
     service.projector.project(document_id, content)
 
     service.recover_pending_intents()
@@ -64,12 +65,11 @@ def test_recover_target_hash_finalizes_without_requiring_model(tmp_path) -> None
     assert service.get_document(document_id).file_status == "ready"
 
 
-def test_recover_prepared_revision_reprojects_when_plan_file_was_deleted(tmp_path) -> None:
-    from app.db import Database
+def test_recover_prepared_revision_reprojects_when_plan_file_was_deleted(database, tmp_path) -> None:
     from app.plan_documents import content_hash
     from app.plan_documents import PlanDocumentService
 
-    service = PlanDocumentService(Database(tmp_path / "agent.db"), tmp_path / "data")
+    service = PlanDocumentService(database, tmp_path / "data")
     first = service.save_model_revision(
         thread_id="thread-1",
         title="璁″垝",
@@ -105,8 +105,8 @@ def test_recover_prepared_revision_reprojects_when_plan_file_was_deleted(tmp_pat
     assert service.path_for(document.id).read_text(encoding="utf-8") == second_content
 
 
-def test_recover_third_hash_marks_conflict_without_overwriting_file(tmp_path) -> None:
-    service, document_id, version_id, _ = _prepared_service(tmp_path)
+def test_recover_third_hash_marks_conflict_without_overwriting_file(database, tmp_path) -> None:
+    service, document_id, version_id, _ = _prepared_service(database, tmp_path)
     service.projector.project(document_id, "external\n")
 
     service.recover_pending_intents()
@@ -116,8 +116,8 @@ def test_recover_third_hash_marks_conflict_without_overwriting_file(tmp_path) ->
     assert service.path_for(document_id).read_text(encoding="utf-8") == "external\n"
 
 
-def test_recover_third_hash_emits_conflict_event_without_markdown(tmp_path) -> None:
-    service, document_id, version_id, _ = _prepared_service(tmp_path, with_events=True)
+def test_recover_third_hash_emits_conflict_event_without_markdown(database, tmp_path) -> None:
+    service, document_id, version_id, _ = _prepared_service(database, tmp_path, with_events=True)
     service.projector.project(document_id, "external\n")
 
     service.recover_pending_intents()
@@ -128,8 +128,8 @@ def test_recover_third_hash_emits_conflict_event_without_markdown(tmp_path) -> N
     assert "markdown_content" not in conflicts[0].data
 
 
-def test_recover_head_change_marks_conflict_and_emits_stable_event(tmp_path) -> None:
-    service, document_id, version_id, _ = _prepared_service(tmp_path, with_events=True)
+def test_recover_head_change_marks_conflict_and_emits_stable_event(database, tmp_path) -> None:
+    service, document_id, version_id, _ = _prepared_service(database, tmp_path, with_events=True)
     from app.plan_documents import content_hash
 
     with service.db.durable_transaction() as connection:
@@ -158,8 +158,8 @@ def test_recover_head_change_marks_conflict_and_emits_stable_event(tmp_path) -> 
     assert conflicts[0].data["actor"] == "model"
 
 
-def test_recover_committed_missing_file_rebuilds_from_sqlite(tmp_path) -> None:
-    service, document_id, version_id, content = _prepared_service(tmp_path)
+def test_recover_committed_missing_file_rebuilds_from_sqlite(database, tmp_path) -> None:
+    service, document_id, version_id, content = _prepared_service(database, tmp_path)
     service.recover_pending_intents()
     service.path_for(document_id).unlink()
 

@@ -1,12 +1,13 @@
-def test_control_plane_exports_are_redacted_and_omit_private_content(tmp_path, monkeypatch) -> None:
+from pg02_helpers import database
+
+def test_control_plane_exports_are_redacted_and_omit_private_content(tmp_path, database, monkeypatch) -> None:
     from app.control_exports import cost_export, invocation_export, skill_audit_export
-    from app.db import Database
     from app.skill_platform import SkillPlatform
     from test_skill_platform import _skill_zip
 
     secret = "sk-live-secret-value"
     monkeypatch.setenv("MODEL_EXPORT_KEY", secret)
-    db = Database(tmp_path / "agent.db")
+    db = database
     platform = SkillPlatform(db, tmp_path / "skills")
     preview = platform.preview_install(_skill_zip(document="# Private\n\nuser memory body"))
     platform.confirm_install(preview["install_token"], granted_tools=[], idempotency_key="install")

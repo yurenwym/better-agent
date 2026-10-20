@@ -1,8 +1,9 @@
-def test_event_seq_is_contiguous_and_correlation_is_structured(tmp_path) -> None:
-    from app.db import Database
+from pg02_helpers import database
+
+def test_event_seq_is_contiguous_and_correlation_is_structured(tmp_path, database) -> None:
     from app.events import EventStore
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     first = store.append(
         run_id="run-1",
         goal_id="goal-1",
@@ -27,11 +28,10 @@ def test_event_seq_is_contiguous_and_correlation_is_structured(tmp_path) -> None
     assert [event.seq for event in store.list("run-1")] == [1, 2]
 
 
-def test_event_seq_is_per_run(tmp_path) -> None:
-    from app.db import Database
+def test_event_seq_is_per_run(tmp_path, database) -> None:
     from app.events import EventStore
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
 
     store.append("run-1", "goal-1", "run.started", "runtime", {})
     store.append("run-2", "goal-1", "run.started", "runtime", {})

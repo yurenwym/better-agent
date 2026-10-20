@@ -3,6 +3,7 @@ import json
 
 import pytest
 
+from pg02_helpers import database
 from test_goal_programs import preview, service
 
 
@@ -27,8 +28,8 @@ class _FailingPeriodCompiler:
         raise GoalCompilationError("MODEL_UNAVAILABLE", "compiler unavailable", temporary=True)
 
 
-def _completed_program(tmp_path):
-    db, _, goals, version = service(tmp_path)
+def _completed_program(tmp_path, *, database=None):
+    db, _, goals, version = service(tmp_path, database=database)
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate-1")
     for action in active["actions"]:
@@ -37,8 +38,8 @@ def _completed_program(tmp_path):
     return goals, completed
 
 
-def test_period_summary_replaces_the_template_summary(tmp_path) -> None:
-    goals, completed = _completed_program(tmp_path)
+def test_period_summary_replaces_the_template_summary(database, tmp_path) -> None:
+    goals, completed = _completed_program(tmp_path, database=database)
     # 切状态时先落一个确定性的模板总结作为兜底。
     assert completed["status"] == "COMPLETED"
     assert "必做行动完成" in completed["completion_summary"]
@@ -59,16 +60,16 @@ def test_period_summary_replaces_the_template_summary(tmp_path) -> None:
     assert goals.get(completed["id"])["completion_summary"] == summary
 
 
-def test_period_summary_keeps_the_template_when_the_model_is_unavailable(tmp_path) -> None:
-    goals, completed = _completed_program(tmp_path)
+def test_period_summary_keeps_the_template_when_the_model_is_unavailable(database, tmp_path) -> None:
+    goals, completed = _completed_program(tmp_path, database=database)
     goals.compiler = _FailingPeriodCompiler()
 
     assert asyncio.run(goals.period_summary(completed["id"])) is None
     assert "必做行动完成" in goals.get(completed["id"])["completion_summary"]
 
 
-def test_failed_summary_retries_and_persists_result_atomically(tmp_path):
-    goals, completed = _completed_program(tmp_path)
+def test_failed_summary_retries_and_persists_result_atomically(database, tmp_path):
+    goals, completed = _completed_program(tmp_path, database=database)
     goals.compiler = _FailingPeriodCompiler()
     assert asyncio.run(goals.period_summary(completed["id"])) is None
     assert goals.period_summary_status(completed["id"])["status"] == "FAILED"
@@ -81,8 +82,8 @@ def test_failed_summary_retries_and_persists_result_atomically(tmp_path):
     assert goals.compiler.calls == 1
 
 
-def test_failed_retry_key_is_not_dispatched_twice(tmp_path):
-    goals, completed = _completed_program(tmp_path)
+def test_failed_retry_key_is_not_dispatched_twice(database, tmp_path):
+    goals, completed = _completed_program(tmp_path, database=database)
     goals.compiler = _FailingPeriodCompiler()
     asyncio.run(goals.period_summary(completed["id"], retry_key="retry-1"))
     goals.compiler = _PeriodCompiler("Recovered")
@@ -91,8 +92,8 @@ def test_failed_retry_key_is_not_dispatched_twice(tmp_path):
     assert asyncio.run(goals.period_summary(completed["id"], retry_key="retry-2")) == "Recovered"
 
 
-def test_period_timeout_is_visible_and_recoverable(tmp_path):
-    goals, completed = _completed_program(tmp_path)
+def test_period_timeout_is_visible_and_recoverable(database, tmp_path):
+    goals, completed = _completed_program(tmp_path, database=database)
     class Slow:
         async def period_review(self, evidence):
             await asyncio.Event().wait()
@@ -107,9 +108,9 @@ def test_period_timeout_is_visible_and_recoverable(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_inflight_request_is_not_repeated_and_cancelled_request_can_recover(tmp_path):
+async def test_inflight_request_is_not_repeated_and_cancelled_request_can_recover(database, tmp_path):
     # Setup uses synchronous asyncio.run helpers outside the running loop.
-    goals, completed = await asyncio.to_thread(_completed_program, tmp_path)
+    goals, completed = await asyncio.to_thread(_completed_program, tmp_path, database=database)
     started = asyncio.Event()
     class Waiting:
         async def period_review(self, evidence):
@@ -117,20 +118,28 @@ async def test_inflight_request_is_not_repeated_and_cancelled_request_can_recove
             await asyncio.Event().wait()
     goals.compiler = Waiting()
     task = asyncio.create_task(goals.period_summary(completed["id"]))
-    await started.wait()
-    assert await goals.period_summary(completed["id"], retry_key="busy") is None
-    assert goals.period_summary_status(completed["id"])["status"] == "PENDING"
-    task.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    assert goals.period_summary_status(completed["id"])["status"] == "UNKNOWN"
-    goals.compiler = _PeriodCompiler("Recovered")
-    assert await goals.period_summary(completed["id"]) is None
-    assert await goals.period_summary(completed["id"], retry_key="recover") == "Recovered"
+    try:
+        await started.wait()
+        assert await goals.period_summary(completed["id"], retry_key="busy") is None
+        assert goals.period_summary_status(completed["id"])["status"] == "PENDING"
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert goals.period_summary_status(completed["id"])["status"] == "UNKNOWN"
+        goals.compiler = _PeriodCompiler("Recovered")
+        assert await goals.period_summary(completed["id"]) is None
+        assert await goals.period_summary(completed["id"], retry_key="recover") == "Recovered"
+    finally:
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
-def test_legacy_pending_requires_explicit_retry_and_late_attempt_cannot_publish(tmp_path):
-    goals, completed = _completed_program(tmp_path)
+def test_legacy_pending_requires_explicit_retry_and_late_attempt_cannot_publish(database, tmp_path):
+    goals, completed = _completed_program(tmp_path, database=database)
     goals.compiler = _FailingPeriodCompiler()
     asyncio.run(goals.period_summary(completed["id"]))
     with goals.db.transaction() as connection:

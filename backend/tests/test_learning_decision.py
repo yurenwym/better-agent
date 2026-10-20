@@ -13,12 +13,17 @@ from app.learning_decision import (
     build_questions,
     build_state,
 )
-from app.startup import build_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 
 @pytest.fixture(autouse=True)
 def isolated_models(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -60,8 +65,8 @@ def service(runtime, payload, **kwargs):
 
 
 @pytest.mark.parametrize("target", [TARGET_MEMORY, TARGET_SKILL, TARGET_BEHAVIOR, TARGET_IGNORE])
-def test_targets_are_routed_verbatim(tmp_path, target):
-    runtime = build_runtime(tmp_path)
+def test_targets_are_routed_verbatim(database, tmp_path, target):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers(target))
     decision = decider.decide(owner_id="local-user", job_id="job_1", experience=experience())
     assert decision.target == target
@@ -111,8 +116,8 @@ def test_every_malformed_field_is_rejected(mutate):
         LearningDecision.from_answers(payload)
 
 
-def test_service_records_ignore_instead_of_raising_on_a_broken_response(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_service_records_ignore_instead_of_raising_on_a_broken_response(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     payload = answers()
     payload["target"] = {"choice": "SOMETHING_NEW", "confidence": 0.9}
     decider, _ = service(runtime, payload)
@@ -123,8 +128,8 @@ def test_service_records_ignore_instead_of_raising_on_a_broken_response(tmp_path
     assert stored["target"] == TARGET_IGNORE and stored["learn"] == 0
 
 
-def test_low_target_support_is_not_a_licence_to_learn(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_low_target_support_is_not_a_licence_to_learn(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("SKILL", learn=0.9, confidence=0.2))
     decision = decider.decide(owner_id="local-user", job_id="job_unsure", experience=experience())
     assert decision.ignored
@@ -132,13 +137,13 @@ def test_low_target_support_is_not_a_licence_to_learn(tmp_path):
     assert decision.support == 0.2
 
 
-def test_the_gate_reads_the_distribution_not_the_self_report(tmp_path):
+def test_the_gate_reads_the_distribution_not_the_self_report(database, tmp_path):
     """JEV's self-reported confidence was measured to suppress correct calls.
 
     The routing gate reads the mass behind the chosen target; the self-report is
     kept for the audit only.
     """
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     payload = answers("SKILL", learn=0.9, confidence=0.2)
     payload["target"] = {"choice": "SKILL", "confidence": 0.2, "probabilities": {"SKILL": 0.9}}
     decider, _ = service(runtime, payload)
@@ -148,8 +153,8 @@ def test_the_gate_reads_the_distribution_not_the_self_report(tmp_path):
     assert "low_target_support" not in decision.reason_codes
 
 
-def test_a_chosen_target_with_no_distribution_mass_fails_closed(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_a_chosen_target_with_no_distribution_mass_fails_closed(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     payload = answers("SKILL", learn=0.9, confidence=0.9)
     payload["target"] = {"choice": "MEMORY", "confidence": 0.9, "probabilities": {"SKILL": 0.9}}
     decider, _ = service(runtime, payload)
@@ -158,28 +163,28 @@ def test_a_chosen_target_with_no_distribution_mass_fails_closed(tmp_path):
     assert "low_target_support" in decision.reason_codes
 
 
-def test_a_probe_that_argues_for_another_target_is_recorded(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_a_probe_that_argues_for_another_target_is_recorded(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("SKILL", decision_behavior_defect=0.9))
     decision = decider.decide(owner_id="local-user", job_id="job_disagree", experience=experience())
     assert decision.target == TARGET_SKILL
     assert "probe_target_disagreement" in decision.reason_codes
 
 
-def test_a_probe_that_agrees_is_not_recorded_as_a_disagreement(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_a_probe_that_agrees_is_not_recorded_as_a_disagreement(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("SKILL", repeatable_procedure=0.9))
     decision = decider.decide(owner_id="local-user", job_id="job_agree", experience=experience())
     assert "probe_target_disagreement" not in decision.reason_codes
 
 
-def test_the_gate_input_survives_the_database_round_trip(tmp_path):
+def test_the_gate_input_survives_the_database_round_trip(database, tmp_path):
     """The audit has to carry the number the gate read, not only the self-report.
 
     A row that stored `confidence=0.2` beside `target=SKILL` would read like a
     bypassed threshold; `support` is what makes it legible.
     """
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     payload = answers("SKILL", learn=0.9, confidence=0.2)
     payload["target"] = {"choice": "SKILL", "confidence": 0.2, "probabilities": {"SKILL": 0.9}}
     decider, _ = service(runtime, payload)
@@ -206,16 +211,16 @@ def test_the_target_question_states_its_precedence():
     assert "SKILL" in policy["tie_break"]
 
 
-def test_reason_codes_come_from_the_dedicated_probes(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_reason_codes_come_from_the_dedicated_probes(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("MEMORY", explicit_user_constraint=0.95, evidence_sufficient=0.8,
                                           transient_operational=0.05))
     decision = decider.decide(owner_id="local-user", job_id="job_reasons", experience=experience())
     assert set(decision.reason_codes) == {"explicit_user_constraint", "evidence_sufficient"}
 
 
-def test_decision_audit_is_append_only(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_decision_audit_is_append_only(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("SKILL"))
     decider.decide(owner_id="local-user", job_id="job_audit", experience=experience())
     with pytest.raises(Exception, match="append-only"):
@@ -226,8 +231,8 @@ def test_decision_audit_is_append_only(tmp_path):
             connection.execute("DELETE FROM learning_decisions WHERE job_id='job_audit'")
 
 
-def test_decision_is_idempotent_and_immutable_per_job(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_decision_is_idempotent_and_immutable_per_job(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider, _ = service(runtime, answers("SKILL"))
     first = decider.decide(owner_id="local-user", job_id="job_same", experience=experience())
     second = decider.decide(owner_id="local-user", job_id="job_same", experience=experience())
@@ -238,8 +243,8 @@ def test_decision_is_idempotent_and_immutable_per_job(tmp_path):
         other.decide(owner_id="local-user", job_id="job_same", experience=experience())
 
 
-def test_decision_has_no_side_effects(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_decision_has_no_side_effects(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["memory", "skill"])
 
     def snapshot():
@@ -284,8 +289,8 @@ def test_state_is_bounded():
     assert len(state["tool_trace"][0]["tool"]) == 1200
 
 
-def test_missing_client_is_not_a_decision(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_missing_client_is_not_a_decision(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     decider = JevDecisionService(runtime.db, None)
     with pytest.raises(JevUnavailable):
         decider.decide(owner_id="local-user", job_id="job_none", experience=experience())

@@ -5,13 +5,16 @@ claimed in a transaction before any provider request. Automatic report delivery
 does not send again while the same user, report and channel already has a
 SENDING, UNKNOWN, or SENT row.
 
-This is not a TaskRuntime worker. The delivery row is the execution right:
-the channel lock, the unique dispatch key, and the SENDING status. A restart
-marks an interrupted SENDING row UNKNOWN on that same row. It does not insert
-another attempt and it does not call the provider.
+This is not a TaskRuntime worker. A new delivery gets one executor token and
+holds that token's local OS lock from before the claim commits until the HTTP
+client has actually closed. The result is written while that same lock is held.
+If the close does not succeed, the lock stays held. Explicit recovery may mark
+only this machine's unlocked SENDING rows UNKNOWN. It does not insert another
+attempt and it does not call the provider.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import sqlite3
@@ -21,6 +24,13 @@ from datetime import datetime, timezone
 
 import httpx
 
+from .notification_execution import (
+    TOKEN_RE,
+    ExecutionGuard,
+    NotificationExecutionUnavailable,
+    NotificationLockRefused,
+    open_notification_scope,
+)
 from .policy_adapters import decide_notification
 from .policy_engine import PolicyAction
 from .research.retriever import validate_public_url
@@ -51,12 +61,21 @@ class Delivery:
     error: str | None
     error_code: str | None = None
     prior_delivery_id: str | None = None
+    recovery_scope_id: str | None = None
+    executor_token: str | None = None
+
+
+@dataclass(frozen=True)
+class RecoveryReport:
+    recovered: tuple[Delivery, ...]
+    retained: tuple[tuple[str, str], ...]
 
 
 class NotificationService:
-    def __init__(self, db, transport=None):
+    def __init__(self, db, transport=None, *, execution_scope: str | os.PathLike[str] | None = None):
         self.db = db
         self.transport = transport
+        self.execution = open_notification_scope(execution_scope)
 
     def create(self, name, channel_type, secret_env_name, enabled=True, *, owner_id: str):
         if not owner_id or not str(owner_id).strip():
@@ -146,9 +165,7 @@ class NotificationService:
         )
         if isinstance(claimed, Delivery):
             return claimed
-        if not self._still_allowed(cid, job_id, owner_id, "report", "retry"):
-            return self._finish(claimed, "FAILED", error="notification was not sent", error_code="NOT_SENT")
-        return await self._post(
+        return await self._execute(
             claimed, channel, report["title"] or "Better Agent", report["markdown"] or "", job_id,
             owner_id=owner_id, purpose="report", action="retry",
         )
@@ -196,11 +213,7 @@ class NotificationService:
         )
         if isinstance(claimed, Delivery):
             return claimed
-        if claimed is None:
-            return self._stored(key)
-        if not self._still_allowed(cid, job_id, owner_id, purpose, action):
-            return self._finish(claimed, "FAILED", error="notification was not sent", error_code="NOT_SENT")
-        return await self._post(
+        return await self._execute(
             claimed, channel, title, content, job_id,
             owner_id=owner_id, purpose=purpose, action=action,
         )
@@ -237,7 +250,9 @@ class NotificationService:
         still requires confirmation and that prior id.
         """
         delivery_id = f"delivery_{uuid.uuid4().hex}"
+        token = uuid.uuid4().hex
         now = _now()
+        guard = None
         try:
             with self.db.transaction() as connection:
                 self._lock_channel(connection, channel["id"])
@@ -254,11 +269,16 @@ class NotificationService:
                     )
                     if blocked is not None:
                         return blocked
+                guard = self.execution.acquire(token)
                 connection.execute(
                     "INSERT INTO notification_deliveries("
-                    "id,owner_id,job_id,channel_id,purpose,dispatch_key,attempt,status,created_at,prior_delivery_id) "
-                    "VALUES (?,?,?,?,?,?,1,'PENDING',?,?)",
-                    (delivery_id, owner_id, job_id, channel["id"], purpose, key, now, prior_delivery_id),
+                    "id,owner_id,job_id,channel_id,purpose,dispatch_key,attempt,status,created_at,"
+                    "prior_delivery_id,recovery_scope_id,executor_token,executor_file_dev,executor_file_ino) "
+                    "VALUES (?,?,?,?,?,?,1,'PENDING',?,?,?,?,?,?)",
+                    (
+                        delivery_id, owner_id, job_id, channel["id"], purpose, key, now,
+                        prior_delivery_id, self.execution.scope_id, token, guard.file_dev, guard.file_ino,
+                    ),
                 )
                 connection.execute(
                     "UPDATE notification_deliveries SET status='SENDING', claimed_at=? WHERE id=? AND status='PENDING'",
@@ -269,10 +289,12 @@ class NotificationService:
                 ).fetchone()
                 self._trace(connection, claimed_row, "notification.claimed")
         except Exception as exc:
+            if guard is not None:
+                self.execution.release_claim(guard)
             if not _is_unique_conflict(exc):
                 raise
             return self._stored(key)
-        return delivery_id
+        return delivery_id, guard
 
     def _lock_channel(self, connection, channel_id):
         lock = " FOR UPDATE" if self.db.backend == "postgresql" else ""
@@ -289,23 +311,53 @@ class NotificationService:
             raise KeyError(key)
         return row
 
-    async def _post(self, delivery_id, channel, title, content, job_id, *, owner_id, purpose, action):
-        secret = os.getenv(channel["secret_env_name"])
+    async def _execute(
+        self, claimed, channel, title, content, job_id, *, owner_id, purpose, action,
+    ):
+        delivery_id, guard = claimed
+        client = None
+        cancelled = False
         try:
-            url, kwargs = await self._prepare_request(channel, secret, title, content, job_id)
-        except Exception as exc:
-            return self._remember(
-                delivery_id, "FAILED", error=_redact(exc, secret), error_code="NOT_SENT",
-            )
-        try:
-            async with httpx.AsyncClient(transport=self.transport, timeout=10, follow_redirects=False) as client:
-                if not self._still_allowed(channel["id"], job_id, owner_id, purpose, action):
-                    return self._remember(delivery_id, "FAILED", error="notification was not sent", error_code="NOT_SENT")
-                response = await client.post(url, **kwargs)
-        except Exception as exc:
-            status, error_code = _outcome_after_send_attempt(exc)
-            return self._remember(delivery_id, status, error=_redact(exc, secret), error_code=error_code)
-        return self._read_provider_result(delivery_id, channel, response, secret)
+            try:
+                secret = os.getenv(channel["secret_env_name"])
+                try:
+                    url, kwargs = await self._prepare_request(channel, secret, title, content, job_id)
+                except Exception as exc:
+                    return self._remember(
+                        delivery_id, "FAILED", guard=guard, error=_redact(exc, secret), error_code="NOT_SENT",
+                    )
+                client = httpx.AsyncClient(transport=self.transport, timeout=10, follow_redirects=False)
+                try:
+                    if not self._still_allowed(channel["id"], job_id, owner_id, purpose, action):
+                        return self._remember(
+                            delivery_id, "FAILED", guard=guard, error="notification was not sent",
+                            error_code="NOT_SENT",
+                        )
+                    response = await client.post(url, **kwargs)
+                except asyncio.CancelledError:
+                    raise
+                except Exception as exc:
+                    status, error_code = _outcome_after_send_attempt(exc)
+                    return self._remember(
+                        delivery_id, status, guard=guard, error=_redact(exc, secret), error_code=error_code,
+                    )
+                return self._read_provider_result(delivery_id, channel, response, secret, guard=guard)
+            except asyncio.CancelledError:
+                cancelled = True
+                raise
+        finally:
+            if client is None:
+                self.execution.release_claim(guard)
+            else:
+                try:
+                    await _await_closed(client)
+                except asyncio.CancelledError:
+                    cancelled = True
+                    self.execution.release_claim(guard)
+                else:
+                    self.execution.release_claim(guard)
+            if cancelled:
+                raise asyncio.CancelledError
 
     async def _prepare_request(self, channel, secret, title, content, job_id):
         """Local checks only. Nothing here has left the process."""
@@ -322,23 +374,24 @@ class NotificationService:
             kwargs = {"json": {"title": title, "content": content, "job_id": job_id, "report_url": f"/api/research/jobs/{job_id}/report"}}
         return url, kwargs
 
-    def _read_provider_result(self, delivery_id, channel, response, secret):
+    def _read_provider_result(self, delivery_id, channel, response, secret, *, guard: ExecutionGuard):
         """The request was submitted. A later read or decode cannot prove it was not received."""
         http_status = response.status_code
         try:
             response.raise_for_status()
         except httpx.HTTPStatusError as exc:
             return self._remember(
-                delivery_id, "FAILED", http_status=http_status, error=_redact(exc, secret), error_code="REJECTED",
+                delivery_id, "FAILED", guard=guard, http_status=http_status,
+                error=_redact(exc, secret), error_code="REJECTED",
             )
         try:
             data = response.json()
         except ValueError:
             if channel["channel_type"] == "webhook":
-                return self._remember(delivery_id, "SENT", http_status=http_status)
+                return self._remember(delivery_id, "SENT", guard=guard, http_status=http_status)
             return self._remember(
-                delivery_id, "UNKNOWN", http_status=http_status, error="provider response could not be decoded",
-                error_code="RESULT_UNKNOWN",
+                delivery_id, "UNKNOWN", guard=guard, http_status=http_status,
+                error="provider response could not be decoded", error_code="RESULT_UNKNOWN",
             )
         code = None
         error = None
@@ -355,48 +408,106 @@ class NotificationService:
         except Exception as exc:
             status, error_code, error = "UNKNOWN", "RESULT_UNKNOWN", _redact(exc, secret)
         return self._remember(
-            delivery_id, status, http_status=http_status, provider_code=code, error=error,
+            delivery_id, status, guard=guard, http_status=http_status, provider_code=code, error=error,
             error_code=error_code, provider_ref=provider_ref,
         )
 
-    def _remember(self, delivery_id, status, **fields):
+    def _remember(self, delivery_id, status, *, guard: ExecutionGuard, **fields):
         try:
-            return self._finish(delivery_id, status, **fields)
+            return self._finish(delivery_id, status, guard=guard, **fields)
+        except NotificationExecutionUnavailable:
+            raise
         except Exception:
-            return self._finish(delivery_id, "UNKNOWN", http_status=fields.get("http_status"), error_code="RESULT_NOT_STORED", error=fields.get("error"))
+            return self._finish(
+                delivery_id, "UNKNOWN", guard=guard, http_status=fields.get("http_status"),
+                error_code="RESULT_NOT_STORED", error=fields.get("error"),
+            )
 
-    def recover_interrupted_sends(self) -> list[Delivery]:
-        """Close SENDING rows left by a dead process. Never starts another send."""
-        now = _now()
-        recovered: list[Delivery] = []
-        with self.db.transaction() as connection:
-            suffix = " FOR UPDATE" if self.db.backend == "postgresql" else ""
+    def recover_interrupted_sends(self) -> RecoveryReport:
+        """Mark this scope's unlocked SENDING rows UNKNOWN. Never calls the provider."""
+        with self.db.connection() as connection:
             rows = connection.execute(
-                "SELECT * FROM notification_deliveries WHERE status='SENDING' ORDER BY id" + suffix,
+                "SELECT id, recovery_scope_id, executor_token, executor_file_dev, executor_file_ino "
+                "FROM notification_deliveries "
+                "WHERE status='SENDING' ORDER BY id",
             ).fetchall()
-            for row in rows:
-                connection.execute(
-                    "UPDATE notification_deliveries SET status='UNKNOWN', error=?, error_code='RESULT_UNKNOWN', finished_at=? "
-                    "WHERE id=? AND status='SENDING'",
-                    ("send was interrupted before the result was stored", now, row["id"]),
+        recovered: list[Delivery] = []
+        retained: list[tuple[str, str]] = []
+        for row in rows:
+            reason = _retention_reason(row, self.execution.scope_id)
+            if reason is not None:
+                retained.append((row["id"], reason))
+                continue
+            try:
+                guard = self.execution.try_acquire(
+                    row["executor_token"],
+                    file_dev=str(row["executor_file_dev"] or ""),
+                    file_ino=str(row["executor_file_ino"] or ""),
                 )
-                current = connection.execute(
-                    "SELECT * FROM notification_deliveries WHERE id=?", (row["id"],),
-                ).fetchone()
-                self._trace(connection, current, "notification.unknown")
-                recovered.append(_delivery(current))
-        return recovered
+            except NotificationLockRefused as exc:
+                retained.append((row["id"], exc.reason))
+                continue
+            if guard is None:
+                continue
+            try:
+                delivery = self._recover_holding(row["id"], guard)
+            finally:
+                guard.release()
+            if delivery is not None:
+                recovered.append(delivery)
+        return RecoveryReport(tuple(recovered), tuple(retained))
 
-    def _finish(self, delivery_id, status, *, http_status=None, provider_code=None, error=None, error_code=None, provider_ref=None):
+    def _recover_holding(self, delivery_id: str, guard: ExecutionGuard) -> Delivery | None:
+        now = _now()
+        with self.db.transaction() as connection:
+            current = connection.execute(
+                "SELECT * FROM notification_deliveries WHERE id=?", (delivery_id,),
+            ).fetchone()
+            if (
+                current is None
+                or current["status"] != "SENDING"
+                or current["recovery_scope_id"] != guard.scope_id
+                or current["executor_token"] != guard.token
+            ):
+                return None
+            changed = connection.execute(
+                "UPDATE notification_deliveries SET status='UNKNOWN', error=?, error_code='RESULT_UNKNOWN', finished_at=? "
+                "WHERE id=? AND status='SENDING' AND recovery_scope_id=? AND executor_token=?",
+                (
+                    "send was interrupted before the result was stored", now, delivery_id,
+                    guard.scope_id, guard.token,
+                ),
+            ).rowcount
+            if not changed:
+                return None
+            current = connection.execute(
+                "SELECT * FROM notification_deliveries WHERE id=?", (delivery_id,),
+            ).fetchone()
+            self._trace(connection, current, "notification.unknown")
+            return _delivery(current)
+
+    def _finish(
+        self, delivery_id, status, *, guard: ExecutionGuard, http_status=None, provider_code=None,
+        error=None, error_code=None, provider_ref=None,
+    ):
+        if not guard.can_store_result or guard.scope_id != self.execution.scope_id:
+            raise NotificationExecutionUnavailable("result write has no live claim guard")
+        stored = False
         with self.db.transaction() as connection:
             changed = connection.execute(
                 "UPDATE notification_deliveries SET status=?,http_status=?,provider_code=?,error=?,error_code=?,provider_ref=?,finished_at=? "
-                "WHERE id=? AND status='SENDING'",
-                (status, http_status, None if provider_code is None else str(provider_code), error, error_code, provider_ref, _now(), delivery_id),
+                "WHERE id=? AND status='SENDING' AND recovery_scope_id=? AND executor_token=?",
+                (
+                    status, http_status, None if provider_code is None else str(provider_code), error, error_code,
+                    provider_ref, _now(), delivery_id, guard.scope_id, guard.token,
+                ),
             ).rowcount
             row = connection.execute("SELECT * FROM notification_deliveries WHERE id=?", (delivery_id,)).fetchone()
             if changed and row is not None:
                 self._trace(connection, row, _notification_event(status))
+                stored = True
+        if stored:
+            guard.result_stored = True
         if row is None:
             raise KeyError(delivery_id)
         return _delivery(row)
@@ -550,11 +661,41 @@ def _channel(row) -> NotificationChannel:
     )
 
 
+def _retention_reason(row, scope_id: str) -> str | None:
+    token = row["executor_token"]
+    scope = row["recovery_scope_id"]
+    if not token or not scope:
+        return "missing-identity"
+    if not isinstance(token, str) or not TOKEN_RE.fullmatch(token):
+        return "untrusted-token"
+    if scope != scope_id:
+        return "other-scope"
+    if not row["executor_file_dev"] or not row["executor_file_ino"]:
+        return "missing-file-identity"
+    return None
+
+
+async def _await_closed(client: httpx.AsyncClient) -> None:
+    """Wait until close succeeds. A caller cancel is deferred, then re-raised."""
+    task = asyncio.create_task(client.aclose())
+    caller_cancelled = False
+    while not task.done():
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            caller_cancelled = True
+    if task.cancelled():
+        raise NotificationExecutionUnavailable("notification client close did not finish")
+    task.result()
+    if caller_cancelled:
+        raise asyncio.CancelledError
+
+
 def _delivery(row) -> Delivery:
     return Delivery(
         row["id"], row["job_id"], row["channel_id"], int(row["attempt"]), row["status"],
         row["http_status"], row["provider_code"], row["error"], row["error_code"],
-        row["prior_delivery_id"],
+        row["prior_delivery_id"], row["recovery_scope_id"], row["executor_token"],
     )
 
 

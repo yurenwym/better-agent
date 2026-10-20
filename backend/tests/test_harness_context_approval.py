@@ -15,6 +15,7 @@ import json
 
 import pytest
 
+from pg02_helpers import database
 from test_harness_context_flow import (
     FixedGateway,
     _count,
@@ -34,6 +35,32 @@ from test_harness_context_flow import (
 # helpers
 # --------------------------------------------------------------------------- #
 
+@pytest.fixture(autouse=True)
+def _close_reopened_pools(database, monkeypatch):
+    import app.db as db_module
+
+    allocated = []
+    original = db_module.Database
+
+    class TrackedDatabase(original):
+        def __init__(self, *args, **kwargs):
+            allocated.append(self)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(db_module, "Database", TrackedDatabase)
+    yield
+    failures = []
+    for db in reversed(allocated):
+        if getattr(db, "_pool", None) is None:
+            continue
+        try:
+            db.close()
+        except Exception as exc:  # noqa: BLE001 - collected for teardown
+            failures.append(exc)
+    if failures:
+        raise RuntimeError(f"reopened runtime cleanup failed: {failures!r}")
+
+
 def _preview_script(planner: list | None = None) -> FixedGateway:
     return FixedGateway(
         conversation=[
@@ -46,10 +73,10 @@ def _preview_script(planner: list | None = None) -> FixedGateway:
     )
 
 
-def _approval_runtime(tmp_path, monkeypatch, script, *, runtime=None, tag="a"):
+def _approval_runtime(tmp_path, monkeypatch, script, *, runtime=None, tag="a", database=None):
     """Wire a WRITE ``activate_goal_plan`` call onto a real thread and document."""
     runtime = runtime if runtime is not None else _versioned(
-        build_runtime(tmp_path, monkeypatch, script)
+        build_runtime(tmp_path, monkeypatch, script, database=database)
     )
     thread = runtime.conversation.create_thread(f"审批链路 {tag}")
     document = runtime.plan_documents.save_model_revision(
@@ -108,9 +135,9 @@ def _resume_events(runtime, thread_id: str):
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a01_restart_restores_the_original_context_and_span(tmp_path, monkeypatch) -> None:
+async def test_a01_restart_restores_the_original_context_and_span(database, tmp_path, monkeypatch) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
 
     original_turn = turn_context(runtime, accepted.turn_id)
@@ -121,7 +148,7 @@ async def test_a01_restart_restores_the_original_context_and_span(tmp_path, monk
 
     # Everything the resume needs is already durable: the worker, the tool runner
     # and the model gateway are all rebuilt before the user decides.
-    reopened = reopen_runtime(tmp_path, script)
+    reopened = reopen_runtime(tmp_path, script, database=database)
     continuation = reopened.conversation.decide_tool_call(
         accepted.turn_id, "approve", paused.version, "a01-approve",
     )
@@ -180,10 +207,20 @@ async def test_a01_restart_restores_the_original_context_and_span(tmp_path, monk
 
 @pytest.mark.asyncio
 async def test_a02_continuation_budget_bundle_and_trace_do_not_replace_the_original(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
+    with runtime.db.transaction() as connection:
+        for root_id, object_id in (
+            ("budget-original", "a02-original"),
+            ("budget-continuation", "a02-continuation"),
+        ):
+            connection.execute(
+                "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+                "VALUES (?,?,'turn',?,?,?)",
+                (root_id, "local-user", object_id, 30, "2099-01-01T00:00:00+00:00"),
+            )
 
     # Supply environments before acceptance freezes each root; mutating a
     # frozen turn afterwards must be rejected as an identity conflict.
@@ -241,9 +278,9 @@ async def test_a02_continuation_budget_bundle_and_trace_do_not_replace_the_origi
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a03_revoked_tool_is_refused_without_side_effects(tmp_path, monkeypatch) -> None:
+async def test_a03_revoked_tool_is_refused_without_side_effects(database, tmp_path, monkeypatch) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     before = _identity(runtime, pending.id)
 
@@ -275,9 +312,9 @@ async def test_a03_revoked_tool_is_refused_without_side_effects(tmp_path, monkey
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tamper", ["params", "association", "binding"])
-async def test_a04_tampered_call_is_refused(tmp_path, monkeypatch, tamper) -> None:
+async def test_a04_tampered_call_is_refused(database, tmp_path, monkeypatch, tamper) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, tag=tamper)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, tag=tamper, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     before = _identity(runtime, pending.id)
 
@@ -325,11 +362,11 @@ async def test_a04_tampered_call_is_refused(tmp_path, monkeypatch, tamper) -> No
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a05_another_owner_cannot_resume_the_call(tmp_path, monkeypatch) -> None:
+async def test_a05_another_owner_cannot_resume_the_call(database, tmp_path, monkeypatch) -> None:
     from app.chat_tools import ChatToolRunner
 
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     before = _identity(runtime, pending.id)
 
@@ -362,10 +399,10 @@ async def test_a05_another_owner_cannot_resume_the_call(tmp_path, monkeypatch) -
 
 @pytest.mark.asyncio
 async def test_a06_unusable_original_bundle_does_not_fall_back_to_stable(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     original_tool = stored_context(_tool_row(runtime, pending.id))
     before = _identity(runtime, pending.id)
@@ -415,10 +452,10 @@ async def test_a06_unusable_original_bundle_does_not_fall_back_to_stable(
 
 @pytest.mark.asyncio
 async def test_a07_legacy_missing_context_is_refused_and_stays_readable(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
 
     # A pending approval from before this feature: both columns empty.
@@ -440,11 +477,11 @@ async def test_a07_legacy_missing_context_is_refused_and_stays_readable(
 
 
 @pytest.mark.asyncio
-async def test_a07_corrupt_and_unknown_context_fail_closed(tmp_path, monkeypatch) -> None:
+async def test_a07_corrupt_and_unknown_context_fail_closed(database, tmp_path, monkeypatch) -> None:
     from app.execution_context import execution_context_digest
 
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
 
     # A digest that does not match its own JSON.
@@ -460,9 +497,10 @@ async def test_a07_corrupt_and_unknown_context_fail_closed(tmp_path, monkeypatch
 
     # A well-formed envelope under an unknown schema version.
     script2 = _preview_script()
-    reopened = reopen_runtime(tmp_path, script2)
+    reopened = reopen_runtime(tmp_path, script2, database=database)
     runtime2, thread2 = _approval_runtime(
         tmp_path, monkeypatch, script2, runtime=reopened, tag="version",
+        database=database,
     )
     accepted2, paused2, pending2 = await _pause_on_write(runtime2, thread2, client_turn_id="a07-version")
     envelope = json.loads(_tool_row(runtime2, pending2.id)["execution_context_json"])
@@ -491,9 +529,9 @@ async def test_a07_corrupt_and_unknown_context_fail_closed(tmp_path, monkeypatch
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a08_repeated_resume_reuses_the_result_without_rewriting(tmp_path, monkeypatch) -> None:
+async def test_a08_repeated_resume_reuses_the_result_without_rewriting(database, tmp_path, monkeypatch) -> None:
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     continuation = runtime.conversation.decide_tool_call(
         accepted.turn_id, "approve", paused.version, "a08-approve",
@@ -518,12 +556,12 @@ async def test_a08_repeated_resume_reuses_the_result_without_rewriting(tmp_path,
 
 @pytest.mark.asyncio
 async def test_a08_crash_before_result_persistence_recovers_one_side_effect(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     from app.chat_tools import ChatToolCallStore, ChatToolRunner
 
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     continuation = runtime.conversation.decide_tool_call(
         accepted.turn_id, "approve", paused.version, "a08-crash",
@@ -569,12 +607,12 @@ async def test_a08_crash_before_result_persistence_recovers_one_side_effect(
 # --------------------------------------------------------------------------- #
 
 @pytest.mark.asyncio
-async def test_a09_unclear_write_outcome_is_not_retried(tmp_path, monkeypatch) -> None:
+async def test_a09_unclear_write_outcome_is_not_retried(database, tmp_path, monkeypatch) -> None:
     from app.tools import ToolReconciliationRequired
     from app.tool_executor import ToolExecutor
 
     script = _preview_script()
-    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script)
+    runtime, thread = _approval_runtime(tmp_path, monkeypatch, script, database=database)
     accepted, paused, pending = await _pause_on_write(runtime, thread)
     before = _identity(runtime, pending.id)
 

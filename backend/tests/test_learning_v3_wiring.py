@@ -7,7 +7,13 @@ degrading, and this suite pins that behaviour.
 """
 import pytest
 
-from app.startup import LEARNING_V3_MODES, _wire_learning_pipeline, build_runtime
+from app.startup import LEARNING_V3_MODES, _wire_learning_pipeline
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 WIRING_ENV = ("BETTER_AGENT_LEARNING_V3", "TYPESAFE_API_KEY", "TYPESAFE_MODEL",
               "BETTER_AGENT_LEARNING_REPLAY_FILE", "BETTER_AGENT_LEARNING_CANARY_BUDGET_MICROUSD")
@@ -15,10 +21,9 @@ WIRING_ENV = ("BETTER_AGENT_LEARNING_V3", "TYPESAFE_API_KEY", "TYPESAFE_MODEL",
 
 @pytest.fixture(autouse=True)
 def isolated_models(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH",
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH",
                  *WIRING_ENV):
         monkeypatch.delenv(name, raising=False)
-    monkeypatch.setenv("BETTER_AGENT_TEST_ALLOW_SQLITE", "1")
 
 
 class FakeGateway:
@@ -29,24 +34,24 @@ class FakeGateway:
 
 
 @pytest.fixture
-def runtime(tmp_path):
+def runtime(database, tmp_path):
     """Built with the switch off, so the wiring can be exercised in isolation."""
-    return build_runtime(tmp_path / "data")
+    return build_pg_runtime(tmp_path / "data", database)
 
 
 def test_the_switch_is_off_by_default(runtime):
     assert runtime.learning.pipeline is None
 
 
-def test_an_unset_switch_leaves_the_legacy_path_alone(tmp_path, monkeypatch):
+def test_an_unset_switch_leaves_the_legacy_path_alone(database, tmp_path, monkeypatch):
     monkeypatch.setenv("BETTER_AGENT_LEARNING_V3", "off")
-    assert build_runtime(tmp_path / "data").learning.pipeline is None
+    assert build_pg_runtime(tmp_path / "data", database).learning.pipeline is None
 
 
-def test_a_credential_alone_does_not_arm_the_pipeline(tmp_path, monkeypatch):
+def test_a_credential_alone_does_not_arm_the_pipeline(database, tmp_path, monkeypatch):
     """`build_runtime` calls the wiring itself; a stray key must not attach it."""
     monkeypatch.setenv("TYPESAFE_API_KEY", "test-key")
-    assert build_runtime(tmp_path / "data").learning.pipeline is None
+    assert build_pg_runtime(tmp_path / "data", database).learning.pipeline is None
 
 
 @pytest.mark.parametrize("mode", sorted(LEARNING_V3_MODES))

@@ -10,19 +10,24 @@ from app.learning_targets import (
     SkillTargetAdapter,
     build_adapters,
 )
-from app.startup import build_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 SECRET_LIKE = "password=hunter2"
 
 
 @pytest.fixture(autouse=True)
 def isolated_models(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
 
 
-def runtime_with_message(tmp_path, content="以后生产数据库不能由 Agent 自动重启，必须人工批准。"):
-    runtime = build_runtime(tmp_path)
+def runtime_with_message(database, tmp_path, content="以后生产数据库不能由 Agent 自动重启，必须人工批准。"):
+    runtime = build_pg_runtime(tmp_path, database)
     thread = runtime.conversation.create_thread("v3")
     runtime.conversation.accept_turn(thread.id, "one", content)
     with runtime.db.connection() as connection:
@@ -112,8 +117,8 @@ def adapters(runtime):
 
 # ---------------------------------------------------------------- Memory
 
-def test_memory_adapter_creates_a_proposal_not_an_entry(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_adapter_creates_a_proposal_not_an_entry(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = adapters(runtime)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
     assert candidate["proposal_id"].startswith("memory_proposal_")
@@ -122,8 +127,8 @@ def test_memory_adapter_creates_a_proposal_not_an_entry(tmp_path):
     assert runtime.memory_store.get_proposal(candidate["proposal_id"]).evidence_state == "VERIFIED"
 
 
-def test_memory_adapter_validation_passes_a_grounded_proposal(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_adapter_validation_passes_a_grounded_proposal(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = adapters(runtime)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
     verdict = adapter.validate_candidate(candidate, owner_id="local-user")
@@ -131,8 +136,8 @@ def test_memory_adapter_validation_passes_a_grounded_proposal(tmp_path):
     assert all(verdict["checks"].values())
 
 
-def test_memory_adapter_refuses_secret_like_content(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path, f"以后生产库口令是 {SECRET_LIKE}")
+def test_memory_adapter_refuses_secret_like_content(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path, f"以后生产库口令是 {SECRET_LIKE}")
     adapter = adapters(runtime)[TARGET_MEMORY]
     draft = memory_draft(message_id, change={"content": f"生产库口令是 {SECRET_LIKE}"})
     # memory_v2 refuses the content at proposal time; the adapter never sees a candidate.
@@ -141,15 +146,15 @@ def test_memory_adapter_refuses_secret_like_content(tmp_path):
     assert runtime.memory_store.list_proposals() == []
 
 
-def test_memory_adapter_refuses_evidence_from_another_owner(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_adapter_refuses_evidence_from_another_owner(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = adapters(runtime)[TARGET_MEMORY]
     with pytest.raises(ValueError, match="outside the owner scope"):
         adapter.create_candidate(memory_draft(message_id), owner_id="someone-else", job_id="job_foreign")
 
 
-def test_memory_promotion_creates_an_entry_and_rollback_archives_it(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_promotion_creates_an_entry_and_rollback_archives_it(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = adapters(runtime)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
     promoted = adapter.promote(candidate, owner_id="local-user")
@@ -163,8 +168,8 @@ def test_memory_promotion_creates_an_entry_and_rollback_archives_it(tmp_path):
 
 # ---------------------------------------------------------------- Skill
 
-def test_skill_adapter_stores_a_candidate_without_enabling_it(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_adapter_stores_a_candidate_without_enabling_it(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["skill"])
     job_id = runtime.learning.enqueue("local-user", "experience", "e", "hash", "root")
     adapter = adapters(runtime)[TARGET_SKILL]
@@ -183,8 +188,8 @@ def test_skill_adapter_stores_a_candidate_without_enabling_it(tmp_path):
     ({"content": "适用：x\n输出：x\n退出：y\n```python\nimport os\n```"}, "no_executable_code"),
     ({"content": "输出：x\n退出：y"}, "trigger_condition"),
 ])
-def test_skill_adapter_rejects_unsafe_or_incomplete_skills(tmp_path, change, check):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_adapter_rejects_unsafe_or_incomplete_skills(database, tmp_path, change, check):
+    runtime, _ = runtime_with_message(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["skill"])
     job_id = runtime.learning.enqueue("local-user", "experience", "e", "hash", "root")
     adapter = adapters(runtime)[TARGET_SKILL]
@@ -193,8 +198,8 @@ def test_skill_adapter_rejects_unsafe_or_incomplete_skills(tmp_path, change, che
     assert not verdict["pass"] and verdict["checks"][check] is False
 
 
-def test_skill_promotion_enables_without_granting_tools(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_promotion_enables_without_granting_tools(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["skill"])
     job_id = runtime.learning.enqueue("local-user", "experience", "e", "hash", "root")
     adapter = adapters(runtime)[TARGET_SKILL]
@@ -210,8 +215,8 @@ def test_skill_promotion_enables_without_granting_tools(tmp_path):
 
 # ---------------------------------------------------------------- Behavior
 
-def test_behavior_adapter_builds_a_target_bundle_and_candidate(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_adapter_builds_a_target_bundle_and_candidate(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     items = record_experiences(runtime)
     adapter = adapters(runtime)[TARGET_BEHAVIOR]
     candidate = adapter.create_candidate(behavior_draft([item["id"] for item in items]),
@@ -225,8 +230,8 @@ def test_behavior_adapter_builds_a_target_bundle_and_candidate(tmp_path):
     assert verdict["pass"], verdict["reason"]
 
 
-def test_behavior_adapter_refuses_frozen_surfaces(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_adapter_refuses_frozen_surfaces(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     items = record_experiences(runtime)
     adapter = adapters(runtime)[TARGET_BEHAVIOR]
     draft = behavior_draft([item["id"] for item in items],
@@ -236,8 +241,8 @@ def test_behavior_adapter_refuses_frozen_surfaces(tmp_path):
         adapter.create_candidate(draft, owner_id="local-user", job_id="job_frozen")
 
 
-def test_behavior_adapter_refuses_an_unsupported_subtype(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_adapter_refuses_an_unsupported_subtype(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     items = record_experiences(runtime)
     adapter = adapters(runtime)[TARGET_BEHAVIOR]
     draft = behavior_draft([item["id"] for item in items],
@@ -247,8 +252,8 @@ def test_behavior_adapter_refuses_an_unsupported_subtype(tmp_path):
         adapter.create_candidate(draft, owner_id="local-user", job_id="job_unsupported")
 
 
-def test_behavior_adapter_refuses_a_change_that_alters_nothing(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_adapter_refuses_a_change_that_alters_nothing(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     items = record_experiences(runtime)
     adapter = adapters(runtime)[TARGET_BEHAVIOR]
     draft = behavior_draft([item["id"] for item in items],
@@ -258,8 +263,8 @@ def test_behavior_adapter_refuses_a_change_that_alters_nothing(tmp_path):
         adapter.create_candidate(draft, owner_id="local-user", job_id="job_noop")
 
 
-def test_behavior_adapter_requires_independent_experiences(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_adapter_requires_independent_experiences(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     items = record_experiences(runtime, count=1)
     adapter = adapters(runtime)[TARGET_BEHAVIOR]
     from app.evolution import EvolutionGateError
@@ -269,8 +274,8 @@ def test_behavior_adapter_requires_independent_experiences(tmp_path):
                                  owner_id="local-user", job_id="job_thin")
 
 
-def test_adapter_registry_covers_exactly_the_three_targets(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_adapter_registry_covers_exactly_the_three_targets(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     registry = adapters(runtime)
     assert set(registry) == {TARGET_MEMORY, TARGET_SKILL, TARGET_BEHAVIOR}
     assert isinstance(registry[TARGET_MEMORY], MemoryTargetAdapter)
@@ -279,8 +284,8 @@ def test_adapter_registry_covers_exactly_the_three_targets(tmp_path):
     assert set(BEHAVIOR_SURFACE_PATHS) == {"prompt", "model_policy"}
 
 
-def test_adapters_reject_a_draft_of_the_wrong_type(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_adapters_reject_a_draft_of_the_wrong_type(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     registry = adapters(runtime)
     with pytest.raises(ValueError, match="MemoryDraft"):
         registry[TARGET_MEMORY].create_candidate(skill_draft(), owner_id="local-user", job_id="job_wrong")

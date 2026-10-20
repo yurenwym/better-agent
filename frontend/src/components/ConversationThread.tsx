@@ -64,13 +64,24 @@ function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
 }
 
-const conversationDrafts = new Map<string, string>();
+interface DraftRecord { value: string; owner: string; }
+const conversationDrafts = new Map<string, DraftRecord>();
+function newDraftOwner(): string {
+  return typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `draft-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 export function moveConversationDraft(from: string, to: string) {
-  const value=conversationDrafts.get(from);
-  if(value)conversationDrafts.set(to,value);
+  const record=conversationDrafts.get(from);
+  if(record)conversationDrafts.set(to,record);
   conversationDrafts.delete(from);
 }
-export function clearConversationDraft(key: string) { conversationDrafts.delete(key); }
+export function clearConversationDraft(key: string, owner?: string) {
+  if (owner === undefined || conversationDrafts.get(key)?.owner === owner) conversationDrafts.delete(key);
+}
+function clearDraftRecordsOwnedBy(owner: string) {
+  for (const [key, record] of conversationDrafts) if (record.owner === owner) conversationDrafts.delete(key);
+}
 
 export default function ConversationThread({ embedded=false, draftKey, messages, busy = false, title = "推动当前目标", description = "模型的每次返回都会留在这里，你可以直接根据它继续补充或调整。", composerDisabled = false, cancelBusy = false, cancelLabel = "取消任务", onCancel, pendingAsk = null, askBusy = false, onAskAnswer, onAskCancel, planReference = null, onOpenPlan, onArrangePlan, onSaveMessagePlan, researchJobs = [], onCancelResearch, onRetryResearch, onOpenResearch, skills = [], selectedSkills = [], onToggleSkill = () => undefined, deepProcessing = false, expertBusy = false, onDeepProcessingChange, expertPanel, activeView = "conversation", onViewChange, trajectoryPanel, decision, onSubmit }: ConversationThreadProps) {
   const [planCandidate, setPlanCandidate] = useState<string | null>(null);
@@ -87,12 +98,18 @@ export default function ConversationThread({ embedded=false, draftKey, messages,
     finally { saveLock.current = false; setSavingPlan(false); }
   }
   const latestMessage = messages.at(-1);
-  const [draft, updateDraft] = useState(() => draftKey ? conversationDrafts.get(draftKey) ?? "" : "");
-  const draftIdentity = useRef(draftKey);
-  useEffect(() => { draftIdentity.current=draftKey; updateDraft(draftKey ? conversationDrafts.get(draftKey) ?? "" : ""); }, [draftKey]);
+  const [draft, updateDraft] = useState(() => draftKey ? conversationDrafts.get(draftKey)?.value ?? "" : "");
+  const draftOwner = useRef<string>(newDraftOwner());
+  useEffect(() => {
+    const record = draftKey ? conversationDrafts.get(draftKey) : undefined;
+    draftOwner.current = record?.owner ?? newDraftOwner();
+    updateDraft(record?.value ?? "");
+  }, [draftKey]);
   function setDraft(value: string) {
+    const owner = newDraftOwner();
+    draftOwner.current = owner;
     updateDraft(value);
-    if(draftKey){if(value)conversationDrafts.set(draftKey,value);else conversationDrafts.delete(draftKey);}
+    if(draftKey){if(value)conversationDrafts.set(draftKey,{value,owner});else conversationDrafts.delete(draftKey);}
   }
   const [pendingUser, setPendingUser] = useState("");
   const [skillsOpen, setSkillsOpen] = useState(false);
@@ -142,13 +159,18 @@ export default function ConversationThread({ embedded=false, draftKey, messages,
 
   async function submit() {
     const content = draft.trim();
-    const submittedKey = draftKey;
+    const submittedOwner = draftOwner.current;
     if (!content || busy || composerLocked) return;
     setPendingUser(content);
     const accepted = await onSubmit(content);
     if (accepted !== false) {
-      if(submittedKey)conversationDrafts.delete(submittedKey);
-      if(draftIdentity.current===submittedKey || draftIdentity.current && conversationDrafts.get(draftIdentity.current) === undefined)updateDraft("");
+      // Clear every persisted record this send owns. Ownership travels with a
+      // moved record (new -> thread id) and is unique per edit, so the submitted
+      // draft is cleared wherever it now lives - even after further navigation -
+      // while a later edit (fresh owner) or another conversation (its own owner)
+      // is preserved even when it holds identical text.
+      clearDraftRecordsOwnedBy(submittedOwner);
+      if (draftOwner.current === submittedOwner) updateDraft("");
     }
     setPendingUser("");
   }

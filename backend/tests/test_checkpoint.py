@@ -1,8 +1,7 @@
-def test_checkpoint_persists_runtime_state_and_deduplicates_completed_side_effects(tmp_path) -> None:
-    from app.db import Database
+def test_checkpoint_persists_runtime_state_and_deduplicates_completed_side_effects(tmp_path, database) -> None:
     from app.domain import Checkpoint, CheckpointStore
 
-    store = CheckpointStore(Database(tmp_path / "agent.db"))
+    store = CheckpointStore(database)
     checkpoint = store.save(
         Checkpoint(
             run_id="run-1",
@@ -30,11 +29,13 @@ def test_checkpoint_persists_runtime_state_and_deduplicates_completed_side_effec
     assert store.completed_tool_result("run-1", "call-2") is None
 import pytest
 
+from pg02_helpers import database
+
 from test_runtime import make_runtime, historical_run_identity
 
 
 @pytest.mark.asyncio
-async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path, historical_run_identity) -> None:
+async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path, database, historical_run_identity) -> None:
     from app.memory_v2 import MemoryContextProvider, MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -50,7 +51,7 @@ async def test_runtime_checkpoint_records_applied_memory_versions(tmp_path, hist
             self.contexts.append(text)
 
     model = ContextModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     entry = store.remember("local-user", "preference", "user", "", "Use concise plans", "remember-1")
     runtime.memory_store = store

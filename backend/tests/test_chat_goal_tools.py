@@ -14,7 +14,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
 
 
 @pytest.fixture(autouse=True)
@@ -72,12 +72,12 @@ def _answer(body: str) -> dict:
     }
 
 
-def _make_runtime(tmp_path, gateway):
+def _make_runtime(database, tmp_path, gateway):
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_tools import register_goal_tools
     from app.live_model import LiveConversationModel
 
-    runtime = make_runtime(tmp_path, LiveConversationModel(gateway))
+    runtime = make_runtime(database, tmp_path, LiveConversationModel(gateway))
     runtime.goal_programs.compiler = FixedGoalProgramCompiler()
     register_goal_tools(
         runtime.tools,
@@ -146,17 +146,17 @@ def _artifact_gateway():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("deleted", [False, True])
-async def test_first_artifact_race_preserves_other_writer_and_tombstone(tmp_path, monkeypatch, deleted):
-    await _assert_artifact_creation_race(_make_runtime(tmp_path, _artifact_gateway()), monkeypatch, deleted=deleted)
+async def test_first_artifact_race_preserves_other_writer_and_tombstone(database, tmp_path, monkeypatch, deleted):
+    await _assert_artifact_creation_race(_make_runtime(database, tmp_path, _artifact_gateway()), monkeypatch, deleted=deleted)
 
 
 @pytest.mark.asyncio
-async def test_read_tool_executes_inline_without_execution_rows(tmp_path) -> None:
+async def test_read_tool_executes_inline_without_execution_rows(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("get_today_tasks", {})]},
         _answer("今天没有安排行动。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-read-1", "今天要做什么？", [])
 
@@ -177,12 +177,12 @@ async def test_read_tool_executes_inline_without_execution_rows(tmp_path) -> Non
 
 
 @pytest.mark.asyncio
-async def test_write_tool_pauses_until_approved_then_commits_document(tmp_path) -> None:
+async def test_write_tool_pauses_until_approved_then_commits_document(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("create_plan_draft", {"title": "桂林旅游攻略", "markdown_content": "# 桂林\n第一天…"})]},
         _answer("攻略已保存，可在计划页面查看。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-write-1", "保存这份攻略", [])
 
@@ -222,12 +222,12 @@ async def test_write_tool_pauses_until_approved_then_commits_document(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_rejected_write_never_writes_and_reports_rejection(tmp_path) -> None:
+async def test_rejected_write_never_writes_and_reports_rejection(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("create_plan_draft", {"title": "草稿", "markdown_content": "# 草稿"})]},
         _answer("好的，我没有保存这份文档。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-write-2", "保存这份攻略", [])
 
@@ -258,12 +258,12 @@ async def test_rejected_write_never_writes_and_reports_rejection(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_tool_decision_replay_never_double_writes(tmp_path) -> None:
+async def test_tool_decision_replay_never_double_writes(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("create_plan_draft", {"title": "草稿", "markdown_content": "# 草稿"})]},
         _answer("已保存。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-replay", "保存这份攻略", [])
     await runtime.turn_worker.run_once()
@@ -287,11 +287,11 @@ async def test_tool_decision_replay_never_double_writes(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancelled_turn_rejects_pending_approval(tmp_path) -> None:
+async def test_cancelled_turn_rejects_pending_approval(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("create_plan_draft", {"title": "草稿", "markdown_content": "# 草稿"})]},
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-cancel", "保存这份攻略", [])
     await runtime.turn_worker.run_once()
@@ -310,13 +310,13 @@ async def test_cancelled_turn_rejects_pending_approval(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_later_turn_replays_the_tool_exchange_to_the_model(tmp_path) -> None:
+async def test_later_turn_replays_the_tool_exchange_to_the_model(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("get_today_tasks", {})]},
         _answer("今天没有安排行动。"),
         _answer("仍然没有安排。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     first = runtime.conversation.accept_turn(thread.id, "turn-history-1", "今天要做什么？", [])
     await runtime.turn_worker.run_once()
@@ -334,13 +334,13 @@ async def test_later_turn_replays_the_tool_exchange_to_the_model(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_crash_after_commit_before_result_persistence_recovers_same_version(tmp_path, monkeypatch) -> None:
+async def test_crash_after_commit_before_result_persistence_recovers_same_version(database, tmp_path, monkeypatch) -> None:
     """The committed document is never written twice when the result is lost."""
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("create_plan_draft", {"title": "攻略", "markdown_content": "# 攻略"})]},
         _answer("已保存。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-recovery", "保存这份攻略", [])
     await runtime.turn_worker.run_once()
@@ -386,7 +386,7 @@ async def test_crash_after_commit_before_result_persistence_recovers_same_versio
 
 
 @pytest.mark.asyncio
-async def test_modify_tool_pauses_for_approval_and_commits_one_version(tmp_path) -> None:
+async def test_modify_tool_pauses_for_approval_and_commits_one_version(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("modify_plan_document", {
             "document_id": "placeholder",
@@ -396,7 +396,7 @@ async def test_modify_tool_pauses_for_approval_and_commits_one_version(tmp_path)
         })]},
         _answer("计划文档已更新。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat modify")
     document = runtime.plan_documents.save_model_revision(
         thread_id=thread.id, title="攻略", markdown_content="# 攻略\n\n- 两个景点",
@@ -434,7 +434,7 @@ async def test_modify_tool_pauses_for_approval_and_commits_one_version(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_artifact_modification_is_suspended_and_rejection_keeps_original(tmp_path) -> None:
+async def test_artifact_modification_is_suspended_and_rejection_keeps_original(database, tmp_path) -> None:
     artifact = (
         '{"v":2,"policy":"answer","content_shape":"plan","reason_code":"content_only",'
         '"artifact":{"kind":"plan_document","operation":"upsert","title":"攻略（减量）"}}\n'
@@ -446,7 +446,7 @@ async def test_artifact_modification_is_suspended_and_rejection_keeps_original(t
         {"message": '{"save_existing_plan": false}'},
         _answer("没有保存修改，原计划保持不变。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("artifact modify")
     document = runtime.plan_documents.save_model_revision(
         thread_id=thread.id, title="攻略", markdown_content="# 攻略\n\n- 两个景点",
@@ -474,7 +474,7 @@ async def test_artifact_modification_is_suspended_and_rejection_keeps_original(t
 
 
 @pytest.mark.asyncio
-async def test_repeated_identical_tool_failure_stops_and_answers(tmp_path) -> None:
+async def test_repeated_identical_tool_failure_stops_and_answers(database, tmp_path) -> None:
     bad_call = {
         "tool_calls": [_tool_call("activate_goal_plan", {
             "mode": "activate", "program_id": "program_x", "expected_version": 1, "document_id": "plan_x",
@@ -485,7 +485,7 @@ async def test_repeated_identical_tool_failure_stops_and_answers(tmp_path) -> No
         bad_call,
         _answer("激活没有成功：调用参数被拒绝。请重新确认执行预览后再试。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-repeat", "激活这个计划", [])
 
@@ -500,7 +500,7 @@ async def test_repeated_identical_tool_failure_stops_and_answers(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_parallel_read_calls_in_one_response_all_execute(tmp_path) -> None:
+async def test_parallel_read_calls_in_one_response_all_execute(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [
             _tool_call("get_today_tasks", {}),
@@ -508,7 +508,7 @@ async def test_parallel_read_calls_in_one_response_all_execute(tmp_path) -> None
         ]},
         _answer("目标列表和今日任务都为空。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-parallel", "看看目标和任务", [])
 
@@ -522,7 +522,7 @@ async def test_parallel_read_calls_in_one_response_all_execute(tmp_path) -> None
 
 
 @pytest.mark.asyncio
-async def test_batched_read_and_write_pauses_after_the_read(tmp_path) -> None:
+async def test_batched_read_and_write_pauses_after_the_read(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [
             _tool_call("get_today_tasks", {}),
@@ -530,7 +530,7 @@ async def test_batched_read_and_write_pauses_after_the_read(tmp_path) -> None:
         ]},
         _answer("已保存。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("chat tools")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-batch", "看看任务并保存攻略", [])
 
@@ -554,7 +554,7 @@ async def test_batched_read_and_write_pauses_after_the_read(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_execution_management_previews_then_activates_after_confirmation(tmp_path) -> None:
+async def test_execution_management_previews_then_activates_after_confirmation(database, tmp_path) -> None:
     """The full slice-3 chain: draft -> preview -> confirm -> activate."""
 
     def draft_call(_request):
@@ -586,7 +586,7 @@ async def test_execution_management_previews_then_activates_after_confirmation(t
         draft_call, preview_call, activate_call,
         _answer("目标已激活，今天开始执行第一项安排。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("执行管理")
     accepted = runtime.conversation.accept_turn(thread.id, "turn-manage", "帮我管理执行进度", [])
 
@@ -631,7 +631,7 @@ async def test_execution_management_previews_then_activates_after_confirmation(t
 
 
 @pytest.mark.asyncio
-async def test_today_tasks_and_feedback_use_real_ids_and_versions(tmp_path) -> None:
+async def test_today_tasks_and_feedback_use_real_ids_and_versions(database, tmp_path) -> None:
     gateway = ScriptedGateway([
         {"tool_calls": [_tool_call("get_today_tasks", {"date": "2026-09-01"})]},
         _answer("今天有一项训练安排。"),
@@ -644,7 +644,7 @@ async def test_today_tasks_and_feedback_use_real_ids_and_versions(tmp_path) -> N
         })]},
         _answer("已记录 30 分钟进展，行动未被标记完成。"),
     ])
-    runtime = _make_runtime(tmp_path, gateway)
+    runtime = _make_runtime(database, tmp_path, gateway)
     thread = runtime.conversation.create_thread("反馈")
     document = runtime.plan_documents.save_model_revision(
         thread_id=thread.id, title="五周训练计划", markdown_content="# 五周训练计划\n\n- 力量训练",

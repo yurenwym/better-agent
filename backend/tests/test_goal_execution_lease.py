@@ -2,13 +2,29 @@ import asyncio
 
 import pytest
 
+from app.db import Database
 from app.runtime import MockModelGateway
 from app.task_runtime import LeaseLost
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
+
+
+@pytest.fixture
+def second_database(database):
+    allocated = []
+    class TrackedDatabase(Database):
+        def __init__(self, *args, **kwargs):
+            allocated.append(self)
+            super().__init__(*args, **kwargs)
+    def create():
+        return TrackedDatabase(database.database_url, workspace=database.workspace)
+    yield create
+    for opened in reversed(allocated):
+        if getattr(opened, "_pool", None) is not None:
+            opened.close()
 
 
 @pytest.mark.asyncio
-async def test_two_runtime_instances_share_goal_execution_authority(tmp_path):
+async def test_two_runtime_instances_share_goal_execution_authority(database, tmp_path, second_database):
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -18,10 +34,12 @@ async def test_two_runtime_instances_share_goal_execution_authority(tmp_path):
             await release.wait()
             return False
 
-    first = make_runtime(tmp_path, Model())
-    second = make_runtime(tmp_path, MockModelGateway())
+    first = make_runtime(database, tmp_path, Model())
+    second_db = second_database()
+    second = make_runtime(second_db, tmp_path, MockModelGateway())
     run = await first.create_goal("goal", "work")
     pending = asyncio.create_task(first.handle_message(run.id, "start"))
+    expected_lease_lost = False
     try:
         await asyncio.wait_for(entered.wait(), 2)
         with pytest.raises(LeaseLost, match="already active"):
@@ -34,13 +52,19 @@ async def test_two_runtime_instances_share_goal_execution_authority(tmp_path):
         assert first.get_run(run.id).state == "AWAITING_APPROVAL"
     finally:
         release.set()
-        await pending
-        first.db.close()
-        second.db.close()
+        if not pending.done():
+            pending.cancel()
+        try:
+            await pending
+        except asyncio.CancelledError:
+            pass
+        except LeaseLost:
+            if not expected_lease_lost:
+                raise
 
 
 @pytest.mark.asyncio
-async def test_expired_goal_worker_cannot_commit_model_response(tmp_path):
+async def test_expired_goal_worker_cannot_commit_model_response(database, tmp_path, second_database):
     entered = asyncio.Event()
     release = asyncio.Event()
 
@@ -50,10 +74,12 @@ async def test_expired_goal_worker_cannot_commit_model_response(tmp_path):
             await release.wait()
             return False
 
-    first = make_runtime(tmp_path, Model())
-    second = make_runtime(tmp_path, MockModelGateway())
+    first = make_runtime(database, tmp_path, Model())
+    second_db = second_database()
+    second = make_runtime(second_db, tmp_path, MockModelGateway())
     run = await first.create_goal("goal", "work")
     pending = asyncio.create_task(first.handle_message(run.id, "start"))
+    expected_lease_lost = False
     try:
         await asyncio.wait_for(entered.wait(), 2)
         with first.db.transaction() as connection:
@@ -63,6 +89,7 @@ async def test_expired_goal_worker_cannot_commit_model_response(tmp_path):
         release.set()
         with pytest.raises(LeaseLost):
             await pending
+        expected_lease_lost = True
         assert first.get_run(run.id).state == "AWAITING_APPROVAL"
         with first.db.connection() as connection:
             assert connection.execute("SELECT COUNT(*) FROM plan_versions WHERE run_id=?", (run.id,)).fetchone()[0] == 1
@@ -70,6 +97,11 @@ async def test_expired_goal_worker_cannot_commit_model_response(tmp_path):
     finally:
         release.set()
         if not pending.done():
+            pending.cancel()
+        try:
             await pending
-        first.db.close()
-        second.db.close()
+        except asyncio.CancelledError:
+            pass
+        except LeaseLost:
+            if not expected_lease_lost:
+                raise

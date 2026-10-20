@@ -5,7 +5,24 @@ import pytest
 
 from fastapi.testclient import TestClient
 
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
+
+_CLIENTS: list[TestClient] = []
+
+
+def _client(app):
+    client = TestClient(app)
+    _CLIENTS.append(client)
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _close_clients(database):
+    _CLIENTS.clear()
+    yield
+    for client in reversed(_CLIENTS):
+        client.close()
+    _CLIENTS.clear()
 
 
 def _headers(app):
@@ -55,12 +72,12 @@ class PendingAskModel:
         )
 
 
-def _pending_ask(tmp_path):
+def _pending_ask(database, tmp_path):
     from app.main import create_app
 
-    runtime = make_runtime(tmp_path, PendingAskModel())
+    runtime = make_runtime(database, tmp_path, PendingAskModel())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns",
@@ -71,13 +88,13 @@ def _pending_ask(tmp_path):
     return runtime, app, client, runtime.conversation.turn(accepted["turn_id"])
 
 
-def test_turn_submission_is_durable_and_idempotent_before_model_finishes(tmp_path) -> None:
+def test_turn_submission_is_durable_and_idempotent_before_model_finishes(database, tmp_path) -> None:
     from app.main import create_app
 
     model = BlockingConversationModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
 
     thread_response = client.post("/api/threads", headers=_headers(app), json={"title": "Chat"})
     assert thread_response.status_code == 201
@@ -100,7 +117,7 @@ def test_turn_submission_is_durable_and_idempotent_before_model_finishes(tmp_pat
     assert _count(runtime, "runs") == 0
 
 
-def test_thread_api_returns_nullable_then_terminal_turn_metrics(tmp_path) -> None:
+def test_thread_api_returns_nullable_then_terminal_turn_metrics(database, tmp_path) -> None:
     from app.main import create_app
 
     class AnswerModel:
@@ -110,9 +127,9 @@ def test_thread_api_returns_nullable_then_terminal_turn_metrics(tmp_path) -> Non
                 '"reason_code":"content_only"}\nanswer'
             )
 
-    runtime = make_runtime(tmp_path, AnswerModel())
+    runtime = make_runtime(database, tmp_path, AnswerModel())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns", headers=_headers(app),
@@ -132,17 +149,17 @@ def test_thread_api_returns_nullable_then_terminal_turn_metrics(tmp_path) -> Non
     assert metrics["stream_ms"] >= 0
 
 
-def test_thread_list_preserves_multiple_conversations_and_owner_scope(tmp_path) -> None:
+def test_thread_list_preserves_multiple_conversations_and_owner_scope(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     first = client.post("/api/threads", headers=_headers(app), json={"title": "骑行计划"}).json()
     second = client.post("/api/threads", headers=_headers(app), json={"title": "广西旅行"}).json()
     with runtime.db.transaction() as connection:
-        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread','private','other-user',0,1,datetime('now'),datetime('now'))")
+        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread','private','other-user',0,1,clock_timestamp()::text,clock_timestamp()::text)")
 
     response = client.get("/api/threads", headers={"host": "127.0.0.1:8000"})
 
@@ -151,13 +168,13 @@ def test_thread_list_preserves_multiple_conversations_and_owner_scope(tmp_path) 
     assert all(item["id"] != "other-thread" for item in response.json()["threads"])
 
 
-def test_deleting_thread_removes_it_from_history_and_blocks_direct_access(tmp_path) -> None:
+def test_deleting_thread_removes_it_from_history_and_blocks_direct_access(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={"title": "待删除会话"}).json()
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns",
@@ -181,15 +198,15 @@ def test_deleting_thread_removes_it_from_history_and_blocks_direct_access(tmp_pa
         assert connection.execute("SELECT COUNT(*) FROM thread_messages WHERE thread_id=?", (thread["id"],)).fetchone()[0] == 1
 
 
-def test_deleting_thread_is_owner_scoped(tmp_path) -> None:
+def test_deleting_thread_is_owner_scoped(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     with runtime.db.transaction() as connection:
-        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread-delete','private','other-user',0,1,datetime('now'),datetime('now'))")
+        connection.execute("INSERT INTO threads(id,title,owner_id,version,next_event_seq,created_at,updated_at) VALUES ('other-thread-delete','private','other-user',0,1,clock_timestamp()::text,clock_timestamp()::text)")
 
     response = client.delete("/api/threads/other-thread-delete", headers=_headers(app))
 
@@ -198,13 +215,13 @@ def test_deleting_thread_is_owner_scoped(tmp_path) -> None:
         assert connection.execute("SELECT deleted_at FROM threads WHERE id='other-thread-delete'").fetchone()["deleted_at"] is None
 
 
-def test_deleting_thread_requires_active_work_to_stop_first(tmp_path) -> None:
+def test_deleting_thread_requires_active_work_to_stop_first(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={"title": "回复中"}).json()
     client.post(
         f"/api/threads/{thread['id']}/turns",
@@ -218,13 +235,13 @@ def test_deleting_thread_requires_active_work_to_stop_first(tmp_path) -> None:
     assert client.get(f"/api/threads/{thread['id']}", headers={"host": "127.0.0.1:8000"}).status_code == 200
 
 
-def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
+def test_turn_validation_rejects_empty_content_and_bad_skills(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
 
     empty = client.post(
@@ -242,13 +259,13 @@ def test_turn_validation_rejects_empty_content_and_bad_skills(tmp_path) -> None:
     assert bad_skills.status_code == 422
 
 
-def test_json_request_body_has_a_finite_size_limit(tmp_path) -> None:
+def test_json_request_body_has_a_finite_size_limit(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
 
     response = client.post(
         "/api/threads",
@@ -260,13 +277,13 @@ def test_json_request_body_has_a_finite_size_limit(tmp_path) -> None:
     assert response.json()["detail"] == "JSON 请求体过大"
 
 
-def test_json_request_body_limit_also_applies_without_content_length(tmp_path) -> None:
+def test_json_request_body_limit_also_applies_without_content_length(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     payload = b'{"title":"' + (b"x" * (2 * 1024 * 1024)) + b'"}'
 
     response = client.post(
@@ -279,13 +296,13 @@ def test_json_request_body_limit_also_applies_without_content_length(tmp_path) -
     assert response.json()["detail"] == "JSON 请求体过大"
 
 
-def test_direction_route_materializes_after_confirmation(tmp_path) -> None:
+def test_direction_route_materializes_after_confirmation(database, tmp_path) -> None:
     from app.main import create_app
     from test_materializer import MaterializerModel
 
-    runtime = make_runtime(tmp_path, MaterializerModel())
+    runtime = make_runtime(database, tmp_path, MaterializerModel())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
     runtime.plan_documents.save_model_revision(
         thread_id=thread["id"],
@@ -318,13 +335,13 @@ def test_direction_route_materializes_after_confirmation(tmp_path) -> None:
     assert _count(runtime, "goals") == 1
 
 
-def test_thread_messages_events_and_cancel_routes_are_durable(tmp_path) -> None:
+def test_thread_messages_events_and_cancel_routes_are_durable(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns",
@@ -358,13 +375,13 @@ def test_thread_messages_events_and_cancel_routes_are_durable(tmp_path) -> None:
     ]
 
 
-def test_thread_sse_uses_seq_and_last_event_id_for_reconnect(tmp_path) -> None:
+def test_thread_sse_uses_seq_and_last_event_id_for_reconnect(database, tmp_path) -> None:
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", headers=_headers(app), json={}).json()
     accepted = client.post(
         f"/api/threads/{thread['id']}/turns",
@@ -391,8 +408,8 @@ def test_thread_sse_uses_seq_and_last_event_id_for_reconnect(tmp_path) -> None:
     assert "id: 3\nevent: conversation" in resumed.text
 
 
-def test_answering_pending_ask_creates_one_child_turn_and_is_idempotent(tmp_path) -> None:
-    runtime, app, client, pending = _pending_ask(tmp_path)
+def test_answering_pending_ask_creates_one_child_turn_and_is_idempotent(database, tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(database, tmp_path)
     payload = {
         "expected_version": pending.version,
         "idempotency_key": "answer-1",
@@ -419,8 +436,8 @@ def test_answering_pending_ask_creates_one_child_turn_and_is_idempotent(tmp_path
     assert completed_event.data["continuation_turn_id"] == first.json()["turn"]["id"]
 
 
-def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(tmp_path) -> None:
-    runtime, app, client, pending = _pending_ask(tmp_path)
+def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(database, tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(database, tmp_path)
 
     conflict = client.post(
         f"/api/turns/{pending.id}/ask/answer",
@@ -447,8 +464,8 @@ def test_answering_pending_ask_rejects_version_conflict_and_invalid_choice(tmp_p
 
 
 @pytest.mark.parametrize("version_kind", ["bool", "float", "string"])
-def test_answering_pending_ask_rejects_non_integer_versions(tmp_path, version_kind) -> None:
-    runtime, app, client, pending = _pending_ask(tmp_path)
+def test_answering_pending_ask_rejects_non_integer_versions(database, tmp_path, version_kind) -> None:
+    runtime, app, client, pending = _pending_ask(database, tmp_path)
     expected_version = {
         "bool": True,
         "float": float(pending.version),
@@ -469,8 +486,8 @@ def test_answering_pending_ask_rejects_non_integer_versions(tmp_path, version_ki
     assert _count(runtime, "turns") == 1
 
 
-def test_pending_ask_can_be_loaded_and_cancelled_without_child_turn(tmp_path) -> None:
-    runtime, app, client, pending = _pending_ask(tmp_path)
+def test_pending_ask_can_be_loaded_and_cancelled_without_child_turn(database, tmp_path) -> None:
+    runtime, app, client, pending = _pending_ask(database, tmp_path)
 
     loaded = client.get(f"/api/turns/{pending.id}/ask", headers={"host": "127.0.0.1:8000"})
     cancelled = client.post(f"/api/turns/{pending.id}/cancel", headers=_headers(app), json={})

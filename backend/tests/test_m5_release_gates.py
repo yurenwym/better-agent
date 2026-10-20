@@ -29,8 +29,24 @@ def judge(_):
             "baseline_correctness": {"verdict": "pass", "issues": []}}
 
 
-def prepared(tmp_path, *, freeze=True, start=True, cap=1000):
-    runtime = build_runtime(tmp_path)
+def _ensure_generation_root(runtime):
+    if runtime.db.backend != "postgresql":
+        return
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+            "VALUES ('approved-root-budget','local-user','generation','approved-root-budget',1,"
+            "clock_timestamp() + interval '1 hour') ON CONFLICT(id) DO NOTHING"
+        )
+
+
+def prepared(tmp_path, *, freeze=True, start=True, cap=1000, database=None):
+    if database is None:
+        runtime = build_runtime(tmp_path)
+    else:
+        from pg02_learning_helpers import build_pg_runtime
+        runtime = build_pg_runtime(tmp_path, database)
+    _ensure_generation_root(runtime)
     suite = cases()
     if freeze:
         runtime.evolution.freeze_research_suite(suite)

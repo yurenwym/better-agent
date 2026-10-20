@@ -11,13 +11,12 @@ from app.goal_adjustments import GoalAdjustmentService
 from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
 from app.goal_programs import GoalProgramConflict, GoalProgramService
 from app.goal_reviews import GoalReviewService
+from pg02_helpers import database
 
 
 @pytest.fixture
-def integrity_database(tmp_path):
-    db = Database(tmp_path / "agent.db")
-    yield db
-    db.close()
+def integrity_database(database):
+    yield database
 
 
 @pytest.fixture
@@ -25,6 +24,12 @@ def scenario(integrity_database, monkeypatch):
     monkeypatch.setattr("app.goal_adjustments._local_date",lambda _:"2026-09-14")
     monkeypatch.setattr("app.goal_programs._execution_date",lambda _:"2026-09-15")
     monkeypatch.setattr("app.goal_reviews._local_date",lambda _:"2026-09-15")
+    allocated = []
+    class TrackedDatabase(Database):
+        def __init__(self, *args, **kwargs):
+            allocated.append(self)
+            super().__init__(*args, **kwargs)
+    monkeypatch.setattr("test_goal_integrity.Database", TrackedDatabase)
     db=integrity_database
     conversation=ConversationService(db)
     thread=conversation.create_thread("Sales analysis")
@@ -34,7 +39,12 @@ def scenario(integrity_database, monkeypatch):
     adjustments=GoalAdjustmentService(goals,compiler,conversation.plan_documents)
     reviews=GoalReviewService(goals,compiler,adjustments,queue_delay_seconds=0)
     goals.reviews=reviews
-    return goals,adjustments,reviews,plan
+    try:
+        yield goals,adjustments,reviews,plan
+    finally:
+        for opened in reversed(allocated):
+            if getattr(opened, "_pool", None) is not None:
+                opened.close()
 
 
 def preview(scenario,days=7):

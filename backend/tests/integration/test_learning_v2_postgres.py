@@ -2,20 +2,24 @@ import asyncio
 
 import pytest
 
-from app.startup import build_runtime
 from app.learning import LearningConflict
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 from test_learning_v2 import feedback, compile_plan
 
 
 @pytest.fixture
-def learning_runtime(tmp_path, migrated_postgres_url, monkeypatch):
+def learning_runtime(tmp_path, database, monkeypatch):
     for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
-    runtime = build_runtime(tmp_path, database_url=migrated_postgres_url)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["memory"],
                                cycle_microusd=100, daily_microusd=200, monthly_microusd=1000)
     yield runtime
-    runtime.db._pool.close()
 
 
 def test_postgres_memory_to_new_plan_and_correction(learning_runtime):
@@ -83,7 +87,7 @@ def test_postgres_workflow_adoption_and_revocation(learning_runtime):
 
 
 @pytest.mark.parametrize("fail_at", [None, 2])
-def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, migrated_postgres_url, monkeypatch, fail_at):
+def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, database, monkeypatch, fail_at):
     import json
     from app.model_gateway import ModelProfile, ModelResponse, UsageBuckets, Timing
     from app.costs import PriceSnapshot
@@ -95,7 +99,10 @@ def test_postgres_prompt_cycle_uses_real_ledger_and_request_snapshots(tmp_path, 
     for key in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("AGENT_MODEL_CAPABILITIES", "text,streaming,tool_calling,json_object,json_schema")
-    runtime = build_runtime(tmp_path, database_url=migrated_postgres_url, profile=ModelProfile("https://offline.invalid", "fixture", "UNUSED", max_attempts=1))
+    runtime = build_pg_runtime(
+        tmp_path, database,
+        profile=ModelProfile("https://offline.invalid", "fixture", "UNUSED", max_attempts=1),
+    )
     gateway = runtime.learning.prompt_learning.gateway
     calls = []
     async def execute(profile, request, **kwargs):

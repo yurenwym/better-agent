@@ -1,14 +1,15 @@
-from app.db import Database
+from pg02_helpers import database
+
 from app.events import EventStore
 
 
-def test_runtime_event_append_refreshes_persisted_stats_projection(tmp_path) -> None:
+def test_runtime_event_append_refreshes_persisted_stats_projection(tmp_path, database) -> None:
     import asyncio
 
     from app.runtime import MockModelGateway
     from test_runtime import make_runtime
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = asyncio.run(runtime.create_goal("Projection", "Persist stats"))
 
     with runtime.db.connection() as connection:
@@ -17,13 +18,13 @@ def test_runtime_event_append_refreshes_persisted_stats_projection(tmp_path) -> 
     assert row is not None
 
 
-def test_runtime_closes_a_model_attempt_for_each_model_call(tmp_path) -> None:
+def test_runtime_closes_a_model_attempt_for_each_model_call(tmp_path, database) -> None:
     import asyncio
 
     from app.runtime import MockModelGateway
     from test_runtime import make_runtime
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = asyncio.run(runtime.create_goal("Telemetry", "Count calls"))
     asyncio.run(runtime.handle_message(run.id, "Plan it"))
 
@@ -35,10 +36,10 @@ def test_runtime_closes_a_model_attempt_for_each_model_call(tmp_path) -> None:
     assert len(started) == len(finished)
 
 
-def test_stats_projector_uses_replacement_usage_and_weighted_stream_metrics(tmp_path) -> None:
+def test_stats_projector_uses_replacement_usage_and_weighted_stream_metrics(tmp_path, database) -> None:
     from app.stats import StatsProjector
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     run_id = "run-stats"
     goal_id = "goal-stats"
     at = "2026-08-18T00:00:00+00:00"
@@ -72,10 +73,10 @@ def test_stats_projector_uses_replacement_usage_and_weighted_stream_metrics(tmp_
     assert stats["output_tokens"] == 7
 
 
-def test_stats_projector_marks_missing_spans_and_usage_unavailable(tmp_path) -> None:
+def test_stats_projector_marks_missing_spans_and_usage_unavailable(tmp_path, database) -> None:
     from app.stats import StatsProjector
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     store.append("run-missing", "goal-missing", "model.attempt_started", "runtime", {"model_attempt_id": "att-1"})
 
     stats = StatsProjector(store.db, store).project("run-missing")
@@ -88,10 +89,10 @@ def test_stats_projector_marks_missing_spans_and_usage_unavailable(tmp_path) -> 
     assert stats["output_tokens"] is None
 
 
-def test_stats_projector_does_not_sum_partial_usage_across_attempts(tmp_path) -> None:
+def test_stats_projector_does_not_sum_partial_usage_across_attempts(tmp_path, database) -> None:
     from app.stats import StatsProjector
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     store.append("run-partial", "goal-partial", "model.attempt_started", "runtime", {"model_attempt_id": "att-1"})
     store.append("run-partial", "goal-partial", "model.usage_updated", "runtime", {"model_attempt_id": "att-1", "usage": {"uncached_input_tokens": 2, "cache_read_tokens": 0, "cache_write_tokens": 0, "output_tokens": 1}})
     store.append("run-partial", "goal-partial", "model.attempt_finished", "runtime", {"model_attempt_id": "att-1"})
@@ -104,12 +105,11 @@ def test_stats_projector_does_not_sum_partial_usage_across_attempts(tmp_path) ->
     assert stats["output_tokens"] is None
 
 
-def test_stats_projector_prefers_persistent_attempt_and_cost_authorities(tmp_path) -> None:
-    from app.db import Database
+def test_stats_projector_prefers_persistent_attempt_and_cost_authorities(tmp_path, database) -> None:
     from app.events import EventStore
     from app.stats import StatsProjector
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     store = EventStore(db)
     with db.transaction() as connection:
         connection.execute("INSERT INTO model_profiles(id,owner_id,name,status,created_at,updated_at) VALUES ('p','local-user','P','ACTIVE','now','now')")

@@ -1,19 +1,20 @@
 import pytest
 
+from pg02_helpers import database, make_runtime
 
-def _service(tmp_path, projector=None):
-    from app.db import Database
+
+def _service(database, tmp_path, projector=None):
     from app.plan_documents import PlanDocumentService
 
     return PlanDocumentService(
-        Database(tmp_path / "agent.db"),
+        database,
         tmp_path / "data",
         projector=projector,
     )
 
 
-def test_first_model_revision_commits_database_and_file(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_first_model_revision_commits_database_and_file(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
 
     version = service.save_model_revision(
         thread_id="thread-1",
@@ -31,10 +32,8 @@ def test_first_model_revision_commits_database_and_file(tmp_path) -> None:
     assert service.path_for(document.id).read_text(encoding="utf-8") == "# 旅行计划\n\n第一天\n"
 
 
-def test_model_revision_links_its_source_message_during_finalize(tmp_path) -> None:
-    from test_runtime import make_runtime
-
-    runtime = make_runtime(tmp_path, object())
+def test_model_revision_links_its_source_message_during_finalize(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, object())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-plan-message-link", "Create a plan", [])
     source_message = runtime.conversation.messages(thread.id)[0]
@@ -51,8 +50,8 @@ def test_model_revision_links_its_source_message_during_finalize(tmp_path) -> No
     assert runtime.conversation.messages(thread.id)[0].plan_document_version_id == version.id
 
 
-def test_same_source_turn_returns_existing_committed_revision(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_same_source_turn_returns_existing_committed_revision(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     kwargs = {
         "thread_id": "thread-1",
         "title": "计划",
@@ -69,8 +68,8 @@ def test_same_source_turn_returns_existing_committed_revision(tmp_path) -> None:
     assert service.list_versions(first.plan_document_id)[-1].version == 1
 
 
-def test_expected_version_or_hash_conflict_preserves_current_head(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_expected_version_or_hash_conflict_preserves_current_head(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="计划",
@@ -97,8 +96,8 @@ def test_expected_version_or_hash_conflict_preserves_current_head(tmp_path) -> N
     assert current.markdown_content == "# v1\n"
 
 
-def test_restore_creates_new_version_without_deleting_history(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_restore_creates_new_version_without_deleting_history(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="计划",
@@ -125,8 +124,8 @@ def test_restore_creates_new_version_without_deleting_history(tmp_path) -> None:
     assert [item.version for item in service.list_versions(second.plan_document_id)] == [1, 2, 3]
 
 
-def test_deleted_document_can_be_reused_by_a_new_model_revision(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_deleted_document_can_be_reused_by_a_new_model_revision(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="旧计划",
@@ -157,8 +156,8 @@ def test_deleted_document_can_be_reused_by_a_new_model_revision(tmp_path) -> Non
     assert service.path_for(document.id).read_text(encoding="utf-8") == "# v2\n"
 
 
-def test_delete_tombstone_survives_file_cleanup_failure_and_restart_recovery(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_delete_tombstone_survives_file_cleanup_failure_and_restart_recovery(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="计划",
@@ -190,10 +189,10 @@ def test_delete_tombstone_survives_file_cleanup_failure_and_restart_recovery(tmp
     assert not path.exists()
 
 
-def test_restore_rejects_a_prepared_revision(tmp_path) -> None:
+def test_restore_rejects_a_prepared_revision(database, tmp_path) -> None:
     from app.plan_files import PlanFileProjector
 
-    service = _service(tmp_path)
+    service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="计划",
@@ -235,12 +234,12 @@ def test_restore_rejects_a_prepared_revision(tmp_path) -> None:
         )
 
 
-def test_write_failure_leaves_retryable_intent_and_no_committed_head(tmp_path) -> None:
+def test_write_failure_leaves_retryable_intent_and_no_committed_head(database, tmp_path) -> None:
     class FailingProjector:
         def project(self, *args, **kwargs):
             raise OSError("disk unavailable")
 
-    service = _service(tmp_path, projector=FailingProjector())
+    service = _service(database, tmp_path, projector=FailingProjector())
 
     with pytest.raises(OSError, match="disk unavailable"):
         service.save_model_revision(
@@ -257,7 +256,7 @@ def test_write_failure_leaves_retryable_intent_and_no_committed_head(tmp_path) -
     assert service.pending_intents(document.id)[0].status == "FAILED"
 
 
-def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_it(tmp_path) -> None:
+def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_it(database, tmp_path) -> None:
     from app.plan_files import PlanFileProjector
 
     class FailingOnceProjector(PlanFileProjector):
@@ -272,7 +271,7 @@ def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_
             return super().project(*args, **kwargs)
 
     projector = FailingOnceProjector(tmp_path / "data")
-    service = _service(tmp_path, projector=projector)
+    service = _service(database, tmp_path, projector=projector)
     kwargs = {
         "thread_id": "thread-1",
         "title": "计划",
@@ -292,8 +291,8 @@ def test_same_source_turn_retry_recovers_prepared_revision_instead_of_returning_
     assert service.path_for(recovered.plan_document_id).read_text(encoding="utf-8") == "# 计划\n"
 
 
-def test_revision_owner_check_can_fence_after_file_projection_before_finalize(tmp_path) -> None:
-    service = _service(tmp_path)
+def test_revision_owner_check_can_fence_after_file_projection_before_finalize(database, tmp_path) -> None:
+    service = _service(database, tmp_path)
     checks = 0
 
     def owner_check() -> None:

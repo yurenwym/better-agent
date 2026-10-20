@@ -122,7 +122,7 @@ export default function EventStream({ events, threadEvents = [], traceEvents = [
         </div>
           : <div className="timeline-groups">{groups.map((group) => <section className="timeline-group" key={group.id}>
             <div className="timeline-group-heading"><span>{group.label}</span><span>{group.events.length} 个节点</span></div>
-            <div className="timeline-list">{group.events.map((item) => <article className={`timeline-row tone-${item.tone}`} key={item.event.event_id}>
+            <div className="timeline-list">{group.events.map((item) => <article className={`timeline-row tone-${item.tone}`} data-event-id={item.event.event_id} key={item.event.event_id}>
               <div className="timeline-spine" aria-hidden="true"><span className="timeline-marker" /></div>
               <div className="timeline-content">
                 <div className="timeline-meta"><span className="timeline-stage">{item.stageLabel}</span>{view === "debug" && <span>#{item.seq}</span>}<time dateTime={item.occurredAt}>{formatTime(item.occurredAt)}</time></div>

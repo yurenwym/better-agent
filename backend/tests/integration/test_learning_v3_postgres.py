@@ -18,21 +18,25 @@ import pytest
 from app.learning_contract import TARGET_MEMORY
 from app.learning_decision import LearningDecision
 from app.learning_pipeline import MODE_ACTIVE, STATUS_APPLIED, build_pipeline
-from app.startup import build_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 from tests.test_learning_pipeline_v3 import StubAgent, StubDecisions, enqueue, stub_budget
 from tests.test_learning_targets import memory_draft
 
 
 @pytest.fixture
-def v3_runtime(tmp_path, migrated_postgres_url, monkeypatch):
+def v3_runtime(tmp_path, database, monkeypatch):
     for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
-    runtime = build_runtime(tmp_path, database_url=migrated_postgres_url)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.learning.configure("local-user", expected_version=0, paused=False,
                                allowed_assets=["memory", "skill", "prompt"])
     yield runtime
-    runtime.db._pool.close()
 
 
 def make_message(runtime, content="以后生产数据库不能由 Agent 自动重启，必须人工批准。"):

@@ -5,7 +5,7 @@ import ApprovalCard from "../components/ApprovalCard";
 import ArchiveStatus from "../components/ArchiveStatus";
 import ActivityRail from "../components/ActivityRail";
 import ChatToolApprovalCard from "../components/ChatToolApprovalCard";
-import ConversationThread, { clearConversationDraft, moveConversationDraft } from "../components/ConversationThread";
+import ConversationThread, { moveConversationDraft } from "../components/ConversationThread";
 import {
   addBudget,
   approvePlan,
@@ -280,7 +280,6 @@ export default function ChatPage({ csrfToken, run, threadId = null, sourceAction
         // A completed turn closes its event stream. The next send on the same
         // thread has to open a new one, or a later approval never reaches the page.
         if (!createdThread) setFollowGeneration((value) => value + 1);
-        clearConversationDraft(id);
         if(isCurrent())setLocalMessages(current => current.map(item => item.id === optimisticId ? {...item,run_id:id,status:"sent"} : item));
         return true;
       }

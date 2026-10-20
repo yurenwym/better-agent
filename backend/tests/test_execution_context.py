@@ -9,6 +9,7 @@ import json
 
 import pytest
 
+from pg02_helpers import database
 from app.execution_context import (
     CONTEXT_FIELDS,
     HarnessContextError,
@@ -205,12 +206,11 @@ def test_u08_conversion_refuses_identity_overrides() -> None:
 # U09-U10: gateway wrappers
 # --------------------------------------------------------------------------- #
 
-def _configured_control_plane(tmp_path, monkeypatch):
+def _configured_control_plane(tmp_path, monkeypatch, database):
     from app.behavior import BehaviorBundleService
-    from app.db import Database
     from app.model_admin import ModelAdminService
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     admin = ModelAdminService(db)
     versions = {}
     for name, capabilities in {
@@ -260,12 +260,12 @@ class _RecordingStore:
 
 @pytest.mark.asyncio
 async def test_u09_independent_calls_get_new_spans_and_retries_do_not(
-    tmp_path, monkeypatch,
+    tmp_path, monkeypatch, database,
 ) -> None:
     from app.model_control import ModelControlStore, RoutedModelGateway
     from app.model_gateway import GatewayError, ModelRequest, ModelResponse, Timing, UsageBuckets
 
-    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, database)
     store = _RecordingStore(ModelControlStore(db))
     attempts: list[int] = []
 
@@ -305,11 +305,17 @@ async def test_u09_independent_calls_get_new_spans_and_retries_do_not(
 
 
 @pytest.mark.asyncio
-async def test_u10_gateway_wrappers_keep_the_public_identity(tmp_path, monkeypatch) -> None:
+async def test_u10_gateway_wrappers_keep_the_public_identity(tmp_path, monkeypatch, database) -> None:
     from app.model_control import ModelCallContext, ModelControlStore, RoutedModelGateway
     from app.model_gateway import ModelRequest, ModelResponse, Timing, UsageBuckets
 
-    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch)
+    db, bundle, _ = _configured_control_plane(tmp_path, monkeypatch, database)
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("budget-1", "local-user", "goal_operation", "execution-context", 30, "2099-01-01T00:00:00+00:00"),
+        )
     store = _RecordingStore(ModelControlStore(db))
 
     async def execute(profile, _request, **_):

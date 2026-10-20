@@ -4,15 +4,42 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from test_goal_program_compiler import fixture
+from pg02_helpers import database
 
 
-def service(tmp_path, result=None):
+@pytest.fixture(autouse=True)
+def _close_extra_pools(database, monkeypatch):
+    import app.db as db_module
+
+    allocated = []
+    original = db_module.Database
+
+    class TrackedDatabase(original):
+        def __init__(self, *args, **kwargs):
+            allocated.append(self)
+            super().__init__(*args, **kwargs)
+
+    monkeypatch.setattr(db_module, "Database", TrackedDatabase)
+    yield
+    failures = []
+    for db in reversed(allocated):
+        if getattr(db, "_pool", None) is None:
+            continue
+        try:
+            db.close()
+        except Exception as exc:  # noqa: BLE001 - collected for teardown
+            failures.append(exc)
+    if failures:
+        raise RuntimeError(f"extra program-service pool cleanup failed: {failures!r}")
+
+
+def service(tmp_path, result=None, *, database=None):
     from app.conversation import ConversationService
     from app.db import Database
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_programs import GoalProgramService
 
-    db = Database(tmp_path / "agent.db")
+    db = database if database is not None else Database(tmp_path / "agent.db")
     conversation = ConversationService(db)
     thread = conversation.create_thread("训练")
     version = conversation.plan_documents.save_model_revision(
@@ -29,12 +56,12 @@ def preview(goal_service, version, key="preview-1"):
     ))
 
 
-def test_seven_day_lifecycle_is_durable_and_idempotent(tmp_path) -> None:
+def test_seven_day_lifecycle_is_durable_and_idempotent(database, tmp_path) -> None:
     from app.db import Database
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_programs import GoalProgramService
 
-    db, _, goals, version = service(tmp_path, fixture(daily_minutes=30))
+    db, _, goals, version = service(tmp_path, fixture(daily_minutes=30), database=database)
     draft = preview(goals, version)
     assert draft["status"] == "DRAFT" and draft["compile_status"] == "READY"
     assert preview(goals, version)["id"] == draft["id"]
@@ -53,7 +80,10 @@ def test_seven_day_lifecycle_is_durable_and_idempotent(tmp_path) -> None:
     paused = goals.transition(draft["id"], "pause", expected_version=current["version"], idempotency_key="pause-1")
     assert paused["status"] == "PAUSED"
 
-    reopened = GoalProgramService(Database(db.path), FixedGoalProgramCompiler(fixture()))
+    reopened = GoalProgramService(
+        Database(db.database_url, workspace=db.workspace),
+        FixedGoalProgramCompiler(fixture()),
+    )
     assert reopened.today(explicit_date="2026-09-02")["programs"] == []
     resumed = reopened.transition(draft["id"], "resume", expected_version=paused["version"], idempotency_key="resume-1")
     assert resumed["status"] == "ACTIVE"
@@ -63,10 +93,10 @@ def test_seven_day_lifecycle_is_durable_and_idempotent(tmp_path) -> None:
         assert [row["seq"] for row in events] == list(range(1, len(events) + 1))
 
 
-def test_cas_owner_idempotency_and_illegal_transitions_are_rejected(tmp_path) -> None:
+def test_cas_owner_idempotency_and_illegal_transitions_are_rejected(database, tmp_path) -> None:
     from app.goal_programs import GoalProgramConflict, GoalProgramNotFound
 
-    _, _, goals, version = service(tmp_path)
+    _, _, goals, version = service(tmp_path, database=database)
     draft = preview(goals, version)
     with pytest.raises(GoalProgramConflict):
         asyncio.run(goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="UTC", daily_minutes=60, requested_end_date="2026-09-07", idempotency_key="preview-1"))
@@ -75,8 +105,8 @@ def test_cas_owner_idempotency_and_illegal_transitions_are_rejected(tmp_path) ->
     with pytest.raises(GoalProgramNotFound): goals.get(draft["id"], owner_id="other-user")
 
 
-def test_editing_markdown_does_not_change_fixed_execution_snapshot(tmp_path) -> None:
-    db, conversation, goals, source = service(tmp_path)
+def test_editing_markdown_does_not_change_fixed_execution_snapshot(database, tmp_path) -> None:
+    db, conversation, goals, source = service(tmp_path, database=database)
     draft = preview(goals, source)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     document = conversation.plan_documents.get_document(source.plan_document_id)
@@ -91,10 +121,10 @@ def test_editing_markdown_does_not_change_fixed_execution_snapshot(tmp_path) -> 
     assert recovered["actions"] == active["actions"]
 
 
-def test_duration_timezone_progress_and_feedback_privacy_invariants(tmp_path) -> None:
+def test_duration_timezone_progress_and_feedback_privacy_invariants(database, tmp_path) -> None:
     from app.goal_programs import GoalProgramService
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     with pytest.raises(ValueError, match="30 days"):
         asyncio.run(goals.preview(version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai", daily_minutes=60, requested_end_date="2026-10-01", idempotency_key="31-days"))
     with pytest.raises(ValueError, match="IANA"):
@@ -110,10 +140,10 @@ def test_duration_timezone_progress_and_feedback_privacy_invariants(tmp_path) ->
     assert "private health detail" not in events
 
 
-def test_request_help_creates_action_linked_turn_without_run_and_bounded_owner_context(tmp_path) -> None:
+def test_request_help_creates_action_linked_turn_without_run_and_bounded_owner_context(database, tmp_path) -> None:
     from app.goal_context import GoalContextProvider
 
-    db, conversation, goals, version = service(tmp_path)
+    db, conversation, goals, version = service(tmp_path, database=database)
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     action = active["actions"][0]
@@ -129,10 +159,10 @@ def test_request_help_creates_action_linked_turn_without_run_and_bounded_owner_c
     assert GoalContextProvider(db).load_for_turn(result["thread_id"], result["turn_id"]) is None
 
 
-def test_compile_failure_retry_creates_one_initial_version_and_no_actions(tmp_path) -> None:
+def test_compile_failure_retry_creates_one_initial_version_and_no_actions(database, tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     goals.compiler = FixedGoalProgramCompiler(error=GoalCompilationError("INVALID_MODEL_OUTPUT", "bad"))
     with pytest.raises(GoalCompilationError):
         preview(goals, version)
@@ -149,10 +179,10 @@ def test_compile_failure_retry_creates_one_initial_version_and_no_actions(tmp_pa
         assert connection.execute("SELECT COUNT(*) FROM goal_program_versions WHERE program_id=?", (program_id,)).fetchone()[0] == 1
 
 
-def test_progress_excludes_optional_skipped_deferred_and_cancelled_sources(tmp_path) -> None:
+def test_progress_excludes_optional_skipped_deferred_and_cancelled_sources(database, tmp_path) -> None:
     value = fixture(daily_minutes=30)
     value["actions"][1]["required"] = False
-    _, _, goals, version = service(tmp_path, value)
+    _, _, goals, version = service(tmp_path, value, database=database)
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     goals.skip_action(active["actions"][1]["id"], expected_version=0, idempotency_key="skip-optional")
@@ -163,10 +193,10 @@ def test_progress_excludes_optional_skipped_deferred_and_cancelled_sources(tmp_p
     assert progress["completion_rate"] == 0
 
 
-def test_cancelled_preview_marks_compilation_failed_and_allows_retry(tmp_path) -> None:
+def test_cancelled_preview_marks_compilation_failed_and_allows_retry(database, tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler
 
-    _, _, goals, version = service(tmp_path)
+    _, _, goals, version = service(tmp_path, database=database)
     async def cancelled(*_args): raise asyncio.CancelledError
     goals.compiler.compile = cancelled
 
@@ -180,10 +210,10 @@ def test_cancelled_preview_marks_compilation_failed_and_allows_retry(tmp_path) -
     assert ready["compile_status"] == "READY"
 
 
-def test_retry_compile_timeout_returns_to_failed_state(tmp_path) -> None:
+def test_retry_compile_timeout_returns_to_failed_state(database, tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
 
-    _, _, goals, version = service(tmp_path)
+    _, _, goals, version = service(tmp_path, database=database)
     goals.compiler = FixedGoalProgramCompiler(error=GoalCompilationError("INVALID_MODEL_OUTPUT", "bad"))
     with pytest.raises(GoalCompilationError):
         preview(goals, version, "failed-before-retry-timeout")
@@ -205,10 +235,10 @@ def test_retry_compile_timeout_returns_to_failed_state(tmp_path) -> None:
     assert timed_out["compile_error_code"] == "COMPILE_TIMEOUT"
 
 
-def test_compile_timeout_closes_receipt_and_allows_retry(tmp_path) -> None:
+def test_compile_timeout_closes_receipt_and_allows_retry(database, tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     goals.compile_timeout_seconds = .01
 
     async def never_finishes(*_args):
@@ -235,11 +265,11 @@ def test_compile_timeout_closes_receipt_and_allows_retry(tmp_path) -> None:
     assert ready["compile_status"] == "READY"
 
 
-def test_service_startup_recovers_an_orphaned_compilation(tmp_path) -> None:
+def test_service_startup_recovers_an_orphaned_compilation(database, tmp_path) -> None:
     from app.goal_program_compiler import FixedGoalProgramCompiler, GoalCompilationError
     from app.goal_programs import GoalProgramService
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     goals.compiler = FixedGoalProgramCompiler(error=GoalCompilationError("INVALID_MODEL_OUTPUT", "bad"))
     with pytest.raises(GoalCompilationError): preview(goals, version, "orphan-preview")
     program = goals.list()[0]
@@ -253,10 +283,10 @@ def test_service_startup_recovers_an_orphaned_compilation(tmp_path) -> None:
     assert recovered["compile_error_code"] == "COMPILE_INTERRUPTED"
 
 
-def test_concurrent_activate_cas_materializes_exactly_one_action_set(tmp_path) -> None:
+def test_concurrent_activate_cas_materializes_exactly_one_action_set(database, tmp_path) -> None:
     from app.goal_programs import GoalProgramConflict
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     draft = preview(goals, version)
     def activate(key):
         try: return goals.activate(draft["id"], expected_version=draft["version"], idempotency_key=key)["status"]
@@ -268,8 +298,8 @@ def test_concurrent_activate_cas_materializes_exactly_one_action_set(tmp_path) -
         assert connection.execute("SELECT COUNT(*) FROM goal_actions WHERE program_id=?", (draft["id"],)).fetchone()[0] == 7
 
 
-def test_concurrent_preview_same_key_creates_one_program(tmp_path) -> None:
-    db, _, goals, version = service(tmp_path)
+def test_concurrent_preview_same_key_creates_one_program(database, tmp_path) -> None:
+    db, _, goals, version = service(tmp_path, database=database)
     original = goals.compiler.compile
     async def blocked_compile(source, request):
         await asyncio.sleep(.2)
@@ -287,10 +317,10 @@ def test_concurrent_preview_same_key_creates_one_program(tmp_path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM goal_programs").fetchone()[0]==1
 
 
-def test_completed_program_saves_one_bounded_memory_episode_and_replays_safely(tmp_path) -> None:
+def test_completed_program_saves_one_bounded_memory_episode_and_replays_safely(database, tmp_path) -> None:
     from app.memory_v2 import MemoryStore
 
-    db, _, goals, version = service(tmp_path)
+    db, _, goals, version = service(tmp_path, database=database)
     goals.memory_store = MemoryStore(db, tmp_path / "memory")
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
@@ -311,8 +341,8 @@ def test_completed_program_saves_one_bounded_memory_episode_and_replays_safely(t
     assert "private" not in episodes[0].summary
 
 
-def test_program_list_exposes_plan_relationship_and_terminal_lifecycle(tmp_path) -> None:
-    _, _, goals, version = service(tmp_path)
+def test_program_list_exposes_plan_relationship_and_terminal_lifecycle(database, tmp_path) -> None:
+    _, _, goals, version = service(tmp_path, database=database)
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     paused = goals.transition(active["id"], "pause", expected_version=active["version"], idempotency_key="pause")
@@ -324,17 +354,21 @@ def test_program_list_exposes_plan_relationship_and_terminal_lifecycle(tmp_path)
     assert listed[0]["status"] == "PAUSED"
 
 
-def test_model_calls_do_not_inherit_the_source_turn_root_budget(tmp_path) -> None:
+def test_model_calls_do_not_inherit_the_source_turn_root_budget(database, tmp_path) -> None:
     from app.conversation import ConversationService
-    from app.db import Database
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_programs import GoalProgramService
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     conversation = ConversationService(db)
     thread = conversation.create_thread("骑行")
     turn_id = "turn_with_expired_root"
     with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("task_budget_expired", "local-user", "turn", turn_id, 30, "2026-09-09T00:00:00+00:00"),
+        )
         connection.execute(
             "INSERT INTO turns(id,thread_id,client_turn_id,status,version,runtime_bundle_id,root_budget_id,created_at,updated_at)"
             " VALUES (?,?,?,'COMPLETED',1,NULL,'task_budget_expired','2026-09-10T00:00:00+00:00','2026-09-10T00:00:00+00:00')",
@@ -352,5 +386,31 @@ def test_model_calls_do_not_inherit_the_source_turn_root_budget(tmp_path) -> Non
     context = goals._model_context(draft["id"], "planner", "compile_goal_program")
 
     # 编译发生在那一轮对话结束之后，必须保留来源追溯但不能绑定已到期的根任务预算。
-    assert context.root_budget_id is None
+    # PostgreSQL 会为模型调用创建独立的 goal_operation 根预算；SQLite 没有该分支。
+    if db.backend == "postgresql":
+        assert context.root_budget_id is not None
+        assert context.root_budget_id != "task_budget_expired"
+        repeated = goals._model_context(draft["id"], "planner", "compile_goal_program")
+        assert repeated.root_budget_id == context.root_budget_id
+        with db.connection() as connection:
+            generated = connection.execute(
+                "SELECT owner_id,root_kind FROM task_budget_roots WHERE id=?",
+                (context.root_budget_id,),
+            ).fetchone()
+            original = connection.execute(
+                "SELECT root_kind,owner_id,root_object_id,deadline_at < clock_timestamp() AS expired "
+                "FROM task_budget_roots WHERE id='task_budget_expired'"
+            ).fetchone()
+            source = connection.execute(
+                "SELECT root_budget_id FROM turns WHERE id=?", (turn_id,),
+            ).fetchone()
+        assert generated["owner_id"] == "local-user"
+        assert generated["root_kind"] == "goal_operation"
+        assert original["root_kind"] == "turn"
+        assert original["owner_id"] == "local-user"
+        assert original["root_object_id"] == turn_id
+        assert original["expired"] is True
+        assert source["root_budget_id"] == "task_budget_expired"
+    else:
+        assert context.root_budget_id is None
     assert context.turn_id == turn_id

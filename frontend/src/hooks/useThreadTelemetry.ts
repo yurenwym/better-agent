@@ -213,6 +213,7 @@ export function useThreadTelemetry(
   useEffect(() => {
     let active = true;
     let close: () => void = () => undefined;
+    let refreshSeq = 0;
     setThread(null);
     setEvents([]);
     setMessages([]);
@@ -232,9 +233,15 @@ export function useThreadTelemetry(
 
     async function load() {
       try {
-        const [threadResult, eventResult, messageResult] = await Promise.all([
+        // Load the event history first and take the cursor from it, then read the
+        // thread and message snapshots. Any event that lands afterwards is
+        // replayed by the subscription, and the thread row is read last so its
+        // active turn is at least as fresh as the terminal history it already
+        // sent - a stale STREAMING row cannot outlive a recorded turn.completed.
+        const eventResult = await getThreadEvents(id);
+        if (!active) return;
+        const [threadResult, messageResult] = await Promise.all([
           getThread(id),
-          getThreadEvents(id),
           getThreadMessages(id),
         ]);
         if (!active) return;
@@ -270,7 +277,10 @@ export function useThreadTelemetry(
             onMaterialized?.(event.data.run_id);
           }
           if (["turn.accepted", "turn.started", "turn.policy_decided", "turn.awaiting_input", "turn.awaiting_direction", "turn.awaiting_tool_approval", "turn.direction_selected", "turn.completed", "turn.failed", "turn.cancelled", "ask.requested", "ask.answered", "ask.cancelled", "chat_tool.approval_requested", "chat_tool.approved", "chat_tool.rejected", "chat_tool.cancelled", "chat_tool.resumed", "execution.materialized"].includes(event.type)) {
-            void getThread(id).then((next) => { if (active) setThread(next); }).catch(() => undefined);
+            // Only the newest refresh may win: an earlier getThread that resolves
+            // late must not overwrite a newer terminal snapshot with stale status.
+            const seq = ++refreshSeq;
+            void getThread(id).then((next) => { if (active && seq === refreshSeq) setThread(next); }).catch(() => undefined);
           }
         });
       } catch (caught) {

@@ -1,5 +1,7 @@
 import pytest
 
+from pg02_helpers import database, make_runtime
+
 
 def test_control_head_decodes_v2_plan_artifact_and_hides_header_from_body() -> None:
     from app.conversation import ControlHeadDecoder, RouteArtifact
@@ -97,10 +99,53 @@ def test_v2_rejects_invalid_artifact_shape() -> None:
             )
 
 
-@pytest.mark.asyncio
-async def test_plan_artifact_persists_exact_streamed_body_and_event_order(tmp_path) -> None:
-    from test_runtime import make_runtime
+def _assert_failure_contract(runtime, thread, accepted, first, failure):
+    assert failure.turn_id == accepted.turn_id
+    assert failure.data["plan_document_id"] == first.plan_document_id
+    assert failure.data["version_id"] == first.id
+    assert failure.data["version"] == first.version
+    assert failure.data["content_hash"] == first.content_hash
+    assert failure.data["source_message_id"]
+    assert failure.data["actor"] == "model"
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+    with runtime.db.connection() as connection:
+        job = connection.execute(
+            "SELECT status, finished_at FROM turn_jobs WHERE turn_id=?",
+            (accepted.turn_id,),
+        ).fetchone()
+        assert job["status"] == "COMPLETED" and job["finished_at"]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM thread_events WHERE thread_id=? AND turn_id=? AND type='plan.document_failed'",
+            (thread.id, accepted.turn_id),
+        ).fetchone()[0] == 1
+        message = connection.execute(
+            "SELECT content FROM thread_messages WHERE id=?",
+            (failure.data["source_message_id"],),
+        ).fetchone()
+        assert message is not None
+        assert "\x00" not in message["content"]
+        assert "\ufffd" in message["content"]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id=?",
+            (first.plan_document_id,),
+        ).fetchone()[0] == 1
+        head = connection.execute(
+            "SELECT current_version_id FROM plan_documents WHERE id=?",
+            (first.plan_document_id,),
+        ).fetchone()["current_version_id"]
+        assert head == first.id
+        assert connection.execute(
+            "SELECT COUNT(*) FROM turn_tool_calls WHERE turn_id=?",
+            (accepted.turn_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute(
+            "SELECT COUNT(*) FROM approvals"
+        ).fetchone()[0] == 0
+    assert runtime.plan_documents.projector.read_hash(first.plan_document_id) == first.content_hash
 
+
+@pytest.mark.asyncio
+async def test_plan_artifact_persists_exact_streamed_body_and_event_order(database, tmp_path) -> None:
     class Model:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             response = (
@@ -112,7 +157,7 @@ async def test_plan_artifact_persists_exact_streamed_body_and_event_order(tmp_pa
             on_text_delta(response[:17])
             on_text_delta(response[17:])
 
-    runtime = make_runtime(tmp_path, Model())
+    runtime = make_runtime(database, tmp_path, Model())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(
         thread.id,
@@ -146,9 +191,7 @@ async def test_plan_artifact_persists_exact_streamed_body_and_event_order(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_empty_plan_artifact_keeps_answer_but_does_not_create_document(tmp_path) -> None:
-    from test_runtime import make_runtime
-
+async def test_empty_plan_artifact_keeps_answer_but_does_not_create_document(database, tmp_path) -> None:
     class Model:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             on_text_delta(
@@ -157,7 +200,7 @@ async def test_empty_plan_artifact_keeps_answer_but_does_not_create_document(tmp
                 '"operation":"upsert","title":"Plan"}}\n'
             )
 
-    runtime = make_runtime(tmp_path, Model())
+    runtime = make_runtime(database, tmp_path, Model())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-empty-plan", "Create it", [])
 
@@ -172,9 +215,7 @@ async def test_empty_plan_artifact_keeps_answer_but_does_not_create_document(tmp
 
 
 @pytest.mark.asyncio
-async def test_plan_document_failure_event_keeps_the_pinned_document_reference(tmp_path) -> None:
-    from test_runtime import make_runtime
-
+async def test_plan_document_failure_event_keeps_the_pinned_document_reference(database, tmp_path) -> None:
     class Model:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             on_text_delta(
@@ -183,7 +224,7 @@ async def test_plan_document_failure_event_keeps_the_pinned_document_reference(t
                 '"operation":"upsert","title":"Plan"}}\n# Plan\n\x00'
             )
 
-    runtime = make_runtime(tmp_path, Model())
+    runtime = make_runtime(database, tmp_path, Model())
     thread = runtime.conversation.create_thread("Chat")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -205,12 +246,11 @@ async def test_plan_document_failure_event_keeps_the_pinned_document_reference(t
     assert failure.data["source_message_id"]
     assert failure.data["actor"] == "model"
     assert failure.turn_id == accepted.turn_id
+    _assert_failure_contract(runtime, thread, accepted, first, failure)
 
 
 @pytest.mark.asyncio
-async def test_plan_document_conflict_event_keeps_the_turn_pinned_document_reference(tmp_path) -> None:
-    from test_runtime import make_runtime
-
+async def test_plan_document_conflict_event_keeps_the_turn_pinned_document_reference(database, tmp_path) -> None:
     class Model:
         def __init__(self) -> None:
             self.runtime = None
@@ -235,7 +275,7 @@ async def test_plan_document_conflict_event_keeps_the_turn_pinned_document_refer
             )
 
     model = Model()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -262,10 +302,8 @@ async def test_plan_document_conflict_event_keeps_the_turn_pinned_document_refer
 
 
 @pytest.mark.asyncio
-async def test_ask_and_plan_artifact_output_is_rejected_as_a_mixed_response(tmp_path) -> None:
+async def test_ask_and_plan_artifact_output_is_rejected_as_a_mixed_response(database, tmp_path) -> None:
     from app.ask import AskQuestion, AskRequest
-    from test_runtime import make_runtime
-
     class MixedModel:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             on_text_delta(
@@ -278,7 +316,7 @@ async def test_ask_and_plan_artifact_output_is_rejected_as_a_mixed_response(tmp_
                 questions=(AskQuestion("need", "Need", "What is missing?", (), False, True),),
             )
 
-    runtime = make_runtime(tmp_path, MixedModel())
+    runtime = make_runtime(database, tmp_path, MixedModel())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-mixed", "Create a plan", [])
 
@@ -1003,14 +1041,12 @@ async def test_live_prompt_prioritizes_saving_an_existing_plan_over_personalizat
 
 
 @pytest.mark.asyncio
-async def test_explicit_save_request_creates_plan_document_without_pending_ask(tmp_path) -> None:
+async def test_explicit_save_request_creates_plan_document_without_pending_ask(database, tmp_path) -> None:
     import json
     from types import SimpleNamespace
 
     from app.ask import AskRequest
     from app.live_model import LiveConversationModel
-    from test_runtime import make_runtime
-
     class FirstPlanModel:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             message = (
@@ -1054,7 +1090,7 @@ async def test_explicit_save_request_creates_plan_document_without_pending_ask(t
             kwargs["on_text_delta"](message)
             return SimpleNamespace(message=message, tool_calls=[])
 
-    runtime = make_runtime(tmp_path, FirstPlanModel())
+    runtime = make_runtime(database, tmp_path, FirstPlanModel())
     thread = runtime.conversation.create_thread("Chat")
     first = runtime.conversation.accept_turn(
         thread.id,
@@ -1091,9 +1127,7 @@ async def test_explicit_save_request_creates_plan_document_without_pending_ask(t
 
 
 @pytest.mark.asyncio
-async def test_cropped_plan_context_cannot_overwrite_the_committed_document(tmp_path) -> None:
-    from test_runtime import make_runtime
-
+async def test_cropped_plan_context_cannot_overwrite_the_committed_document(database, tmp_path) -> None:
     class Model:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             message = (
@@ -1104,7 +1138,7 @@ async def test_cropped_plan_context_cannot_overwrite_the_committed_document(tmp_
             on_text_delta(message)
             return type("Response", (), {"message": message, "tool_calls": []})()
 
-    runtime = make_runtime(tmp_path, Model())
+    runtime = make_runtime(database, tmp_path, Model())
     thread = runtime.conversation.create_thread("Chat")
     original = "# Large plan\n\n" + "\n".join(
         f"## Section {index}\n" + ("preserve this detail " * 20)
@@ -1138,3 +1172,101 @@ async def test_cropped_plan_context_cannot_overwrite_the_committed_document(tmp_
     ]
     assert failure
     assert "cropped" in failure[-1].data["reason"]
+
+
+@pytest.mark.asyncio
+async def test_plan_document_failure_after_early_flush_keeps_pinned_reference(database, tmp_path) -> None:
+    class Model:
+        async def route_and_respond(self, *, on_text_delta, **kwargs):
+            header = (
+                '{"v":2,"policy":"answer","content_shape":"plan",'
+                '"reason_code":"explicit_plan_create","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Plan"}}\n'
+            )
+            on_text_delta(header + "A" * 130)
+            on_text_delta("B" * 5 + "\x00" + "C" * 5)
+
+    runtime = make_runtime(database, tmp_path, Model())
+    thread = runtime.conversation.create_thread("Chat")
+    first = runtime.plan_documents.save_model_revision(
+        thread_id=thread.id,
+        title="Existing plan",
+        markdown_content="# Existing plan\n",
+        source_turn_id=None,
+        source_message_id=None,
+        actor="model",
+    )
+    accepted = runtime.conversation.accept_turn(
+        thread.id, "client-plan-failure-flush", "Update it", [],
+    )
+
+    await runtime.turn_worker.run_once()
+
+    failures = [
+        event for event in runtime.conversation.events.list(thread.id)
+        if event.type == "plan.document_failed"
+    ]
+    assert len(failures) == 1
+    _assert_failure_contract(runtime, thread, accepted, first, failures[0])
+    with runtime.db.connection() as connection:
+        content = connection.execute(
+            "SELECT content FROM thread_messages WHERE id=?",
+            (failures[0].data["source_message_id"],),
+        ).fetchone()["content"]
+    assert "A" * 130 in content
+    assert "B" * 5 + "\ufffd" + "C" * 5 in content
+    assert "\x00" not in content
+
+
+@pytest.mark.asyncio
+async def test_plan_nul_reset_does_not_poison_later_valid_output(database, tmp_path) -> None:
+    class Model:
+        async def route_and_respond(self, *, on_text_delta, on_text_reset, **kwargs):
+            header = (
+                '{"v":2,"policy":"answer","content_shape":"plan",'
+                '"reason_code":"explicit_plan_create","artifact":{"kind":"plan_document",'
+                '"operation":"upsert","title":"Plan"}}\n'
+            )
+            on_text_delta(header + "# Bad\n\x00")
+            on_text_reset()
+            on_text_delta(header + "# Good\n")
+
+    runtime = make_runtime(database, tmp_path, Model())
+    thread = runtime.conversation.create_thread("Chat")
+    accepted = runtime.conversation.accept_turn(
+        thread.id, "client-plan-reset", "Create it", [],
+    )
+
+    await runtime.turn_worker.run_once()
+
+    events = runtime.conversation.events.list(thread.id)
+    assert not [event for event in events if event.type == "plan.document_failed"]
+    document = runtime.plan_documents.get_by_thread(thread.id)
+    current = runtime.plan_documents.current_version(document.id)
+    assert current.status == "committed"
+    assert "# Good" in current.markdown_content
+    assert "\x00" not in current.markdown_content
+    assert runtime.conversation.turn(accepted.turn_id).status == "COMPLETED"
+    with runtime.db.connection() as connection:
+        job = connection.execute(
+            "SELECT status, finished_at FROM turn_jobs WHERE turn_id=?",
+            (accepted.turn_id,),
+        ).fetchone()
+        assert job["status"] == "COMPLETED" and job["finished_at"]
+        assert connection.execute(
+            "SELECT COUNT(*) FROM plan_documents WHERE thread_id=?", (thread.id,),
+        ).fetchone()[0] == 1
+        assert connection.execute(
+            "SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id=?", (document.id,),
+        ).fetchone()[0] == 1
+        contents = [
+            row["content"] for row in connection.execute(
+                "SELECT content FROM thread_messages WHERE thread_id=?", (thread.id,),
+            ).fetchall()
+        ]
+        assert all("\x00" not in content for content in contents)
+        assert any("# Good" in content for content in contents)
+        assert connection.execute(
+            "SELECT COUNT(*) FROM turn_tool_calls WHERE turn_id=?", (accepted.turn_id,),
+        ).fetchone()[0] == 0
+        assert connection.execute("SELECT COUNT(*) FROM approvals").fetchone()[0] == 0

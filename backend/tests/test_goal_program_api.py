@@ -1,16 +1,39 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from pg02_helpers import database
 from test_api import _headers
-from test_runtime import make_runtime
+
+_CLIENTS: list[TestClient] = []
 
 
-def setup_app(tmp_path):
+def _client(app):
+    client = TestClient(app)
+    _CLIENTS.append(client)
+    return client
+
+
+@pytest.fixture(autouse=True)
+def _close_clients(database):
+    _CLIENTS.clear()
+    yield
+    for client in reversed(_CLIENTS):
+        client.close()
+    _CLIENTS.clear()
+
+
+def setup_app(tmp_path, *, database=None):
     from app.main import create_app
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    if database is None:
+        from test_runtime import make_runtime as legacy_make_runtime
+        runtime = legacy_make_runtime(tmp_path, MockModelGateway())
+    else:
+        from pg02_helpers import make_runtime
+        runtime = make_runtime(database, tmp_path, MockModelGateway())
     app = create_app(runtime=runtime)
-    client = TestClient(app)
+    client = _client(app)
     thread = client.post("/api/threads", json={"title": "LeetCode"}, headers=_headers(app)).json()
     version = runtime.plan_documents.save_model_revision(
         thread_id=thread["id"], title="一周力扣", markdown_content="# 一周力扣\n每天一道题",
@@ -23,12 +46,12 @@ def headers(app, key):
     return {**_headers(app), "Idempotency-Key": key}
 
 
-def test_period_review_retry_endpoint_recovers_without_completing_program_again(tmp_path):
+def test_period_review_retry_endpoint_recovers_without_completing_program_again(database, tmp_path):
     import asyncio
     from test_goal_period_review import _FailingPeriodCompiler, _PeriodCompiler
     from test_goal_programs import preview
 
-    runtime, app, client, version = setup_app(tmp_path)
+    runtime, app, client, version = setup_app(tmp_path, database=database)
     goals = runtime.goal_programs
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
@@ -47,8 +70,8 @@ def test_period_review_retry_endpoint_recovers_without_completing_program_again(
     assert goals.compiler.calls == 1
     assert goals.get(draft["id"])["completion_summary"] == "Recovered"
 
-def test_preview_activate_today_and_mutations_round_trip(tmp_path) -> None:
-    runtime, app, client, version = setup_app(tmp_path)
+def test_preview_activate_today_and_mutations_round_trip(database, tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path, database=database)
     preview = client.post(
         f"/api/plans/{version.plan_document_id}/program-preview",
         json={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60},
@@ -68,8 +91,8 @@ def test_preview_activate_today_and_mutations_round_trip(tmp_path) -> None:
     assert client.get(f"/api/programs/{draft['id']}", headers={"host":"127.0.0.1:8000"}).json()["timezone"] == "Asia/Shanghai"
 
 
-def test_mutations_require_csrf_idempotency_and_report_safe_conflicts(tmp_path) -> None:
-    _, app, client, version = setup_app(tmp_path)
+def test_mutations_require_csrf_idempotency_and_report_safe_conflicts(database, tmp_path) -> None:
+    _, app, client, version = setup_app(tmp_path, database=database)
     payload={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60}
     missing_key=client.post(f"/api/plans/{version.plan_document_id}/program-preview",json=payload,headers=_headers(app))
     missing_csrf=client.post(f"/api/plans/{version.plan_document_id}/program-preview",json=payload,headers={"host":"127.0.0.1:8000","content-type":"application/json","Idempotency-Key":"x"})
@@ -81,8 +104,8 @@ def test_mutations_require_csrf_idempotency_and_report_safe_conflicts(tmp_path) 
     assert "current" in conflict.json() and "sqlite" not in conflict.text.lower()
 
 
-def test_lifecycle_and_request_help_routes_do_not_create_run(tmp_path) -> None:
-    runtime, app, client, version = setup_app(tmp_path)
+def test_lifecycle_and_request_help_routes_do_not_create_run(database, tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path, database=database)
     payload={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60}
     draft=client.post(f"/api/plans/{version.plan_document_id}/program-preview",json=payload,headers=headers(app,"preview")).json()
     active=client.post(f"/api/programs/{draft['id']}/activate",json={"expected_version":draft["version"]},headers=headers(app,"activate")).json()
@@ -93,8 +116,8 @@ def test_lifecycle_and_request_help_routes_do_not_create_run(tmp_path) -> None:
         assert connection.execute("SELECT COUNT(*) FROM runs").fetchone()[0] == 0
 
 
-def test_completed_program_returns_memory_summary_over_http(tmp_path) -> None:
-    runtime, app, client, version = setup_app(tmp_path)
+def test_completed_program_returns_memory_summary_over_http(database, tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path, database=database)
     draft=client.post(f"/api/plans/{version.plan_document_id}/program-preview",headers=headers(app,"preview"),json={"start_date":"2026-09-01","requested_end_date":"2026-09-07","timezone":"Asia/Shanghai","daily_minutes":60}).json()
     active=client.post(f"/api/programs/{draft['id']}/activate",headers=headers(app,"activate"),json={"expected_version":draft["version"]}).json()
     for index,action in enumerate(active["actions"]):
@@ -108,8 +131,8 @@ def test_completed_program_returns_memory_summary_over_http(tmp_path) -> None:
     assert completed.json()["completion_summary"].startswith("已完成目标")
 
 
-def test_failed_review_retry_requires_mutation_headers_and_is_idempotent(tmp_path) -> None:
-    runtime, app, client, version = setup_app(tmp_path)
+def test_failed_review_retry_requires_mutation_headers_and_is_idempotent(database, tmp_path) -> None:
+    runtime, app, client, version = setup_app(tmp_path, database=database)
     runtime.goal_reviews.queue_delay_seconds = 0
     draft = client.post(
         f"/api/plans/{version.plan_document_id}/program-preview",

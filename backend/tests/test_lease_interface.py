@@ -5,16 +5,20 @@ learning and notification are not forced through it; their own tests cover
 the verbs they actually have.
 """
 import asyncio
+import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 import pytest
+
+import pg_fixtures
 
 from app.conversation import ConversationService
 from app.db import Database
 from app.memory_archive import ArchiveLeaseLost, ConversationArchiver, ManagedArchiveWorker
 from app.research.service import ResearchService
 from app.task_runtime import LeaseLost, LeaseRuntime, TaskCancelled, TaskKind, TaskRef, TaskRuntime
-from test_static_archive_policy import _thread_with_turns
+from pg02_helpers import database, thread_with_turns
 
 
 async def _summary(payload):
@@ -25,13 +29,12 @@ async def _summary(payload):
     }
 
 
-def test_task_runtime_satisfies_the_shared_lease_protocol(tmp_path):
-    runtime = TaskRuntime(Database(tmp_path / "lease.db"))
+def test_task_runtime_satisfies_the_shared_lease_protocol(database, tmp_path):
+    runtime = TaskRuntime(database)
     assert isinstance(runtime, LeaseRuntime)
 
 
-def _research_task(tmp_path):
-    database = Database(tmp_path / "lease.db")
+def _research_task(database):
     conversation = ConversationService(database)
     research = ResearchService(database, conversation.events)
     job = research.create_manual(conversation.create_thread().id, "topic", "one", ("web",))
@@ -51,8 +54,8 @@ def _expire(database, job_id):
         )
 
 
-def test_only_one_worker_holds_a_live_claim(tmp_path):
-    database, _, job, runtime, ref = _research_task(tmp_path)
+def test_only_one_worker_holds_a_live_claim(database, tmp_path):
+    database, _, job, runtime, ref = _research_task(database)
     try:
         with database.transaction() as connection:
             first = runtime.claim(connection, ref, "worker-a", 30)
@@ -71,8 +74,8 @@ def test_only_one_worker_holds_a_live_claim(tmp_path):
         database.close()
 
 
-def test_expired_lease_recovers_once_and_rejects_the_old_epoch(tmp_path):
-    database, research, job, runtime, ref = _research_task(tmp_path)
+def test_expired_lease_recovers_once_and_rejects_the_old_epoch(database, tmp_path):
+    database, research, job, runtime, ref = _research_task(database)
     try:
         with database.transaction() as connection:
             first = runtime.claim(connection, ref, "worker-a", 30)
@@ -90,8 +93,8 @@ def test_expired_lease_recovers_once_and_rejects_the_old_epoch(tmp_path):
         database.close()
 
 
-def test_reclaim_after_expiry_fences_the_previous_epoch(tmp_path):
-    database, research, job, runtime, ref = _research_task(tmp_path)
+def test_reclaim_after_expiry_fences_the_previous_epoch(database, tmp_path):
+    database, research, job, runtime, ref = _research_task(database)
     try:
         with database.transaction() as connection:
             first = runtime.claim(connection, ref, "worker-a", 30)
@@ -110,8 +113,8 @@ def test_reclaim_after_expiry_fences_the_previous_epoch(tmp_path):
         database.close()
 
 
-def test_cancel_request_blocks_completion_once(tmp_path):
-    database, research, job, runtime, ref = _research_task(tmp_path)
+def test_cancel_request_blocks_completion_once(database, tmp_path):
+    database, research, job, runtime, ref = _research_task(database)
     try:
         with database.transaction() as connection:
             attempt = runtime.claim(connection, ref, "worker-a", 30)
@@ -130,15 +133,15 @@ def test_cancel_request_blocks_completion_once(tmp_path):
         database.close()
 
 
-def test_archive_exposes_the_shared_lease_vocabulary(tmp_path):
-    _, _, archiver = _thread_with_turns(tmp_path, [400] * 4)
+def test_archive_exposes_the_shared_lease_vocabulary(database, tmp_path):
+    _, _, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     for verb in ("claim", "heartbeat", "require_lease", "recover_expired"):
         assert callable(getattr(archiver, verb))
 
 
 @pytest.mark.asyncio
-async def test_lease_loss_blocks_heartbeat_and_commit(tmp_path):
-    db, thread, archiver = _thread_with_turns(tmp_path, [400] * 4)
+async def test_lease_loss_blocks_heartbeat_and_commit(database, tmp_path):
+    db, thread, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     archiver.summarizer = _summary
     archiver.keep_tokens = 1
     events: list[dict] = []
@@ -165,8 +168,8 @@ async def test_lease_loss_blocks_heartbeat_and_commit(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_recovery_is_idempotent_and_reports_its_events(tmp_path):
-    db, thread, archiver = _thread_with_turns(tmp_path, [400] * 4)
+async def test_recovery_is_idempotent_and_reports_its_events(database, tmp_path):
+    db, thread, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     archiver.summarizer = _summary
     archiver.keep_tokens = 1
     events: list[dict] = []
@@ -226,8 +229,8 @@ def _insert_running_job(db, thread, job_id, *, attempts, max_attempts, lease_unt
         )
 
 
-def test_recover_expired_retryable_keeps_coverage_and_resets_state(tmp_path):
-    db, thread, archiver = _thread_with_turns(tmp_path, [400] * 4)
+def test_recover_expired_retryable_keeps_coverage_and_resets_state(database, tmp_path):
+    db, thread, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO conversation_archive_state(owner_id,thread_id,archived_through_seq,state,lease_owner,lease_until) "
@@ -247,8 +250,8 @@ def test_recover_expired_retryable_keeps_coverage_and_resets_state(tmp_path):
     assert state["archived_through_seq"] == 0 and state["state"] == "IDLE" and state["lease_owner"] is None
 
 
-def test_recover_expired_after_max_attempts_dead_letters(tmp_path):
-    db, thread, archiver = _thread_with_turns(tmp_path, [400] * 4)
+def test_recover_expired_after_max_attempts_dead_letters(database, tmp_path):
+    db, thread, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO conversation_archive_state(owner_id,thread_id,archived_through_seq,state,lease_owner,lease_until) "
@@ -270,8 +273,8 @@ def test_recover_expired_after_max_attempts_dead_letters(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_worker_reclaims_an_expired_lease_and_fences_the_old_worker(tmp_path):
-    db, thread, archiver = _thread_with_turns(tmp_path, [400] * 4)
+async def test_worker_reclaims_an_expired_lease_and_fences_the_old_worker(database, tmp_path):
+    db, thread, archiver = thread_with_turns(database, tmp_path, [400] * 4)
     archiver.summarizer = _summary
     archiver.keep_tokens = 1
     job = archiver.enqueue(thread.id)
@@ -291,10 +294,101 @@ async def test_worker_reclaims_an_expired_lease_and_fences_the_old_worker(tmp_pa
     assert await worker_b.process(fresh) is not None
 
 
-def test_worker_recovery_failure_is_never_fatal(tmp_path):
-    _, _, archiver = _thread_with_turns(tmp_path, [400])
+def test_worker_recovery_failure_is_never_fatal(database, tmp_path):
+    _, _, archiver = thread_with_turns(database, tmp_path, [400])
     worker = ManagedArchiveWorker(archiver)
     def boom():
         raise RuntimeError("recovery unavailable")
     archiver.recover_expired = boom
     assert worker._recover() == 0
+
+
+def test_two_connections_allow_one_live_claim_and_fence_the_old_owner(database, tmp_path):
+    """Two distinct Database pools; B waits in a worker thread, then loses the claim."""
+    second = Database(database.database_url, workspace=tmp_path / "second")
+    tranche = None
+    worker = None
+    probe = None
+    try:
+        conversation = ConversationService(database)
+        research = ResearchService(database, conversation.events)
+        job = research.create_manual(conversation.create_thread().id, "topic", "one", ("web",))
+        runtime_one = TaskRuntime(database)
+        runtime_two = TaskRuntime(second)
+        ref = TaskRef(TaskKind.RESEARCH, job.id)
+
+        tranche = database.transaction()
+        connection_a = tranche.__enter__()
+        connection_a.execute("SET LOCAL lock_timeout='8s'")
+        connection_a.execute("SET LOCAL statement_timeout='15s'")
+        first = runtime_one.claim(connection_a, ref, "worker-a", 30)
+        assert first is not None
+        backend_a = connection_a.execute("SELECT pg_backend_pid()").fetchone()[0]
+
+        started = threading.Event()
+        result: dict[str, object] = {}
+
+        def claim_from_b():
+            started.set()
+            try:
+                with second.transaction() as connection_b:
+                    connection_b.execute("SET LOCAL lock_timeout='8s'")
+                    connection_b.execute("SET LOCAL statement_timeout='15s'")
+                    result["claim"] = runtime_two.claim(connection_b, ref, "worker-b", 30)
+            except BaseException as exc:
+                result["error"] = exc
+
+        worker = threading.Thread(target=claim_from_b, daemon=True)
+        worker.start()
+        assert started.wait(timeout=5)
+
+        # Prove B is really waiting on A's row lock via pg_stat_activity.
+        probe = pg_fixtures._connect(database.database_url, autocommit=True)
+        deadline = time.monotonic() + 5
+        waiting = False
+        while time.monotonic() < deadline:
+            waiting = probe.execute(
+                "SELECT 1 FROM pg_stat_activity WHERE %s = ANY(pg_blocking_pids(pid)) LIMIT 1",
+                (backend_a,),
+            ).fetchone() is not None
+            if waiting:
+                break
+            time.sleep(0.02)
+        assert waiting, "connection B never waited on connection A's row lock"
+
+        # A commits; B acquires the lock, sees the live lease, and returns None.
+        tranche.__exit__(None, None, None)
+        tranche = None
+        worker.join(timeout=10)
+        assert not worker.is_alive()
+        if "error" in result:
+            raise result["error"]
+        assert result["claim"] is None
+
+        _expire(database, job.id)
+        with second.transaction() as connection_b:
+            connection_b.execute("SET LOCAL lock_timeout='8s'")
+            connection_b.execute("SET LOCAL statement_timeout='15s'")
+            takeover = runtime_two.claim(connection_b, ref, "worker-b", 30)
+            assert takeover is not None
+            assert takeover.token.epoch == first.token.epoch + 1
+
+        with database.transaction() as connection_a:
+            connection_a.execute("SET LOCAL lock_timeout='8s'")
+            with pytest.raises(LeaseLost):
+                runtime_one.heartbeat(connection_a, first.token, 30)
+            with pytest.raises(LeaseLost):
+                runtime_one.finish(connection_a, first.token, "COMPLETED")
+
+        with second.transaction() as connection_b:
+            connection_b.execute("SET LOCAL lock_timeout='8s'")
+            runtime_two.finish(connection_b, takeover.token, "COMPLETED")
+        assert research.get(job.id).status == "COMPLETED"
+    finally:
+        if tranche is not None:
+            tranche.__exit__(None, None, None)
+        if worker is not None and worker.is_alive():
+            worker.join(timeout=5)
+        if probe is not None:
+            probe.close()
+        second.close()

@@ -4,15 +4,15 @@ import pytest
 
 from app.runtime import MockModelGateway, ModelDecision
 from app.tools import ToolCall
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("mode", ["legacy", "loop"])
-async def test_approved_goal_write_rejects_changed_definition(tmp_path, monkeypatch, mode):
+async def test_approved_goal_write_rejects_changed_definition(database, tmp_path, monkeypatch, mode):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", mode)
     call = ToolCall("write", "write_note", {"path": "note.md", "content": "one"})
-    runtime = make_runtime(tmp_path, MockModelGateway(
+    runtime = make_runtime(database, tmp_path, MockModelGateway(
         plan_steps=[{"id": "s", "title": "write"}],
         decisions=[ModelDecision.tool(call), ModelDecision.complete("done")],
     ))

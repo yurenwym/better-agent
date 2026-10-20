@@ -3,6 +3,8 @@ from dataclasses import replace
 
 import pytest
 
+from pg02_helpers import database
+
 from app.event_envelope import EventMetadata
 from app.event_projection import project_envelope
 from app.execution_context import create_root_context
@@ -49,10 +51,9 @@ def test_envelope_exposes_fixed_association_fields_and_phase():
     assert "api_key" not in json.dumps(metadata.to_dict())
 
 
-def test_real_conversation_events_share_one_trace_with_phase(tmp_path):
+def test_real_conversation_events_share_one_trace_with_phase(tmp_path, database):
     from app.conversation import ConversationService
-    from app.db import Database
-    service = ConversationService(Database(tmp_path / "trace.db"))
+    service = ConversationService(database)
     thread = service.create_thread("trace")
     service.accept_turn(thread.id, "one", "hello", [])
     events = [event for event in service.events.list(thread.id) if event.envelope_json]
@@ -63,10 +64,18 @@ def test_real_conversation_events_share_one_trace_with_phase(tmp_path):
     assert "api_key" not in raw and "hello" not in raw
 
 
+def _research_services(database):
+    from app.conversation import ConversationService
+    from app.research.service import ResearchService
+    from test_research_service import CompletingEngine
+
+    conversation = ConversationService(database)
+    return database, conversation, ResearchService(database, conversation.events, CompletingEngine())
+
+
 @pytest.mark.parametrize("terminal,expected", [("cancel", Status.CANCELLED), ("partial", Status.FAILED), ("retry", Status.FAILED)])
-def test_research_lifecycle_outcomes_keep_partial_and_retry_distinct(tmp_path, terminal, expected):
-    from test_research_service import build
-    _, conversation, service = build(tmp_path)
+def test_research_lifecycle_outcomes_keep_partial_and_retry_distinct(tmp_path, database, terminal, expected):
+    _, conversation, service = _research_services(database)
     thread = conversation.create_thread("outcome")
     job = service.create_manual(thread.id, "topic", "one", ("web",))
     if terminal == "cancel":
@@ -90,12 +99,11 @@ def test_research_lifecycle_outcomes_keep_partial_and_retry_distinct(tmp_path, t
 
 
 @pytest.mark.parametrize("terminal", ["failed", "cancelled", "model_failed"])
-def test_expert_failure_and_cancel_return_to_source_trace(tmp_path, terminal):
+def test_expert_failure_and_cancel_return_to_source_trace(tmp_path, database, terminal):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
     from app.conversation import ConversationService
-    from app.db import Database
-    db = Database(tmp_path / "expert.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     conversation = ConversationService(db)
@@ -148,10 +156,9 @@ def test_projection_is_owner_checked_and_redacted():
     assert project_authorized_event(unknown, owner_id="owner")["compatibility"] == "unsupported_version"
 
 
-def test_store_idempotence_conflict_and_rollback(tmp_path):
-    from app.db import Database
+def test_store_idempotence_conflict_and_rollback(tmp_path, database):
     from app.events import EventStore
-    db = Database(tmp_path / "agent.db")
+    db = database
     store = EventStore(db)
     first = store.append("run", "goal", "custom", "runtime", {"x": 1}, event_id="same")
     assert store.append("run", "goal", "custom", "runtime", {"x": 1}, event_id="same") == first
@@ -165,12 +172,12 @@ def test_store_idempotence_conflict_and_rollback(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_native_goal_persists_unified_result_and_trace(tmp_path, monkeypatch):
+async def test_native_goal_persists_unified_result_and_trace(tmp_path, database, monkeypatch):
     from test_runtime import make_runtime
     from app.runtime import MockModelGateway, ModelDecision
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "step"}],
-                                                     decisions=[ModelDecision.complete("done")]))
+                                                     decisions=[ModelDecision.complete("done")]), database=database)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     await runtime.approve_plan(run.id, 1)
@@ -185,14 +192,14 @@ async def test_native_goal_persists_unified_result_and_trace(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_state_and_approval_rollback_when_event_cannot_commit(tmp_path, monkeypatch):
+async def test_state_and_approval_rollback_when_event_cannot_commit(tmp_path, database, monkeypatch):
     from test_runtime import make_runtime
     from app.runtime import MockModelGateway, ModelDecision
     from app.tools import ToolCall
     from app.domain import AgentState
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "write"}],
-        decisions=[ModelDecision.tool(ToolCall("write", "write_note", {"path": "once.md", "content": "once"}))]))
+        decisions=[ModelDecision.tool(ToolCall("write", "write_note", {"path": "once.md", "content": "once"}))]), database=database)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     await runtime.approve_plan(run.id, 1)
@@ -210,12 +217,12 @@ async def test_state_and_approval_rollback_when_event_cannot_commit(tmp_path, mo
     assert runtime.get_run(run.id).state == before
 
 
-def test_envelope_api_keeps_old_shape_and_refuses_foreign_thread(tmp_path):
+def test_envelope_api_keeps_old_shape_and_refuses_foreign_thread(tmp_path, database):
     from fastapi.testclient import TestClient
     from app.main import create_app
     from app.runtime import MockModelGateway
     from test_runtime import make_runtime
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     client = TestClient(create_app(runtime=runtime))
     thread = runtime.conversation.create_thread("local")
     turn = runtime.conversation.accept_turn(thread.id, "one", "hello", [])
@@ -233,10 +240,9 @@ def test_envelope_api_keeps_old_shape_and_refuses_foreign_thread(tmp_path):
     assert client.get(f"/api/threads/{foreign.id}/events?envelope=true", headers=headers).status_code == 404
 
 
-def test_acceptance_identity_and_event_roll_back_together(tmp_path, monkeypatch):
+def test_acceptance_identity_and_event_roll_back_together(tmp_path, database, monkeypatch):
     from app.conversation import ConversationService
-    from app.db import Database
-    service = ConversationService(Database(tmp_path / "entry.db"))
+    service = ConversationService(database)
     thread = service.create_thread("entry")
     append = service.events.append
 
@@ -260,11 +266,10 @@ def test_acceptance_identity_and_event_roll_back_together(tmp_path, monkeypatch)
     assert len(service.events.list(thread.id)) == 1
 
 
-def test_half_missing_context_cannot_be_written_as_legacy(tmp_path):
+def test_half_missing_context_cannot_be_written_as_legacy(tmp_path, database):
     from app.conversation import ConversationService
-    from app.db import Database
     from app.execution_context import HarnessContextError
-    service = ConversationService(Database(tmp_path / "corrupt.db"))
+    service = ConversationService(database)
     thread = service.create_thread("entry")
     turn = service.accept_turn(thread.id, "one", "hello", [])
     with service.db.transaction() as connection:
@@ -274,11 +279,10 @@ def test_half_missing_context_cannot_be_written_as_legacy(tmp_path):
     assert len(service.events.list(thread.id)) == 1
 
 
-def test_removed_root_cannot_be_regenerated(tmp_path):
+def test_removed_root_cannot_be_regenerated(tmp_path, database):
     from app.conversation import ConversationService
-    from app.db import Database
     from app.harness_context_store import ContextStoreConflict
-    service = ConversationService(Database(tmp_path / "removed.db"))
+    service = ConversationService(database)
     thread = service.create_thread("entry")
     turn = service.accept_turn(thread.id, "one", "hello", [])
     with service.db.transaction() as connection:
@@ -292,11 +296,10 @@ def test_removed_root_cannot_be_regenerated(tmp_path):
 
 
 @pytest.mark.parametrize("field", ["root_budget_id", "runtime_bundle_id", "project_id"])
-def test_explicit_event_metadata_cannot_override_durable_bindings(tmp_path, field):
+def test_explicit_event_metadata_cannot_override_durable_bindings(tmp_path, database, field):
     from app.conversation import ConversationService
-    from app.db import Database
     from app.execution_context import create_child_context
-    service = ConversationService(Database(tmp_path / "bindings.db"))
+    service = ConversationService(database)
     thread = service.create_thread("entry")
     turn = service.accept_turn(thread.id, "one", "hello", [])
     root = service.harness_context.load_turn_context(turn.turn_id)
@@ -308,14 +311,20 @@ def test_explicit_event_metadata_cannot_override_durable_bindings(tmp_path, fiel
 
 
 @pytest.mark.asyncio
-async def test_run_event_rejects_budget_binding_drift(tmp_path, monkeypatch):
+async def test_run_event_rejects_budget_binding_drift(tmp_path, database, monkeypatch):
     from test_runtime import make_runtime
     from app.runtime import MockModelGateway
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = await runtime.create_goal("goal", "goal")
     before = len(runtime.events.list(run.id))
     with runtime.db.transaction() as connection:
+        owner = "local-user"
+        connection.execute(
+            "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+            "VALUES (?,?,?,?,?,?)",
+            ("foreign-budget", owner, "goal_operation", "foreign-object", 30, "2099-01-01T00:00:00+00:00"),
+        )
         connection.execute("UPDATE runs SET root_budget_id='foreign-budget' WHERE id=?", (run.id,))
     with pytest.raises(ValueError, match="budget binding"):
         runtime.events.append(run.id, run.goal_id, "custom", "worker", {})
@@ -323,10 +332,10 @@ async def test_run_event_rejects_budget_binding_drift(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_checkpoint_observes_events_in_its_own_transaction(tmp_path):
+async def test_checkpoint_observes_events_in_its_own_transaction(tmp_path, database):
     from test_runtime import make_runtime
     from app.runtime import MockModelGateway
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = await runtime.create_goal("goal", "goal")
     with runtime.db.transaction() as connection:
         event = runtime.events.append(run.id, run.goal_id, "approval.requested", "runtime", {}, connection=connection)
@@ -335,9 +344,8 @@ async def test_checkpoint_observes_events_in_its_own_transaction(tmp_path):
     assert runtime.checkpoints.latest(run.id).last_event_seq == event.seq
 
 
-def test_research_retry_uses_new_span_and_terminal_retains_attempt(tmp_path):
-    from test_research_service import build
-    _, conversation, service = build(tmp_path)
+def test_research_retry_uses_new_span_and_terminal_retains_attempt(tmp_path, database):
+    _, conversation, service = _research_services(database)
     thread = conversation.create_thread("retry")
     job = service.create_manual(thread.id, "topic", "one", ("web",))
     lease_1 = service.claim(job.id, "worker", 30)

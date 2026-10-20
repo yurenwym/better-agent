@@ -1,11 +1,12 @@
 import pytest
 
+from pg02_helpers import database
 
-def test_plan_revision_creates_immutable_version_and_preserves_completed_steps(tmp_path) -> None:
-    from app.db import Database
+
+def test_plan_revision_creates_immutable_version_and_preserves_completed_steps(database, tmp_path) -> None:
     from app.domain import PlanConflict, PlanVersionService
 
-    service = PlanVersionService(Database(tmp_path / "agent.db"))
+    service = PlanVersionService(database)
     first = service.create(
         "run-1",
         "goal-1",
@@ -33,11 +34,10 @@ def test_plan_revision_creates_immutable_version_and_preserves_completed_steps(t
         service.revise("run-1", "goal-1", expected_version=1, steps=[])
 
 
-def test_plan_approval_only_allows_current_version(tmp_path) -> None:
-    from app.db import Database
+def test_plan_approval_only_allows_current_version(database, tmp_path) -> None:
     from app.domain import PlanConflict, PlanVersionService
 
-    service = PlanVersionService(Database(tmp_path / "agent.db"))
+    service = PlanVersionService(database)
     first = service.create("run-1", "goal-1", [{"id": "step-a", "title": "A"}])
     second = service.revise("run-1", "goal-1", 1, [{"id": "step-b", "title": "B"}])
 
@@ -48,11 +48,10 @@ def test_plan_approval_only_allows_current_version(tmp_path) -> None:
     assert approved.status == "approved"
 
 
-def test_manual_plan_revision_inherits_the_document_source_version(tmp_path) -> None:
-    from app.db import Database
+def test_manual_plan_revision_inherits_the_document_source_version(database, tmp_path) -> None:
     from app.domain import PlanVersionService
 
-    service = PlanVersionService(Database(tmp_path / "agent.db"))
+    service = PlanVersionService(database)
     first = service.create(
         "run-1",
         "goal-1",

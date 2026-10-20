@@ -24,9 +24,6 @@ class ManagedResearchWorker:
 
     async def start(self):
         if self._task: return
-        notifier = getattr(self.service, "notifications", None)
-        if notifier is not None:
-            notifier.recover_interrupted_sends()
         self._stop = asyncio.Event(); self._task = asyncio.create_task(self._loop(), name="research-worker")
 
     async def stop(self):

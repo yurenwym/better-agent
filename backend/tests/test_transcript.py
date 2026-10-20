@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from app.db import Database
+from pg02_helpers import database
+
 from app.transcript import CanonicalTurnTranscriptBuilder, ScopeMismatch
 
 
@@ -34,8 +35,8 @@ def _message(connection, thread_id: str, turn_id: str, seq: int, role: str, cont
     return message_id
 
 
-def test_transcript_selects_newest_complete_turns_without_message_limit(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_transcript_selects_newest_complete_turns_without_message_limit(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "thread")
         for index in range(30):
@@ -55,8 +56,8 @@ def test_transcript_selects_newest_complete_turns_without_message_limit(tmp_path
     assert history[0]["role"] == "user"
 
 
-def test_transcript_excludes_interrupted_and_failed_assistant_generations(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_transcript_excludes_interrupted_and_failed_assistant_generations(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "thread")
         completed = _turn(connection, "thread", 1)
@@ -72,8 +73,8 @@ def test_transcript_excludes_interrupted_and_failed_assistant_generations(tmp_pa
     assert [item["content"] for item in history] == ["question", "final", "failed question"]
 
 
-def test_transcript_scopes_asks_to_thread_and_renders_each_once(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_transcript_scopes_asks_to_thread_and_renders_each_once(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         for thread_id in ("a", "b"):
             _thread(connection, thread_id)
@@ -108,8 +109,8 @@ def test_transcript_scopes_asks_to_thread_and_renders_each_once(tmp_path) -> Non
     assert all("call-b" not in json.dumps(item) for item in history)
 
 
-def test_answered_ask_content_is_part_of_transcript_hash(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_answered_ask_content_is_part_of_transcript_hash(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "thread")
         turn_id = _turn(connection, "thread", 1)
@@ -138,8 +139,8 @@ def test_answered_ask_content_is_part_of_transcript_hash(tmp_path) -> None:
     assert first.source_hash != second.source_hash
 
 
-def test_message_ids_are_unique_when_assistant_message_has_ask_events(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_message_ids_are_unique_when_assistant_message_has_ask_events(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "thread")
         turn_id = _turn(connection, "thread", 1)
@@ -156,8 +157,8 @@ def test_message_ids_are_unique_when_assistant_message_has_ask_events(tmp_path) 
     assert transcript.message_ids == ("thread-message-1-1", "thread-message-2-1")
 
 
-def test_scope_is_resolved_from_database(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_scope_is_resolved_from_database(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "thread", owner="alice")
     builder = CanonicalTurnTranscriptBuilder(db)
@@ -166,8 +167,8 @@ def test_scope_is_resolved_from_database(tmp_path) -> None:
         builder.resolve_scope("thread", "bob")
 
 
-def test_transcript_rejects_message_turn_join_from_another_thread(tmp_path) -> None:
-    db = Database(tmp_path / "agent.db")
+def test_transcript_rejects_message_turn_join_from_another_thread(tmp_path, database) -> None:
+    db = database
     with db.transaction() as connection:
         _thread(connection, "a")
         _thread(connection, "b")

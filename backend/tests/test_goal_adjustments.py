@@ -3,6 +3,7 @@ from copy import deepcopy
 
 import pytest
 
+from pg02_helpers import database
 from test_goal_program_compiler import fixture
 from test_goal_programs import service
 
@@ -25,20 +26,20 @@ class EmptyAdjustmentCompiler:
         return deepcopy(current)
 
 
-def active_services(tmp_path):
+def active_services(tmp_path, *, database=None):
     from app.goal_adjustments import GoalAdjustmentService
-    db,conversation,goals,version=service(tmp_path)
+    db,conversation,goals,version=service(tmp_path, database=database)
     draft=asyncio.run(goals.preview(version.plan_document_id,start_date="2026-09-01",timezone_name="Asia/Shanghai",daily_minutes=60,requested_end_date="2026-09-07",idempotency_key="preview"))
     active=goals.activate(draft["id"],expected_version=draft["version"],idempotency_key="activate")
     compiler=AdjustmentCompiler()
     return db,conversation,goals,GoalAdjustmentService(goals,compiler,conversation.plan_documents),active
 
 
-def test_accept_switches_only_future_actions_and_is_idempotent(tmp_path,monkeypatch) -> None:
+def test_accept_switches_only_future_actions_and_is_idempotent(database, tmp_path, monkeypatch) -> None:
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_now",lambda:"2026-09-01T00:00:00+00:00")
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
-    db,_,goals,adjustments,active=active_services(tmp_path)
+    db,_,goals,adjustments,active=active_services(tmp_path, database=database)
     first=active["actions"][0]
     goals.complete_action(first["id"],expected_version=0,idempotency_key="complete")
     current=goals.get(active["id"])
@@ -52,10 +53,10 @@ def test_accept_switches_only_future_actions_and_is_idempotent(tmp_path,monkeypa
         assert connection.execute("SELECT COUNT(*) FROM goal_program_versions WHERE program_id=?",(active["id"],)).fetchone()[0]==2
 
 
-def test_stale_action_snapshot_rolls_back_accept(tmp_path,monkeypatch) -> None:
+def test_stale_action_snapshot_rolls_back_accept(database, tmp_path, monkeypatch) -> None:
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
-    db,_,goals,adjustments,active=active_services(tmp_path)
+    db,_,goals,adjustments,active=active_services(tmp_path, database=database)
     proposal=asyncio.run(adjustments.propose(active["id"],reason="调整",expected_version=active["version"],idempotency_key="propose"))
     action=active["actions"][0];goals.skip_action(action["id"],expected_version=0,idempotency_key="skip")
     with pytest.raises(Exception):adjustments.accept(proposal["id"],expected_version=0,idempotency_key="accept")
@@ -64,10 +65,10 @@ def test_stale_action_snapshot_rolls_back_accept(tmp_path,monkeypatch) -> None:
     assert adjustments.get(proposal["id"])["status"]=="STALE"
 
 
-def test_markdown_conflict_does_not_rollback_accepted_execution(tmp_path,monkeypatch) -> None:
+def test_markdown_conflict_does_not_rollback_accepted_execution(database, tmp_path, monkeypatch) -> None:
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
-    db,conversation,goals,adjustments,active=active_services(tmp_path)
+    db,conversation,goals,adjustments,active=active_services(tmp_path, database=database)
     proposal=asyncio.run(adjustments.propose(active["id"],reason="调整",expected_version=active["version"],idempotency_key="propose"))
     accepted=adjustments.accept(proposal["id"],expected_version=0,idempotency_key="accept")
     source=conversation.plan_documents.current_version(active["source_plan_document_id"])
@@ -79,10 +80,10 @@ def test_markdown_conflict_does_not_rollback_accepted_execution(tmp_path,monkeyp
     assert adjustments.get(proposal["id"])["plan_sync_status"]=="CONFLICT"
 
 
-def test_accept_rejects_future_action_added_after_snapshot(tmp_path,monkeypatch) -> None:
+def test_accept_rejects_future_action_added_after_snapshot(database, tmp_path, monkeypatch) -> None:
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
-    db,_,goals,adjustments,active=active_services(tmp_path)
+    db,_,goals,adjustments,active=active_services(tmp_path, database=database)
     with db.transaction() as connection:
         connection.execute("UPDATE goal_actions SET estimated_minutes=30 WHERE program_id=?",(active["id"],))
     proposal=asyncio.run(adjustments.propose(active["id"],reason="adjust",expected_version=active["version"],idempotency_key="propose"))
@@ -94,10 +95,10 @@ def test_accept_rejects_future_action_added_after_snapshot(tmp_path,monkeypatch)
         assert connection.execute("SELECT COUNT(*) FROM goal_program_versions WHERE program_id=?",(active["id"],)).fetchone()[0]==1
 
 
-def test_sync_recovers_when_revision_committed_before_proposal_receipt(tmp_path,monkeypatch) -> None:
+def test_sync_recovers_when_revision_committed_before_proposal_receipt(database, tmp_path, monkeypatch) -> None:
     import app.goal_adjustments as module
     monkeypatch.setattr(module,"_local_date",lambda timezone_name:"2026-09-01")
-    db,conversation,goals,adjustments,active=active_services(tmp_path)
+    db,conversation,goals,adjustments,active=active_services(tmp_path, database=database)
     proposal=asyncio.run(adjustments.propose(active["id"],reason="adjust",expected_version=active["version"],idempotency_key="propose"))
     accepted=adjustments.accept(proposal["id"],expected_version=0,idempotency_key="accept")
     original=adjustments.programs._save_receipt
@@ -112,12 +113,12 @@ def test_sync_recovers_when_revision_committed_before_proposal_receipt(tmp_path,
         assert connection.execute("SELECT COUNT(*) FROM plan_document_versions WHERE plan_document_id=?",(active["source_plan_document_id"],)).fetchone()[0]==2
 
 
-def test_unchanged_adjustment_is_no_change_without_forced_retry(tmp_path, monkeypatch) -> None:
+def test_unchanged_adjustment_is_no_change_without_forced_retry(database, tmp_path, monkeypatch) -> None:
     from app.goal_adjustments import GoalAdjustmentService
     from app.goal_programs import GoalProgramConflict
 
     monkeypatch.setattr("app.goal_adjustments._local_date", lambda _timezone: "2026-09-01")
-    db, conversation, goals, _, active = active_services(tmp_path)
+    db, conversation, goals, _, active = active_services(tmp_path, database=database)
     compiler = EmptyAdjustmentCompiler()
     adjustments = GoalAdjustmentService(goals, compiler, conversation.plan_documents)
 

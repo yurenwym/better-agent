@@ -1,15 +1,16 @@
+from pg02_helpers import database
+
 import json
 
 
-def test_redacted_jsonl_hides_secrets_and_outside_paths(tmp_path) -> None:
-    from app.db import Database
+def test_redacted_jsonl_hides_secrets_and_outside_paths(tmp_path, database) -> None:
     from app.events import EventStore, export_jsonl
 
     workspace = tmp_path / "workspace"
-    workspace.mkdir()
+    workspace.mkdir(exist_ok=True)
     outside = tmp_path / "private.txt"
     secret = "super-secret-value"
-    store = EventStore(Database(tmp_path / "agent.db"), workspace=workspace)
+    store = EventStore(database, workspace=workspace)
     store.append(
         "run-1",
         "goal-1",
@@ -40,11 +41,10 @@ def test_redacted_jsonl_hides_secrets_and_outside_paths(tmp_path) -> None:
     assert "password" not in decoded["data"]
 
 
-def test_full_export_is_explicit_and_keeps_event_shape(tmp_path) -> None:
-    from app.db import Database
+def test_full_export_is_explicit_and_keeps_event_shape(tmp_path, database) -> None:
     from app.events import EventStore, export_jsonl
 
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     store.append("run-1", "goal-1", "note.created", "user", {"content": "hello"})
 
     line = export_jsonl(store.list("run-1"), mode="full", workspace=tmp_path)
@@ -52,12 +52,11 @@ def test_full_export_is_explicit_and_keeps_event_shape(tmp_path) -> None:
     assert json.loads(line)["data"]["content"] == "hello"
 
 
-def test_redacted_jsonl_hides_streamed_delta_text(tmp_path) -> None:
-    from app.db import Database
+def test_redacted_jsonl_hides_streamed_delta_text(tmp_path, database) -> None:
     from app.events import EventStore, export_jsonl
 
     secret_fragment = '{"summary":"private streamed result"}'
-    store = EventStore(Database(tmp_path / "agent.db"))
+    store = EventStore(database)
     store.append("run-1", "goal-1", "model.response.delta", "model", {"delta": secret_fragment})
 
     line = export_jsonl(store.list("run-1"), mode="redacted", workspace=tmp_path)

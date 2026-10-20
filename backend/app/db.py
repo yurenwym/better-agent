@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 
-POSTGRES_SCHEMA_HEAD = "20261015_0031"
+POSTGRES_SCHEMA_HEAD = "20261019_0035"
 POSTGRES_REQUIRED_EXTENSIONS = frozenset({"vector", "pg_trgm"})
 
 
@@ -1679,6 +1679,18 @@ MIGRATIONS = (*MIGRATIONS, (51, SQLITE_NOTIFICATION_UPGRADE))
 MIGRATIONS = (*MIGRATIONS, (52, """
 ALTER TABLE notification_channels ADD COLUMN deleted_at TEXT;
 ALTER TABLE notification_deliveries ADD COLUMN prior_delivery_id TEXT;
+"""))
+
+# Nullable on purpose: rows created before the execution protocol stay unidentified.
+MIGRATIONS = (*MIGRATIONS, (53, """
+ALTER TABLE notification_deliveries ADD COLUMN recovery_scope_id TEXT;
+ALTER TABLE notification_deliveries ADD COLUMN executor_token TEXT;
+"""))
+
+# Nullable on purpose: a token without the original file identity cannot be recovered.
+MIGRATIONS = (*MIGRATIONS, (54, """
+ALTER TABLE notification_deliveries ADD COLUMN executor_file_dev TEXT;
+ALTER TABLE notification_deliveries ADD COLUMN executor_file_ino TEXT;
 """))
 
 

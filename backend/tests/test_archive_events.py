@@ -4,11 +4,11 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.conversation import ConversationService
-from app.db import Database
 from app.events import ThreadEventStore
 from app.memory_archive import ArchiveLeaseLost, ConversationArchiver
 from app.memory_v2 import MemoryStore
 from app.trace_query import TraceQuery
+from pg02_helpers import database
 
 
 async def _summary(payload):
@@ -23,8 +23,7 @@ def _past():
     return (datetime.now(timezone.utc) - timedelta(seconds=5)).isoformat()
 
 
-def _archiver(tmp_path):
-    database = Database(tmp_path / "archive.db")
+def _archiver(database, tmp_path):
     conversation = ConversationService(database)
     thread = conversation.create_thread("archive")
     turn = conversation.accept_turn(thread.id, "one", "u" * 2000, [])
@@ -51,8 +50,8 @@ def _types(database, thread_id):
 
 
 @pytest.mark.asyncio
-async def test_recovery_and_commit_are_visible_without_moving_the_cursor_early(tmp_path):
-    database, _, thread, turn, archiver = _archiver(tmp_path)
+async def test_recovery_and_commit_are_visible_without_moving_the_cursor_early(database, tmp_path):
+    database, _, thread, turn, archiver = _archiver(database, tmp_path)
     try:
         job = archiver.enqueue(thread.id, source_turn_id=turn.turn_id)
         assert job is not None
@@ -93,8 +92,8 @@ async def test_recovery_and_commit_are_visible_without_moving_the_cursor_early(t
 
 
 @pytest.mark.asyncio
-async def test_changed_source_version_cannot_commit_or_advance_coverage(tmp_path):
-    database, _, thread, turn, archiver = _archiver(tmp_path)
+async def test_changed_source_version_cannot_commit_or_advance_coverage(database, tmp_path):
+    database, _, thread, turn, archiver = _archiver(database, tmp_path)
     try:
         job = archiver.enqueue(thread.id, source_turn_id=turn.turn_id)
         claim = archiver.claim(job)
@@ -121,8 +120,8 @@ def _episode_count(database):
 
 
 @pytest.mark.asyncio
-async def test_expired_lease_cannot_renew_commit_or_fail_before_recovery(tmp_path):
-    database, _, thread, turn, archiver = _archiver(tmp_path)
+async def test_expired_lease_cannot_renew_commit_or_fail_before_recovery(database, tmp_path):
+    database, _, thread, turn, archiver = _archiver(database, tmp_path)
     try:
         job = archiver.enqueue(thread.id, source_turn_id=turn.turn_id)
         claim = archiver.claim(job)
@@ -163,8 +162,8 @@ async def test_expired_lease_cannot_renew_commit_or_fail_before_recovery(tmp_pat
         database.close()
 
 
-def test_recovery_event_failure_keeps_the_expired_lease(tmp_path):
-    database, _, thread, turn, archiver = _archiver(tmp_path)
+def test_recovery_event_failure_keeps_the_expired_lease(database, tmp_path):
+    database, _, thread, turn, archiver = _archiver(database, tmp_path)
     try:
         job = archiver.enqueue(thread.id, source_turn_id=turn.turn_id)
         archiver.claim(job)

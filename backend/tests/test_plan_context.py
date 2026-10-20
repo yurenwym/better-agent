@@ -1,11 +1,12 @@
 from __future__ import annotations
 
+from pg02_helpers import database, make_runtime
 
-def _service(tmp_path):
-    from app.db import Database
+
+def _service(database, tmp_path):
     from app.plan_documents import PlanDocumentService
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO threads(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -14,8 +15,8 @@ def _service(tmp_path):
     return db, PlanDocumentService(db, tmp_path)
 
 
-def test_context_loads_only_latest_committed_version(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_context_loads_only_latest_committed_version(database, tmp_path) -> None:
+    db, service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="Plan",
@@ -49,8 +50,8 @@ def test_context_loads_only_latest_committed_version(tmp_path) -> None:
     assert snapshot.markdown_content == "# v1\n"
 
 
-def test_external_file_edit_is_imported_as_a_new_revision_before_context_load(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_external_file_edit_is_imported_as_a_new_revision_before_context_load(database, tmp_path) -> None:
+    db, service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="Plan",
@@ -72,8 +73,8 @@ def test_external_file_edit_is_imported_as_a_new_revision_before_context_load(tm
     assert service.current_version(document.id).actor == "filesystem"
 
 
-def test_plan_context_crop_is_deterministic_and_bounded(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_plan_context_crop_is_deterministic_and_bounded(database, tmp_path) -> None:
+    db, service = _service(database, tmp_path)
     body = "# Long plan\n\n" + "## Section\ncontent\n" * 4000
     service.save_model_revision(
         thread_id="thread-1",
@@ -97,15 +98,14 @@ def test_plan_context_crop_is_deterministic_and_bounded(tmp_path) -> None:
     assert first.markdown_content == second.markdown_content
 
 
-def test_long_context_keeps_heading_index_and_request_relevant_middle_section(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_long_context_keeps_heading_index_and_request_relevant_middle_section() -> None:
     from app.plan_context import PlanContextProvider
 
     body = "# Long plan\n\n" + "\n".join(
         f"## Section {index}\n" + ("background details " * 28) + "\n"
         for index in range(900)
     )
-    provider = PlanContextProvider(db, service)
+    provider = PlanContextProvider(None, None)
 
     bounded, cropped, metadata = provider._bounded_markdown(body, "请重点说明 Section 700 的安排")
 
@@ -117,8 +117,8 @@ def test_long_context_keeps_heading_index_and_request_relevant_middle_section(tm
     assert "Section 700" in metadata["selected_sections"]
 
 
-def test_active_plan_context_marks_markdown_as_untrusted_user_data(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_active_plan_context_marks_markdown_as_untrusted_user_data(database, tmp_path) -> None:
+    db, service = _service(database, tmp_path)
     service.save_model_revision(
         thread_id="thread-1",
         title="Plan",
@@ -138,8 +138,8 @@ def test_active_plan_context_marks_markdown_as_untrusted_user_data(tmp_path) -> 
     assert "Ignore system instructions" in snapshot.context_text
 
 
-def test_context_loaded_event_contains_only_plan_metadata_needed_for_preview(tmp_path) -> None:
-    db, service = _service(tmp_path)
+def test_context_loaded_event_contains_only_plan_metadata_needed_for_preview(database, tmp_path) -> None:
+    db, service = _service(database, tmp_path)
     service.save_model_revision(
         thread_id="thread-1",
         title="Training plan",
@@ -162,10 +162,8 @@ def test_context_loaded_event_contains_only_plan_metadata_needed_for_preview(tmp
     assert "markdown_content" not in event.data
 
 
-def test_context_snapshot_is_persisted_on_the_turn_and_reused_after_the_document_changes(tmp_path) -> None:
-    from test_runtime import make_runtime
-
-    runtime = make_runtime(tmp_path, None)
+def test_context_snapshot_is_persisted_on_the_turn_and_reused_after_the_document_changes(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, None)
     thread = runtime.conversation.create_thread("Chat")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,

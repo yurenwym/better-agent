@@ -6,20 +6,18 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from app.conversation import ConversationService
-from app.db import Database
 from app.domain import ApprovalService
 from app.goal_program_compiler import FixedGoalProgramCompiler
 from app.goal_programs import GoalProgramService
 from app.goal_tools import activation_approval_binding, register_goal_tools, ScheduleConstraints
 from app.tools import ToolCall, ToolExecutionContext, ToolRegistry
 from test_goal_program_compiler import fixture
+from pg02_helpers import database
 
 
 @pytest.fixture
-def recovery_db(tmp_path):
-    db = Database(tmp_path / "recovery.db")
-    yield db
-    db.close()
+def recovery_db(database):
+    return database
 
 
 def setup(db, tmp_path):

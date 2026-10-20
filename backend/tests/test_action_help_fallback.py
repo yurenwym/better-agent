@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 from app.live_model import LiveConversationModel
 from app.memory_archive import ArchiveUnavailable
+from pg02_helpers import database, make_runtime
 
 
 @pytest.mark.asyncio
@@ -34,8 +35,7 @@ async def test_action_fallback_uses_only_snapshot_and_question(independent):
 
 
 @pytest.mark.asyncio
-async def test_worker_preserves_required_history_even_with_action_snapshot(tmp_path, monkeypatch):
-    from test_runtime import make_runtime
+async def test_worker_preserves_required_history_even_with_action_snapshot(database, tmp_path, monkeypatch):
     seen = []
     class Model:
         async def route_and_respond(self, **kwargs):
@@ -45,7 +45,7 @@ async def test_worker_preserves_required_history_even_with_action_snapshot(tmp_p
             assert history == [] and memory_context_content is None
             seen.append(True)
             on_text_delta('{"v":1,"policy":"answer","content_shape":"text","reason_code":"limited"}\nCurrent action help')
-    runtime = make_runtime(tmp_path, Model())
+    runtime = make_runtime(database, tmp_path, Model())
     monkeypatch.setattr(runtime.conversation.goal_context, "load_for_turn", lambda *args: SimpleNamespace(context_text="CURRENT ACTION ONLY"))
     async def unavailable(turn, **kwargs):
         raise ArchiveUnavailable("dead letter")
@@ -55,4 +55,3 @@ async def test_worker_preserves_required_history_even_with_action_snapshot(tmp_p
     await runtime.turn_worker.run_once()
     assert seen == []
     assert runtime.conversation.turn(submission.turn_id).status == "FAILED"
-    runtime.db.close()

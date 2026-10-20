@@ -1,17 +1,64 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+from pathlib import Path
 
 import httpx
+import psycopg
 import pytest
 
 from app.db import Database
 from app.notifications import NotificationService
+from pg_fixtures import (
+    _connect,
+    allocate_owned_database,
+    create_owned_database,
+    drop_owned_database,
+    require_test_database,
+)
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.fixture()
+def database(migrated_postgres_url, isolated_postgres_test, tmp_path, monkeypatch):
+    """PostgreSQL-backed database with a per-test empty schema."""
+    monkeypatch.delenv("BETTER_AGENT_TEST_ALLOW_SQLITE", raising=False)
+    monkeypatch.setenv("DATABASE_URL", str(migrated_postgres_url))
+    db = Database(migrated_postgres_url, workspace=tmp_path / "workspace")
+    assert db.backend == "postgresql"
+    yield db
+    db.close()
+
+
+def _alembic_upgrade(database_url: str, revision: str) -> None:
+    """Run a real Alembic upgrade in a bounded subprocess; fail the test if it does."""
+    require_test_database(database_url)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "alembic",
+            "-c", str(BACKEND_ROOT / "alembic.ini"), "upgrade", revision,
+        ],
+        cwd=BACKEND_ROOT,
+        env={**os.environ, "DATABASE_URL": database_url},
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"alembic upgrade {revision} failed (exit {result.returncode}):\n"
+        + result.stderr[-4000:]
+    )
 
 
 @pytest.mark.asyncio
-async def test_business_error_is_failure_and_secret_never_returned(tmp_path, monkeypatch) -> None:
-    db = Database(tmp_path / "agent.db")
+async def test_business_error_is_failure_and_secret_never_returned(database, monkeypatch) -> None:
+    db = database
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     transport = httpx.MockTransport(lambda request: httpx.Response(200, json={"code": 1, "message": "bad"}))
     service = NotificationService(db, transport=transport)
@@ -22,16 +69,16 @@ async def test_business_error_is_failure_and_secret_never_returned(tmp_path, mon
     assert "secret-send-key" not in (result.error or "")
 
 
-def test_channel_env_name_is_validated_and_api_shape_masked(tmp_path) -> None:
-    service = NotificationService(Database(tmp_path / "agent.db"))
+def test_channel_env_name_is_validated_and_api_shape_masked(database) -> None:
+    service = NotificationService(database)
     with pytest.raises(ValueError): service.create("bad", "webhook", "lower-key", owner_id="local-user")
     item = service.create("Hook", "webhook", "MISSING_WEBHOOK", owner_id="local-user")
     assert item.configured is False and item.secret_env_name == "MISSING_WEBHOOK"
 
 @pytest.mark.asyncio
-async def test_private_webhook_is_blocked_by_default(tmp_path,monkeypatch):
+async def test_private_webhook_is_blocked_by_default(database,monkeypatch):
  monkeypatch.setenv("PRIVATE_HOOK","http://127.0.0.1/hook")
- service=NotificationService(Database(tmp_path/"a.db"),transport=httpx.MockTransport(lambda request:httpx.Response(200)))
+ service=NotificationService(database,transport=httpx.MockTransport(lambda request:httpx.Response(200)))
  channel=service.create("private","webhook","PRIVATE_HOOK", owner_id="local-user")
  result=await service.test(channel.id, owner_id="local-user")
  assert result.status=="FAILED" and "private" in (result.error or "")
@@ -41,8 +88,8 @@ def _ok(request):
     return httpx.Response(200, json={"code": 0})
 
 
-def _service(tmp_path, transport):
-    return NotificationService(Database(tmp_path / "agent.db"), transport=transport)
+def _service(database, transport):
+    return NotificationService(database, transport=transport)
 
 
 def _calls():
@@ -56,10 +103,10 @@ def _calls():
 
 
 @pytest.mark.asyncio
-async def test_cross_owner_and_disabled_channel_send_nothing(tmp_path, monkeypatch):
+async def test_cross_owner_and_disabled_channel_send_nothing(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen, handler = _calls()
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     disabled = service.create("停用", "serverchan", "SERVER_KEY", enabled=False, owner_id="owner-a")
     with pytest.raises(KeyError):
@@ -72,7 +119,7 @@ async def test_cross_owner_and_disabled_channel_send_nothing(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_timeout_is_unknown_and_is_not_sent_again(tmp_path, monkeypatch):
+async def test_timeout_is_unknown_and_is_not_sent_again(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -80,7 +127,7 @@ async def test_timeout_is_unknown_and_is_not_sent_again(tmp_path, monkeypatch):
         seen.append(request)
         raise httpx.ReadTimeout("timed out")
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     first = await service.test(channel.id, owner_id="owner-a")
     assert first.status == "UNKNOWN" and first.error_code == "RESULT_UNKNOWN"
@@ -95,7 +142,7 @@ async def test_timeout_is_unknown_and_is_not_sent_again(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_connect_failure_is_not_automatically_resent(tmp_path, monkeypatch):
+async def test_connect_failure_is_not_automatically_resent(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -103,7 +150,7 @@ async def test_connect_failure_is_not_automatically_resent(tmp_path, monkeypatch
         seen.append(request)
         raise httpx.ConnectError("refused")
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     key = f"report:job:{channel.id}"
     _seed_report(service.db, "job", "owner-a")
@@ -115,7 +162,7 @@ async def test_connect_failure_is_not_automatically_resent(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_explicit_retry_is_a_new_send_after_unknown(tmp_path, monkeypatch):
+async def test_explicit_retry_is_a_new_send_after_unknown(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -125,7 +172,7 @@ async def test_explicit_retry_is_a_new_send_after_unknown(tmp_path, monkeypatch)
             raise httpx.ReadTimeout("timed out")
         return _ok(request)
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     unknown = await service.send(channel.id, "title", "body", "job", owner_id="owner-a", dispatch_key=f"report:job:{channel.id}")
@@ -142,10 +189,10 @@ async def test_explicit_retry_is_a_new_send_after_unknown(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_revoked_report_is_not_retried(tmp_path, monkeypatch):
+async def test_revoked_report_is_not_retried(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen, handler = _calls()
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     sent = await service.send(channel.id, "title", "body", "job", owner_id="owner-a", dispatch_key=f"report:job:{channel.id}")
@@ -158,7 +205,7 @@ async def test_revoked_report_is_not_retried(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_one_claim_sends_once(tmp_path, monkeypatch):
+async def test_one_claim_sends_once(database, monkeypatch):
     import asyncio
 
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
@@ -176,7 +223,7 @@ async def test_one_claim_sends_once(tmp_path, monkeypatch):
             return httpx.Response(200, json={"code": 0})
 
     gate = Gate()
-    service = _service(tmp_path, gate)
+    service = _service(database, gate)
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     key = f"test:{channel.id}:same"
 
@@ -198,10 +245,10 @@ async def test_one_claim_sends_once(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_disable_after_claim_does_not_post(tmp_path, monkeypatch):
+async def test_disable_after_claim_does_not_post(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
-    service = _service(tmp_path, httpx.MockTransport(lambda request: seen.append(request) or _ok(request)))
+    service = _service(database, httpx.MockTransport(lambda request: seen.append(request) or _ok(request)))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
 
     class DisablingClient:
@@ -214,6 +261,9 @@ async def test_disable_after_claim_does_not_post(tmp_path, monkeypatch):
         async def __aexit__(self, *args):
             return None
 
+        async def aclose(self):
+            return None
+
         async def post(self, *args, **kwargs):
             seen.append(args)
             return _ok(None)
@@ -224,51 +274,80 @@ async def test_disable_after_claim_does_not_post(tmp_path, monkeypatch):
     assert seen == []
 
 
-def test_legacy_pending_is_unknown_and_unowned_channels_stay_unowned(tmp_path):
-    import sqlite3
+def test_legacy_pending_is_unknown_and_unowned_channels_stay_unowned(postgres_url):
+    """The real notification migration upgrades an old revision on PostgreSQL."""
+    owned = allocate_owned_database(str(postgres_url))
+    try:
+        create_owned_database(owned)
+        # 20261013_0029 is the revision immediately before the notification
+        # delivery migration (20261015_0030, down_revision 20261013_0029).
+        _alembic_upgrade(owned.url, "20261013_0029")
+        with _connect(owned.url, autocommit=True) as connection:
+            connection.execute(
+                "INSERT INTO threads(id,title,owner_id,created_at,updated_at) "
+                "VALUES ('thr','t','alice','n','n')"
+            )
+            connection.execute(
+                "INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) "
+                "VALUES ('turn','thr','client','COMPLETED','n','n')"
+            )
+            connection.execute(
+                "INSERT INTO research_jobs(id,thread_id,source_turn_id,trigger_kind,occurrence_key,topic,"
+                "source_scopes_json,status,phase,available_at,created_at,updated_at) "
+                "VALUES ('job','thr','turn','manual','occ-job','topic','[\"web\"]',"
+                "'COMPLETED','completed','n','n','n')"
+            )
+            # The SQLite fixture used a job with no thread. PostgreSQL requires a
+            # real research_jobs row (FK); a deleted thread is the equivalent
+            # input because the migration excludes deleted threads from the
+            # owner backfill, so the delivery must remain unowned.
+            connection.execute(
+                "INSERT INTO threads(id,title,owner_id,deleted_at,created_at,updated_at) "
+                "VALUES ('thr-orphan','t','carol','deleted','n','n')"
+            )
+            connection.execute(
+                "INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) "
+                "VALUES ('turn-orphan','thr-orphan','client','COMPLETED','n','n')"
+            )
+            connection.execute(
+                "INSERT INTO research_jobs(id,thread_id,source_turn_id,trigger_kind,occurrence_key,topic,"
+                "source_scopes_json,status,phase,available_at,created_at,updated_at) "
+                "VALUES ('orphan','thr-orphan','turn-orphan','manual','occ-orphan','topic','[\"web\"]',"
+                "'COMPLETED','completed','n','n','n')"
+            )
+            connection.execute(
+                "INSERT INTO notification_channels(id,name,channel_type,secret_env_name,enabled,created_at,updated_at) "
+                "VALUES ('ch','old','webhook','HOOK',1,'t','t')"
+            )
+            connection.execute(
+                "INSERT INTO notification_deliveries(id,job_id,channel_id,attempt,status,created_at) VALUES "
+                "('pending','job','ch',1,'PENDING','t'),"
+                "('sent','job','ch',2,'SENT','t'),"
+                "('loose','orphan','ch',1,'PENDING','t')"
+            )
+        _alembic_upgrade(owned.url, "head")
+        with _connect(owned.url, row_factory=psycopg.rows.dict_row) as connection:
+            channel = connection.execute(
+                "SELECT owner_id FROM notification_channels WHERE id='ch'"
+            ).fetchone()
+            rows = {
+                row["id"]: row
+                for row in connection.execute(
+                    "SELECT id,status,owner_id,purpose,dispatch_key FROM notification_deliveries"
+                )
+            }
+        assert channel["owner_id"] is None
+        assert rows["pending"]["status"] == "UNKNOWN" and rows["pending"]["owner_id"] == "alice"
+        assert rows["sent"]["status"] == "SENT"
+        assert rows["loose"]["status"] == "UNKNOWN" and rows["loose"]["owner_id"] is None
+        assert rows["pending"]["dispatch_key"] == "legacy:pending"
+        assert {row["purpose"] for row in rows.values()} == {"report"}
+    finally:
+        drop_owned_database(owned)
 
-    from app.notification_schema import SQLITE_NOTIFICATION_UPGRADE
 
-    connection = sqlite3.connect(tmp_path / "legacy.db")
-    connection.row_factory = sqlite3.Row
-    connection.executescript(
-        """
-        CREATE TABLE threads (id TEXT PRIMARY KEY, owner_id TEXT, deleted_at TEXT);
-        CREATE TABLE research_jobs (id TEXT PRIMARY KEY, thread_id TEXT);
-        CREATE TABLE notification_channels (
-          id TEXT PRIMARY KEY, name TEXT NOT NULL, channel_type TEXT NOT NULL, secret_env_name TEXT NOT NULL,
-          enabled INTEGER NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
-        );
-        CREATE TABLE notification_deliveries (
-          id TEXT PRIMARY KEY, job_id TEXT NOT NULL, channel_id TEXT NOT NULL, attempt INTEGER NOT NULL,
-          status TEXT NOT NULL, http_status INTEGER, provider_code TEXT, error TEXT,
-          created_at TEXT NOT NULL, finished_at TEXT
-        );
-        """
-    )
-    connection.execute("INSERT INTO threads(id,owner_id,deleted_at) VALUES ('thr','alice',NULL)")
-    connection.execute("INSERT INTO research_jobs(id,thread_id) VALUES ('job','thr'),('orphan',NULL)")
-    connection.execute(
-        "INSERT INTO notification_channels(id,name,channel_type,secret_env_name,enabled,created_at,updated_at) "
-        "VALUES ('ch','old','webhook','HOOK',1,'t','t')"
-    )
-    connection.execute(
-        "INSERT INTO notification_deliveries(id,job_id,channel_id,attempt,status,created_at) VALUES "
-        "('pending','job','ch',1,'PENDING','t'),('sent','job','ch',2,'SENT','t'),('loose','orphan','ch',1,'PENDING','t')"
-    )
-    connection.executescript(SQLITE_NOTIFICATION_UPGRADE)
-    channel = connection.execute("SELECT owner_id FROM notification_channels WHERE id='ch'").fetchone()
-    rows = {row["id"]: row for row in connection.execute("SELECT id,status,owner_id,purpose,dispatch_key FROM notification_deliveries")}
-    assert channel["owner_id"] is None
-    assert rows["pending"]["status"] == "UNKNOWN" and rows["pending"]["owner_id"] == "alice"
-    assert rows["sent"]["status"] == "SENT"
-    assert rows["loose"]["status"] == "UNKNOWN" and rows["loose"]["owner_id"] is None
-    assert rows["pending"]["dispatch_key"] == "legacy:pending"
-    assert {row["purpose"] for row in rows.values()} == {"report"}
-
-
-def test_fresh_database_has_delivery_identity(tmp_path):
-    db = Database(tmp_path / "fresh.db")
+def test_fresh_database_has_delivery_identity(database):
+    db = database
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO notification_channels(id,name,channel_type,secret_env_name,enabled,created_at,updated_at,owner_id) "
@@ -290,7 +369,7 @@ def test_fresh_database_has_delivery_identity(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_non_object_and_invalid_responses_stay_unknown(tmp_path, monkeypatch):
+async def test_non_object_and_invalid_responses_stay_unknown(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     bodies = iter((
         httpx.Response(200, json=["accepted"]),
@@ -302,7 +381,7 @@ async def test_non_object_and_invalid_responses_stay_unknown(tmp_path, monkeypat
         seen.append(request)
         return next(bodies)
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     array_result = await service.test(channel.id, owner_id="owner-a")
     invalid_result = await service.test(channel.id, owner_id="owner-a")
@@ -312,7 +391,7 @@ async def test_non_object_and_invalid_responses_stay_unknown(tmp_path, monkeypat
 
 
 @pytest.mark.asyncio
-async def test_exception_after_the_provider_accepts_is_unknown(tmp_path, monkeypatch):
+async def test_exception_after_the_provider_accepts_is_unknown(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -324,7 +403,7 @@ async def test_exception_after_the_provider_accepts_is_unknown(tmp_path, monkeyp
         raise RuntimeError("after send")
 
     monkeypatch.setattr("app.notifications._provider_ref", explode)
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     result = await service.test(channel.id, owner_id="owner-a")
     assert result.status == "UNKNOWN" and result.error_code == "RESULT_UNKNOWN"
@@ -333,10 +412,10 @@ async def test_exception_after_the_provider_accepts_is_unknown(tmp_path, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_same_retry_key_sends_once_and_a_new_key_sends_again(tmp_path, monkeypatch):
+async def test_same_retry_key_sends_once_and_a_new_key_sends_again(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen, handler = _calls()
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     first = await service.retry("job", channel.id, owner_id="owner-a", idempotency_key="click-1")
@@ -350,7 +429,7 @@ async def test_same_retry_key_sends_once_and_a_new_key_sends_again(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_unknown_resend_requires_confirmation_and_keeps_the_original(tmp_path, monkeypatch):
+async def test_unknown_resend_requires_confirmation_and_keeps_the_original(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -360,7 +439,7 @@ async def test_unknown_resend_requires_confirmation_and_keeps_the_original(tmp_p
             raise httpx.ReadTimeout("timed out")
         return _ok(request)
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     unknown = await service.send(channel.id, "title", "body", "job", owner_id="owner-a", dispatch_key=f"report:job:{channel.id}")
@@ -378,10 +457,10 @@ async def test_unknown_resend_requires_confirmation_and_keeps_the_original(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_deleting_a_channel_keeps_inflight_and_unknown_history(tmp_path, monkeypatch):
+async def test_deleting_a_channel_keeps_inflight_and_unknown_history(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
-    service = _service(tmp_path, httpx.MockTransport(lambda request: seen.append(request) or _ok(request)))
+    service = _service(database, httpx.MockTransport(lambda request: seen.append(request) or _ok(request)))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
 
     def handler(request):
@@ -418,7 +497,7 @@ async def test_deleting_a_channel_keeps_inflight_and_unknown_history(tmp_path, m
 
 
 @pytest.mark.asyncio
-async def test_corrupt_gzip_after_accept_is_unknown(tmp_path, monkeypatch):
+async def test_corrupt_gzip_after_accept_is_unknown(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -429,7 +508,7 @@ async def test_corrupt_gzip_after_accept_is_unknown(tmp_path, monkeypatch):
             headers={"content-encoding": "gzip", "content-type": "application/json"},
         )
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     result = await service.test(channel.id, owner_id="owner-a")
     assert len(seen) == 1
@@ -438,7 +517,7 @@ async def test_corrupt_gzip_after_accept_is_unknown(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_inflight_sending_blocks_an_unconfirmed_retry(tmp_path, monkeypatch):
+async def test_inflight_sending_blocks_an_unconfirmed_retry(database, monkeypatch):
     import asyncio
 
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
@@ -457,7 +536,7 @@ async def test_inflight_sending_blocks_an_unconfirmed_retry(tmp_path, monkeypatc
             return httpx.Response(200, json={"code": 0})
 
     gate = Gate()
-    service = _service(tmp_path, gate)
+    service = _service(database, gate)
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     running = asyncio.create_task(service.retry("job", channel.id, owner_id="owner-a", idempotency_key="first"))
@@ -516,7 +595,7 @@ async def test_inflight_sending_blocks_an_unconfirmed_retry(tmp_path, monkeypatc
         ("webhook", "HOOK_URL", {"ok": "yes"}, "UNKNOWN", "RESULT_UNKNOWN"),
     ],
 )
-async def test_channel_success_fields(tmp_path, monkeypatch, channel_type, env_name, body, status, error_code):
+async def test_channel_success_fields(database, monkeypatch, channel_type, env_name, body, status, error_code):
     async def allow(value, *, resolver=None):
         return value
 
@@ -524,7 +603,7 @@ async def test_channel_success_fields(tmp_path, monkeypatch, channel_type, env_n
     secret = "https://example.com/hook" if channel_type != "serverchan" else "secret-send-key"
     monkeypatch.setenv(env_name, secret)
     seen = []
-    service = _service(tmp_path, httpx.MockTransport(lambda request: seen.append(request) or httpx.Response(200, json=body)))
+    service = _service(database, httpx.MockTransport(lambda request: seen.append(request) or httpx.Response(200, json=body)))
     channel = service.create(channel_type, channel_type, env_name, owner_id="owner-a")
     result = await service.test(channel.id, owner_id="owner-a")
     assert len(seen) == 1
@@ -532,7 +611,7 @@ async def test_channel_success_fields(tmp_path, monkeypatch, channel_type, env_n
 
 
 @pytest.mark.asyncio
-async def test_webhook_non_json_success_is_not_a_provider_code(tmp_path, monkeypatch):
+async def test_webhook_non_json_success_is_not_a_provider_code(database, monkeypatch):
     async def allow(value, *, resolver=None):
         return value
 
@@ -540,7 +619,7 @@ async def test_webhook_non_json_success_is_not_a_provider_code(tmp_path, monkeyp
     monkeypatch.setenv("HOOK_URL", "https://example.com/hook")
     seen = []
     service = _service(
-        tmp_path,
+        database,
         httpx.MockTransport(lambda request: seen.append(request) or httpx.Response(200, content=b"accepted")),
     )
     channel = service.create("hook", "webhook", "HOOK_URL", owner_id="owner-a")
@@ -565,7 +644,7 @@ def _enable_notify(db, job_id):
 
 
 @pytest.mark.asyncio
-async def test_automatic_delivery_does_not_send_while_retry_is_sending(tmp_path, monkeypatch):
+async def test_automatic_delivery_does_not_send_while_retry_is_sending(database, monkeypatch):
     import asyncio
 
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
@@ -584,7 +663,7 @@ async def test_automatic_delivery_does_not_send_while_retry_is_sending(tmp_path,
             return httpx.Response(200, json={"code": 0})
 
     gate = Gate()
-    service = _service(tmp_path, gate)
+    service = _service(database, gate)
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     _enable_notify(service.db, "job")
@@ -603,7 +682,7 @@ async def test_automatic_delivery_does_not_send_while_retry_is_sending(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_automatic_delivery_does_not_resend_unknown(tmp_path, monkeypatch):
+async def test_automatic_delivery_does_not_resend_unknown(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -611,7 +690,7 @@ async def test_automatic_delivery_does_not_resend_unknown(tmp_path, monkeypatch)
         seen.append(request)
         raise httpx.ReadTimeout("timed out")
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     _enable_notify(service.db, "job")
@@ -627,10 +706,10 @@ async def test_automatic_delivery_does_not_resend_unknown(tmp_path, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_late_automatic_delivery_does_not_repeat_a_successful_send(tmp_path, monkeypatch):
+async def test_late_automatic_delivery_does_not_repeat_a_successful_send(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen, handler = _calls()
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     _enable_notify(service.db, "job")
@@ -645,7 +724,7 @@ async def test_late_automatic_delivery_does_not_repeat_a_successful_send(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_inflight_automatic_delivery_blocks_an_ordinary_retry(tmp_path, monkeypatch):
+async def test_inflight_automatic_delivery_blocks_an_ordinary_retry(database, monkeypatch):
     import asyncio
 
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
@@ -664,7 +743,7 @@ async def test_inflight_automatic_delivery_blocks_an_ordinary_retry(tmp_path, mo
             return httpx.Response(200, json={"code": 0})
 
     gate = Gate()
-    service = _service(tmp_path, gate)
+    service = _service(database, gate)
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     _enable_notify(service.db, "job")
@@ -681,7 +760,7 @@ async def test_inflight_automatic_delivery_blocks_an_ordinary_retry(tmp_path, mo
 
 
 @pytest.mark.asyncio
-async def test_confirmed_retry_replay_stays_one_extra_send(tmp_path, monkeypatch):
+async def test_confirmed_retry_replay_stays_one_extra_send(database, monkeypatch):
     monkeypatch.setenv("SERVER_KEY", "secret-send-key")
     seen = []
 
@@ -691,7 +770,7 @@ async def test_confirmed_retry_replay_stays_one_extra_send(tmp_path, monkeypatch
             raise httpx.ReadTimeout("timed out")
         return _ok(request)
 
-    service = _service(tmp_path, httpx.MockTransport(handler))
+    service = _service(database, httpx.MockTransport(handler))
     channel = service.create("手机", "serverchan", "SERVER_KEY", owner_id="owner-a")
     _seed_report(service.db, "job", "owner-a")
     _enable_notify(service.db, "job")

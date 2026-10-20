@@ -335,7 +335,6 @@ def build_runtime(    data_root: str | Path,
     runtime.scheduler = ManagedScheduler(runtime.schedules)
     runtime.notifications = NotificationService(db)
     runtime.research.notifications = runtime.notifications
-    runtime.notifications.recover_interrupted_sends()
     runtime.plan_documents.recover_pending_intents()
     runtime.behavior = BehaviorBundleService(db)
     model_manifest = registered_profile.public_view() if registered_profile else {"configured": False}

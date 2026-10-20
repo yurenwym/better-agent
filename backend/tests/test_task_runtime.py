@@ -4,13 +4,13 @@ import json
 import pytest
 
 from app.conversation import ConversationService
-from app.db import Database
 from app.research.service import ResearchService
 from app.task_runtime import TaskRuntime, TaskRef, TaskKind, LeaseLost, TaskCancelled
+from pg02_helpers import database, make_runtime
 
 
-def test_reused_worker_name_cannot_revive_old_epoch(tmp_path):
-    db = Database(tmp_path / "lease.db")
+def test_reused_worker_name_cannot_revive_old_epoch(database):
+    db = database
     try:
         conversation = ConversationService(db)
         service = ResearchService(db, conversation.events)
@@ -41,8 +41,8 @@ def test_reused_worker_name_cannot_revive_old_epoch(tmp_path):
         db.close()
 
 
-def test_denied_lease_decision_does_not_change_the_task(tmp_path):
-    db = Database(tmp_path / "denied.db")
+def test_denied_lease_decision_does_not_change_the_task(database):
+    db = database
     try:
         conversation = ConversationService(db)
         service = ResearchService(db, conversation.events)
@@ -62,14 +62,13 @@ def test_denied_lease_decision_does_not_change_the_task(tmp_path):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("context_state", ["valid", "denied", "missing", "malformed", "wrong_run"])
-async def test_standalone_goal_requires_persisted_identity_and_policy(tmp_path, monkeypatch, context_state):
+async def test_standalone_goal_requires_persisted_identity_and_policy(database, tmp_path, monkeypatch, context_state):
     from app import policy_engine
     from app.execution_context import create_root_context, serialize_context
     from app.policy_engine import ActionKind, PolicyAction, PolicyDecision, PolicyReason
     from app.runtime import MockModelGateway
-    from test_runtime import make_runtime
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(database, tmp_path, MockModelGateway())
     try:
         run = await runtime.create_goal("goal", "work")
         budget = dict(run.budget)

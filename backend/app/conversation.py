@@ -2205,6 +2205,7 @@ class ManagedTurnWorker:
                 name=f"conversation-turn-{turn_id}",
             )
             decoder = ControlHeadDecoder()
+            plan_nul_error: str | None = None
             if native_loop:
                 decoder.header = RouteDecision("answer", "text", "loop:final")
             last_flush = asyncio.get_running_loop().time()
@@ -2221,6 +2222,7 @@ class ManagedTurnWorker:
                     continue
                 if kind == "reset":
                     decoder = ControlHeadDecoder()
+                    plan_nul_error = None
                     if native_loop:
                         decoder.header = RouteDecision("answer", "text", "loop:final")
                     if message_id is not None:
@@ -2239,6 +2241,19 @@ class ManagedTurnWorker:
                         raise ArchiveUnavailable("incomplete history only permits a plain answer")
                     message_id = self._start_message(turn, decoder.header, generation)
                 if body:
+                    if (
+                        self.db.backend == "postgresql"
+                        and decoder.header is not None
+                        and decoder.header.artifact is not None
+                        and "\x00" in body
+                    ):
+                        try:
+                            normalize_markdown(body)
+                        except PlanDocumentValidationError as exc:
+                            plan_nul_error = str(exc)
+                        else:
+                            plan_nul_error = "markdown content cannot contain NUL"
+                        body = body.replace("\x00", "\ufffd")
                     pending += body
                 now = asyncio.get_running_loop().time()
                 if message_id is not None and pending and (len(pending) >= 128 or now - last_flush >= 0.025):
@@ -2262,6 +2277,7 @@ class ManagedTurnWorker:
                 if execution_outcome.status in {Status.AWAITING_INPUT, Status.AWAITING_APPROVAL}:
                     result = result.continuation
                     decoder = ControlHeadDecoder()
+                    plan_nul_error = None
                 elif execution_outcome.status == Status.HANDOFF:
                     with self.db.transaction() as connection:
                         connection.execute("UPDATE turns SET reason_code=? WHERE id=?",
@@ -2282,6 +2298,7 @@ class ManagedTurnWorker:
                 elif execution_outcome.status == Status.COMPLETED:
                     if result.artifact is not None:
                         decoder.header = RouteDecision("answer", "plan_document", "tool:publish_plan_document")
+                        plan_nul_error = None
                         if message_id is None:
                             message_id = self._start_message(turn, decoder.header, generation)
                         # The tool saved canonical bound text. Match display and bind its committed version.
@@ -2344,7 +2361,10 @@ class ManagedTurnWorker:
                 message_id = self._start_message(turn, decoder.header, generation)
             if pending:
                 self._flush_delta(turn, message_id, generation, pending)
-            self._finish_success(turn, message_id, generation, decoder.header, plan_context)
+            self._finish_success(
+                turn, message_id, generation, decoder.header, plan_context,
+                artifact_error=plan_nul_error,
+            )
             await self._finish_exposure(turn, success=True, message_id=message_id)
         except ArchivePending:
             return
@@ -2898,6 +2918,7 @@ class ManagedTurnWorker:
         generation: int,
         decision: RouteDecision,
         plan_context: PlanContextSnapshot | None = None,
+        artifact_error: str | None = None,
     ) -> None:
         self._assert_job_owner(turn.id)
         with self.db.connection() as connection:
@@ -2934,7 +2955,9 @@ class ManagedTurnWorker:
             # A cropped context can only belong to an existing committed document;
             # V1 has one document per thread, so fail closed instead of creating a
             # revision from an incomplete view of that document.
-            if calendar_error:
+            if artifact_error is not None:
+                document_error = artifact_error
+            elif calendar_error:
                 document_error = calendar_error
             elif plan_context is not None and plan_context.cropped:
                 document_error = "active plan context was cropped; plan document was not overwritten"

@@ -1,15 +1,21 @@
 from __future__ import annotations
 
+from pg02_helpers import database
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    isolated_learning_env,
+)
 
-def test_build_runtime_recovers_prepared_plan_before_worker_is_available(tmp_path) -> None:
-    from app.db import Database
+
+def test_build_runtime_recovers_prepared_plan_before_worker_is_available(database, tmp_path) -> None:
     from app.plan_documents import content_hash
 
     document_id = "plan_" + "a" * 32
     version_id = "planv_" + "b" * 32
     intent_id = "intent_" + "c" * 32
     content = "# Recovered\n"
-    db = Database(tmp_path / "agent.db")
+    db = database
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO threads(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -28,16 +34,13 @@ def test_build_runtime_recovers_prepared_plan_before_worker_is_available(tmp_pat
             (intent_id, document_id, version_id, content_hash(content)),
         )
 
-    from app.startup import build_runtime
-
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
 
     assert runtime.plan_documents.current_version(document_id).status == "committed"
     assert runtime.plan_documents.path_for(document_id).read_text(encoding="utf-8") == content
 
 
-def test_recovery_file_write_failure_marks_document_failed_and_emits_event(tmp_path) -> None:
-    from app.db import Database
+def test_recovery_file_write_failure_marks_document_failed_and_emits_event(database, tmp_path) -> None:
     from app.events import EventStore
     from app.plan_documents import PlanDocumentService, content_hash
 
@@ -45,7 +48,7 @@ def test_recovery_file_write_failure_marks_document_failed_and_emits_event(tmp_p
     version_id = "planv_" + "e" * 32
     intent_id = "intent_" + "f" * 32
     content = "# Recovery failure\n"
-    db = Database(tmp_path / "agent.db")
+    db = database
     events = EventStore(db)
     with db.transaction() as connection:
         connection.execute(

@@ -1,7 +1,9 @@
 import hashlib
-import sqlite3
 
+import psycopg
 import pytest
+
+from pg02_helpers import database
 
 
 def test_normalize_markdown_preserves_content_except_line_endings_and_rejects_nul() -> None:
@@ -36,47 +38,55 @@ def test_plan_document_limits_title_and_markdown_size() -> None:
         validate_document_content(" \n")
 
 
-def test_database_creates_plan_document_tables_and_links(tmp_path) -> None:
-    from app.db import Database
-
-    db = Database(tmp_path / "agent.db")
-    with db.connection() as connection:
+def test_database_creates_plan_document_tables_and_links(database) -> None:
+    with database.connection() as connection:
         tables = {
             row["name"]
-            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+            for row in connection.execute(
+                "SELECT tablename AS name FROM pg_tables WHERE schemaname=current_schema()"
+            )
         }
         assert {"plan_documents", "plan_document_versions", "plan_write_intents"} <= tables
 
         columns = {
             row["name"]
-            for row in connection.execute("PRAGMA table_info(turns)")
+            for row in connection.execute(
+                "SELECT column_name AS name FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name='turns'"
+            )
         }
         assert {"artifact_kind", "artifact_operation", "artifact_title"} <= columns
 
         message_columns = {
             row["name"]
-            for row in connection.execute("PRAGMA table_info(thread_messages)")
+            for row in connection.execute(
+                "SELECT column_name AS name FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name='thread_messages'"
+            )
         }
         assert "plan_document_version_id" in message_columns
 
         plan_columns = {
             row["name"]
-            for row in connection.execute("PRAGMA table_info(plan_versions)")
+            for row in connection.execute(
+                "SELECT column_name AS name FROM information_schema.columns "
+                "WHERE table_schema=current_schema() AND table_name='plan_versions'"
+            )
         }
         assert "source_document_version_id" in plan_columns
 
         indexes = {
             row["name"]
-            for row in connection.execute("PRAGMA index_list(runs)")
+            for row in connection.execute(
+                "SELECT indexname AS name FROM pg_indexes "
+                "WHERE schemaname=current_schema() AND tablename='runs'"
+            )
         }
         assert "uq_runs_source_turn" in indexes
 
 
-def test_runs_source_turn_id_is_unique_when_present(tmp_path) -> None:
-    from app.db import Database
-
-    db = Database(tmp_path / "agent.db")
-    with db.transaction() as connection:
+def test_runs_source_turn_id_is_unique_when_present(database) -> None:
+    with database.transaction() as connection:
         connection.execute(
             "INSERT INTO goals(id, title, description, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
             ("goal-1", "Goal", "", "now", "now"),
@@ -90,9 +100,10 @@ def test_runs_source_turn_id_is_unique_when_present(tmp_path) -> None:
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             ("run-1", "goal-1", "session-1", "RECEIVED", "{}", "turn-1", "now", "now"),
         )
-        with pytest.raises(sqlite3.IntegrityError):
-            connection.execute(
-                "INSERT INTO runs(id, goal_id, session_id, state, budget_json, source_turn_id, created_at, updated_at) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                ("run-2", "goal-1", "session-1", "RECEIVED", "{}", "turn-1", "now", "now"),
-            )
+        with pytest.raises(psycopg.errors.UniqueViolation):
+            with connection.transaction():
+                connection.execute(
+                    "INSERT INTO runs(id, goal_id, session_id, state, budget_json, source_turn_id, created_at, updated_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                    ("run-2", "goal-1", "session-1", "RECEIVED", "{}", "turn-1", "now", "now"),
+                )

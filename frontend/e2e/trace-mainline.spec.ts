@@ -1,4 +1,6 @@
 import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 const TRACE_TOKEN = "ghp_E2ETraceToken123";
 const FOREIGN_THREAD_ID = "thread_trace_foreign";
@@ -40,6 +42,26 @@ function readyVersions(trace: { events?: Array<{ type?: string; payload?: { vers
 async function openTrajectory(page: Page, threadId: string) {
   await page.goto(`/threads/${threadId}?view=activity`);
   await expect(page.getByRole("region", { name: "统一轨迹", exact: true })).toBeVisible();
+}
+
+async function readAllTrace(request: APIRequestContext, tracePath: string) {
+  const events: Array<Record<string, any>> = [];
+  const seen = new Set<string>();
+  let cursor: string | null = null;
+  for (let page = 0; page < 20; page += 1) {
+    const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
+    const body = await json(await request.get(`${tracePath}${query}`));
+    for (const event of body.events ?? []) {
+      if (seen.has(event.event_id)) continue;
+      seen.add(event.event_id);
+      events.push(event);
+    }
+    const next = (body.next_cursor ?? null) as string | null;
+    if (!next) return events;
+    if (next === cursor) throw new Error(`repeated trace cursor: ${tracePath}`);
+    cursor = next;
+  }
+  throw new Error(`trace pagination exceeded 20 pages: ${tracePath}`);
 }
 
 test.describe.configure({ mode: "serial" });
@@ -376,4 +398,166 @@ test.describe("scripted model boundary", () => {
     await expect(page.getByText(DEFERRED_SOURCES)).toHaveCount(0);
     await expect(page.getByRole("region", { name: "统一轨迹统计" })).toContainText("完整");
   });
+});
+
+test("R02 worker lifecycle events stay linked across API, page and permissions", async ({ page, request, browser }) => {
+  const dataRoot = process.env.BETTER_AGENT_E2E_DATA_ROOT;
+  expect(dataRoot, "BETTER_AGENT_E2E_DATA_ROOT").toBeTruthy();
+  const seed = JSON.parse(fs.readFileSync(path.join(dataRoot as string, "e2e-seed.json"), "utf8"));
+  const { archive, embedding, learning } = seed.worker_scenarios;
+  const sent = seed.worker_scenarios.notification.sent;
+  const unknown = seed.worker_scenarios.notification.unknown;
+  const threadId: string = archive.thread_id;
+
+  // 2. manifest DB evidence
+  expect(archive.coverage_before).toBe(0);
+  expect(archive.coverage_after).toBeGreaterThan(0);
+  expect(archive.status).toBe("COMPLETED");
+  expect(String(archive.summary).length).toBeGreaterThan(0);
+  expect((archive.source_message_ids ?? []).length).toBeGreaterThan(0);
+  expect(embedding.status).toBe("COMPLETED");
+  expect(embedding.provider_calls).toBe(1);
+  expect(embedding.revision).toBeTruthy();
+  expect(embedding.profile).toBeTruthy();
+  expect(learning.status).toBe("UNKNOWN");
+  expect(learning.dispatched).toBe(true);
+  expect(learning.root_count).toBe(1);
+  expect(learning.old_dispatch_rejected).toBe(true);
+  expect(learning.effect).toBe("unknown");
+  expect(learning.retryable).toBe(false);
+  expect(sent.status).toBe("SENT");
+  expect(unknown.status).toBe("UNKNOWN");
+  expect(sent.provider_calls).toBe(1);
+  expect(unknown.provider_calls).toBe(1);
+  expect(sent.replay_same_delivery).toBe(true);
+  expect(unknown.replay_same_delivery).toBe(true);
+  expect(sent.delivery_id).not.toBe(unknown.delivery_id);
+
+  const archiveStatus = await json(await request.get(`/api/threads/${threadId}/archive`));
+  expect(archiveStatus.archived_through_seq).toBe(archive.coverage_after);
+  expect((archiveStatus.jobs ?? []).find((job: { id: string }) => job.id === archive.job_id)?.status).toBe("COMPLETED");
+
+  // 1. exact event_id association on the shared worker thread
+  const events = await readAllTrace(request, `/api/threads/${threadId}/trace`);
+  const byId = new Map<string, Record<string, any>>(events.map((event) => [event.event_id, event]));
+  const cases: Array<{ event_id: string; type: string; source: string; turn_id: string; payload: Record<string, any> }> = [
+    { event_id: archive.claimed_event_id, type: "archive.claimed", source: "archive", turn_id: archive.turn_id, payload: { job_id: archive.job_id } },
+    { event_id: archive.committed_event_id, type: "archive.committed", source: "archive", turn_id: archive.turn_id, payload: { job_id: archive.job_id } },
+    { event_id: embedding.claimed_event_id, type: "embedding.claimed", source: "embedding", turn_id: archive.turn_id, payload: { job_id: embedding.job_id, revision_id: embedding.revision, profile_id: embedding.profile } },
+    { event_id: embedding.committed_event_id, type: "embedding.committed", source: "embedding", turn_id: archive.turn_id, payload: { job_id: embedding.job_id, revision_id: embedding.revision, profile_id: embedding.profile } },
+    { event_id: learning.claimed_event_id, type: "learning.claimed", source: "learning", turn_id: learning.turn_id, payload: { job_id: learning.job_id } },
+    { event_id: learning.recovered_event_id, type: "learning.recovered", source: "learning", turn_id: learning.turn_id, payload: { job_id: learning.job_id } },
+    { event_id: sent.claimed_event_id, type: "notification.claimed", source: "notification", turn_id: sent.turn_id, payload: { delivery_id: sent.delivery_id, job_id: sent.report_job_id } },
+    { event_id: sent.result_event_id, type: "notification.sent", source: "notification", turn_id: sent.turn_id, payload: { delivery_id: sent.delivery_id, job_id: sent.report_job_id } },
+    { event_id: unknown.claimed_event_id, type: "notification.claimed", source: "notification", turn_id: unknown.turn_id, payload: { delivery_id: unknown.delivery_id, job_id: unknown.report_job_id } },
+    { event_id: unknown.result_event_id, type: "notification.unknown", source: "notification", turn_id: unknown.turn_id, payload: { delivery_id: unknown.delivery_id, job_id: unknown.report_job_id } },
+  ];
+  const traceMap = new Map<string, string[]>();
+  for (const item of cases) {
+    const event = byId.get(item.event_id);
+    expect(event, item.event_id).toBeTruthy();
+    expect(event!.type).toBe(item.type);
+    expect(event!.source).toBe(item.source);
+    expect(event!.stream_id).toBe(threadId);
+    expect(event!.context.context.thread_id).toBe(threadId);
+    expect(event!.context.context.turn_id).toBe(item.turn_id);
+    for (const [key, value] of Object.entries(item.payload)) {
+      expect(event!.payload[key], `${item.event_id}.${key}`).toBe(value);
+    }
+    const traceId = event!.context.context.trace_id as string;
+    traceMap.set(traceId, [...(traceMap.get(traceId) ?? []), item.event_id]);
+  }
+  for (const [traceId, ids] of traceMap) {
+    const byTrace = await readAllTrace(request, `/api/traces/${traceId}`);
+    const found = new Set(byTrace.map((event) => event.event_id));
+    for (const id of ids) expect(found.has(id), `${traceId}:${id}`).toBe(true);
+  }
+
+  // 3. page rows, debug view, conservative UNKNOWN semantics
+  await openTrajectory(page, threadId);
+  const region = page.getByRole("region", { name: "统一轨迹", exact: true });
+  await region.getByRole("button", { name: "调试" }).click();
+  const rows: Array<[string, string]> = [
+    [archive.claimed_event_id, "归档已开始"],
+    [archive.committed_event_id, "历史摘要已提交"],
+    [embedding.claimed_event_id, "向量任务已领取"],
+    [embedding.committed_event_id, "向量已写入"],
+    [learning.claimed_event_id, "学习任务已领取"],
+    [learning.recovered_event_id, "已发送的学习任务已停止"],
+    [sent.claimed_event_id, "通知已开始发送"],
+    [sent.result_event_id, "通知已确认送达"],
+    [unknown.claimed_event_id, "通知已开始发送"],
+    [unknown.result_event_id, "通知结果未知"],
+  ];
+  for (const [eventId, title] of rows) {
+    const article = region.locator(`article[data-event-id="${eventId}"]`);
+    await expect(article).toBeVisible();
+    await expect(article.getByRole("heading", { level: 4, name: title, exact: true })).toBeVisible();
+  }
+  const learningRow = region.locator(`article[data-event-id="${learning.recovered_event_id}"]`);
+  await expect(learningRow).toContainText("结果未知");
+  await expect(learningRow).toContainText("不能重试");
+  await expect(learningRow).toContainText("不会自动再次付费");
+  const unknownRow = region.locator(`article[data-event-id="${unknown.result_event_id}"]`);
+  await expect(unknownRow).toContainText("结果未知");
+  await expect(unknownRow).toContainText("不能重试");
+  await learningRow.getByText("查看原始事件").click();
+  await unknownRow.getByText("查看原始事件").click();
+  await expect(learningRow.locator("pre")).toBeVisible();
+  await expect(region).not.toContainText("R02_SENSITIVE_LEARNING_BODY_20261019");
+  await expect(region).not.toContainText("r02-fixed-offline");
+
+  // 4. foreign owner is refused on thread, byTrace and report tasks
+  const expectedEventIds = cases.map((item) => item.event_id);
+  const forbidden = ["R02_SENSITIVE_LEARNING_BODY_20261019", "r02-fixed-offline"];
+  const foreign = { "x-owner-id": "other-user" };
+  async function expectRefused(pathname: string) {
+    const response = await request.get(pathname, { headers: foreign });
+    expect(response.status(), pathname).toBe(404);
+    const text = await response.text();
+    for (const id of expectedEventIds) expect(text).not.toContain(id);
+    for (const marker of forbidden) expect(text).not.toContain(marker);
+  }
+  await expectRefused(`/api/threads/${threadId}/trace`);
+  for (const traceId of traceMap.keys()) await expectRefused(`/api/traces/${traceId}`);
+  await expectRefused(`/api/tasks/research/${sent.report_job_id}/trace`);
+  await expectRefused(`/api/tasks/research/${unknown.report_job_id}/trace`);
+  const foreignContext = await browser.newContext({
+    baseURL: test.info().project.use.baseURL,
+    extraHTTPHeaders: foreign,
+  });
+  const foreignPage = await foreignContext.newPage();
+  await foreignPage.goto(`/threads/${threadId}?view=activity`);
+  await expect(foreignPage.getByRole("region", { name: "统一轨迹", exact: true })).toBeVisible();
+  await expect(foreignPage.getByRole("alert").filter({ hasText: "404" })).toBeVisible();
+  await expect(foreignPage.locator("article[data-event-id]")).toHaveCount(0);
+  await foreignContext.close();
+
+  // 5. historical thread stays partial with connected R02 sources
+  const history = await threadTrace(request, seed.thread_id);
+  expect(history.completeness.status).toBe("partial");
+  expect((history.completeness.reasons ?? []).some((reason: { code: string }) => reason.code === "historical_unlinked")).toBe(true);
+  for (const domain of ["archive", "embedding", "learning", "notification"]) {
+    expect(history.sources?.connected ?? []).toContain(domain);
+  }
+
+  // 6. authorized delete removes the worker thread once
+  const bootstrap = await json(await request.get("/api/bootstrap"));
+  const origin = new URL(test.info().project.use.baseURL ?? page.url()).origin;
+  const deleted = await request.delete(`/api/threads/${threadId}`, {
+    headers: { "content-type": "application/json", "x-csrf-token": bootstrap.csrf_token, origin },
+    data: "{}",
+  });
+  expect(deleted.status()).toBe(204);
+  const gone = await request.get(`/api/threads/${threadId}/trace`);
+  expect(gone.status()).toBe(404);
+  const goneText = await gone.text();
+  for (const id of expectedEventIds) expect(goneText).not.toContain(id);
+  for (const traceId of traceMap.keys()) expect((await request.get(`/api/traces/${traceId}`)).status()).toBe(404);
+  for (const jobId of [sent.report_job_id, unknown.report_job_id]) {
+    expect((await request.get(`/api/tasks/research/${jobId}/trace`)).status()).toBe(404);
+  }
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "404" })).toBeVisible();
+  await expect(page.locator("article[data-event-id]")).toHaveCount(0);
 });

@@ -2,13 +2,13 @@ import pytest
 
 from app.runtime import MockModelGateway, ModelDecision
 from app.tools import ToolCall
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
 
 
 @pytest.mark.asyncio
-async def test_step_result_and_loop_finish_roll_back_together(tmp_path, monkeypatch):
+async def test_step_result_and_loop_finish_roll_back_together(database, tmp_path, monkeypatch):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
-    runtime = make_runtime(tmp_path, MockModelGateway(
+    runtime = make_runtime(database, tmp_path, MockModelGateway(
         plan_steps=[{"id": "s", "title": "step"}], decisions=[ModelDecision.complete("done")]))
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
@@ -39,9 +39,9 @@ async def test_step_result_and_loop_finish_roll_back_together(tmp_path, monkeypa
 @pytest.mark.asyncio
 @pytest.mark.parametrize("decision,state", [(ModelDecision.complete("done"), "COMPLETED"),
     (ModelDecision.blocked("needs input"), "BLOCKED"), (ModelDecision.await_outcome("waiting"), "AWAITING_OUTCOME")])
-async def test_al_t19_goal_terminal_mapping(tmp_path, monkeypatch, decision, state):
+async def test_al_t19_goal_terminal_mapping(database, tmp_path, monkeypatch, decision, state):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
-    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "step"}], decisions=[decision]))
+    runtime = make_runtime(database, tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "step"}], decisions=[decision]))
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     assert (await runtime.approve_plan(run.id, 1)).state == state
@@ -52,11 +52,11 @@ async def test_al_t19_goal_terminal_mapping(tmp_path, monkeypatch, decision, sta
 
 
 @pytest.mark.asyncio
-async def test_al_t20_goal_approval_resume_executes_once(tmp_path, monkeypatch):
+async def test_al_t20_goal_approval_resume_executes_once(database, tmp_path, monkeypatch):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     model = MockModelGateway(plan_steps=[{"id": "s", "title": "step"}], decisions=[
         ModelDecision.tool(ToolCall("write-one", "write_note", {"path": "note.md", "content": "saved"})), ModelDecision.complete("done")])
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     await runtime.approve_plan(run.id, 1)
@@ -79,40 +79,37 @@ async def test_al_t20_goal_approval_resume_executes_once(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_approval_and_checkpoint_roll_back_when_attempt_finish_fails(tmp_path, monkeypatch):
+async def test_approval_and_checkpoint_roll_back_when_attempt_finish_fails(database, tmp_path, monkeypatch):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     model = MockModelGateway(plan_steps=[{"id": "s", "title": "step"}], decisions=[
         ModelDecision.tool(ToolCall("write-one", "write_note", {"path": "note.md", "content": "saved"}))])
-    runtime = make_runtime(tmp_path, model)
-    try:
-        run = await runtime.create_goal("goal", "goal")
-        await runtime.handle_message(run.id, "start")
-        append = runtime.events.append
+    runtime = make_runtime(database, tmp_path, model)
+    run = await runtime.create_goal("goal", "goal")
+    await runtime.handle_message(run.id, "start")
+    append = runtime.events.append
 
-        def interrupted(*args, **kwargs):
-            event = append(*args, **kwargs)
-            if event.type == "loop.finished":
-                raise RuntimeError("finish unavailable")
-            return event
+    def interrupted(*args, **kwargs):
+        event = append(*args, **kwargs)
+        if event.type == "loop.finished":
+            raise RuntimeError("finish unavailable")
+        return event
 
-        monkeypatch.setattr(runtime.events, "append", interrupted)
-        with pytest.raises(RuntimeError, match="finish unavailable"):
-            await runtime.approve_plan(run.id, 1)
-        assert runtime.pending_approvals(run.id) == []
-        assert not (tmp_path / "workspace/note.md").exists()
-        assert "last_execution_outcome" not in runtime.get_run(run.id).budget
-        assert runtime.checkpoints.latest(run.id) is None
-        assert not any(e.type in {"approval.requested", "loop.finished"} for e in runtime.events.list(run.id))
-    finally:
-        runtime.db.close()
+    monkeypatch.setattr(runtime.events, "append", interrupted)
+    with pytest.raises(RuntimeError, match="finish unavailable"):
+        await runtime.approve_plan(run.id, 1)
+    assert runtime.pending_approvals(run.id) == []
+    assert not (tmp_path / "workspace/note.md").exists()
+    assert "last_execution_outcome" not in runtime.get_run(run.id).budget
+    assert runtime.checkpoints.latest(run.id) is None
+    assert not any(e.type in {"approval.requested", "loop.finished"} for e in runtime.events.list(run.id))
 
 
 @pytest.mark.asyncio
-async def test_al_t21_goal_plain_text_exhausts(tmp_path, monkeypatch):
+async def test_al_t21_goal_plain_text_exhausts(database, tmp_path, monkeypatch):
     from test_conversation_loop import Gateway
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     model = MockModelGateway(plan_steps=[{"id": "s", "title": "step"}])
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     gateway = Gateway([("plain text", [])] * 5)
@@ -125,11 +122,11 @@ async def test_al_t21_goal_plain_text_exhausts(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_native_goal_gateway_uses_terminal_tool_and_bound_identity(tmp_path, monkeypatch):
+async def test_native_goal_gateway_uses_terminal_tool_and_bound_identity(database, tmp_path, monkeypatch):
     from test_conversation_loop import Gateway, tool
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     model = MockModelGateway(plan_steps=[{"id": "s", "title": "step"}])
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     gateway = Gateway([("", [tool("finish_step", {"output": "done"})])])
@@ -140,9 +137,9 @@ async def test_native_goal_gateway_uses_terminal_tool_and_bound_identity(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_missing_source_identity_blocks_before_model(tmp_path, monkeypatch):
+async def test_missing_source_identity_blocks_before_model(database, tmp_path, monkeypatch):
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
-    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "step"}]))
+    runtime = make_runtime(database, tmp_path, MockModelGateway(plan_steps=[{"id": "s", "title": "step"}]))
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     runtime._set_run_fields(run.id, source_turn_id="deleted-turn")
@@ -153,12 +150,12 @@ async def test_missing_source_identity_blocks_before_model(tmp_path, monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_native_goal_preserves_gateway_failure_reason(tmp_path, monkeypatch):
+async def test_native_goal_preserves_gateway_failure_reason(database, tmp_path, monkeypatch):
     from app.model_gateway import GatewayError
     from test_conversation_loop import Gateway
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
     model = MockModelGateway(plan_steps=[{"id": "s", "title": "step"}])
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     class DeniedGateway(Gateway):
@@ -171,13 +168,13 @@ async def test_native_goal_preserves_gateway_failure_reason(tmp_path, monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_reconciliation_keeps_pending_call_after_block(tmp_path, monkeypatch):
+async def test_reconciliation_keeps_pending_call_after_block(database, tmp_path, monkeypatch):
     from app.tools import ToolReconciliationRequired
     from app.tool_executor import ToolExecutor
     monkeypatch.setenv('BETTER_AGENT_LOOP_MODE', 'loop')
     model = MockModelGateway(plan_steps=[{'id': 's', 'title': 'read'}], decisions=[
         ModelDecision.tool(ToolCall('uncertain', 'read_note', {'path': 'note.md'}))])
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     run = await runtime.create_goal('goal', 'read')
     await runtime.handle_message(run.id, 'start')
     async def uncertain(*args, **kwargs):

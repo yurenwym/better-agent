@@ -4,9 +4,9 @@ from datetime import datetime, timezone
 
 import pytest
 from app.conversation import ConversationService
-from app.db import Database
 from app.memory_archive import ArchiveLeaseLost, ConversationArchiver, ManagedArchiveWorker
 from app.memory_v2 import MemoryStore
+from pg02_helpers import completed_thread, database
 
 async def valid_summary(payload):
  ids=[event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
@@ -14,8 +14,8 @@ async def valid_summary(payload):
  return {"synopsis":[item],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
 
 @pytest.mark.asyncio
-async def test_archive_retry_is_scoped_and_keeps_coverage_until_commit(tmp_path):
- db, thread = _completed_thread(tmp_path,owner_id="local-user")
+async def test_archive_retry_is_scoped_and_keeps_coverage_until_commit(database, tmp_path):
+ db, thread = completed_thread(database,owner_id="local-user")
  async def invalid(payload): return "invalid"
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),invalid,keep_messages=0,max_attempts=1)
  await arch.archive_thread(thread.id)
@@ -31,9 +31,9 @@ async def test_archive_retry_is_scoped_and_keeps_coverage_until_commit(tmp_path)
  assert arch.status(thread.id,"local-user")["archived_through_seq"] > 0
 
 @pytest.mark.asyncio
-async def test_old_retry_cannot_restart_a_new_failure(tmp_path):
+async def test_old_retry_cannot_restart_a_new_failure(database, tmp_path):
  from app.memory_archive import ArchiveError
- db,thread=_completed_thread(tmp_path,owner_id="local-user")
+ db,thread=completed_thread(database,owner_id="local-user")
  async def invalid(payload):return "invalid"
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),invalid,keep_messages=0,max_attempts=1)
  await arch.archive_thread(thread.id)
@@ -43,9 +43,9 @@ async def test_old_retry_cannot_restart_a_new_failure(tmp_path):
  with pytest.raises(ArchiveError,match="changed"):
   arch.retry(thread.id,"local-user",job["id"],job["updated_at"])
 
-def test_proactive_archive_uses_lower_hot_window_without_mutating_budget(tmp_path):
+def test_proactive_archive_uses_lower_hot_window_without_mutating_budget(database, tmp_path):
  from app.token_budget import DEFAULT_TOKEN_COUNTER
- db,thread=_completed_thread(tmp_path)
+ db,thread=completed_thread(database)
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary)
  transcript=arch.transcripts.build(thread.id)
  cost=DEFAULT_TOKEN_COUNTER.count_text(json.dumps(transcript.turns[0].canonical(),ensure_ascii=False,sort_keys=True))
@@ -57,8 +57,8 @@ def test_proactive_archive_uses_lower_hot_window_without_mutating_budget(tmp_pat
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("field", ["prompt_version", "tokenizer_version"])
-async def test_archive_old_version_is_rejected_before_model_and_preserves_source(tmp_path, field):
- db,thread=_completed_thread(tmp_path,owner_id="local-user")
+async def test_archive_old_version_is_rejected_before_model_and_preserves_source(database, tmp_path, field):
+ db,thread=completed_thread(database,owner_id="local-user")
  async def never_called(payload): raise AssertionError("old versions must not call the model")
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),never_called,keep_messages=0)
  job_id=arch.enqueue(thread.id)
@@ -94,11 +94,16 @@ async def test_live_summary_declares_arrays_and_reserves_generation_budget():
 
 
 @pytest.mark.asyncio
-async def test_archive_model_call_inherits_source_turn_bundle_and_root_budget(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archive_model_call_inherits_source_turn_bundle_and_root_budget(database, tmp_path):
+ db, thread = completed_thread(database)
  with db.transaction() as c:
   c.execute(
    "INSERT INTO runtime_bundles(id,bundle_hash,manifest_json,created_at) VALUES ('bundle-a','hash-a','{}','now')"
+  )
+  # PostgreSQL enforces the root-budget FK; create the parent the turn references.
+  c.execute(
+   "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+   "VALUES ('root-a','owner-a','archive','fault-turn',3,now())"
   )
   c.execute(
    "UPDATE turns SET runtime_bundle_id='bundle-a',root_budget_id='root-a' WHERE id='fault-turn'"
@@ -133,8 +138,8 @@ async def test_archive_model_call_inherits_source_turn_bundle_and_root_budget(tm
  assert summarizer.gateway.contexts[0].root_budget_id == "root-a"
 
 @pytest.mark.asyncio
-async def test_archiver_keeps_recent_window_and_is_idempotent(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="2026-01-01T00:00:00+00:00"
+async def test_archiver_keeps_recent_window_and_is_idempotent(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="2026-01-01T00:00:00+00:00"
  with db.transaction() as c:
   for i in range(4):
    turn=f"t{i}";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
@@ -145,8 +150,8 @@ async def test_archiver_keeps_recent_window_and_is_idempotent(tmp_path):
  assert await arch.archive_thread(thread.id) is None
 
 @pytest.mark.asyncio
-async def test_archiver_never_crosses_a_pending_turn(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="2026-01-01T00:00:00+00:00"
+async def test_archiver_never_crosses_a_pending_turn(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="2026-01-01T00:00:00+00:00"
  with db.transaction() as c:
   for i,status in enumerate(("COMPLETED","AWAITING_INPUT","COMPLETED")):
    turn=f"p{i}";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,?,?,?)",(turn,thread.id,turn,status,now,now))
@@ -155,8 +160,8 @@ async def test_archiver_never_crosses_a_pending_turn(tmp_path):
  episode=await arch.archive_thread(thread.id);assert episode and episode.end_message_seq==1
 
 @pytest.mark.asyncio
-async def test_archiver_keeps_whole_turn_bundles(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+async def test_archiver_keeps_whole_turn_bundles(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n"
  with db.transaction() as c:
   for i in range(3):
    turn=f"b{i}";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
@@ -167,8 +172,8 @@ async def test_archiver_keeps_whole_turn_bundles(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_archiver_accepts_ask_turn_without_duplicate_source_ids(tmp_path):
- db=Database(tmp_path/"ask.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+async def test_archiver_accepts_ask_turn_without_duplicate_source_ids(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n"
  with db.transaction() as c:
   turn="ask-turn"
   c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
@@ -184,8 +189,8 @@ async def test_archiver_accepts_ask_turn_without_duplicate_source_ids(tmp_path):
   assert source_ids == ["ask-user", "ask-assistant"]
 
 @pytest.mark.asyncio
-async def test_archiver_hashes_excluded_terminal_messages_without_summarizing_them(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n";seen=[]
+async def test_archiver_hashes_excluded_terminal_messages_without_summarizing_them(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n";seen=[]
  with db.transaction() as c:
   c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'CANCELLED',?,?)",("cancelled",thread.id,"cancelled",now,now))
   for seq,role,status,content in ((1,"user","ready","keep"),(2,"assistant","cancelled","partial")):
@@ -198,8 +203,8 @@ async def test_archiver_hashes_excluded_terminal_messages_without_summarizing_th
  assert [item["content"] for item in seen]==["keep"]
 
 @pytest.mark.asyncio
-async def test_archiver_without_summarizer_fails_closed(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+async def test_archiver_without_summarizer_fails_closed(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n"
  with db.transaction() as c:
   turn="t";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
   c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES ('m',?,?, 'user','source','ready',1,6,1,?)",(thread.id,turn,now))
@@ -211,8 +216,8 @@ async def test_archiver_without_summarizer_fails_closed(tmp_path):
   assert job["status"]=="RETRY_WAIT" and job["last_error_code"]=="invalid_summary"
 
 @pytest.mark.asyncio
-async def test_terminal_turn_signal_is_consumed_by_managed_worker(tmp_path):
- db=Database(tmp_path/"a.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+async def test_terminal_turn_signal_is_consumed_by_managed_worker(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n"
  with db.transaction() as c:
   turn="terminal";c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'ROUTING',?,?)",(turn,thread.id,turn,now,now))
   c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at) VALUES ('terminal-message',?,?, 'user','source','ready',1,6,1,?)",(thread.id,turn,now))
@@ -229,8 +234,8 @@ async def test_terminal_turn_signal_is_consumed_by_managed_worker(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_managed_worker_preserves_signal_when_enqueue_fails(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_managed_worker_preserves_signal_when_enqueue_fails(database, tmp_path):
+ db, thread = completed_thread(database)
  with db.transaction() as c:
   c.execute("INSERT INTO memory_archive_signals(turn_id,thread_id,created_at) VALUES ('fault-turn',?,'now')",(thread.id,))
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary,keep_messages=0)
@@ -242,18 +247,9 @@ async def test_managed_worker_preserves_signal_when_enqueue_fails(tmp_path):
   assert c.execute("SELECT COUNT(*) FROM memory_archive_signals WHERE turn_id='fault-turn'").fetchone()[0] == 1
 
 
-def _completed_thread(tmp_path, *, owner_id="owner-a"):
- db=Database(tmp_path/"faults.db");conv=ConversationService(db);thread=conv.create_thread(owner_id=owner_id);now="2026-01-01T00:00:00+00:00"
- with db.transaction() as c:
-  turn="fault-turn"
-  c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES (?,?,?,'COMPLETED',?,?)",(turn,thread.id,turn,now,now))
-  c.execute("INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at,completed_at) VALUES (?,?,?,?,?,'ready',1,?,?,?,?)",("fault-user",thread.id,turn,"user","source",6,1,now,now))
- return db, thread
-
-
 @pytest.mark.asyncio
-async def test_archiver_rejects_invalid_json_summary(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_rejects_invalid_json_summary(database, tmp_path):
+ db, thread = completed_thread(database)
  async def invalid_json(_payload):
   return "{not-json"
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),invalid_json,keep_messages=0,max_attempts=1)
@@ -267,8 +263,8 @@ async def test_archiver_rejects_invalid_json_summary(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_archiver_rejects_summary_references_outside_source_batch(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_rejects_summary_references_outside_source_batch(database, tmp_path):
+ db, thread = completed_thread(database)
  async def external_ref(_payload):
   return {"synopsis":[{"text":"summary","source_message_ids":["message-from-another-thread"]}],"topics":[],"decisions":[],"outcomes":[],"open_loops":[],"sensitivity":"normal"}
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),external_ref,keep_messages=0,max_attempts=1)
@@ -281,8 +277,8 @@ async def test_archiver_rejects_summary_references_outside_source_batch(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_archiver_rejects_assistant_only_decision(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_rejects_assistant_only_decision(database, tmp_path):
+ db, thread = completed_thread(database)
  with db.transaction() as c:
   c.execute(
    "INSERT INTO thread_messages(id,thread_id,turn_id,role,content,status,generation,content_length,message_seq,created_at,completed_at) "
@@ -306,8 +302,8 @@ async def test_archiver_rejects_assistant_only_decision(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_archiver_rejects_structurally_bounded_but_oversized_summary(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_rejects_structurally_bounded_but_oversized_summary(database, tmp_path):
+ db, thread = completed_thread(database)
  async def huge_summary(payload):
   ids=[event["message_id"] for turn in payload["turns"] for event in turn["events"] if event["message_id"]]
   item={"text":"x" * 800,"source_message_ids":[ids[0]]}
@@ -320,8 +316,8 @@ async def test_archiver_rejects_structurally_bounded_but_oversized_summary(tmp_p
 
 
 @pytest.mark.asyncio
-async def test_archiver_does_not_commit_when_source_changes_before_commit(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_does_not_commit_when_source_changes_before_commit(database, tmp_path):
+ db, thread = completed_thread(database)
  async def mutate_source(payload):
   with db.transaction() as c:
    c.execute("UPDATE thread_messages SET content='changed',content_length=7 WHERE id='fault-user'")
@@ -339,8 +335,8 @@ async def test_archiver_does_not_commit_when_source_changes_before_commit(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_archiver_requeues_current_hash_when_source_changes_before_summary(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_requeues_current_hash_when_source_changes_before_summary(database, tmp_path):
+ db, thread = completed_thread(database)
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary,keep_messages=0,max_attempts=3)
  job_id=arch.enqueue(thread.id)
  claim=arch.claim(job_id)
@@ -355,8 +351,8 @@ async def test_archiver_requeues_current_hash_when_source_changes_before_summary
 
 
 @pytest.mark.asyncio
-async def test_archiver_old_lease_cannot_commit_after_takeover(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_old_lease_cannot_commit_after_takeover(database, tmp_path):
+ db, thread = completed_thread(database)
  arch1=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary,keep_messages=0,worker_id="worker-one")
  job_id=arch1.enqueue(thread.id); claim=arch1.claim(job_id)
  transcript=arch1.transcripts.build(thread.id,expected_owner_id="owner-a",after_sequence=claim.start_sequence-1,through_sequence=claim.end_sequence)
@@ -372,8 +368,8 @@ async def test_archiver_old_lease_cannot_commit_after_takeover(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_archiver_commit_failure_rolls_back_episode_and_cursor(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_commit_failure_rolls_back_episode_and_cursor(database, tmp_path):
+ db, thread = completed_thread(database)
  store=MemoryStore(db,tmp_path/"memory")
  arch=ConversationArchiver(db,store,valid_summary,keep_messages=0,max_attempts=1)
  original=store.save_episode
@@ -391,8 +387,8 @@ async def test_archiver_commit_failure_rolls_back_episode_and_cursor(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_archiver_chunks_a_single_oversized_turn_and_advances_coverage(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_chunks_a_single_oversized_turn_and_advances_coverage(database, tmp_path):
+ db, thread = completed_thread(database)
  with db.transaction() as c:
   c.execute("UPDATE thread_messages SET content=?,content_length=? WHERE id='fault-user'", ("x" * 300, 300))
  seen=[]
@@ -429,8 +425,8 @@ async def test_archiver_chunks_a_single_oversized_turn_and_advances_coverage(tmp
 
 
 @pytest.mark.asyncio
-async def test_chunk_summary_cannot_cite_a_message_outside_its_chunk(tmp_path):
- db=Database(tmp_path/"chunk-evidence.db");conv=ConversationService(db);thread=conv.create_thread();now="n"
+async def test_chunk_summary_cannot_cite_a_message_outside_its_chunk(database, tmp_path):
+ db=database;conv=ConversationService(db);thread=conv.create_thread();now="n"
  with db.transaction() as c:
   c.execute("INSERT INTO turns(id,thread_id,client_turn_id,status,created_at,updated_at) VALUES ('chunk-turn',?,'chunk-turn','COMPLETED',?,?)",(thread.id,now,now))
   for seq,content in ((1,"x" * 300),(2,"y" * 300)):
@@ -463,8 +459,8 @@ def test_chunk_merge_preserves_same_evidence_in_different_structured_fields():
 
 
 @pytest.mark.asyncio
-async def test_archiver_renews_lease_during_slow_chunk_summary(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_archiver_renews_lease_during_slow_chunk_summary(database, tmp_path):
+ db, thread = completed_thread(database)
  started=asyncio.Event()
  release=asyncio.Event()
  async def slow_summary(payload):
@@ -475,20 +471,34 @@ async def test_archiver_renews_lease_during_slow_chunk_summary(tmp_path):
   db,MemoryStore(db,tmp_path/"memory"),slow_summary,keep_messages=0,
   lease_seconds=.15,max_summary_tokens=12000,
  )
+ renewed=asyncio.Event()
+ def on_lifecycle(event):
+  if event.get("event") == "heartbeat" and started.is_set() and not release.is_set():
+   renewed.set()
+ arch.on_lifecycle = on_lifecycle
  job_id=arch.enqueue(thread.id);claim=arch.claim(job_id)
  task=asyncio.create_task(arch.process(claim))
- await started.wait()
- await asyncio.sleep(.22)
- with db.connection() as c:
-  row=c.execute("SELECT lease_until FROM memory_archive_jobs WHERE id=?",(job_id,)).fetchone()
-  assert datetime.fromisoformat(row["lease_until"]) > datetime.now(timezone.utc)
- release.set()
+ try:
+  await asyncio.wait_for(started.wait(), timeout=5)
+  renewed.clear()
+  await asyncio.wait_for(renewed.wait(), timeout=5)
+  with db.connection() as c:
+   row=c.execute("SELECT lease_until FROM memory_archive_jobs WHERE id=?",(job_id,)).fetchone()
+   assert datetime.fromisoformat(row["lease_until"]) > datetime.now(timezone.utc)
+  assert not release.is_set()
+ finally:
+  release.set()
+  try:
+   await asyncio.wait_for(task, timeout=5)
+  except Exception:
+   pass
+ assert task.done() and task.exception() is None
  assert await task is not None
 
 
 @pytest.mark.asyncio
-async def test_managed_worker_keeps_signal_when_ack_delete_fails(tmp_path):
- db, thread = _completed_thread(tmp_path)
+async def test_managed_worker_keeps_signal_when_ack_delete_fails(database, tmp_path):
+ db, thread = completed_thread(database)
  with db.transaction() as c:
   c.execute("INSERT INTO memory_archive_signals(turn_id,thread_id,created_at) VALUES ('fault-turn',?,'now')",(thread.id,))
  arch=ConversationArchiver(db,MemoryStore(db,tmp_path/"memory"),valid_summary,keep_messages=0)

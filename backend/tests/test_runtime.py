@@ -1,5 +1,7 @@
 import pytest
 
+from pg02_helpers import database
+
 
 @pytest.fixture
 def historical_run_identity(monkeypatch):
@@ -8,7 +10,7 @@ def historical_run_identity(monkeypatch):
     monkeypatch.setattr(AgentRuntime, "_persist_run_root", lambda *args: None)
 
 
-def make_runtime(tmp_path, model):
+def make_runtime(tmp_path, model, *, database=None):
     from app.db import Database
     from app.domain import ApprovalService, CheckpointStore, PlanVersionService
     from app.events import EventStore
@@ -16,7 +18,9 @@ def make_runtime(tmp_path, model):
     from app.runtime import AgentRuntime
     from app.tools import create_default_registry
 
-    db = Database(tmp_path / "agent.db", workspace=tmp_path / "workspace")
+    if database is None:
+        database = Database(tmp_path / "agent.db", workspace=tmp_path / "workspace")
+    db = database
     events = EventStore(db)
     approvals = ApprovalService(db)
     return AgentRuntime(
@@ -32,10 +36,10 @@ def make_runtime(tmp_path, model):
 
 
 @pytest.mark.asyncio
-async def test_run_completion_event_failure_rolls_back_terminal_state(tmp_path, monkeypatch):
+async def test_run_completion_event_failure_rolls_back_terminal_state(tmp_path, database, monkeypatch):
     from app.runtime import MockModelGateway, ModelDecision
     runtime = make_runtime(tmp_path, MockModelGateway(
-        plan_steps=[{"id": "s", "title": "step"}], decisions=[ModelDecision.complete("done")]))
+        plan_steps=[{"id": "s", "title": "step"}], decisions=[ModelDecision.complete("done")]), database=database)
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
     append = runtime.events.append
@@ -54,7 +58,7 @@ async def test_run_completion_event_failure_rolls_back_terminal_state(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_runtime_runs_received_planning_approval_execution_reflection_loop(tmp_path) -> None:
+async def test_runtime_runs_received_planning_approval_execution_reflection_loop(tmp_path, database) -> None:
     from app.runtime import AgentRuntime, MockModelGateway, ModelDecision
 
     runtime = make_runtime(
@@ -63,6 +67,7 @@ async def test_runtime_runs_received_planning_approval_execution_reflection_loop
             plan_steps=[{"id": "step-1", "title": "Draft result"}],
             decisions=[ModelDecision.complete("drafted")],
         ),
+        database=database,
     )
     run = await runtime.create_goal("Ship proposal", "Prepare a proposal")
     planned = await runtime.handle_message(run.id, "Ship the proposal")
@@ -82,13 +87,13 @@ async def test_runtime_runs_received_planning_approval_execution_reflection_loop
 
 
 @pytest.mark.asyncio
-async def test_completed_goal_run_finishes_canary_exposure_with_safety_judgment(tmp_path) -> None:
+async def test_completed_goal_run_finishes_canary_exposure_with_safety_judgment(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     runtime = make_runtime(tmp_path, MockModelGateway(
         plan_steps=[{"id": "step-1", "title": "done"}],
         decisions=[ModelDecision.complete("safe result")],
-    ))
+    ), database=database)
     calls = []
     class Evolution:
         def assign_run(self, run_id, assignment_key, *, connection=None): return None, "deployment"
@@ -107,7 +112,7 @@ async def test_completed_goal_run_finishes_canary_exposure_with_safety_judgment(
 
 
 @pytest.mark.asyncio
-async def test_react_observation_includes_tool_result_data(tmp_path) -> None:
+async def test_react_observation_includes_tool_result_data(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
     from app.tools import ToolCall
 
@@ -127,7 +132,7 @@ async def test_react_observation_includes_tool_result_data(tmp_path) -> None:
             return await super().decide(step, observation, iteration)
 
     model = RecordingModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     run = await runtime.create_goal("Calculate", "Calculate 2 + 2")
     await runtime.handle_message(run.id, "Calculate 2 + 2")
 
@@ -138,7 +143,7 @@ async def test_react_observation_includes_tool_result_data(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_react_receives_full_plan_step_deliverable(tmp_path) -> None:
+async def test_react_receives_full_plan_step_deliverable(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     class RecordingModel(MockModelGateway):
@@ -158,7 +163,7 @@ async def test_react_receives_full_plan_step_deliverable(tmp_path) -> None:
             return await super().decide(step, observation, iteration)
 
     model = RecordingModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     run = await runtime.create_goal("Diet", "Prepare a diet plan")
     await runtime.handle_message(run.id, "Prepare a diet plan")
 
@@ -169,7 +174,7 @@ async def test_react_receives_full_plan_step_deliverable(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
+async def test_react_budget_resets_for_each_plan_step(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision, RuntimeConfig
 
     runtime = make_runtime(
@@ -181,6 +186,7 @@ async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
             ],
             decisions=[ModelDecision.complete("完成第一步"), ModelDecision.complete("完成第二步")],
         ),
+        database=database,
     )
     runtime.config = RuntimeConfig(max_react_iterations_per_step=1)
     run = await runtime.create_goal("Two steps", "Complete two steps")
@@ -192,11 +198,11 @@ async def test_react_budget_resets_for_each_plan_step(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path) -> None:
+async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path, database) -> None:
     from app.domain import AgentState
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = await runtime.create_goal("兼容旧任务", "恢复历史预算阻塞任务")
     runtime._set_run_fields(
         run.id,
@@ -211,7 +217,7 @@ async def test_budget_recovery_accepts_legacy_english_blocked_reason(tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) -> None:
+async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     runtime = make_runtime(
@@ -227,6 +233,7 @@ async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) 
                 "evidence_event_ids": [],
             }],
         ),
+        database=database,
     )
     run = await runtime.create_goal("Goal", "Complete it")
     await runtime.handle_message(run.id, "Complete it")
@@ -238,7 +245,7 @@ async def test_invalid_reflection_candidate_does_not_block_completion(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_configured(tmp_path, historical_run_identity) -> None:
+async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_configured(tmp_path, database, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -256,6 +263,7 @@ async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_conf
             plan_steps=[{"id": "step-1", "title": "完成任务"}],
             decisions=[ModelDecision.complete("完成")],
         ),
+        database=database,
     )
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
@@ -287,7 +295,7 @@ async def test_reflection_candidates_are_pending_v2_proposals_when_store_is_conf
 
 
 @pytest.mark.asyncio
-async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp_path, historical_run_identity) -> None:
+async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp_path, database, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -304,6 +312,7 @@ async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp
             plan_steps=[{"id": "step-1", "title": "Complete"}],
             decisions=[ModelDecision.complete("done")],
         ),
+        database=database,
     )
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     thread = runtime.conversation.create_thread("Evidence", owner_id="alice")
@@ -325,7 +334,7 @@ async def test_project_reflection_uses_source_thread_scope_not_model_project(tmp
 
 
 @pytest.mark.asyncio
-async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path, monkeypatch, historical_run_identity) -> None:
+async def test_reflection_with_missing_source_turn_does_not_write_default_owner(tmp_path, database, monkeypatch, historical_run_identity) -> None:
     # Missing identity blocks execution even on the legacy entry point.
     monkeypatch.setenv('BETTER_AGENT_LOOP_MODE', 'legacy')
     from app.memory_v2 import MemoryStore
@@ -342,6 +351,7 @@ async def test_reflection_with_missing_source_turn_does_not_write_default_owner(
                 "confidence": 0.9, "evidence_event_ids": [],
             }],
         ),
+        database=database,
     )
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     run = await runtime.create_goal("Goal", "Complete it")
@@ -355,7 +365,7 @@ async def test_reflection_with_missing_source_turn_does_not_write_default_owner(
 
 
 @pytest.mark.asyncio
-async def test_runtime_rejects_non_preference_reflection_memory(tmp_path, historical_run_identity) -> None:
+async def test_runtime_rejects_non_preference_reflection_memory(tmp_path, database, historical_run_identity) -> None:
     from app.memory_v2 import MemoryStore
     from app.runtime import MockModelGateway, ModelDecision
 
@@ -366,7 +376,7 @@ async def test_runtime_rejects_non_preference_reflection_memory(tmp_path, histor
                 "confidence": .9, "evidence_event_ids": [evidence_catalog[0]["ref"]],
             }]
 
-    runtime = make_runtime(tmp_path, FactModel(decisions=[ModelDecision.complete("done")]))
+    runtime = make_runtime(tmp_path, FactModel(decisions=[ModelDecision.complete("done")]), database=database)
     runtime.memory_store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
     source = runtime.conversation.accept_turn(
@@ -382,7 +392,7 @@ async def test_runtime_rejects_non_preference_reflection_memory(tmp_path, histor
 
 
 @pytest.mark.asyncio
-async def test_runtime_enters_clarifying_before_planning_when_information_is_missing(tmp_path) -> None:
+async def test_runtime_enters_clarifying_before_planning_when_information_is_missing(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     runtime = make_runtime(
@@ -392,6 +402,7 @@ async def test_runtime_enters_clarifying_before_planning_when_information_is_mis
             plan_steps=[{"id": "step-1", "title": "Do it"}],
             decisions=[ModelDecision.complete("done")],
         ),
+        database=database,
     )
     run = await runtime.create_goal("Vague", "")
 
@@ -402,7 +413,7 @@ async def test_runtime_enters_clarifying_before_planning_when_information_is_mis
 
 
 @pytest.mark.asyncio
-async def test_runtime_write_waits_for_approval_and_never_writes_before_grant(tmp_path) -> None:
+async def test_runtime_write_waits_for_approval_and_never_writes_before_grant(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
     from app.tools import ToolCall
 
@@ -413,6 +424,7 @@ async def test_runtime_write_waits_for_approval_and_never_writes_before_grant(tm
             plan_steps=[{"id": "step-1", "title": "Write result"}],
             decisions=[ModelDecision.tool(call), ModelDecision.complete("written")],
         ),
+        database=database,
     )
     run = await runtime.create_goal("Write", "Write a note")
     await runtime.handle_message(run.id, "Write it")
@@ -428,10 +440,10 @@ async def test_runtime_write_waits_for_approval_and_never_writes_before_grant(tm
 
 
 @pytest.mark.asyncio
-async def test_runtime_revises_plan_as_a_new_version(tmp_path) -> None:
+async def test_runtime_revises_plan_as_a_new_version(tmp_path, database) -> None:
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "old", "title": "Old"}]))
+    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "old", "title": "Old"}]), database=database)
     run = await runtime.create_goal("Plan", "Plan it")
     await runtime.handle_message(run.id, "Plan it")
 
@@ -446,10 +458,10 @@ async def test_runtime_revises_plan_as_a_new_version(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_cancel_is_a_global_terminal_transition(tmp_path) -> None:
+async def test_runtime_cancel_is_a_global_terminal_transition(tmp_path, database) -> None:
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = await runtime.create_goal("Cancel", "Stop it")
 
     cancelled = await runtime.cancel(run.id)
@@ -459,7 +471,7 @@ async def test_runtime_cancel_is_a_global_terminal_transition(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_runtime_cancel_interrupts_inflight_message_without_waiting_for_run_lock(tmp_path) -> None:
+async def test_runtime_cancel_interrupts_inflight_message_without_waiting_for_run_lock(tmp_path, database) -> None:
     import asyncio
 
     from app.runtime import PlanDraft
@@ -482,7 +494,7 @@ async def test_runtime_cancel_interrupts_inflight_message_without_waiting_for_ru
         async def reflect(self, goal, plan, run_id):
             return []
 
-    runtime = make_runtime(tmp_path, BlockingModel())
+    runtime = make_runtime(tmp_path, BlockingModel(), database=database)
     run = await runtime.create_goal("Cancel", "Stop while the model is responding")
     message_task = asyncio.create_task(runtime.handle_message(run.id, "Start"))
     await asyncio.wait_for(started.wait(), timeout=1)
@@ -501,10 +513,10 @@ async def test_runtime_cancel_interrupts_inflight_message_without_waiting_for_ru
 
 
 @pytest.mark.asyncio
-async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_cancelled(tmp_path) -> None:
+async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_cancelled(tmp_path, database) -> None:
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Cancel me"}]))
+    runtime = make_runtime(tmp_path, MockModelGateway(plan_steps=[{"id": "step-1", "title": "Cancel me"}]), database=database)
     run = await runtime.create_goal("Cancel step", "Stop one step")
     await runtime.handle_message(run.id, "Stop one step")
 
@@ -516,7 +528,7 @@ async def test_runtime_cancel_step_saves_checkpoint_and_marks_only_that_step_can
 
 
 @pytest.mark.asyncio
-async def test_model_gateway_failure_blocks_run_and_saves_checkpoint(tmp_path) -> None:
+async def test_model_gateway_failure_blocks_run_and_saves_checkpoint(tmp_path, database) -> None:
     from app.model_gateway import GatewayError
 
     class FailingModel:
@@ -532,7 +544,7 @@ async def test_model_gateway_failure_blocks_run_and_saves_checkpoint(tmp_path) -
         async def reflect(self, goal, plan, run_id):
             raise AssertionError("reflection should not run")
 
-    runtime = make_runtime(tmp_path, FailingModel())
+    runtime = make_runtime(tmp_path, FailingModel(), database=database)
     run = await runtime.create_goal("Failure", "Model unavailable")
 
     blocked = await runtime.handle_message(run.id, "Try")
@@ -543,7 +555,7 @@ async def test_model_gateway_failure_blocks_run_and_saves_checkpoint(tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_path) -> None:
+async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_path, database) -> None:
     from app.runtime import MockModelGateway, ModelDecision
     from app.tools import ToolCall
 
@@ -553,6 +565,7 @@ async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_pa
             plan_steps=[{"id": "step-1", "title": "Use tool"}],
             decisions=[ModelDecision.tool(ToolCall("unknown-call", "shell", {}))],
         ),
+        database=database,
     )
     run = await runtime.create_goal("Unknown tool", "Reject it")
     await runtime.handle_message(run.id, "Use it")
@@ -564,7 +577,7 @@ async def test_unknown_tool_decision_blocks_run_without_leaking_exception(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) -> None:
+async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path, database) -> None:
     from app.runtime import MockModelGateway
 
     class ContextModel(MockModelGateway):
@@ -576,7 +589,7 @@ async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) 
             self.snapshots.append((snapshot_hash, text))
 
     model = ContextModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     run = await runtime.create_goal("Context", "Use confirmed context")
     await runtime.handle_message(run.id, "Plan with context")
 
@@ -585,7 +598,7 @@ async def test_runtime_builds_context_snapshot_before_live_model_call(tmp_path) 
 
 
 @pytest.mark.asyncio
-async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path, historical_run_identity) -> None:
+async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path, database, historical_run_identity) -> None:
     from app.runtime import MockModelGateway, ModelDecision
 
     class EvidenceModel(MockModelGateway):
@@ -598,7 +611,7 @@ async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path, 
             return []
 
     model = EvidenceModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     thread = runtime.conversation.create_thread("Evidence", owner_id="local-user")
     source = runtime.conversation.accept_turn(
         thread.id, "source-evidence", "Prefer short answers", owner_id="local-user",
@@ -616,7 +629,7 @@ async def test_runtime_reflection_receives_only_bounded_user_evidence(tmp_path, 
 
 
 @pytest.mark.asyncio
-async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog(tmp_path, historical_run_identity) -> None:
+async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog(tmp_path, database, historical_run_identity) -> None:
     from app.runtime import MockModelGateway
 
     class ContextModel(MockModelGateway):
@@ -628,7 +641,7 @@ async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog
             self.text = text
 
     model = ContextModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(tmp_path, model, database=database)
     thread = runtime.conversation.create_thread("Evidence", owner_id="alice")
     source = runtime.conversation.accept_turn(
         thread.id, "source", "Prefer short answers", owner_id="alice",
@@ -644,10 +657,10 @@ async def test_runtime_reflection_snapshot_contains_the_bounded_evidence_catalog
     assert "evidence_catalog" in model.text
 
 
-def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path) -> None:
+def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path, database) -> None:
     from app.runtime import MockModelGateway
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
 
     assert "write_note" in runtime._skill_tools_for("react")
     assert "shell" not in runtime._skill_tools_for("react")
@@ -655,12 +668,12 @@ def test_runtime_react_skill_allowlist_excludes_unsupported_tools(tmp_path) -> N
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", ["identity", "snapshot"])
-async def test_model_preflight_failure_releases_context_and_active_task(tmp_path, monkeypatch, failure):
+async def test_model_preflight_failure_releases_context_and_active_task(tmp_path, database, monkeypatch, failure):
     from types import SimpleNamespace
     from app.runtime import MockModelGateway
     from app.execution_context import LegacyContextMissing
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = make_runtime(tmp_path, MockModelGateway(), database=database)
     run = await runtime.create_goal("goal", "goal")
     active = ["outer"]
 
@@ -686,10 +699,7 @@ async def test_model_preflight_failure_releases_context_and_active_task(tmp_path
     async def forbidden():
         pytest.fail("preflight failure must not send")
 
-    try:
-        with pytest.raises(expected):
-            await runtime._model_call(run, "planning", forbidden)
-        assert active == ["outer"]
-        assert run.id not in runtime._active_model_tasks
-    finally:
-        runtime.db.close()
+    with pytest.raises(expected):
+        await runtime._model_call(run, "planning", forbidden)
+    assert active == ["outer"]
+    assert run.id not in runtime._active_model_tasks

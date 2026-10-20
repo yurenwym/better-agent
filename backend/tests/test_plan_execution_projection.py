@@ -4,7 +4,18 @@ import asyncio
 
 import pytest
 
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
+
+
+async def _cleanup_tasks(*tasks):
+    pending = [task for task in tasks if task is not None and not task.done()]
+    for task in pending:
+        task.cancel()
+    if pending:
+        results = await asyncio.gather(*pending, return_exceptions=True)
+        for result in results:
+            if isinstance(result, BaseException) and not isinstance(result, asyncio.CancelledError):
+                raise result
 
 
 class ExecutionModel:
@@ -44,9 +55,9 @@ def _count(runtime, table: str) -> int:
 
 
 @pytest.mark.asyncio
-async def test_confirmed_execution_compiles_exact_committed_document_version(tmp_path) -> None:
+async def test_confirmed_execution_compiles_exact_committed_document_version(database, tmp_path) -> None:
     model = ExecutionModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     document_version = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -82,8 +93,8 @@ async def test_confirmed_execution_compiles_exact_committed_document_version(tmp
 
 
 @pytest.mark.asyncio
-async def test_execution_without_a_committed_plan_document_is_rejected(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ExecutionModel())
+async def test_execution_without_a_committed_plan_document_is_rejected(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, ExecutionModel())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-execute-without-plan", "Track this", [])
 
@@ -104,9 +115,9 @@ async def test_execution_without_a_committed_plan_document_is_rejected(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_execution_preview_uses_the_turn_pinned_document_version_after_a_later_edit(tmp_path) -> None:
+async def test_execution_preview_uses_the_turn_pinned_document_version_after_a_later_edit(database, tmp_path) -> None:
     model = ExecutionModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     first = runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -146,7 +157,7 @@ async def test_execution_preview_uses_the_turn_pinned_document_version_after_a_l
 
 
 @pytest.mark.asyncio
-async def test_same_execution_idempotency_key_claims_one_compilation(tmp_path) -> None:
+async def test_same_execution_idempotency_key_claims_one_compilation(database, tmp_path) -> None:
     class ConcurrentModel(ExecutionModel):
         def __init__(self) -> None:
             super().__init__()
@@ -162,7 +173,7 @@ async def test_same_execution_idempotency_key_claims_one_compilation(tmp_path) -
             return PlanDraft([{"id": "step-1", "title": "Track the plan"}], "Compiled once")
 
     model = ConcurrentModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -179,22 +190,27 @@ async def test_same_execution_idempotency_key_claims_one_compilation(tmp_path) -
     first_task = asyncio.create_task(
         runtime.conversation.select_direction(turn.id, "continue_execution", turn.version, "direction-same")
     )
-    await model.started.wait()
-    second_task = asyncio.create_task(
-        runtime.conversation.select_direction(turn.id, "continue_execution", turn.version, "direction-same")
-    )
-    await asyncio.sleep(0)
-    compile_calls_while_first_is_blocked = len(model.plan_inputs)
-    model.release.set()
-    first_result, second_result = await asyncio.gather(first_task, second_task)
+    second_task = None
+    try:
+        await asyncio.wait_for(model.started.wait(), timeout=2)
+        second_task = asyncio.create_task(
+            runtime.conversation.select_direction(turn.id, "continue_execution", turn.version, "direction-same")
+        )
+        await asyncio.sleep(0)
+        compile_calls_while_first_is_blocked = len(model.plan_inputs)
+        model.release.set()
+        first_result, second_result = await asyncio.gather(first_task, second_task)
 
-    assert compile_calls_while_first_is_blocked == 1
-    assert first_result.materialized_run_id == second_result.materialized_run_id
-    assert _count(runtime, "runs") == 1
+        assert compile_calls_while_first_is_blocked == 1
+        assert first_result.materialized_run_id == second_result.materialized_run_id
+        assert _count(runtime, "runs") == 1
+    finally:
+        model.release.set()
+        await _cleanup_tasks(first_task, second_task)
 
 
 @pytest.mark.asyncio
-async def test_execution_claim_is_persisted_for_a_second_materializer_instance(tmp_path) -> None:
+async def test_execution_claim_is_persisted_for_a_second_materializer_instance(database, tmp_path) -> None:
     class CrossProcessModel(ExecutionModel):
         def __init__(self) -> None:
             super().__init__()
@@ -210,7 +226,7 @@ async def test_execution_claim_is_persisted_for_a_second_materializer_instance(t
             return PlanDraft([{"id": "step-1", "title": "Track the plan"}], "Compiled once")
 
     model = CrossProcessModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -234,26 +250,31 @@ async def test_execution_claim_is_persisted_for_a_second_materializer_instance(t
             turn.id, turn.version, "direction-persisted", "continue_execution"
         )
     )
-    await model.started.wait()
-    second_task = asyncio.create_task(
-        other_materializer.materialize(
-            turn.id, turn.version, "direction-persisted", "continue_execution"
+    second_task = None
+    try:
+        await asyncio.wait_for(model.started.wait(), timeout=2)
+        second_task = asyncio.create_task(
+            other_materializer.materialize(
+                turn.id, turn.version, "direction-persisted", "continue_execution"
+            )
         )
-    )
-    await asyncio.sleep(0)
-    model.release.set()
-    first_result = await first_task
+        await asyncio.sleep(0)
+        model.release.set()
+        first_result = await first_task
 
-    with pytest.raises(ValueError, match="in progress"):
-        await second_task
-    assert first_result.run_id
-    assert len(model.plan_inputs) == 1
+        with pytest.raises(ValueError, match="in progress"):
+            await second_task
+        assert first_result.run_id
+        assert len(model.plan_inputs) == 1
+    finally:
+        model.release.set()
+        await _cleanup_tasks(first_task, second_task)
 
 
 @pytest.mark.asyncio
-async def test_expired_execution_claim_can_be_recovered_by_a_new_materializer_instance(tmp_path) -> None:
+async def test_expired_execution_claim_can_be_recovered_by_a_new_materializer_instance(database, tmp_path) -> None:
     model = ExecutionModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -291,7 +312,7 @@ async def test_expired_execution_claim_can_be_recovered_by_a_new_materializer_in
 
 
 @pytest.mark.asyncio
-async def test_active_execution_claim_is_renewed_during_a_long_compile(tmp_path, monkeypatch) -> None:
+async def test_active_execution_claim_is_renewed_during_a_long_compile(database, tmp_path, monkeypatch) -> None:
     class SlowModel(ExecutionModel):
         def __init__(self) -> None:
             super().__init__()
@@ -308,7 +329,7 @@ async def test_active_execution_claim_is_renewed_during_a_long_compile(tmp_path,
 
     monkeypatch.setattr("app.conversation.EXECUTION_PROJECTION_LEASE_SECONDS", 0.06)
     model = SlowModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
         thread_id=thread.id,
@@ -331,27 +352,32 @@ async def test_active_execution_claim_is_renewed_during_a_long_compile(tmp_path,
             turn.id, turn.version, "direction-renewing", "continue_execution"
         )
     )
-    await model.started.wait()
-    await asyncio.sleep(0.11)
-    second_task = asyncio.create_task(
-        other_materializer.materialize(
-            turn.id, turn.version, "direction-renewing", "continue_execution"
+    second_task = None
+    try:
+        await asyncio.wait_for(model.started.wait(), timeout=2)
+        await asyncio.sleep(0.11)
+        second_task = asyncio.create_task(
+            other_materializer.materialize(
+                turn.id, turn.version, "direction-renewing", "continue_execution"
+            )
         )
-    )
-    await asyncio.sleep(0)
-    model.release.set()
-    result = await first_task
+        await asyncio.sleep(0)
+        model.release.set()
+        result = await first_task
 
-    with pytest.raises(ValueError, match="in progress"):
-        await second_task
+        with pytest.raises(ValueError, match="in progress"):
+            await second_task
 
-    assert result.run_id
-    assert len(model.plan_inputs) == 1
+        assert result.run_id
+        assert len(model.plan_inputs) == 1
+    finally:
+        model.release.set()
+        await _cleanup_tasks(first_task, second_task)
 
 
 @pytest.mark.asyncio
-async def test_compiler_failure_leaves_no_execution_projection_or_agent_rows(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ExecutionModel(fail_compile=True))
+async def test_compiler_failure_leaves_no_execution_projection_or_agent_rows(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, ExecutionModel(fail_compile=True))
     thread = runtime.conversation.create_thread("Chat")
     runtime.plan_documents.save_model_revision(
         thread_id=thread.id,

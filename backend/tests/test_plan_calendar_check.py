@@ -1,6 +1,7 @@
 import pytest
 
 from app.plan_calendar_check import PlanCalendarMismatch,validate_plan_calendar
+from pg02_helpers import database
 
 
 def plan(count):
@@ -27,11 +28,9 @@ def test_calendar_check_does_not_parse_code_fences_or_prose():
     validate_plan_calendar("学习日由用户决定，日期稍后确认。")
 
 
-def test_bad_calendar_cannot_create_document(tmp_path):
-    from app.db import Database
+def test_bad_calendar_cannot_create_document(database, tmp_path):
     from app.conversation import ConversationService
-    db=Database(tmp_path/"agent.db")
-    conversation=ConversationService(db)
+    conversation=ConversationService(database)
     thread=conversation.create_thread("test")
     with pytest.raises(PlanCalendarMismatch):
         conversation.plan_documents.save_model_revision(thread_id=thread.id,title="Plan",markdown_content=plan(1),source_turn_id=None,source_message_id=None,actor="model")

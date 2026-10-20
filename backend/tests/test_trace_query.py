@@ -8,18 +8,49 @@ from app.db import Database
 from app.main import create_app
 from app.runtime import MockModelGateway
 from app.trace_query import LEGACY_SCAN_LIMIT, SOURCE_SEEK_BUDGET, TraceNotFound, TraceQuery
-from test_runtime import make_runtime
 
 
-def _seed(tmp_path, owner="local-user"):
-    service = ConversationService(Database(tmp_path / "trace.db"))
+@pytest.fixture()
+def database(migrated_postgres_url, isolated_postgres_test, tmp_path, monkeypatch):
+    """PostgreSQL-backed database with a per-test empty schema."""
+    monkeypatch.delenv("BETTER_AGENT_TEST_ALLOW_SQLITE", raising=False)
+    monkeypatch.setenv("DATABASE_URL", str(migrated_postgres_url))
+    db = Database(migrated_postgres_url, workspace=tmp_path / "workspace")
+    assert db.backend == "postgresql"
+    yield db
+    db.close()
+
+
+def _make_runtime(database, tmp_path, model):
+    from app.domain import ApprovalService, CheckpointStore, PlanVersionService
+    from app.events import EventStore
+    from app.memory import MemoryService
+    from app.runtime import AgentRuntime
+    from app.tools import create_default_registry
+
+    events = EventStore(database)
+    approvals = ApprovalService(database)
+    return AgentRuntime(
+        db=database,
+        events=events,
+        plans=PlanVersionService(database),
+        approvals=approvals,
+        checkpoints=CheckpointStore(database),
+        memory=MemoryService(database, events, tmp_path / "memory"),
+        tools=create_default_registry(tmp_path / "workspace", db=database, approval_service=approvals),
+        model=model,
+    )
+
+
+def _seed(database, owner="local-user"):
+    service = ConversationService(database)
     thread = service.create_thread("trace", owner_id=owner)
     turn = service.accept_turn(thread.id, "one", "hello", [], owner_id=owner)
     return service, thread, turn
 
 
-def test_by_thread_and_by_trace_merge_one_conversation(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_by_thread_and_by_trace_merge_one_conversation(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     thread_view = query.by_thread(thread.id, owner_id="local-user")
     assert thread_view["count"] >= 1
@@ -40,8 +71,8 @@ def test_by_thread_and_by_trace_merge_one_conversation(tmp_path):
     assert all("snapshot_refs" not in event for event in trace_view["events"])
 
 
-def test_trace_is_owner_isolated_and_legacy_events_are_marked(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_trace_is_owner_isolated_and_legacy_events_are_marked(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     with pytest.raises(TraceNotFound):
         query.by_thread(thread.id, owner_id="someone-else")
@@ -69,8 +100,8 @@ def _finish_turn(service, thread, turn):
         connection.execute("UPDATE threads SET active_turn_id=NULL WHERE id=?", (thread.id,))
 
 
-def _seed_research(tmp_path):
-    service = ConversationService(Database(tmp_path / "research.db"))
+def _seed_research(database):
+    service = ConversationService(database)
     thread = service.create_thread("research")
     first = service.accept_turn(thread.id, "one", "hello", [])
     _finish_turn(service, thread, first)
@@ -91,8 +122,8 @@ def _seed_research(tmp_path):
     return service, thread, first, second
 
 
-def test_deleted_thread_hides_thread_and_trace(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_deleted_thread_hides_thread_and_trace(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     trace_id = next(
         event["context"]["context"]["trace_id"]
@@ -106,8 +137,8 @@ def test_deleted_thread_hides_thread_and_trace(tmp_path):
         query.by_trace(trace_id, owner_id="local-user")
 
 
-def test_deleted_thread_hides_its_task(tmp_path):
-    service, thread, _first, _second = _seed_research(tmp_path)
+def test_deleted_thread_hides_its_task(database):
+    service, thread, _first, _second = _seed_research(database)
     query = TraceQuery(service.db)
     assert query.by_task("research", "job-a", owner_id="local-user")["events"]
     service.delete_thread(thread.id)
@@ -115,8 +146,8 @@ def test_deleted_thread_hides_its_task(tmp_path):
         query.by_task("research", "job-a", owner_id="local-user")
 
 
-def test_task_query_is_scoped_to_one_task(tmp_path):
-    service, thread, _first, _second = _seed_research(tmp_path)
+def test_task_query_is_scoped_to_one_task(database):
+    service, thread, _first, _second = _seed_research(database)
     query = TraceQuery(service.db)
     first = query.by_task("research", "job-a", owner_id="local-user")
     second = query.by_task("research", "job-b", owner_id="local-user")
@@ -128,8 +159,8 @@ def test_task_query_is_scoped_to_one_task(tmp_path):
     assert ids_first and ids_second and ids_first.isdisjoint(ids_second)
 
 
-def test_task_query_filters_before_pagination(tmp_path):
-    service, thread, first, _second = _seed_research(tmp_path)
+def test_task_query_filters_before_pagination(database):
+    service, thread, first, _second = _seed_research(database)
     for index in range(250):
         service.events.append(thread.id, first.turn_id, f"unrelated.{index}", "runtime", {"index": index})
     service.events.append(thread.id, first.turn_id, "research.target", "research_worker", {"job_id": "job-a"})
@@ -138,10 +169,10 @@ def test_task_query_filters_before_pagination(tmp_path):
     assert view["events"][0]["payload"].get("job_id") == "job-a"
 
 
-def test_expert_task_query_and_deleted_thread(tmp_path):
+def test_expert_task_query_and_deleted_thread(database):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
-    db = Database(tmp_path / "expert.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     conversation = ConversationService(db)
@@ -170,8 +201,8 @@ def test_expert_task_query_and_deleted_thread(tmp_path):
         query.by_task("expert", run["id"], owner_id="local-user")
 
 
-def test_trace_query_paginates_with_a_stable_cursor(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_trace_query_paginates_with_a_stable_cursor(database):
+    service, thread, turn = _seed(database)
     for index in range(5):
         service.events.append(thread.id, turn.turn_id, f"step.{index}", "runtime", {"index": index})
     query = TraceQuery(service.db)
@@ -186,8 +217,8 @@ def test_trace_query_paginates_with_a_stable_cursor(tmp_path):
     assert [event["event_id"] for event in query.by_thread(thread.id, owner_id="local-user", limit=2)["events"]] == ids_first
 
 
-def test_legacy_trace_paginates_after_the_first_page(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_legacy_trace_paginates_after_the_first_page(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     trace_id = query.by_thread(thread.id, owner_id="local-user")["events"][0]["context"]["context"]["trace_id"]
     with service.db.transaction() as connection:
@@ -200,7 +231,7 @@ def test_legacy_trace_paginates_after_the_first_page(tmp_path):
         for index in range(4):
             connection.execute(
                 "INSERT INTO thread_events(schema_version,event_id,seq,thread_id,turn_id,type,occurred_at,actor,data_json,envelope_json) "
-                "VALUES (1,?,?,?,?,?,datetime('now'),?,'{}',?)",
+                "VALUES (1,?,?,?,?,?,clock_timestamp()::text,?,'{}',?)",
                 (f"legacy_page_{index}", next_seq + index, thread.id, turn.turn_id,
                  f"legacy.{index}", "runtime", row["envelope_json"]),
             )
@@ -213,8 +244,8 @@ def test_legacy_trace_paginates_after_the_first_page(tmp_path):
     )
 
 
-def test_legacy_trace_filters_before_page_cap(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_legacy_trace_filters_before_page_cap(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     with service.db.connection() as connection:
         envelope = connection.execute(
@@ -233,13 +264,13 @@ def test_legacy_trace_filters_before_page_cap(tmp_path):
         for index in range(8):
             connection.execute(
                 "INSERT INTO thread_events(schema_version,event_id,seq,thread_id,turn_id,type,occurred_at,actor,data_json,envelope_json) "
-                "VALUES (1,?,?,?,?,?,datetime('now'),?,'{}',NULL)",
+                "VALUES (1,?,?,?,?,?,clock_timestamp()::text,?,'{}',NULL)",
                 (f"legacy_unrelated_{index}", next_seq + index, thread.id, turn.turn_id,
                  f"legacy.unrelated.{index}", "runtime"),
             )
         connection.execute(
             "INSERT INTO thread_events(schema_version,event_id,seq,thread_id,turn_id,type,occurred_at,actor,data_json,envelope_json) "
-            "VALUES (1,?,?,?,?,?,datetime('now'),?,'{}',?)",
+            "VALUES (1,?,?,?,?,?,clock_timestamp()::text,?,'{}',?)",
             ("legacy_target", next_seq + 8, thread.id, turn.turn_id,
              "legacy.target", "runtime", target_envelope),
         )
@@ -250,14 +281,14 @@ def test_legacy_trace_filters_before_page_cap(tmp_path):
 
 
 @pytest.mark.parametrize("kwargs", [{"limit": 0}, {"limit": 10 ** 9}, {"limit": "many"}, {"cursor": -1}])
-def test_trace_query_rejects_an_invalid_page(tmp_path, kwargs):
-    service, thread, _ = _seed(tmp_path)
+def test_trace_query_rejects_an_invalid_page(database, kwargs):
+    service, thread, _ = _seed(database)
     with pytest.raises(ValueError):
         TraceQuery(service.db).by_thread(thread.id, owner_id="local-user", **kwargs)
 
 
-def test_trace_lookup_uses_the_indexed_column(tmp_path):
-    service, thread, _ = _seed(tmp_path)
+def test_trace_lookup_uses_the_indexed_column(database):
+    service, thread, _ = _seed(database)
     query = TraceQuery(service.db)
     assert query._trace_column_present() is True
     with service.db.connection() as connection:
@@ -289,7 +320,7 @@ def _insert_legacy_event(service, thread, turn_id, trace_id, index):
 
 
 @pytest.mark.asyncio
-async def test_direct_goal_run_trace_is_owner_readable(tmp_path, monkeypatch):
+async def test_direct_goal_run_trace_is_owner_readable(database, tmp_path, monkeypatch):
     """A run with no source turn is still owner-readable by its trace.
 
     Direct goal runs persist their identity in ``agent_loop_context`` and write
@@ -299,9 +330,8 @@ async def test_direct_goal_run_trace_is_owner_readable(tmp_path, monkeypatch):
     import json as _json
     from app.event_envelope import EventMetadata
     from app.runtime import MockModelGateway, ModelDecision
-    from test_runtime import make_runtime
     monkeypatch.setenv("BETTER_AGENT_LOOP_MODE", "loop")
-    runtime = make_runtime(tmp_path, MockModelGateway(
+    runtime = _make_runtime(database, tmp_path, MockModelGateway(
         plan_steps=[{"id": "s", "title": "step"}], decisions=[ModelDecision.complete("done")]))
     run = await runtime.create_goal("goal", "goal")
     await runtime.handle_message(run.id, "start")
@@ -316,8 +346,8 @@ async def test_direct_goal_run_trace_is_owner_readable(tmp_path, monkeypatch):
         query.by_trace(trace_id, owner_id="someone-else")
 
 
-def test_legacy_scan_truncation_is_reported(tmp_path, monkeypatch):
-    service, thread, turn = _seed(tmp_path)
+def test_legacy_scan_truncation_is_reported(database, monkeypatch):
+    service, thread, turn = _seed(database)
     trace_id = "b" * 32
     for index in range(3):
         _insert_legacy_event(service, thread, turn.turn_id, trace_id, index)
@@ -327,8 +357,8 @@ def test_legacy_scan_truncation_is_reported(tmp_path, monkeypatch):
     assert view.get("legacy_scan_truncated") is True
 
 
-def test_trace_api_authorizes_before_reading(tmp_path, monkeypatch):
-    runtime = make_runtime(tmp_path, MockModelGateway())
+def test_trace_api_authorizes_before_reading(database, tmp_path, monkeypatch):
+    runtime = _make_runtime(database, tmp_path, MockModelGateway())
     client = TestClient(create_app(runtime=runtime))
     thread = runtime.conversation.create_thread("local")
     runtime.conversation.accept_turn(thread.id, "one", "hello", [])
@@ -358,8 +388,8 @@ def test_trace_api_authorizes_before_reading(tmp_path, monkeypatch):
     assert "notification" in audited.json()["sources"]["connected"]
 
 
-def test_http_trace_redacts_nested_secrets_and_malformed_envelopes(tmp_path):
-    runtime = make_runtime(tmp_path, MockModelGateway())
+def test_http_trace_redacts_nested_secrets_and_malformed_envelopes(database, tmp_path):
+    runtime = _make_runtime(database, tmp_path, MockModelGateway())
     client = TestClient(create_app(runtime=runtime))
     thread = runtime.conversation.create_thread("local")
     turn = runtime.conversation.accept_turn(thread.id, "one", "hello", [])
@@ -396,8 +426,8 @@ def test_http_trace_redacts_nested_secrets_and_malformed_envelopes(tmp_path):
     assert "token" not in saved["payload"]["wrapper"]
 
 
-def test_same_timestamp_and_later_insert_keep_pages_stable(tmp_path):
-    service, thread, turn = _seed(tmp_path)
+def test_same_timestamp_and_later_insert_keep_pages_stable(database):
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     with service.db.transaction() as connection:
         seq = connection.execute(
@@ -445,10 +475,10 @@ def test_same_timestamp_and_later_insert_keep_pages_stable(tmp_path):
     assert len(again) == len(seen) + 1
 
 
-def test_duplicate_event_id_across_streams_is_returned_once(tmp_path):
+def test_duplicate_event_id_across_streams_is_returned_once(database):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
-    db = Database(tmp_path / "dup.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     conversation = ConversationService(db)
@@ -497,9 +527,9 @@ def _walk(query, thread_id, *, limit=1):
     raise AssertionError("pagination did not terminate")
 
 
-def test_mixed_history_pages_keep_occurred_at_and_identity(tmp_path):
+def test_mixed_history_pages_keep_occurred_at_and_identity(database):
     """Legacy, malformed and unsupported rows keep the stored time and id."""
-    service, thread, turn = _seed(tmp_path)
+    service, thread, turn = _seed(database)
     query = TraceQuery(service.db)
     with service.db.connection() as connection:
         envelope = connection.execute(
@@ -536,11 +566,11 @@ def test_mixed_history_pages_keep_occurred_at_and_identity(tmp_path):
     assert by_id["hist-unsupported"]["compatibility"] == "unsupported_version"
 
 
-def test_same_timestamp_across_streams_uses_one_sort_key(tmp_path):
+def test_same_timestamp_across_streams_uses_one_sort_key(database):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
 
-    db = Database(tmp_path / "cross.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     service = ConversationService(db)
@@ -583,13 +613,13 @@ def test_same_timestamp_across_streams_uses_one_sort_key(tmp_path):
     assert found.count(agent["event_id"]) == 1 and found.count("cross-thread") == 1
 
 
-def test_insert_ahead_of_the_cursor_does_not_shift_the_snapshot(tmp_path):
+def test_insert_ahead_of_the_cursor_does_not_shift_the_snapshot(database):
     """Rows committed after the first page stay out of that walk.
 
     A new row may sort before the cursor. The open snapshot still returns each
     row that existed at the first page once, and a new walk includes the insert.
     """
-    service, thread, turn = _seed(tmp_path)
+    service, thread, turn = _seed(database)
     for index in range(3):
         service.events.append(thread.id, turn.turn_id, f"step.{index}", "runtime", {"index": index})
     query = TraceQuery(service.db)
@@ -622,8 +652,8 @@ def test_insert_ahead_of_the_cursor_does_not_shift_the_snapshot(tmp_path):
     assert fresh == ["inserted-ahead", *before]
 
 
-def test_http_trace_keeps_bad_envelopes_on_the_page(tmp_path):
-    runtime = make_runtime(tmp_path, MockModelGateway())
+def test_http_trace_keeps_bad_envelopes_on_the_page(database, tmp_path):
+    runtime = _make_runtime(database, tmp_path, MockModelGateway())
     client = TestClient(create_app(runtime=runtime))
     thread = runtime.conversation.create_thread("local")
     turn = runtime.conversation.accept_turn(thread.id, "one", "hello", [])
@@ -687,11 +717,11 @@ def test_http_trace_keeps_bad_envelopes_on_the_page(tmp_path):
     assert "other-owner" not in traced.text
 
 
-def test_expert_subtask_reads_its_own_agent_events(tmp_path):
+def test_expert_subtask_reads_its_own_agent_events(database):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
 
-    db = Database(tmp_path / "subtask.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     service = ConversationService(db)
@@ -737,11 +767,11 @@ def test_expert_subtask_reads_its_own_agent_events(tmp_path):
         query.by_task("expert", children[0]["id"], owner_id="local-user")
 
 
-def _expert_db(tmp_path):
+def _expert_db(database):
     from app.agents import AgentTaskService
     from app.behavior import BehaviorBundleService
 
-    db = Database(tmp_path / "page.db")
+    db = database
     bundle = BehaviorBundleService(db).ensure({"code": "test"})
     BehaviorBundleService(db).activate("stable", bundle.id, "one")
     service = ConversationService(db)
@@ -817,9 +847,9 @@ def _collect_thread(query, thread_id, limit):
     raise AssertionError("pagination did not terminate")
 
 
-def test_refused_source_rows_do_not_skip_a_valid_event(tmp_path):
+def test_refused_source_rows_do_not_skip_a_valid_event(database):
     """A source full of owner conflicts must be refilled before another source is chosen."""
-    service, thread, turn, run = _expert_db(tmp_path)
+    service, thread, turn, run = _expert_db(database)
     envelope = _stored_envelope(service.db, thread.id)
     foreign = _foreign_envelope(envelope)
     _insert_thread(service.db, thread.id, turn.turn_id, [
@@ -837,9 +867,9 @@ def test_refused_source_rows_do_not_skip_a_valid_event(tmp_path):
     assert set(small) == set(large)
 
 
-def test_duplicate_event_id_is_returned_once_across_pages(tmp_path):
+def test_duplicate_event_id_is_returned_once_across_pages(database):
     """The earliest sort key is the only representative, independent of page size."""
-    service, thread, turn, run = _expert_db(tmp_path)
+    service, thread, turn, run = _expert_db(database)
     envelope = json.dumps(_stored_envelope(service.db, thread.id))
     _insert_thread(service.db, thread.id, turn.turn_id, [
         ("duplicate-late", "2020-03-01T00:00:00+00:00", "note.dup", envelope),
@@ -858,9 +888,9 @@ def test_duplicate_event_id_is_returned_once_across_pages(tmp_path):
     assert set(small) == set(large)
 
 
-def test_refused_representative_hides_the_later_copy(tmp_path):
+def test_refused_representative_hides_the_later_copy(database):
     """A later copy does not replace the representative when that row is refused."""
-    service, thread, turn, run = _expert_db(tmp_path)
+    service, thread, turn, run = _expert_db(database)
     envelope = _stored_envelope(service.db, thread.id)
     _insert_thread(service.db, thread.id, turn.turn_id, [
         ("shadowed", "2020-04-01T00:00:00+00:00", "note.foreign", _foreign_envelope(envelope)),
@@ -876,8 +906,8 @@ def test_refused_representative_hides_the_later_copy(tmp_path):
     assert set(small) == set(large)
 
 
-def test_refusal_scan_budget_stays_resumable(tmp_path):
-    service, thread, turn, run = _expert_db(tmp_path)
+def test_refusal_scan_budget_stays_resumable(database):
+    service, thread, turn, run = _expert_db(database)
     envelope = _stored_envelope(service.db, thread.id)
     foreign = _foreign_envelope(envelope)
     width = 1 + SOURCE_SEEK_BUDGET + 5
@@ -949,9 +979,9 @@ def _insert_legacy_candidates(db, thread_id: str, turn_id: str, trace_id: str, c
         connection.execute("UPDATE threads SET next_event_seq=? WHERE id=?", (next_seq + 1, thread_id))
 
 
-def test_http_legacy_cap_without_a_match_stays_resumable(tmp_path):
+def test_http_legacy_cap_without_a_match_stays_resumable(database, tmp_path):
     """A full legacy window with no exact match is unfinished, not a missing trace."""
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = _make_runtime(database, tmp_path, MockModelGateway())
     thread = runtime.conversation.create_thread("local")
     turn = runtime.conversation.accept_turn(thread.id, "one", "hello", [])
     trace_id = "cd" * 16
@@ -989,9 +1019,9 @@ def test_http_legacy_cap_without_a_match_stays_resumable(tmp_path):
     assert "local-user" not in foreign.text
 
 
-def test_finished_legacy_scan_without_a_match_is_missing(tmp_path):
+def test_finished_legacy_scan_without_a_match_is_missing(database, tmp_path):
     """Once the legacy scan is finished and nothing matched, the trace is absent."""
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    runtime = _make_runtime(database, tmp_path, MockModelGateway())
     thread = runtime.conversation.create_thread("local")
     turn = runtime.conversation.accept_turn(thread.id, "one", "hello", [])
     trace_id = "ab" * 16

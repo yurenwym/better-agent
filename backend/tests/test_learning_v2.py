@@ -1,20 +1,55 @@
 ﻿import asyncio
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
+import psycopg
 import pytest
 
+import pg_fixtures
 from app.learning import LearningConflict, explicit_constraint
-from app.startup import build_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
+
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _upgrade(database_url: str, revision: str) -> None:
+    pg_fixtures.require_test_database(database_url)
+    result = subprocess.run(
+        [
+            sys.executable, "-m", "alembic",
+            "-c", str(BACKEND_ROOT / "alembic.ini"), "upgrade", revision,
+        ],
+        cwd=BACKEND_ROOT,
+        env={**os.environ, "DATABASE_URL": database_url},
+        check=False,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=120,
+    )
+    assert result.returncode == 0, (
+        f"alembic upgrade {revision} failed (exit {result.returncode}):\n"
+        + result.stderr[-4000:]
+    )
 
 
 @pytest.fixture(autouse=True)
 def isolated_models(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
 
 
-def configured(tmp_path, **kwargs):
-    runtime = build_runtime(tmp_path, **kwargs)
+def configured(database, tmp_path, **kwargs):
+    runtime = build_pg_runtime(tmp_path, database, **kwargs)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["memory"])
     return runtime
 
@@ -41,8 +76,8 @@ def compile_plan(runtime, key="plan", project=None):
                                                      daily_minutes=60, idempotency_key=key))
 
 
-def test_explicit_memory_new_thread_compiler_correction_and_forget(tmp_path):
-    runtime = configured(tmp_path)
+def test_explicit_memory_new_thread_compiler_correction_and_forget(database, tmp_path):
+    runtime = configured(database, tmp_path)
     feedback(runtime, "以后每次练习最多30分钟")
     job = runtime.learning.history()[0]
     assert job["status"] == "APPLIED", job["reason"]
@@ -63,8 +98,8 @@ def test_explicit_memory_new_thread_compiler_correction_and_forget(tmp_path):
     assert not runtime.learning.run_once()
 
 
-def test_pause_and_policy_cas_block_adoption(tmp_path):
-    runtime = configured(tmp_path)
+def test_pause_and_policy_cas_block_adoption(database, tmp_path):
+    runtime = configured(database, tmp_path)
     thread = runtime.conversation.create_thread("feedback")
     runtime.conversation.accept_turn(thread.id, "one", "以后每次练习最多30分钟")
     job = runtime.learning.claim()
@@ -77,8 +112,8 @@ def test_pause_and_policy_cas_block_adoption(tmp_path):
         runtime.learning.configure("local-user", expected_version=1, paused=False, allowed_assets=["memory"])
 
 
-def test_lease_recovery_never_replays_unknown_dispatch(tmp_path):
-    runtime = configured(tmp_path)
+def test_lease_recovery_never_replays_unknown_dispatch(database, tmp_path):
+    runtime = configured(database, tmp_path)
     runtime.learning.enqueue("local-user", "experience", "e1", "hash", "root")
     first = runtime.learning.claim()
     assert runtime.learning.claim() is None
@@ -97,8 +132,8 @@ def test_untrusted_or_temporary_text_is_not_durable(text):
     assert explicit_constraint(text) is None
 
 
-def test_observer_late_terminal_same_root_is_not_lost(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_observer_late_terminal_same_root_is_not_lost(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     run = asyncio.run(runtime.create_goal("goal", "description"))
     runtime.events.append(run.id, run.goal_id, "run.failed", "runtime", {})
     assert runtime.observer.observe()["created"] == 1
@@ -108,8 +143,8 @@ def test_observer_late_terminal_same_root_is_not_lost(tmp_path):
     assert any(item["source_id"] == event.event_id for item in runtime.learning.history())
 
 
-def test_observer_concurrent_insert_after_read_is_seen_next_time(tmp_path, monkeypatch):
-    runtime = build_runtime(tmp_path)
+def test_observer_concurrent_insert_after_read_is_seen_next_time(database, tmp_path, monkeypatch):
+    runtime = build_pg_runtime(tmp_path, database)
     run = asyncio.run(runtime.create_goal("goal", "description"))
     original = runtime.observer._goal_sources
     def racing_read(owner):
@@ -147,8 +182,8 @@ def install_workflow(runtime, version="1.0.0", content="# Workflow", kind="instr
     return runtime.skill_platform.confirm_install(preview["install_token"], granted_tools=tools or [], idempotency_key="install:" + version), package
 
 
-def test_workflow_snapshot_and_tool_grant_revocation(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_workflow_snapshot_and_tool_grant_revocation(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     first, _ = install_workflow(runtime, content="# Old workflow")
     run = asyncio.run(runtime.create_goal("goal", "description"))
     runtime.skill_platform.bind("RUN", run.id, [first["version_id"]], idempotency_key="run")
@@ -170,9 +205,9 @@ def test_workflow_snapshot_and_tool_grant_revocation(tmp_path):
     assert runtime.skill_platform.effective_tools(bound["version_id"], grant_snapshot=snapshot, **kwargs) == set()
 
 
-def test_skill_candidate_does_not_enable_or_grant(tmp_path):
+def test_skill_candidate_does_not_enable_or_grant(database, tmp_path):
     from test_skill_platform import _skill_zip
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     job = runtime.learning.enqueue("local-user", "experience", "e", "hash", "root")
     manifest = {"schema_version": 1, "name": "candidate", "version": "1.0.0", "title": "Candidate", "description": "Draft",
                 "kind": "instruction_only", "requested_tools": [], "connectors": [], "phases": ["conversation"], "entry_document": "SKILL.md"}
@@ -196,8 +231,8 @@ def completed_program(runtime, key, *, actual=90, method=False):
     return draft["id"]
 
 
-def test_workflow_learned_and_bound_only_to_matching_new_task(tmp_path):
-    runtime = configured(tmp_path)
+def test_workflow_learned_and_bound_only_to_matching_new_task(database, tmp_path):
+    runtime = configured(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=1, paused=False, allowed_assets=["skill"])
     completed_program(runtime, "english", method=True)
     assert runtime.learning.run_once()
@@ -219,9 +254,9 @@ def test_workflow_learned_and_bound_only_to_matching_new_task(tmp_path):
     assert runtime.turn_worker._skill_context(turn) == ""
 
 
-def test_estimation_learns_from_independent_measured_programs(tmp_path):
+def test_estimation_learns_from_independent_measured_programs(database, tmp_path):
     from app.learning import now
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=1, paused=False, allowed_assets=["task_policy"])
     for index in range(3):
         program_id = completed_program(runtime, "duration-" + str(index))
@@ -252,10 +287,10 @@ def test_estimation_learns_from_independent_measured_programs(tmp_path):
 
 
 @pytest.mark.parametrize("stage", ["collect", "learn", "resolve"])
-def test_estimation_rejects_outdated_review_evidence_at_every_stage(tmp_path, stage):
+def test_estimation_rejects_outdated_review_evidence_at_every_stage(database, tmp_path, stage):
     from app.learning import now
 
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=1, paused=False, allowed_assets=["task_policy"])
     for index in range(3):
         program_id = completed_program(runtime, f"stale-duration-{index}")
@@ -287,9 +322,9 @@ def test_estimation_rejects_outdated_review_evidence_at_every_stage(tmp_path, st
     runtime.db.close()
 
 
-def test_prompt_policy_adopts_only_frozen_passing_evaluation_and_suspends(tmp_path):
+def test_prompt_policy_adopts_only_frozen_passing_evaluation_and_suspends(database, tmp_path):
     from test_m5_release_gates import prepared, runner, judge
-    runtime, candidate, suite = prepared(tmp_path, start=False)
+    runtime, candidate, suite = prepared(tmp_path, start=False, database=database)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["prompt"])
     runtime.evolution.evaluate_research_replay(candidate["id"], expected_version=0, cases=suite, runner=runner, judge=judge, idempotency_key="learning-eval")
     assert runtime.learning.run_once()
@@ -309,8 +344,8 @@ def test_prompt_policy_adopts_only_frozen_passing_evaluation_and_suspends(tmp_pa
     assert runtime.learning.resolve_prompt("local-user", "researcher", "write_research_section", stable) == stable
 
 
-def test_suspending_memory_removes_it_from_normal_memory_consumers(tmp_path):
-    runtime = configured(tmp_path)
+def test_suspending_memory_removes_it_from_normal_memory_consumers(database, tmp_path):
+    runtime = configured(database, tmp_path)
     feedback(runtime, "以后每次练习最多30分钟")
     job = runtime.learning.history()[0]
     runtime.learning.suspend(job["id"], "local-user", expected_version=job["version"], reason="user_requested")
@@ -318,12 +353,18 @@ def test_suspending_memory_removes_it_from_normal_memory_consumers(tmp_path):
     assert runtime.learning.planning_constraints("local-user", None) is None
 
 
-def test_prompt_cycle_freezes_inputs_and_runs_generation_replay_adoption(tmp_path, monkeypatch):
+def test_prompt_cycle_freezes_inputs_and_runs_generation_replay_adoption(database, tmp_path, monkeypatch):
     from test_m5_release_gates import cases, runner, judge
     from test_m5_controlled_evolution import evidence, Proposer
     from app.evolution import EvolutionCandidateGenerator
     from app.learning_prompt import LearningReplay
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
+    with runtime.db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO task_budget_roots(id,owner_id,root_kind,root_object_id,max_attempts,deadline_at) "
+            "VALUES ('offline-budget','local-user','learning','offline-budget',1,"
+            "clock_timestamp() + interval '1 hour') ON CONFLICT(id) DO NOTHING"
+        )
     source = evidence(runtime)
     suite = runtime.learning.prompt_learning.register_suite("local-user", cases())
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["prompt"], max_attempts=241,
@@ -347,9 +388,9 @@ def test_prompt_cycle_freezes_inputs_and_runs_generation_replay_adoption(tmp_pat
     assert not runtime.learning.run_once()
 
 
-def test_temporary_constraint_is_bound_to_one_program_and_filtered_from_general_memory(tmp_path):
+def test_temporary_constraint_is_bound_to_one_program_and_filtered_from_general_memory(database, tmp_path):
     from app.memory_v2 import MemoryContextRequest
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     first = compile_plan(runtime, "first")
     other = compile_plan(runtime, "other")
     thread = runtime.conversation.create_thread("temporary")
@@ -364,8 +405,8 @@ def test_temporary_constraint_is_bound_to_one_program_and_filtered_from_general_
     assert not bundle.revision_ids
 
 
-def test_dependency_revocation_cascades_and_invalidates_request_snapshot(tmp_path):
-    runtime = configured(tmp_path)
+def test_dependency_revocation_cascades_and_invalidates_request_snapshot(database, tmp_path):
+    runtime = configured(database, tmp_path)
     feedback(runtime, "以后每次练习最多30分钟")
     parent = runtime.learning.history()[0]
     child_id = runtime.learning.enqueue("local-user", "experience", "dependent", "hash", "child")
@@ -391,10 +432,10 @@ def test_extractor_validates_exact_source_and_numeric_whitelist():
         extractor(job, "以后练习不能超过20分钟", "root")
 
 
-def test_other_owner_skill_binding_uses_owner_platform(tmp_path):
+def test_other_owner_skill_binding_uses_owner_platform(database, tmp_path):
     from app.skill_platform import SkillPlatform
     from test_skill_platform import _skill_zip
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     platform = SkillPlatform(runtime.db, runtime.skill_platform.root, "alice")
     manifest = {"schema_version": 1, "name": "alice-method", "version": "1.0.0", "title": "Alice", "description": "Owner method",
                 "kind": "instruction_only", "requested_tools": [], "connectors": [], "phases": ["conversation"], "entry_document": "SKILL.md"}
@@ -436,13 +477,13 @@ def test_research_stopping_policy_never_skips_required_delivery():
     assert report["completion_status"] == "PARTIAL"
 
 
-def test_research_policy_learns_executes_and_rolls_back_from_real_worker_flow(tmp_path):
+def test_research_policy_learns_executes_and_rolls_back_from_real_worker_flow(database, tmp_path):
     from dataclasses import replace
     from app.research.models import ResearchPlan, Evidence
     from app.research.engine import ResearchEngine
     from app.research.worker import ManagedResearchWorker
     from test_research_engine import FakeModel, FakeRetriever
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=1, paused=False, allowed_assets=["task_policy"])
     class Model(FakeModel):
         fail_audit = False
@@ -481,9 +522,9 @@ def test_research_policy_learns_executes_and_rolls_back_from_real_worker_flow(tm
     assert next(job for job in runtime.learning.history() if job["id"] == adopted["id"])["status"] == "SUSPENDED"
 
 
-def test_forgotten_replay_input_body_is_erased_and_cannot_be_restored(tmp_path):
+def test_forgotten_replay_input_body_is_erased_and_cannot_be_restored(database, tmp_path):
     from test_m5_release_gates import cases
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     suite = runtime.learning.prompt_learning.register_suite("local-user", cases())
     assert list(runtime.learning.prompt_learning.suite_root.glob("*.json"))
     runtime.learning.prompt_learning.forget_suite("local-user", suite)
@@ -492,9 +533,9 @@ def test_forgotten_replay_input_body_is_erased_and_cannot_be_restored(tmp_path):
         runtime.learning.prompt_learning.register_suite("local-user", cases())
 
 
-def test_same_replay_inputs_freeze_independently_per_owner(tmp_path):
+def test_same_replay_inputs_freeze_independently_per_owner(database, tmp_path):
     from test_m5_release_gates import cases
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     a = runtime.learning.prompt_learning.register_suite("alice", cases())
     b = runtime.learning.prompt_learning.register_suite("bob", cases())
     assert a == b
@@ -504,10 +545,10 @@ def test_same_replay_inputs_freeze_independently_per_owner(tmp_path):
     assert runtime.learning.prompt_learning.register_suite("bob", cases()) == b
 
 
-def test_identical_skill_packages_have_independent_owner_grants(tmp_path):
+def test_identical_skill_packages_have_independent_owner_grants(database, tmp_path):
     from app.skill_platform import SkillPlatform
     from test_skill_platform import _skill_zip
-    runtime = configured(tmp_path)
+    runtime = configured(database, tmp_path)
     installed = []
     for owner, grants in (("alice", ["calculator"]), ("bob", [])):
         platform = SkillPlatform(runtime.db, runtime.skill_platform.root, owner)
@@ -519,30 +560,67 @@ def test_identical_skill_packages_have_independent_owner_grants(tmp_path):
     assert installed[1]["granted_tools"] == []
 
 
-def test_skill_owner_migration_preserves_existing_frozen_binding(tmp_path, monkeypatch):
+def test_skill_owner_migration_preserves_existing_frozen_binding(postgres_url, tmp_path, monkeypatch):
     import app.db as db_module
+    from app.db import Database
     from app.skill_platform import SkillPlatform
     from test_skill_platform import _skill_zip
-    migrations = db_module.MIGRATIONS
-    monkeypatch.setattr(db_module, "MIGRATIONS", tuple(item for item in migrations if item[0] < 32))
-    path = tmp_path / "upgrade.db"
-    database = db_module.Database(path)
-    platform = SkillPlatform(database, tmp_path / "packages")
-    preview = platform.preview_install(_skill_zip())
-    installed = platform.confirm_install(preview["install_token"], granted_tools=["calculator"], idempotency_key="install")
-    binding = platform.bind("RUN", "existing-task", [installed["version_id"]], idempotency_key="binding")
-    database.close()
-    monkeypatch.setattr(db_module, "MIGRATIONS", migrations)
-    database = db_module.Database(path)
+
+    owned = pg_fixtures.allocate_owned_database(str(postgres_url))
     try:
-        restored = SkillPlatform(database, tmp_path / "packages")
-        assert restored.binding("RUN", "existing-task") == binding
-        assert restored.version(installed["version_id"])["package_digest"] == installed["package_digest"]
-        with database.connection() as connection:
-            assert connection.execute("PRAGMA foreign_key_check").fetchone() is None
-        with pytest.raises(Exception, match="frozen"):
-            with database.transaction() as connection:
-                connection.execute("UPDATE skill_versions SET content='changed' WHERE id=?", (installed["version_id"],))
+        pg_fixtures.create_owned_database(owned)
+        _upgrade(owned.url, "20260910_0009")
+        real_head = db_module.POSTGRES_SCHEMA_HEAD
+        monkeypatch.setattr(db_module, "POSTGRES_SCHEMA_HEAD", "20260910_0009")
+        before = Database(owned.url, workspace=tmp_path / "before")
+        try:
+            platform = SkillPlatform(before, tmp_path / "packages")
+            preview = platform.preview_install(_skill_zip())
+            installed = platform.confirm_install(
+                preview["install_token"], granted_tools=["calculator"], idempotency_key="install")
+            binding = platform.bind("RUN", "existing-task", [installed["version_id"]],
+                                    idempotency_key="binding")
+        finally:
+            before.close()
+            monkeypatch.setattr(db_module, "POSTGRES_SCHEMA_HEAD", real_head)
+
+        _upgrade(owned.url, "head")
+        after = Database(owned.url, workspace=tmp_path / "after")
+        try:
+            restored = SkillPlatform(after, tmp_path / "packages")
+            assert restored.binding("RUN", "existing-task") == binding
+            assert restored.version(installed["version_id"])["package_digest"] == installed["package_digest"]
+            with after.connection() as connection:
+                invalid = connection.execute(
+                    "SELECT conname FROM pg_constraint WHERE contype='f' AND NOT convalidated"
+                ).fetchall()
+                named = connection.execute(
+                    "SELECT conname, convalidated FROM pg_constraint WHERE conname IN "
+                    "('fk_skill_versions_skill_id_0','fk_skill_grants_skill_version_id_0')"
+                ).fetchall()
+                missing_versions = connection.execute(
+                    "SELECT COUNT(*) FROM skill_versions v LEFT JOIN skills s ON s.id=v.skill_id "
+                    "WHERE s.id IS NULL"
+                ).fetchone()[0]
+                missing_grants = connection.execute(
+                    "SELECT COUNT(*) FROM skill_grants g LEFT JOIN skill_versions v "
+                    "ON v.id=g.skill_version_id WHERE v.id IS NULL"
+                ).fetchone()[0]
+            assert invalid == []
+            assert {row[0] for row in named} == {
+                "fk_skill_versions_skill_id_0",
+                "fk_skill_grants_skill_version_id_0",
+            }
+            assert all(row[1] for row in named)
+            assert missing_versions == 0 and missing_grants == 0
+            with pytest.raises(psycopg.errors.RaiseException, match="frozen"):
+                with after.transaction() as connection:
+                    connection.execute(
+                        "UPDATE skill_versions SET content='changed' WHERE id=?",
+                        (installed["version_id"],),
+                    )
+        finally:
+            after.close()
     finally:
-        database.close()
+        pg_fixtures.drop_owned_database(owned)
 

@@ -106,6 +106,7 @@ class GoalProgramService:
         pending_program_id = None
         completed_receipt = None
         with self.db.transaction() as connection:
+            self._lock_command(connection, owner_id, idempotency_key)
             existing = connection.execute(
                 "SELECT request_hash,response_json FROM goal_command_receipts WHERE owner_id=? AND idempotency_key=?",
                 (owner_id,idempotency_key),

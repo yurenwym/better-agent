@@ -13,11 +13,16 @@ from app.learning_sources import user_sources
 from app.skill_platform import SkillCandidateRejected
 from tests.test_learning_pipeline_v3 import prepare, stub_budget, StubAgent, StubDecisions, enqueue
 from tests.test_learning_targets import adapters, skill_draft, memory_draft
+from pg02_learning_helpers import (
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH",
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH",
                  "BETTER_AGENT_LEARNING_V3", "BETTER_AGENT_LEARNING_REPLAY_FILE"):
         monkeypatch.delenv(name, raising=False)
 
@@ -26,8 +31,8 @@ def skill_job(runtime, key):
     return runtime.learning.enqueue("local-user", "experience", key, key, key)
 
 
-def test_skill_versions_reuse_content_and_preserve_job_binding(tmp_path):
-    runtime, _ = prepare(tmp_path)
+def test_skill_versions_reuse_content_and_preserve_job_binding(database, tmp_path):
+    runtime, _ = prepare(database, tmp_path)
     adapter = adapters(runtime)[TARGET_SKILL]
     first_job = skill_job(runtime, "first")
     first = adapter.create_candidate(skill_draft(), owner_id="local-user", job_id=first_job)
@@ -42,8 +47,8 @@ def test_skill_versions_reuse_content_and_preserve_job_binding(tmp_path):
     assert all(item["name"] != first["name"] for item in runtime.skill_platform.enabled_versions())
 
 
-def test_concurrent_skill_candidates_share_one_version(tmp_path):
-    runtime, _ = prepare(tmp_path)
+def test_concurrent_skill_candidates_share_one_version(database, tmp_path):
+    runtime, _ = prepare(database, tmp_path)
     jobs = [skill_job(runtime, str(i)) for i in range(3)]
     adapter = adapters(runtime)[TARGET_SKILL]
     with ThreadPoolExecutor(max_workers=3) as pool:
@@ -51,8 +56,8 @@ def test_concurrent_skill_candidates_share_one_version(tmp_path):
     assert len({result["version_id"] for result in results}) == 1
 
 
-def test_skill_rollback_restores_previous_default(tmp_path):
-    runtime, _ = prepare(tmp_path)
+def test_skill_rollback_restores_previous_default(database, tmp_path):
+    runtime, _ = prepare(database, tmp_path)
     adapter = adapters(runtime)[TARGET_SKILL]
     first = adapter.create_candidate(skill_draft(), owner_id="local-user", job_id=skill_job(runtime, "first"))
     adapter.promote(first, owner_id="local-user")
@@ -63,8 +68,8 @@ def test_skill_rollback_restores_previous_default(tmp_path):
     assert runtime.skill_platform.default_version(first["name"])["version_id"] == first["version_id"]
 
 
-def test_skill_rejects_a_changed_champion(tmp_path):
-    runtime, _ = prepare(tmp_path)
+def test_skill_rejects_a_changed_champion(database, tmp_path):
+    runtime, _ = prepare(database, tmp_path)
     adapter = adapters(runtime)[TARGET_SKILL]
     first = adapter.create_candidate(skill_draft(), owner_id="local-user", job_id=skill_job(runtime, "a"))
     second = adapter.create_candidate(skill_draft(change={"description": "new"}), owner_id="local-user", job_id=skill_job(runtime, "b"))
@@ -83,8 +88,8 @@ def skill_pipeline(runtime, monkeypatch, **kwargs):
 
 
 @pytest.mark.parametrize("error,status", [(SkillCandidateRejected("preflight"), "REJECTED"), (OSError("partial write"), "UNKNOWN")])
-def test_candidate_failure_classification(tmp_path, monkeypatch, error, status):
-    runtime, message = prepare(tmp_path)
+def test_candidate_failure_classification(database, tmp_path, monkeypatch, error, status):
+    runtime, message = prepare(database, tmp_path)
     pipeline = skill_pipeline(runtime, monkeypatch)
     def fail(*args, **kwargs):
         raise error
@@ -101,8 +106,8 @@ def record_source(runtime, message):
         dataset_partition="DISCOVERY", idempotency_key="experience", source_kind="turn", source_id=turn)
 
 
-def test_experience_memory_uses_user_provenance(tmp_path, monkeypatch):
-    runtime, message = prepare(tmp_path)
+def test_experience_memory_uses_user_provenance(database, tmp_path, monkeypatch):
+    runtime, message = prepare(database, tmp_path)
     experience = record_source(runtime, message)
     stub_budget(monkeypatch, runtime)
     pipeline = build_pipeline(runtime, mode="ACTIVE", decisions=StubDecisions(runtime.db),
@@ -117,8 +122,8 @@ def test_experience_memory_uses_user_provenance(tmp_path, monkeypatch):
     assert user_sources(runtime.db, experience, "someone-else") == []
 
 
-def test_source_change_before_promotion_is_refused(tmp_path):
-    runtime, message = prepare(tmp_path)
+def test_source_change_before_promotion_is_refused(database, tmp_path):
+    runtime, message = prepare(database, tmp_path)
     source = record_source(runtime, message)
     adapter = adapters(runtime)["MEMORY"]
     candidate = adapter.create_candidate(memory_draft(message), owner_id="local-user", job_id="memory-job")
@@ -149,8 +154,8 @@ def replay_provider(tmp_path, runtime, gateway):
     return RuntimeLearningReplay(runtime, gateway, path)
 
 
-def test_runtime_replay_loads_candidate_without_activating_it(tmp_path, monkeypatch):
-    runtime, _ = prepare(tmp_path)
+def test_runtime_replay_loads_candidate_without_activating_it(database, tmp_path, monkeypatch):
+    runtime, _ = prepare(database, tmp_path)
     gateway = ReplayGateway()
     provider = replay_provider(tmp_path, runtime, gateway)
     job = skill_job(runtime, "replay")
@@ -172,8 +177,8 @@ def test_runtime_replay_loads_candidate_without_activating_it(tmp_path, monkeypa
     assert len(gateway.calls) == count
 
 
-def test_resume_uses_saved_candidate_and_does_not_regenerate(tmp_path, monkeypatch):
-    runtime, message = prepare(tmp_path)
+def test_resume_uses_saved_candidate_and_does_not_regenerate(database, tmp_path, monkeypatch):
+    runtime, message = prepare(database, tmp_path)
     pipeline = skill_pipeline(runtime, monkeypatch, mode="ACTIVE")
     enqueue(runtime, message)
     first = pipeline.run_once()
@@ -192,8 +197,8 @@ def test_resume_uses_saved_candidate_and_does_not_regenerate(tmp_path, monkeypat
         pipeline.resume(first.job_id, owner_id="local-user", expected_version=row["version"], approve=True)
 
 
-def test_unknown_cannot_be_resumed(tmp_path, monkeypatch):
-    runtime, message = prepare(tmp_path)
+def test_unknown_cannot_be_resumed(database, tmp_path, monkeypatch):
+    runtime, message = prepare(database, tmp_path)
     pipeline = skill_pipeline(runtime, monkeypatch)
     pipeline.agent.error = RuntimeError("request interrupted")
     enqueue(runtime, message)
@@ -205,8 +210,8 @@ def test_unknown_cannot_be_resumed(tmp_path, monkeypatch):
     assert pipeline.agent.calls == 1
 
 
-def test_background_learning_advances_canaries_when_queue_empty(tmp_path, monkeypatch):
-    runtime, _ = prepare(tmp_path)
+def test_background_learning_advances_canaries_when_queue_empty(database, tmp_path, monkeypatch):
+    runtime, _ = prepare(database, tmp_path)
     advanced = []
     runtime.learning.pipeline = SimpleNamespace(advance_canaries=lambda owner: advanced.append(owner))
     monkeypatch.setattr(runtime.learning, "collect", lambda owner: None)
@@ -215,8 +220,8 @@ def test_background_learning_advances_canaries_when_queue_empty(tmp_path, monkey
 
 
 @pytest.mark.parametrize("stopped,ready,expected", [(False, False, []), (False, True, ["promote"]), (True, False, ["rollback"])])
-def test_canary_advancement_obeys_status(tmp_path, monkeypatch, stopped, ready, expected):
-    runtime, _ = prepare(tmp_path)
+def test_canary_advancement_obeys_status(database, tmp_path, monkeypatch, stopped, ready, expected):
+    runtime, _ = prepare(database, tmp_path)
     pipeline = skill_pipeline(runtime, monkeypatch, mode="ACTIVE")
     actions = []
     monkeypatch.setattr(pipeline, "_canary_candidates", lambda owner: [{"candidate_id": "candidate", "target": "BEHAVIOR"}])
@@ -233,16 +238,16 @@ def test_canary_advancement_obeys_status(tmp_path, monkeypatch, stopped, ready, 
     assert actions == expected
 
 
-def test_completed_canary_is_not_scanned_again(tmp_path, monkeypatch):
-    runtime, _ = prepare(tmp_path)
+def test_completed_canary_is_not_scanned_again(database, tmp_path, monkeypatch):
+    runtime, _ = prepare(database, tmp_path)
     pipeline = skill_pipeline(runtime, monkeypatch, mode="ACTIVE")
     for outcome in ("CANARY_STARTED", "PROMOTED"):
         pipeline.gate._record(target="BEHAVIOR", candidate_id="candidate", owner_id="local-user", outcome=outcome, checks={})
     assert pipeline._canary_candidates("local-user") == []
 
 
-def test_changed_policy_blocks_target_before_generation(tmp_path, monkeypatch):
-    runtime, message = prepare(tmp_path)
+def test_changed_policy_blocks_target_before_generation(database, tmp_path, monkeypatch):
+    runtime, message = prepare(database, tmp_path)
     policy = runtime.learning.policy()
     runtime.learning.configure("local-user", expected_version=policy["version"], paused=False, allowed_assets=["memory"])
     pipeline = skill_pipeline(runtime, monkeypatch)
@@ -252,11 +257,11 @@ def test_changed_policy_blocks_target_before_generation(tmp_path, monkeypatch):
     assert pipeline.agent.calls == 0
 
 
-def test_resume_api_requires_csrf_and_owner_scoped_version(tmp_path, monkeypatch):
+def test_resume_api_requires_csrf_and_owner_scoped_version(database, tmp_path, monkeypatch):
     from fastapi.testclient import TestClient
     from app.main import create_app
     from tests.test_api import _headers
-    runtime, message = prepare(tmp_path)
+    runtime, message = prepare(database, tmp_path)
     runtime.learning.pipeline = skill_pipeline(runtime, monkeypatch, mode="ACTIVE")
     enqueue(runtime, message)
     result = runtime.learning.pipeline.run_once()
@@ -273,9 +278,9 @@ def test_resume_api_requires_csrf_and_owner_scoped_version(tmp_path, monkeypatch
     assert response.json()["candidate_id"] == result.candidate_id
 
 
-def test_behavior_replay_renders_the_production_fragment(tmp_path, monkeypatch):
+def test_behavior_replay_renders_the_production_fragment(database, tmp_path, monkeypatch):
     from tests.test_learning_targets import behavior_draft, record_experiences
-    runtime, _ = prepare(tmp_path)
+    runtime, _ = prepare(database, tmp_path)
     gateway = ReplayGateway()
     path = tmp_path / "behavior-replay.json"
     path.write_text(json.dumps({"suites": [{"owner_id": "local-user", "target": "BEHAVIOR", "cases": [
@@ -296,12 +301,12 @@ def test_behavior_replay_renders_the_production_fragment(tmp_path, monkeypatch):
     assert runtime.behavior.active("stable").id == candidate["base_bundle_id"]
 
 
-def test_generator_gets_runtime_patch_shape_without_holdout_data(tmp_path, monkeypatch):
+def test_generator_gets_runtime_patch_shape_without_holdout_data(database, tmp_path, monkeypatch):
     import copy
     from app.learning_agent import build_messages
     from app.real_evaluation import ResearchRoleReplayEvaluator
 
-    runtime, _ = prepare(tmp_path)
+    runtime, _ = prepare(database, tmp_path)
     path = tmp_path / "replay.json"
     path.write_text(json.dumps({"suites": [{"owner_id": "local-user", "target": "BEHAVIOR", "cases": [
         {"id": "target", "task": "SECRET_HOLDOUT", "target_behavior": True,

@@ -14,6 +14,7 @@ from app.event_envelope import EventMetadata
 from app.execution_context import create_root_context
 from app.startup import build_runtime
 from app.trace_query import DEFAULT_LIMIT, SOURCE_SEEK_BUDGET
+from e2e_worker_scenarios import seed_worker_scenarios
 
 # Matches frontend TRACE_EMPTY_PAGE_BUDGET. Each empty page consumes one seek window.
 EMPTY_PAGE_BUDGET = 3
@@ -25,6 +26,13 @@ TRACE_TOKEN = "ghp_E2ETraceToken123"
 def main() -> None:
     data_root = Path(os.getenv("BETTER_AGENT_DATA_ROOT", str(ROOT / "data"))).resolve()
     runtime = build_runtime(data_root)
+    try:
+        _seed(runtime, data_root)
+    finally:
+        runtime.db.close()
+
+
+def _seed(runtime, data_root: Path) -> None:
     thread = runtime.conversation.create_thread("黄金闭环测试")
     today = datetime.now(ZoneInfo("Asia/Shanghai")).date()
     tomorrow = today + timedelta(days=1)
@@ -56,11 +64,13 @@ def main() -> None:
         eval_set_digest="e2e-eval-set", evaluator_digest="e2e-deterministic", idempotency_key="e2e-evaluation",
     )
     _seed_trace_threads(runtime)
+    worker_scenarios = seed_worker_scenarios(runtime)
     (data_root / "e2e-seed.json").write_text(
         json.dumps({
             "thread_id": thread.id, "plan_id": version.plan_document_id, "candidate_id": candidate["id"],
             "today": today.isoformat(), "tomorrow": tomorrow.isoformat(),
             "foreign_thread_id": FOREIGN_THREAD_ID, "resume_thread_id": RESUME_THREAD_ID,
+            "worker_scenarios": worker_scenarios,
         }),
         encoding="utf-8",
     )

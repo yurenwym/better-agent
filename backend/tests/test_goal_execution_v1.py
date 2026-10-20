@@ -4,19 +4,22 @@ import json
 import pytest
 
 from app.goal_programs import GoalProgramConflict
+from pg02_helpers import database
 from test_goal_programs import preview
 from test_goal_reviews import review_services
 
 
-def active_services(tmp_path):
-    db, goals, version, compiler, reviews, worker = review_services(tmp_path, needs_adjustment=False)
+def active_services(tmp_path, *, database=None):
+    db, goals, version, compiler, reviews, worker = review_services(
+        tmp_path, needs_adjustment=False, database=database
+    )
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     return db, goals, active, compiler, reviews, worker
 
 
-def test_only_explicit_close_dispatches_and_repeated_close_reuses_review(tmp_path):
-    _, goals, active, compiler, reviews, worker = active_services(tmp_path)
+def test_only_explicit_close_dispatches_and_repeated_close_reuses_review(database, tmp_path):
+    _, goals, active, compiler, reviews, worker = active_services(tmp_path, database=database)
     action = active["actions"][0]
     with pytest.raises(ValueError, match="record progress"):
         goals.close_day(active["id"], "2026-09-01", idempotency_key="empty-close")
@@ -32,8 +35,8 @@ def test_only_explicit_close_dispatches_and_repeated_close_reuses_review(tmp_pat
     assert asyncio.run(worker.run_once()) is False
 
 
-def test_daily_cumulative_correction_clear_and_reopen(tmp_path):
-    _, goals, active, _, _, _ = active_services(tmp_path)
+def test_daily_cumulative_correction_clear_and_reopen(database, tmp_path):
+    _, goals, active, _, _, _ = active_services(tmp_path, database=database)
     action = active["actions"][0]
     goals.feedback(action["id"], {"kind": "partial", "actual_date": "2026-09-01", "actual_minutes": 45}, expected_version=0, idempotency_key="partial")
     goals.complete_action(action["id"], expected_version=1, idempotency_key="complete", feedback={"actual_date": "2026-09-01", "actual_minutes": 60})
@@ -49,8 +52,8 @@ def test_daily_cumulative_correction_clear_and_reopen(tmp_path):
     assert timing["spent_minutes"] == 0 and timing["remaining_minutes"] is None
 
 
-def test_actual_date_early_completion_and_legacy_unknown(tmp_path):
-    db, goals, active, _, _, _ = active_services(tmp_path)
+def test_actual_date_early_completion_and_legacy_unknown(database, tmp_path):
+    db, goals, active, _, _, _ = active_services(tmp_path, database=database)
     action = active["actions"][1]
     goals.complete_action(action["id"], expected_version=0, idempotency_key="early", feedback={"actual_date": "2026-09-01", "actual_minutes": 25})
     group = goals.today(explicit_date="2026-09-01")["programs"][0]
@@ -62,8 +65,8 @@ def test_actual_date_early_completion_and_legacy_unknown(tmp_path):
     assert not goals.day_time(active["id"], "2026-09-02")["time_complete"]
 
 
-def test_correction_invalidates_running_review_and_terminal_program_rejects(tmp_path):
-    _, goals, active, _, reviews, _ = active_services(tmp_path)
+def test_correction_invalidates_running_review_and_terminal_program_rejects(database, tmp_path):
+    _, goals, active, _, reviews, _ = active_services(tmp_path, database=database)
     action = active["actions"][0]
     goals.complete_action(action["id"], expected_version=0, idempotency_key="complete", feedback={"actual_date": "2026-09-01", "actual_minutes": 45})
     review = goals.close_day(active["id"], "2026-09-01", idempotency_key="close")
@@ -78,9 +81,9 @@ def test_correction_invalidates_running_review_and_terminal_program_rejects(tmp_
         goals.feedback(action["id"], {"kind": "correction", "note": "x"}, expected_version=2, idempotency_key="no-correct")
 
 
-def test_help_uses_effective_feedback_and_never_dispatches_expert_by_default(tmp_path):
+def test_help_uses_effective_feedback_and_never_dispatches_expert_by_default(database, tmp_path):
     from app.goal_context import GoalContextProvider
-    _, goals, active, _, _, _ = active_services(tmp_path)
+    _, goals, active, _, _, _ = active_services(tmp_path, database=database)
     action = active["actions"][0]
     goals.feedback(action["id"], {"kind": "partial", "actual_minutes": 45, "note": "incorrect old blocker"}, expected_version=0, idempotency_key="partial")
     goals.feedback(action["id"], {"kind": "correction", "actual_minutes": 30, "cleared_fields": ["note"]}, expected_version=1, idempotency_key="correct")
@@ -94,9 +97,11 @@ def test_help_uses_effective_feedback_and_never_dispatches_expert_by_default(tmp
     assert "30" in context.time_context
 
 
-def test_completed_review_correction_marks_adjustment_stale(tmp_path, monkeypatch):
+def test_completed_review_correction_marks_adjustment_stale(database, tmp_path, monkeypatch):
     monkeypatch.setattr("app.goal_adjustments._local_date", lambda _: "2026-09-01")
-    _, goals, version, _, reviews, worker = review_services(tmp_path, needs_adjustment=True)
+    _, goals, version, _, reviews, worker = review_services(
+        tmp_path, needs_adjustment=True, database=database
+    )
     draft = preview(goals, version)
     active = goals.activate(draft["id"], expected_version=draft["version"], idempotency_key="activate")
     action = active["actions"][0]

@@ -12,17 +12,25 @@ import asyncio
 import pytest
 
 from test_goal_program_compiler import fixture
+from pg02_helpers import database, make_runtime as make_pg_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    isolated_learning_env,
+)
 
 
-def _runtime(tmp_path, monkeypatch=None, *, enabled: bool = True):
+def _runtime(tmp_path, monkeypatch=None, *, enabled: bool = True, database=None):
     if monkeypatch is not None:
         monkeypatch.setenv("GOAL_TOOLS_ENABLED", "1" if enabled else "0")
+    if database is not None:
+        return build_pg_runtime(tmp_path, database)
     from app.startup import build_runtime
 
     return build_runtime(tmp_path)
 
 
-def _tool_runtime(tmp_path):
+def _tool_runtime(tmp_path, *, database=None):
     """Runtime with the deterministic compiler and the goal tools registered.
 
     ``build_runtime`` wires a live gateway compiler when a profile is present,
@@ -31,9 +39,12 @@ def _tool_runtime(tmp_path):
     """
     from app.goal_tools import register_goal_tools
     from app.runtime import MockModelGateway
-    from test_runtime import make_runtime
 
-    runtime = make_runtime(tmp_path, MockModelGateway())
+    if database is None:
+        from test_runtime import make_runtime
+        runtime = make_runtime(tmp_path, MockModelGateway())
+    else:
+        runtime = make_pg_runtime(database, tmp_path, MockModelGateway())
     register_goal_tools(
         runtime.tools,
         goal_programs=runtime.goal_programs,
@@ -88,10 +99,10 @@ EXPECTED_TOOLS = {
 
 
 @pytest.mark.asyncio
-async def test_close_day_requires_approval_reuses_review_and_is_recoverable(tmp_path):
+async def test_close_day_requires_approval_reuses_review_and_is_recoverable(database, tmp_path):
     from app.domain import ApprovalRequired
     from app.tools import ToolCall
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("对话复盘")
     _, preview = await _draft_and_preview(runtime, thread.id)
     program_id = preview.data["program_id"]
@@ -120,9 +131,9 @@ async def test_close_day_requires_approval_reuses_review_and_is_recoverable(tmp_
 
 
 @pytest.mark.asyncio
-async def test_close_day_rejects_unrecorded_future_and_foreign_days(tmp_path):
+async def test_close_day_rejects_unrecorded_future_and_foreign_days(database, tmp_path):
     from dataclasses import replace
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("复盘边界")
     _, preview = await _draft_and_preview(runtime, thread.id)
     params = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
@@ -139,10 +150,10 @@ async def test_close_day_rejects_unrecorded_future_and_foreign_days(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_completion_is_approved_idempotent_and_does_not_review(tmp_path):
+async def test_completion_is_approved_idempotent_and_does_not_review(database, tmp_path):
     from app.tools import ToolCall
     from app.domain import ApprovalRequired
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("完成")
     draft, preview = await _draft_and_preview(runtime, thread.id)
     params = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
@@ -164,9 +175,9 @@ async def test_completion_is_approved_idempotent_and_does_not_review(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_preview_keeps_write_claim_without_approval(tmp_path):
+async def test_preview_keeps_write_claim_without_approval(database, tmp_path):
     from app.tools import ToolCall, ToolRisk
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("免审批预览")
     draft = _handler(runtime, "create_plan_draft")({"title": "计划", "markdown_content": "# 一周计划\n每天练习"}, _context(runtime, thread.id, call="draft"))
     call = ToolCall("preview-new", "preview_goal_plan", {
@@ -182,9 +193,9 @@ async def test_preview_keeps_write_claim_without_approval(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_complete_action_rejects_owner_project_and_stale_version(tmp_path):
+async def test_complete_action_rejects_owner_project_and_stale_version(database, tmp_path):
     from dataclasses import replace
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("完成边界")
     draft, preview = await _draft_and_preview(runtime, thread.id)
     activation = {"mode": "activate", "program_id": preview.data["program_id"], "expected_version": preview.data["program_version"]}
@@ -203,8 +214,8 @@ async def test_complete_action_rejects_owner_project_and_stale_version(tmp_path)
         assert c.execute("SELECT COUNT(*) FROM goal_action_feedback WHERE action_id=?", (action["id"],)).fetchone()[0] == 0
 
 
-def test_goal_tools_register_into_the_registry_and_model_snapshot(tmp_path, monkeypatch):
-    runtime = _runtime(tmp_path, monkeypatch)
+def test_goal_tools_register_into_the_registry_and_model_snapshot(database, tmp_path, monkeypatch):
+    runtime = _runtime(tmp_path, monkeypatch, database=database)
     names = {item["function"]["name"] for item in runtime.tools.describe()}
     assert EXPECTED_TOOLS <= names
     activation = next(item["function"]["parameters"] for item in runtime.tools.describe()
@@ -218,14 +229,14 @@ def test_goal_tools_register_into_the_registry_and_model_snapshot(tmp_path, monk
     assert "tools" in manifest
 
 
-def test_goal_tools_can_be_disabled_for_new_runs(tmp_path, monkeypatch):
-    runtime = _runtime(tmp_path, monkeypatch, enabled=False)
+def test_goal_tools_can_be_disabled_for_new_runs(database, tmp_path, monkeypatch):
+    runtime = _runtime(tmp_path, monkeypatch, enabled=False, database=database)
     names = {item["function"]["name"] for item in runtime.tools.describe()}
     assert not (EXPECTED_TOOLS & names)
 
 
-def test_phase_whitelist_opens_reads_everywhere_and_writes_in_react(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+def test_phase_whitelist_opens_reads_everywhere_and_writes_in_react(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     react = runtime._skill_tools_for("react")
     planning = runtime._skill_tools_for("planning")
     assert EXPECTED_TOOLS <= react
@@ -233,10 +244,10 @@ def test_phase_whitelist_opens_reads_everywhere_and_writes_in_react(tmp_path, mo
     assert not ({"create_plan_draft", "activate_goal_plan", "record_action_feedback", "defer_action"} & planning)
 
 
-def test_model_supplied_identity_and_invalid_arguments_are_rejected(tmp_path, monkeypatch):
+def test_model_supplied_identity_and_invalid_arguments_are_rejected(database, tmp_path, monkeypatch):
     from app.tools import ToolCall, ToolRejected
 
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     with pytest.raises(ToolRejected, match="identity parameters"):
         runtime.tools.authorize(
             ToolCall("c1", "query_goals", {"owner_id": "someone-else"}),
@@ -260,19 +271,19 @@ def test_model_supplied_identity_and_invalid_arguments_are_rejected(tmp_path, mo
         )
 
 
-def test_unresolved_run_identity_fails_closed(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+def test_unresolved_run_identity_fails_closed(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("无身份")
     # Direct handler invocation must not fall back to a default owner.
     result = _handler(runtime, "query_goals")({}, _context(runtime, thread.id, owner=""))
     assert result.ok is False and result.error == "RESOURCE_NOT_FOUND"
 
 
-def test_write_tools_require_a_granted_approval(tmp_path, monkeypatch):
+def test_write_tools_require_a_granted_approval(database, tmp_path, monkeypatch):
     from app.domain import ApprovalRequired
     from app.tools import ToolCall
 
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("审批")
     context = _context(runtime, thread.id, run="run-approve", call="call-approve")
     call = ToolCall("call-approve", "create_plan_draft", {
@@ -295,10 +306,10 @@ def test_write_tools_require_a_granted_approval(tmp_path, monkeypatch):
     assert result.ok is True and result.data["lifecycle"] == "draft"
 
 
-def test_a_tool_call_id_cannot_be_reused_by_another_run(tmp_path):
+def test_a_tool_call_id_cannot_be_reused_by_another_run(database, tmp_path):
     from app.tools import ToolCall, ToolRejected
 
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("调用身份")
     call = ToolCall("shared-call", "query_goals", {})
     first_context = _context(runtime, thread.id, run="run-a", call="shared-call")
@@ -310,8 +321,8 @@ def test_a_tool_call_id_cannot_be_reused_by_another_run(tmp_path):
         asyncio.run(runtime.tools.execute_async(call, context=second_context, skill_tools=None))
 
 
-def test_skill_intersection_can_only_narrow_the_goal_tool_allowlist(tmp_path):
-    runtime = _tool_runtime(tmp_path)
+def test_skill_intersection_can_only_narrow_the_goal_tool_allowlist(database, tmp_path):
+    runtime = _tool_runtime(tmp_path, database=database)
     no_skill = type("Run", (), {"id": "run-skill", "skill_names": ()})()
     assert EXPECTED_TOOLS <= runtime._skill_tools_for_run(no_skill, "react")
     # A run whose skill binding cannot be resolved fails closed: no goal tools.
@@ -323,8 +334,8 @@ def test_skill_intersection_can_only_narrow_the_goal_tool_allowlist(tmp_path):
 # P1: create_plan_draft
 # ---------------------------------------------------------------------------
 
-def test_create_plan_draft_is_create_only_and_never_activates(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+def test_create_plan_draft_is_create_only_and_never_activates(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("草稿")
     first = _handler(runtime, "create_plan_draft")(
         {"title": "训练草稿", "markdown_content": "# 训练草稿\n\n- 慢跑 20 分钟"},
@@ -344,8 +355,8 @@ def test_create_plan_draft_is_create_only_and_never_activates(tmp_path, monkeypa
     assert runtime.goal_programs.list(owner_id="local-user") == []
 
 
-def test_create_plan_draft_rejects_a_foreign_thread(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+def test_create_plan_draft_rejects_a_foreign_thread(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("私有", owner_id="alice")
     result = _handler(runtime, "create_plan_draft")(
         {"title": "越权", "markdown_content": "# 越权\n\n- 无"},
@@ -381,9 +392,9 @@ async def _draft_and_preview(runtime, thread_id):
 
 
 @pytest.mark.asyncio
-async def test_preview_does_not_activate_and_requires_confirmation(tmp_path, monkeypatch):
+async def test_preview_does_not_activate_and_requires_confirmation(database, tmp_path, monkeypatch):
     # async test: handlers under test include the async preview/activate adapter
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("预览")
     draft, preview = await _draft_and_preview(runtime, thread.id)
     assert preview.data["activated"] is False
@@ -404,8 +415,8 @@ async def test_preview_does_not_activate_and_requires_confirmation(tmp_path, mon
 
 
 @pytest.mark.asyncio
-async def test_confirmed_activation_then_reads_and_feedback(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+async def test_confirmed_activation_then_reads_and_feedback(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("主链路")
     draft, preview = await _draft_and_preview(runtime, thread.id)
 
@@ -500,10 +511,10 @@ async def _draft_document(runtime, thread_id, *, call="call-draft"):
 
 
 @pytest.mark.asyncio
-async def test_modify_plan_document_creates_one_new_version_with_approval(tmp_path):
+async def test_modify_plan_document_creates_one_new_version_with_approval(database, tmp_path):
     from app.tools import ToolCall
 
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("修改文档")
     draft = await _draft_document(runtime, thread.id)
     assert draft.ok, draft
@@ -539,8 +550,8 @@ async def test_modify_plan_document_creates_one_new_version_with_approval(tmp_pa
 
 
 @pytest.mark.asyncio
-async def test_modify_rejects_stale_version_missing_document_and_deleted_document(tmp_path):
-    runtime = _tool_runtime(tmp_path)
+async def test_modify_rejects_stale_version_missing_document_and_deleted_document(database, tmp_path):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("修改边界")
     draft = await _draft_document(runtime, thread.id)
     assert draft.ok, draft
@@ -575,8 +586,8 @@ async def test_modify_rejects_stale_version_missing_document_and_deleted_documen
 
 
 @pytest.mark.asyncio
-async def test_modify_is_owner_scoped(tmp_path):
-    runtime = _tool_runtime(tmp_path)
+async def test_modify_is_owner_scoped(database, tmp_path):
+    runtime = _tool_runtime(tmp_path, database=database)
     owner_thread = runtime.conversation.create_thread("修改归属")
     draft = await _draft_document(runtime, owner_thread.id)
     assert draft.ok, draft
@@ -594,10 +605,10 @@ async def test_modify_is_owner_scoped(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_modify_does_not_recompile_an_activated_program(tmp_path):
+async def test_modify_does_not_recompile_an_activated_program(database, tmp_path):
     from app.tools import ToolCall
 
-    runtime = _tool_runtime(tmp_path)
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("激活后修改")
     draft, preview = await _draft_and_preview(runtime, thread.id)
     activated = await _handler(runtime, "activate_goal_plan")(
@@ -630,8 +641,8 @@ async def test_modify_does_not_recompile_an_activated_program(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_preview_rejects_a_stale_source_version(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+async def test_preview_rejects_a_stale_source_version(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("版本竞态")
     draft, _preview = await _draft_and_preview(runtime, thread.id)
     stale = await _handler(runtime, "activate_goal_plan")(
@@ -650,8 +661,8 @@ async def test_preview_rejects_a_stale_source_version(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_activation_rejects_a_schedule_that_changed_after_preview(tmp_path, monkeypatch):
-    runtime = _tool_runtime(tmp_path)
+async def test_activation_rejects_a_schedule_that_changed_after_preview(database, tmp_path, monkeypatch):
+    runtime = _tool_runtime(tmp_path, database=database)
     thread = runtime.conversation.create_thread("确认后变化")
     draft, preview = await _draft_and_preview(runtime, thread.id)
     program_id = preview.data["program_id"]
@@ -673,13 +684,12 @@ async def test_activation_rejects_a_schedule_that_changed_after_preview(tmp_path
 # T5/T6: feedback and defer with the fixture compiler
 # ---------------------------------------------------------------------------
 
-def _fixture_service(tmp_path):
+def _fixture_service(database, tmp_path):
     from app.conversation import ConversationService
-    from app.db import Database
     from app.goal_program_compiler import FixedGoalProgramCompiler
     from app.goal_programs import GoalProgramService
 
-    db = Database(tmp_path / "goal-tools.db")
+    db = database
     conversation = ConversationService(db)
     thread = conversation.create_thread("工具链")
     version = conversation.plan_documents.save_model_revision(
@@ -708,8 +718,8 @@ def _fixture_context(thread_id, *, run="run-fx", call="call-fx", owner="local-us
     )
 
 
-def test_defer_creates_a_replacement_and_replays_once(tmp_path):
-    _db, service, _conversation, thread, version = _fixture_service(tmp_path)
+def test_defer_creates_a_replacement_and_replays_once(database, tmp_path):
+    _db, service, _conversation, thread, version = _fixture_service(database, tmp_path)
     specs = _specs(service, service.plan_documents)
     program = asyncio.run(service.preview(
         version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai",
@@ -741,8 +751,8 @@ def test_defer_creates_a_replacement_and_replays_once(tmp_path):
     assert replacements == 1
 
 
-def test_defer_reports_daily_capacity_and_rest_days_with_stable_codes(tmp_path):
-    _db, service, _conversation, thread, version = _fixture_service(tmp_path)
+def test_defer_reports_daily_capacity_and_rest_days_with_stable_codes(database, tmp_path):
+    _db, service, _conversation, thread, version = _fixture_service(database, tmp_path)
     specs = _specs(service, service.plan_documents)
     program = asyncio.run(service.preview(
         version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai",
@@ -769,8 +779,8 @@ def test_defer_reports_daily_capacity_and_rest_days_with_stable_codes(tmp_path):
     assert rest.ok is False and rest.error == "INVALID_ARGUMENT"
 
 
-def test_feedback_tool_never_completes_the_action(tmp_path):
-    _db, service, _conversation, thread, version = _fixture_service(tmp_path)
+def test_feedback_tool_never_completes_the_action(database, tmp_path):
+    _db, service, _conversation, thread, version = _fixture_service(database, tmp_path)
     specs = _specs(service, service.plan_documents)
     program = asyncio.run(service.preview(
         version.plan_document_id, start_date="2026-09-01", timezone_name="Asia/Shanghai",

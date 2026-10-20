@@ -1,10 +1,10 @@
 """Promotion Gate: harness rules, per-target apply paths, append-only audit."""
-import sqlite3
 import asyncio
 import hashlib
 import json
 
 import httpx
+import psycopg
 import pytest
 
 from app.learning_contract import TARGET_BEHAVIOR, TARGET_MEMORY, TARGET_SKILL
@@ -26,7 +26,12 @@ from app.learning_promotion import (
     promotion_gate,
 )
 from app.learning_targets import build_adapters
-from app.startup import build_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    database,
+    isolated_learning_env,
+)
 
 from tests.test_learning_targets import (
     behavior_draft,
@@ -39,7 +44,7 @@ from tests.test_learning_targets import (
 
 @pytest.fixture(autouse=True)
 def isolated_models(monkeypatch):
-    for name in ("DATABASE_URL", "AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
+    for name in ("AGENT_MODEL_BASE_URL", "AGENT_FALLBACK_MODEL_BASE_URL", "LLM_AP_PATH"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -60,12 +65,12 @@ def gate_for(runtime, *, policy=DEFAULT_PROMOTION_POLICY):
 
 
 @pytest.mark.parametrize("state", ["active", "archived", "expired", "missing", "other_owner", "before_send", "before_retry"])
-def test_compiler_memory_dependency_is_checked_before_every_send(tmp_path, monkeypatch, state):
+def test_compiler_memory_dependency_is_checked_before_every_send(database, tmp_path, monkeypatch, state):
     from app.learning import LearningConflict
     from app.model_control import ModelCallContext, ModelControlStore
     from app.model_gateway import ModelGateway, ModelProfile, ModelRequest
 
-    runtime, message_id = runtime_with_message(tmp_path)
+    runtime, message_id = runtime_with_message(database, tmp_path)
     gate = gate_for(runtime)
     candidate = gate.adapter_for(TARGET_MEMORY).create_candidate(
         memory_draft(message_id), owner_id="local-user", job_id="freeze-regression")
@@ -121,12 +126,12 @@ def test_compiler_memory_dependency_is_checked_before_every_send(tmp_path, monke
 
 @pytest.mark.parametrize("kind", ["skill", "memory"])
 @pytest.mark.parametrize("missing", [False, True])
-def test_freeze_rejects_unreadable_bound_assets(tmp_path, kind, missing):
+def test_freeze_rejects_unreadable_bound_assets(database, tmp_path, kind, missing):
     from app.learning import LearningConflict, now
     from app.model_control import ModelCallContext
     from app.model_gateway import ModelRequest
 
-    runtime, message_id = runtime_with_message(tmp_path)
+    runtime, message_id = runtime_with_message(database, tmp_path)
     gate = gate_for(runtime)
     if kind == "skill":
         job_id = runtime.learning.enqueue("local-user", "experience", "bound-skill", "bound-skill", "bound-skill")
@@ -164,8 +169,8 @@ def test_freeze_rejects_unreadable_bound_assets(tmp_path, kind, missing):
     assert request.messages[0]["content"] == content
 
 
-def test_memory_promotion_projects_after_commit_and_recovers_failed_write(tmp_path, monkeypatch):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_promotion_projects_after_commit_and_recovers_failed_write(database, tmp_path, monkeypatch):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     gate = gate_for(runtime)
     candidate = gate.adapter_for(TARGET_MEMORY).create_candidate(
         memory_draft(message_id), owner_id="local-user", job_id="projection-regression")
@@ -189,8 +194,8 @@ def test_memory_promotion_projects_after_commit_and_recovers_failed_write(tmp_pa
         assert connection.execute("SELECT COUNT(*) FROM memory_projection_intents WHERE state='PENDING'").fetchone()[0] == 0
 
 
-def test_memory_promotion_immediately_updates_projection(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_promotion_immediately_updates_projection(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     gate = gate_for(runtime)
     candidate = gate.adapter_for(TARGET_MEMORY).create_candidate(
         memory_draft(message_id), owner_id="local-user", job_id="projection-success")
@@ -282,8 +287,8 @@ def test_gate_is_a_pure_function_of_the_evaluation():
 
 # -------------------------------------------------------------- Memory path
 
-def test_memory_promotion_accepts_the_proposal_and_records_it(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_memory_promotion_accepts_the_proposal_and_records_it(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -296,9 +301,9 @@ def test_memory_promotion_accepts_the_proposal_and_records_it(tmp_path):
     assert [row["outcome"] for row in gate.history("local-user")] == [OUTCOME_PROMOTED]
 
 
-def test_memory_promotion_needs_no_approval(tmp_path):
+def test_memory_promotion_needs_no_approval(database, tmp_path):
     assert TARGET_MEMORY in DEFAULT_PROMOTION_POLICY.auto_promote
-    runtime, message_id = runtime_with_message(tmp_path)
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -316,8 +321,8 @@ def skill_candidate(runtime):
     return adapter.create_candidate(skill_draft(), owner_id="local-user", job_id=job_id)
 
 
-def test_skill_promotion_waits_for_approval_and_changes_nothing(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_promotion_waits_for_approval_and_changes_nothing(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 4, "losses": 1, "ties": 0}),
@@ -327,8 +332,8 @@ def test_skill_promotion_waits_for_approval_and_changes_nothing(tmp_path):
     assert gate.history("local-user")[-1]["outcome"] == OUTCOME_PENDING_APPROVAL
 
 
-def test_skill_promotion_enables_without_granting_authority(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_promotion_enables_without_granting_authority(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 4, "losses": 1, "ties": 0}),
@@ -339,8 +344,8 @@ def test_skill_promotion_enables_without_granting_authority(tmp_path):
     assert version["status"] == "ENABLED" and version["granted_tools"] == []
 
 
-def test_skill_promotion_is_refused_by_a_losing_judge(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_promotion_is_refused_by_a_losing_judge(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 1, "losses": 3, "ties": 0}),
@@ -350,8 +355,8 @@ def test_skill_promotion_is_refused_by_a_losing_judge(tmp_path):
     assert runtime.skill_platform.version(candidate["version_id"])["status"] != "ENABLED"
 
 
-def test_a_rejected_gate_leaves_no_audit_row_claiming_promotion(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_a_rejected_gate_leaves_no_audit_row_claiming_promotion(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     gate.promote(candidate, evaluation(TARGET_SKILL, outcome="FAIL", rule_pass=False),
@@ -369,8 +374,8 @@ def behavior_candidate(runtime):
                                     owner_id="local-user", job_id="job_behavior")
 
 
-def test_behavior_promotion_waits_for_approval_before_any_canary(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_promotion_waits_for_approval_before_any_canary(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     candidate = behavior_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_BEHAVIOR, judge={"wins": 3, "losses": 1, "ties": 0},
@@ -381,9 +386,9 @@ def test_behavior_promotion_waits_for_approval_before_any_canary(tmp_path):
     assert gate.history("local-user")[-1]["outcome"] == OUTCOME_PENDING_APPROVAL
 
 
-def test_behavior_promotion_demands_an_approvable_release_evaluation_first(tmp_path):
+def test_behavior_promotion_demands_an_approvable_release_evaluation_first(database, tmp_path):
     """This build only approves prompt candidates through the M5 release contract."""
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     candidate = behavior_candidate(runtime)
     decision = gate_for(runtime).promote(
         candidate, evaluation(TARGET_BEHAVIOR, judge={"wins": 3, "losses": 1, "ties": 0}),
@@ -392,8 +397,8 @@ def test_behavior_promotion_demands_an_approvable_release_evaluation_first(tmp_p
     assert runtime.evolution.get_candidate(candidate["candidate_id"], "local-user")["status"] == "READY_FOR_EVAL"
 
 
-def test_behavior_canary_cannot_start_without_enough_exposures(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_behavior_canary_cannot_start_without_enough_exposures(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     candidate = behavior_candidate(runtime)
     gate = gate_for(runtime)
     status = gate.canary_status(candidate, owner_id="local-user")
@@ -405,8 +410,8 @@ def test_behavior_canary_cannot_start_without_enough_exposures(tmp_path):
 
 # ------------------------------------------------------- idempotency + audit
 
-def test_promoting_the_same_memory_candidate_twice_records_one_promotion(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_promoting_the_same_memory_candidate_twice_records_one_promotion(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -418,14 +423,14 @@ def test_promoting_the_same_memory_candidate_twice_records_one_promotion(tmp_pat
     assert len(runtime.memory_store.list_entries()) == 1
 
 
-def test_the_database_refuses_a_second_promotion_row_for_one_candidate(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_the_database_refuses_a_second_promotion_row_for_one_candidate(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
     gate = gate_for(runtime)
     gate.promote(candidate, evaluation(TARGET_MEMORY), owner_id="local-user")
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(psycopg.errors.UniqueViolation):
         with runtime.db.transaction() as connection:
             connection.execute(
                 "INSERT INTO learning_promotions(id,owner_id,job_id,target,candidate_id,evaluation_id,outcome,"
@@ -435,20 +440,20 @@ def test_the_database_refuses_a_second_promotion_row_for_one_candidate(tmp_path)
             )
 
 
-def test_the_promotion_audit_is_append_only(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_the_promotion_audit_is_append_only(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
     gate = gate_for(runtime)
     promotion_id = gate.promote(candidate, evaluation(TARGET_MEMORY), owner_id="local-user").promotion_id
-    with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         with runtime.db.transaction() as connection:
             connection.execute("UPDATE learning_promotions SET reason='rewritten' WHERE id=?", (promotion_id,))
 
 
-def test_needs_replay_is_recorded_without_touching_production(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_needs_replay_is_recorded_without_touching_production(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, outcome="NEEDS_REPLAY"),
@@ -460,8 +465,8 @@ def test_needs_replay_is_recorded_without_touching_production(tmp_path):
 
 # ------------------------------------------------------------ rollback + ops
 
-def test_rollback_disables_a_promoted_skill_and_is_recorded(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_rollback_disables_a_promoted_skill_and_is_recorded(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 4, "losses": 0, "ties": 0}),
@@ -471,8 +476,8 @@ def test_rollback_disables_a_promoted_skill_and_is_recorded(tmp_path):
     assert runtime.skill_platform.version(candidate["version_id"])["status"] != "ENABLED"
 
 
-def test_promotion_regression_rate_is_reported(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_promotion_regression_rate_is_reported(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 4, "losses": 0, "ties": 0}),
@@ -484,9 +489,9 @@ def test_promotion_regression_rate_is_reported(tmp_path):
     assert metrics["candidate_promote_rate"] == 1.0
 
 
-def test_gate_never_calls_a_model(tmp_path):
+def test_gate_never_calls_a_model(database, tmp_path):
     """The gate is harness rules: no gateway is constructed, so no LLM can be reached."""
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     gate = gate_for(runtime)
     assert not hasattr(gate, "gateway")
     assert not hasattr(gate, "judge")
@@ -494,8 +499,8 @@ def test_gate_never_calls_a_model(tmp_path):
 
 # ------------------------------------------------------------- shadow mode
 
-def test_shadow_mode_records_the_decision_without_applying_it(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_shadow_mode_records_the_decision_without_applying_it(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -510,8 +515,8 @@ def test_shadow_mode_records_the_decision_without_applying_it(tmp_path):
     assert gate.metrics("local-user")["promoted"] == 0
 
 
-def test_shadow_mode_still_reports_a_gate_failure_as_a_refusal(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_shadow_mode_still_reports_a_gate_failure_as_a_refusal(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 0, "losses": 5, "ties": 0}),
@@ -520,8 +525,8 @@ def test_shadow_mode_still_reports_a_gate_failure_as_a_refusal(tmp_path):
     assert runtime.skill_platform.version(candidate["version_id"])["status"] != "ENABLED"
 
 
-def test_shadow_mode_predicts_pending_approval_for_a_skill(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_shadow_mode_predicts_pending_approval_for_a_skill(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     gate = gate_for(runtime)
     decision = gate.promote(candidate, evaluation(TARGET_SKILL, judge={"wins": 4, "losses": 0, "ties": 0}),
@@ -530,8 +535,8 @@ def test_shadow_mode_predicts_pending_approval_for_a_skill(tmp_path):
     assert decision.detail["would_be"] == OUTCOME_PENDING_APPROVAL
 
 
-def test_a_shadow_run_does_not_block_a_later_real_promotion(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_a_shadow_run_does_not_block_a_later_real_promotion(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -545,9 +550,9 @@ def test_a_shadow_run_does_not_block_a_later_real_promotion(tmp_path):
     assert gate.metrics("local-user")["promoted"] == 1
 
 
-def test_unknown_target_cannot_be_promoted(tmp_path):
+def test_unknown_target_cannot_be_promoted(database, tmp_path):
     """Only the three contracted targets exist; anything else is a bypass attempt."""
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     gate = gate_for(runtime)
     with pytest.raises(ValueError, match="unknown promotion target"):
         gate.promote({"candidate_id": "cand_x", "target": "EVOLUTION"},
@@ -560,8 +565,8 @@ def _count(runtime, table):
         return connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
 
 
-def test_cross_owner_promotion_writes_no_revision_or_adoption(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_cross_owner_promotion_writes_no_revision_or_adoption(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -577,8 +582,8 @@ def test_cross_owner_promotion_writes_no_revision_or_adoption(tmp_path):
     assert adopted == 0
 
 
-def test_revoked_source_is_not_a_quality_gate_failure(tmp_path):
-    runtime, message_id = runtime_with_message(tmp_path)
+def test_revoked_source_is_not_a_quality_gate_failure(database, tmp_path):
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")
@@ -598,8 +603,8 @@ def test_revoked_source_is_not_a_quality_gate_failure(tmp_path):
     assert _count(runtime, "memory_entries") == 0
 
 
-def test_skill_version_change_after_wait_does_not_enable(tmp_path):
-    runtime, _ = runtime_with_message(tmp_path)
+def test_skill_version_change_after_wait_does_not_enable(database, tmp_path):
+    runtime, _ = runtime_with_message(database, tmp_path)
     runtime.learning.configure("local-user", expected_version=0, paused=False, allowed_assets=["skill"])
     first_job = runtime.learning.enqueue("local-user", "experience", "e1", "hash", "root")
     second_job = runtime.learning.enqueue("local-user", "experience", "e2", "hash", "root")
@@ -618,10 +623,10 @@ def test_skill_version_change_after_wait_does_not_enable(tmp_path):
     assert gate.metrics("local-user")["promoted"] == 1
 
 
-def test_missing_skill_approval_does_not_enable(tmp_path):
+def test_missing_skill_approval_does_not_enable(database, tmp_path):
     from app.policy_adapters import AssetAuthorizationDenied
 
-    runtime, _ = runtime_with_message(tmp_path)
+    runtime, _ = runtime_with_message(database, tmp_path)
     candidate = skill_candidate(runtime)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_SKILL]
@@ -630,8 +635,8 @@ def test_missing_skill_approval_does_not_enable(tmp_path):
     assert runtime.skill_platform.version(candidate["version_id"])["status"] != "ENABLED"
 
 
-def test_canary_that_is_not_ready_does_not_adopt(tmp_path):
-    runtime = build_runtime(tmp_path)
+def test_canary_that_is_not_ready_does_not_adopt(database, tmp_path):
+    runtime = build_pg_runtime(tmp_path, database)
     candidate = behavior_candidate(runtime)
     gate = gate_for(runtime)
     called = []
@@ -649,13 +654,13 @@ def test_canary_that_is_not_ready_does_not_adopt(tmp_path):
     assert gate.metrics("local-user")["promoted"] == 0
 
 
-def test_cross_owner_asset_read_writes_nothing(tmp_path):
+def test_cross_owner_asset_read_writes_nothing(database, tmp_path):
     import json
 
     from app.learning import LearningConflict, now
     from app.learning_assets import LearningAssets
 
-    runtime, message_id = runtime_with_message(tmp_path)
+    runtime, message_id = runtime_with_message(database, tmp_path)
     adapter = build_adapters(db=runtime.db, memory=runtime.memory_store, platform=runtime.skill_platform,
                              bundles=runtime.behavior, evolution=runtime.evolution)[TARGET_MEMORY]
     candidate = adapter.create_candidate(memory_draft(message_id), owner_id="local-user", job_id="job_memory")

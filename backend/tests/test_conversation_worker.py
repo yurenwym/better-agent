@@ -3,7 +3,12 @@ from types import SimpleNamespace
 
 import pytest
 
-from test_runtime import make_runtime
+from pg02_helpers import database, make_runtime
+from pg02_learning_helpers import (
+    build_pg_runtime,
+    close_learning_runtimes,
+    isolated_learning_env,
+)
 
 
 class ScriptedConversationModel:
@@ -20,9 +25,8 @@ class ScriptedConversationModel:
 
 
 @pytest.mark.asyncio
-async def test_action_context_cannot_be_dropped_to_fit_conversation(tmp_path, monkeypatch):
+async def test_action_context_cannot_be_dropped_to_fit_conversation(database, tmp_path, monkeypatch):
     from app.token_budget import pack_messages_newest
-    from app.startup import build_runtime
 
     reached_transport = []
     class Model:
@@ -30,21 +34,18 @@ async def test_action_context_cannot_be_dropped_to_fit_conversation(tmp_path, mo
             pack_messages_newest([*history, {"role": "user", "content": content}], budget=300)
             reached_transport.append(True)
 
-    runtime = build_runtime(tmp_path, conversation_model=Model())
-    try:
-        monkeypatch.setattr(runtime.conversation.goal_context, "load_for_turn",
-                            lambda *args: SimpleNamespace(context_text="bound action requirements " * 100))
-        thread = runtime.conversation.create_thread("action overflow")
-        accepted = runtime.conversation.accept_turn(thread.id, "action-overflow", "继续当前行动", [])
-        await runtime.turn_worker.run_once()
-        assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
-        assert not reached_transport
-    finally:
-        runtime.db.close()
+    runtime = build_pg_runtime(tmp_path, database, conversation_model=Model())
+    monkeypatch.setattr(runtime.conversation.goal_context, "load_for_turn",
+                        lambda *args: SimpleNamespace(context_text="bound action requirements " * 100))
+    thread = runtime.conversation.create_thread("action overflow")
+    accepted = runtime.conversation.accept_turn(thread.id, "action-overflow", "继续当前行动", [])
+    await runtime.turn_worker.run_once()
+    assert runtime.conversation.turn(accepted.turn_id).status == "FAILED"
+    assert not reached_transport
 
 
 @pytest.mark.asyncio
-async def test_required_archive_failure_never_discards_history(tmp_path, monkeypatch):
+async def test_required_archive_failure_never_discards_history(database, tmp_path, monkeypatch):
     from app.memory_archive import ArchiveUnavailable
     calls = []
     class Model(ScriptedConversationModel):
@@ -52,7 +53,7 @@ async def test_required_archive_failure_never_discards_history(tmp_path, monkeyp
             calls.append("degraded")
         async def route_and_respond(self, **kwargs):
             calls.append("normal")
-    runtime = make_runtime(tmp_path, Model("unused"))
+    runtime = make_runtime(database, tmp_path, Model("unused"))
     thread = runtime.conversation.create_thread("incomplete")
     accepted = runtime.conversation.accept_turn(thread.id, "m1-limited", "Independent question", [])
     async def unavailable(turn, **kwargs):
@@ -65,7 +66,6 @@ async def test_required_archive_failure_never_discards_history(tmp_path, monkeyp
     with runtime.db.connection() as c:
         for table in ("turn_asks", "plan_documents", "research_jobs", "agent_runs", "memory_entries"):
             assert c.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] == 0
-    runtime.db.close()
 
 
 class MemoryAwareConversationModel(ScriptedConversationModel):
@@ -209,36 +209,39 @@ def _count(runtime, table: str) -> int:
 
 
 @pytest.mark.asyncio
-async def test_worker_pool_runs_different_threads_concurrently_within_cap(tmp_path) -> None:
+async def test_worker_pool_runs_different_threads_concurrently_within_cap(database, tmp_path) -> None:
     from app.conversation import ManagedTurnWorkerPool
 
     model = ConcurrentConversationModel(expected_concurrency=2)
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     runtime.turn_worker = ManagedTurnWorkerPool(runtime.conversation, concurrency=2, poll_interval=0.005)
     for index in range(3):
         thread = runtime.conversation.create_thread(f"thread-{index}")
         runtime.conversation.accept_turn(thread.id, f"client-{index}", "answer", [])
 
     await runtime.turn_worker.start()
-    await asyncio.wait_for(model.all_started.wait(), timeout=2)
-    assert model.max_active == 2
-    with runtime.db.connection() as connection:
-        assert connection.execute("SELECT COUNT(*) FROM turn_jobs WHERE status='RUNNING'").fetchone()[0] == 2
-    model.release.set()
-    for _ in range(200):
-        if not runtime.conversation.pending_turn_jobs():
-            break
-        await asyncio.sleep(0.005)
-    await runtime.turn_worker.stop()
+    try:
+        await asyncio.wait_for(model.all_started.wait(), timeout=2)
+        assert model.max_active == 2
+        with runtime.db.connection() as connection:
+            assert connection.execute("SELECT COUNT(*) FROM turn_jobs WHERE status='RUNNING'").fetchone()[0] == 2
+        model.release.set()
+        for _ in range(200):
+            if not runtime.conversation.pending_turn_jobs():
+                break
+            await asyncio.sleep(0.005)
+    finally:
+        model.release.set()
+        await runtime.turn_worker.stop()
 
     assert model.max_active == 2
     assert not runtime.conversation.pending_turn_jobs()
 
 
-def test_claim_next_never_runs_two_turns_from_the_same_thread(tmp_path) -> None:
+def test_claim_next_never_runs_two_turns_from_the_same_thread(database, tmp_path) -> None:
     from app.conversation import ManagedTurnWorker
 
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
     thread = runtime.conversation.create_thread("same-thread")
     first = runtime.conversation.accept_turn(thread.id, "first", "first", [])
     second = runtime.conversation.accept_turn(thread.id, "second", "second", [])
@@ -249,16 +252,16 @@ def test_claim_next_never_runs_two_turns_from_the_same_thread(tmp_path) -> None:
     assert worker_two.claim_next() is None
     with runtime.db.transaction() as connection:
         connection.execute(
-            "UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=datetime('now') "
+            "UPDATE turn_jobs SET status='COMPLETED',lease_owner=NULL,lease_until=NULL,finished_at=clock_timestamp() "
             "WHERE turn_id=?", (first.turn_id,),
         )
     assert worker_two.claim_next() == second.turn_id
 
 
-def test_worker_pool_concurrency_uses_bounded_environment_value(tmp_path, monkeypatch) -> None:
+def test_worker_pool_concurrency_uses_bounded_environment_value(database, tmp_path, monkeypatch) -> None:
     from app.conversation import ManagedTurnWorkerPool
 
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
     monkeypatch.setenv("BETTER_AGENT_TURN_WORKER_CONCURRENCY", "32")
     assert ManagedTurnWorkerPool(runtime.conversation).concurrency == 16
     monkeypatch.setenv("BETTER_AGENT_TURN_WORKER_CONCURRENCY", "0")
@@ -269,9 +272,9 @@ def test_worker_pool_concurrency_uses_bounded_environment_value(tmp_path, monkey
 
 
 @pytest.mark.asyncio
-async def test_terminal_turn_persists_latency_metrics_and_event(tmp_path) -> None:
+async def test_terminal_turn_persists_latency_metrics_and_event(database, tmp_path) -> None:
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"answer","content_shape":"general",'
             '"reason_code":"content_only"}\nanswer'
@@ -303,7 +306,7 @@ async def test_terminal_turn_persists_latency_metrics_and_event(tmp_path) -> Non
     "# 学习计划\n\n每天学习两小时，并在周末复盘。\n```",
     "v=1\npolicy=answer\n\n# 学习计划\n\n每天学习两小时，并在周末复盘。",
 ])
-async def test_missing_control_header_completes_full_conversation_flow(tmp_path, model_message) -> None:
+async def test_missing_control_header_completes_full_conversation_flow(database, tmp_path, model_message) -> None:
     from app.live_model import LiveConversationModel
 
     class PlainAnswerGateway:
@@ -317,7 +320,7 @@ async def test_missing_control_header_completes_full_conversation_flow(tmp_path,
             return SimpleNamespace(message=message, tool_calls=[], finish_reason="stop")
 
     gateway = PlainAnswerGateway()
-    runtime = make_runtime(tmp_path, LiveConversationModel(gateway))
+    runtime = make_runtime(database, tmp_path, LiveConversationModel(gateway))
     thread = runtime.conversation.create_thread("protocol fallback")
     accepted = runtime.conversation.accept_turn(
         thread.id,
@@ -341,9 +344,9 @@ async def test_missing_control_header_completes_full_conversation_flow(tmp_path,
 
 
 @pytest.mark.asyncio
-async def test_turn_metrics_count_all_auxiliary_model_attempts(tmp_path) -> None:
+async def test_turn_metrics_count_all_auxiliary_model_attempts(database, tmp_path) -> None:
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"answer","content_shape":"general",'
             '"reason_code":"content_only"}\nanswer'
@@ -385,11 +388,11 @@ async def test_turn_metrics_count_all_auxiliary_model_attempts(tmp_path) -> None
 
 
 @pytest.mark.asyncio
-async def test_worker_streams_markdown_and_finishes_answer_without_agent_rows(tmp_path) -> None:
+async def test_worker_streams_markdown_and_finishes_answer_without_agent_rows(database, tmp_path) -> None:
     from app.conversation import TurnSnapshot
 
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"answer","content_shape":"guide",'
             '"reason_code":"content_only"}\n## 桂林\n第一天…'
@@ -421,14 +424,14 @@ async def test_worker_streams_markdown_and_finishes_answer_without_agent_rows(tm
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("applied", [True, False])
-async def test_worker_audits_memory_only_after_model_confirms_actual_use(tmp_path, applied) -> None:
+async def test_worker_audits_memory_only_after_model_confirms_actual_use(database, tmp_path, applied) -> None:
     from app.memory_v2 import MemoryContextProvider, MemoryStore
 
     model = MemoryAwareConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general","reason_code":"content_only"}\nanswer',
         applied=applied,
     )
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     store.remember("local-user", "preference", "user", "", "Prefer concise answers", "remember-audit")
     runtime.memory_context = MemoryContextProvider(runtime.db)
@@ -442,7 +445,7 @@ async def test_worker_audits_memory_only_after_model_confirms_actual_use(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode(tmp_path) -> None:
+async def test_worker_archives_old_history_before_model_and_replaces_raw_source_with_episode(database, tmp_path) -> None:
     from app.memory_archive import ConversationArchiver
     from app.memory_v2 import MemoryContextProvider, MemoryStore
 
@@ -457,7 +460,7 @@ async def test_worker_archives_old_history_before_model_and_replaces_raw_source_
     model = HistoryRecordingConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general","reason_code":"content_only"}\nanswer'
     )
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     store = MemoryStore(runtime.db, tmp_path / "memory-v2")
     runtime.memory_context = MemoryContextProvider(runtime.db)
     runtime.archiver = ConversationArchiver(
@@ -521,7 +524,7 @@ async def test_worker_archives_old_history_before_model_and_replaces_raw_source_
 
 
 @pytest.mark.asyncio
-async def test_worker_does_not_generate_when_required_archive_permanently_fails(tmp_path) -> None:
+async def test_worker_does_not_generate_when_required_archive_permanently_fails(database, tmp_path) -> None:
     from app.memory_archive import ConversationArchiver
     from app.memory_v2 import MemoryStore
 
@@ -531,7 +534,7 @@ async def test_worker_does_not_generate_when_required_archive_permanently_fails(
     model = HistoryRecordingConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general","reason_code":"content_only"}\nanswer'
     )
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     runtime.archiver = ConversationArchiver(
         runtime.db, MemoryStore(runtime.db, tmp_path / "memory-v2"), invalid_summary,
         keep_tokens=1, max_attempts=1,
@@ -579,8 +582,8 @@ async def test_worker_does_not_generate_when_required_archive_permanently_fails(
 
 
 @pytest.mark.asyncio
-async def test_completed_conversation_finishes_canary_exposure_with_safety_judgment(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ScriptedConversationModel(
+async def test_completed_conversation_finishes_canary_exposure_with_safety_judgment(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general","reason_code":"content_only"}\nsafe answer'
     ))
     calls = []
@@ -603,14 +606,12 @@ async def test_completed_conversation_finishes_canary_exposure_with_safety_judgm
 
 
 @pytest.mark.asyncio
-async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_raw_header(tmp_path, monkeypatch) -> None:
-    from app.startup import build_runtime
-
+async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_raw_header(database, tmp_path, monkeypatch) -> None:
     class ExpertRouteModel:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             on_text_delta('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"complex_compare","expert":{"objective":"比较训练方案","roles":["planner","critic"]}}\n')
 
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.conversation.route_model = ExpertRouteModel()
     history = [{"role": "system", "content": "bounded plan source v1"}] + [
         {"role": "user" if index % 2 == 0 else "assistant", "content": f"history-{index}"}
@@ -650,12 +651,10 @@ async def test_worker_routes_start_expert_to_bounded_agent_run_without_visible_r
 
 @pytest.mark.asyncio
 async def test_cancel_accepted_before_research_commit_prevents_durable_side_effect(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     from app.conversation import ControlHeadDecoder
-    from app.startup import build_runtime
-
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.conversation.route_model = ScriptedConversationModel(
         '{"v":3,"policy":"start_research","content_shape":"research",'
         '"reason_code":"explicit_deep_research","research":{"topic":"topic","scope":"web"}}\n'
@@ -678,12 +677,10 @@ async def test_cancel_accepted_before_research_commit_prevents_durable_side_effe
 
 @pytest.mark.asyncio
 async def test_cancel_accepted_before_expert_commit_prevents_durable_side_effect(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     from app.conversation import ControlHeadDecoder
-    from app.startup import build_runtime
-
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.conversation.route_model = ScriptedConversationModel(
         '{"v":4,"policy":"start_expert","content_shape":"expert",'
         '"reason_code":"complex_compare","expert":{"objective":"compare","roles":["critic"]}}\n'
@@ -705,7 +702,7 @@ async def test_cancel_accepted_before_expert_commit_prevents_durable_side_effect
 
 
 @pytest.mark.asyncio
-async def test_stale_epoch_cannot_write_terminal_metrics(tmp_path) -> None:
+async def test_stale_epoch_cannot_write_terminal_metrics(database, tmp_path) -> None:
     class TakenOverConversationModel(ScriptedConversationModel):
         async def route_and_respond(self, **kwargs):
             await super().route_and_respond(**kwargs)
@@ -725,7 +722,7 @@ async def test_stale_epoch_cannot_write_terminal_metrics(tmp_path) -> None:
         '{"v":1,"policy":"answer","content_shape":"general",'
         '"reason_code":"content_only"}\nanswer'
     )
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("metrics epoch fence")
     accepted = runtime.conversation.accept_turn(thread.id, "stale-metrics", "answer", [])
 
@@ -736,14 +733,12 @@ async def test_stale_epoch_cannot_write_terminal_metrics(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_routes_expert_with_authoritative_non_default_owner(tmp_path) -> None:
-    from app.startup import build_runtime
-
+async def test_worker_routes_expert_with_authoritative_non_default_owner(database, tmp_path) -> None:
     class ExpertRouteModel:
         async def route_and_respond(self, *, on_text_delta, **kwargs):
             on_text_delta('{"v":4,"policy":"start_expert","content_shape":"expert","reason_code":"complex_compare","expert":{"objective":"compare","roles":["planner"]}}\n')
 
-    runtime = build_runtime(tmp_path)
+    runtime = build_pg_runtime(tmp_path, database)
     runtime.conversation.route_model = ExpertRouteModel()
     thread = runtime.conversation.create_thread("owned", owner_id="alice")
     accepted = runtime.conversation.accept_turn(thread.id, "alice-turn", "compare", [], owner_id="alice")
@@ -753,9 +748,9 @@ async def test_worker_routes_expert_with_authoritative_non_default_owner(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_propose_execution_waits_for_direction_without_agent_rows(tmp_path) -> None:
+async def test_propose_execution_waits_for_direction_without_agent_rows(database, tmp_path) -> None:
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"propose_execution","content_shape":"tracking",'
             '"reason_code":"external_effect"}\n我可以在确认后更新清单。'
@@ -774,8 +769,8 @@ async def test_propose_execution_waits_for_direction_without_agent_rows(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_cancel_queued_turn_is_persisted_and_not_claimed(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+async def test_cancel_queued_turn_is_persisted_and_not_claimed(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "停止", [])
 
@@ -789,29 +784,36 @@ async def test_cancel_queued_turn_is_persisted_and_not_claimed(tmp_path) -> None
 
 
 @pytest.mark.asyncio
-async def test_cancel_active_turn_stops_model_and_keeps_terminal_state(tmp_path) -> None:
+async def test_cancel_active_turn_stops_model_and_keeps_terminal_state(database, tmp_path) -> None:
     model = BlockingConversationModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "开始", [])
     task = asyncio.create_task(runtime.turn_worker.run_once())
+    try:
+        await model.started.wait()
+        runtime.conversation.cancel_turn(accepted.turn_id)
+        await task
 
-    await model.started.wait()
-    runtime.conversation.cancel_turn(accepted.turn_id)
-    await task
-
-    assert runtime.conversation.turn(accepted.turn_id).status == "CANCELLED"
-    assert "turn.cancelled" in [event.type for event in runtime.conversation.events.list(thread.id)]
+        assert runtime.conversation.turn(accepted.turn_id).status == "CANCELLED"
+        assert "turn.cancelled" in [event.type for event in runtime.conversation.events.list(thread.id)]
+    finally:
+        if not task.done():
+            task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 @pytest.mark.asyncio
 async def test_cancel_accepted_before_answer_commit_cannot_be_overwritten(
-    tmp_path, monkeypatch,
+    database, tmp_path, monkeypatch,
 ) -> None:
     from app.conversation import ManagedTurnWorker
 
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"answer","content_shape":"general",'
             '"reason_code":"content_only"}\nanswer'
@@ -836,11 +838,11 @@ async def test_cancel_accepted_before_answer_commit_cannot_be_overwritten(
 
 
 @pytest.mark.asyncio
-async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> None:
+async def test_active_turn_lease_is_renewed_during_long_model_call(database, tmp_path) -> None:
     from app.conversation import ManagedTurnWorker
 
     model = LongRunningConversationModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     worker_one = ManagedTurnWorker(
         runtime.conversation,
         owner="worker-one",
@@ -860,27 +862,36 @@ async def test_active_turn_lease_is_renewed_during_long_model_call(tmp_path) -> 
     accepted = runtime.conversation.accept_turn(thread.id, "client-long", "Long call", [])
 
     first_task = asyncio.create_task(worker_one.run_once())
-    await model.started.wait()
-    await asyncio.sleep(3.35)
+    try:
+        await model.started.wait()
+        await asyncio.sleep(3.35)
 
-    assert worker_two.claim_next() is None
-    with runtime.db.connection() as connection:
-        job = connection.execute(
-            "SELECT lease_owner, lease_until FROM turn_jobs WHERE turn_id = ?",
-            (accepted.turn_id,),
-        ).fetchone()
-    assert job["lease_owner"] == "worker-one"
-    assert job["lease_until"]
+        assert worker_two.claim_next() is None
+        with runtime.db.connection() as connection:
+            job = connection.execute(
+                "SELECT lease_owner, lease_until FROM turn_jobs WHERE turn_id = ?",
+                (accepted.turn_id,),
+            ).fetchone()
+        assert job["lease_owner"] == "worker-one"
+        assert job["lease_until"]
 
-    model.release.set()
-    assert await first_task is True
-    assert model.calls == 1
+        model.release.set()
+        assert await first_task is True
+        assert model.calls == 1
+    finally:
+        model.release.set()
+        if not first_task.done():
+            first_task.cancel()
+        try:
+            await first_task
+        except asyncio.CancelledError:
+            pass
 
 
-def test_stale_worker_cannot_finalize_a_taken_over_turn_job(tmp_path) -> None:
+def test_stale_worker_cannot_finalize_a_taken_over_turn_job(database, tmp_path) -> None:
     from app.conversation import ManagedTurnWorker, TurnJobLeaseLost
 
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-fenced", "Fence me", [])
     worker = ManagedTurnWorker(runtime.conversation, owner="old-worker")
@@ -905,10 +916,10 @@ def test_stale_worker_cannot_finalize_a_taken_over_turn_job(tmp_path) -> None:
     assert len(runtime.conversation.messages(thread.id)) == 1
 
 
-def test_expired_turn_job_lease_fences_same_owner_before_takeover(tmp_path) -> None:
+def test_expired_turn_job_lease_fences_same_owner_before_takeover(database, tmp_path) -> None:
     from app.conversation import ManagedTurnWorker, TurnJobLeaseLost
 
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-expired-fence", "Expire me", [])
     worker = ManagedTurnWorker(runtime.conversation, owner="expired-worker")
@@ -928,8 +939,8 @@ def test_expired_turn_job_lease_fences_same_owner_before_takeover(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_plan_context_load_failure_finishes_turn_as_failed(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, ScriptedConversationModel("unused"))
+async def test_plan_context_load_failure_finishes_turn_as_failed(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel("unused"))
 
     class BrokenPlanContext:
         def load_for_turn(self, thread_id: str, turn_id: str):
@@ -950,9 +961,9 @@ async def test_plan_context_load_failure_finishes_turn_as_failed(tmp_path) -> No
 
 
 @pytest.mark.asyncio
-async def test_expired_running_job_recovers_partial_generation(tmp_path) -> None:
+async def test_expired_running_job_recovers_partial_generation(database, tmp_path) -> None:
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"answer","content_shape":"general",'
             '"reason_code":"content_only"}\nnew answer'
@@ -965,12 +976,13 @@ async def test_expired_running_job_recovers_partial_generation(tmp_path) -> None
             "UPDATE turns SET status = 'STREAMING' WHERE id = ?", (accepted.turn_id,)
         )
         connection.execute(
-            "UPDATE turn_jobs SET status = 'RUNNING', attempts = 1, lease_until = '2000-01-01T00:00:00+00:00' "
+            "UPDATE turn_jobs SET status = 'RUNNING', attempts = 1, lease_epoch = 1, "
+            "lease_until = '2000-01-01T00:00:00+00:00' "
             "WHERE turn_id = ?", (accepted.turn_id,)
         )
         connection.execute(
-            "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, created_at) "
-            "VALUES (?, ?, ?, 'assistant', ?, 'streaming', 1, ?, ?)",
+            "INSERT INTO thread_messages(id, thread_id, turn_id, role, content, status, generation, content_length, message_seq, created_at) "
+            "VALUES (?, ?, ?, 'assistant', ?, 'streaming', 1, ?, 2, ?)",
             ("message-old", thread.id, accepted.turn_id, "partial", 7, "2000-01-01T00:00:00+00:00"),
         )
 
@@ -990,11 +1002,11 @@ async def test_expired_running_job_recovers_partial_generation(tmp_path) -> None
 
 
 @pytest.mark.asyncio
-async def test_invalid_control_head_fails_safely_without_persisting_raw_model_output(tmp_path) -> None:
+async def test_invalid_control_head_fails_safely_without_persisting_raw_model_output(database, tmp_path) -> None:
     from app.conversation import SAFE_FAILURE_MESSAGE
 
     secret = '{"policy":"goal","token":"secret"}\nraw provider output'
-    runtime = make_runtime(tmp_path, ScriptedConversationModel(secret))
+    runtime = make_runtime(database, tmp_path, ScriptedConversationModel(secret))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "继续", [])
 
@@ -1014,8 +1026,8 @@ async def test_invalid_control_head_fails_safely_without_persisting_raw_model_ou
 
 
 @pytest.mark.asyncio
-async def test_failed_retry_preserves_a_readable_prior_generation(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, FailingAfterReadableGenerationModel())
+async def test_failed_retry_preserves_a_readable_prior_generation(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, FailingAfterReadableGenerationModel())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "制作计划", [])
 
@@ -1030,9 +1042,9 @@ async def test_failed_retry_preserves_a_readable_prior_generation(tmp_path) -> N
 
 
 @pytest.mark.asyncio
-async def test_clarify_completes_turn_without_agent_rows(tmp_path) -> None:
+async def test_clarify_completes_turn_without_agent_rows(database, tmp_path) -> None:
     runtime = make_runtime(
-        tmp_path,
+        database, tmp_path,
         ScriptedConversationModel(
             '{"v":1,"policy":"clarify","content_shape":"general",'
             '"reason_code":"missing_object"}\n请补充要处理的对象。'
@@ -1049,8 +1061,8 @@ async def test_clarify_completes_turn_without_agent_rows(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, AskConversationModel())
+async def test_worker_persists_ask_and_waits_without_creating_agent_rows(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, AskConversationModel())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-ask", "制定训练计划", [])
 
@@ -1071,7 +1083,7 @@ async def test_worker_persists_ask_and_waits_without_creating_agent_rows(tmp_pat
 
 
 @pytest.mark.asyncio
-async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None:
+async def test_worker_auto_asks_for_personalized_training_plan(database, tmp_path) -> None:
     import json
     from types import SimpleNamespace
 
@@ -1107,7 +1119,7 @@ async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None
             )
 
     gateway = ModelDrivenAskGateway()
-    runtime = make_runtime(tmp_path, LiveConversationModel(gateway))
+    runtime = make_runtime(database, tmp_path, LiveConversationModel(gateway))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(
         thread.id,
@@ -1130,7 +1142,7 @@ async def test_worker_auto_asks_for_personalized_training_plan(tmp_path) -> None
 
 
 @pytest.mark.asyncio
-async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path) -> None:
+async def test_worker_discards_streamed_text_when_model_also_calls_ask(database, tmp_path) -> None:
     import json
     from types import SimpleNamespace
 
@@ -1172,7 +1184,7 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
                 }],
             )
 
-    runtime = make_runtime(tmp_path, LiveConversationModel(MixedAskGateway()))
+    runtime = make_runtime(database, tmp_path, LiveConversationModel(MixedAskGateway()))
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-mixed-ask", "继续完善计划", [])
 
@@ -1197,8 +1209,8 @@ async def test_worker_discards_streamed_text_when_model_also_calls_ask(tmp_path)
 
 
 @pytest.mark.asyncio
-async def test_continuation_history_contains_ask_tool_result(tmp_path) -> None:
-    runtime = make_runtime(tmp_path, AskConversationModel())
+async def test_continuation_history_contains_ask_tool_result(database, tmp_path) -> None:
+    runtime = make_runtime(database, tmp_path, AskConversationModel())
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-ask-history", "制定训练计划", [])
     await runtime.turn_worker.run_once()
@@ -1219,9 +1231,12 @@ async def test_continuation_history_contains_ask_tool_result(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_only_answered_ask_continuation_inherits_parent_request_and_pins(tmp_path) -> None:
+async def test_only_answered_ask_continuation_inherits_parent_request_and_pins(database, tmp_path) -> None:
+    from app.costs import CostService
+
     model = AskContinuationRecordingModel()
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
+    runtime.costs = CostService(runtime.db)
     thread = runtime.conversation.create_thread("Chat")
     original_request = "请创建并保存一份骑行训练计划文档"
     accepted = runtime.conversation.accept_turn(
@@ -1249,12 +1264,12 @@ async def test_only_answered_ask_continuation_inherits_parent_request_and_pins(t
 
 
 @pytest.mark.asyncio
-async def test_selected_skills_survive_turn_worker(tmp_path) -> None:
+async def test_selected_skills_survive_turn_worker(database, tmp_path) -> None:
     model = ScriptedConversationModel(
         '{"v":1,"policy":"answer","content_shape":"general",'
         '"reason_code":"content_only"}\nanswer'
     )
-    runtime = make_runtime(tmp_path, model)
+    runtime = make_runtime(database, tmp_path, model)
     thread = runtime.conversation.create_thread("Chat")
     accepted = runtime.conversation.accept_turn(thread.id, "client-1", "回答", ["reflection"])
 

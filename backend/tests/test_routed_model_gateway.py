@@ -60,12 +60,12 @@ async def test_chat_tool_roundtrips_have_distinct_ledger_identities(tmp_path, mo
     assert sum(m.get("role") == "tool" for m in requests[-1].messages) == 2
 
 
-def _configured_control_plane(tmp_path, monkeypatch, *, context_windows=None):
+def _configured_control_plane(tmp_path, monkeypatch, *, context_windows=None, database=None):
     from app.behavior import BehaviorBundleService
     from app.db import Database
     from app.model_admin import ModelAdminService
 
-    db = Database(tmp_path / "agent.db")
+    db = database if database is not None else Database(tmp_path / "agent.db")
     admin = ModelAdminService(db)
     versions = {}
     context_windows = context_windows or {}

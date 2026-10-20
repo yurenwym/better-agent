@@ -5,6 +5,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from pg02_helpers import database
+
 
 def fixture(days: int = 7, *, daily_minutes: int = 60):
     start = date(2026, 9, 1)
@@ -305,7 +307,7 @@ def test_operations_route_limits_and_repairs_consistently(operation, role, purpo
 
 
 @pytest.mark.asyncio
-async def test_review_uses_reflector_profile_and_preserves_pinned_context(tmp_path, monkeypatch):
+async def test_review_uses_reflector_profile_and_preserves_pinned_context(database, tmp_path, monkeypatch):
     from app.behavior import BehaviorBundleService
     from app.goal_program_compiler import GoalProgramCompiler
     from app.model_admin import ModelAdminService
@@ -313,10 +315,9 @@ async def test_review_uses_reflector_profile_and_preserves_pinned_context(tmp_pa
     from app.model_gateway import ModelResponse, Timing, UsageBuckets
     from test_routed_model_gateway import _configured_control_plane
 
-    db, bundle, versions = _configured_control_plane(tmp_path, monkeypatch, context_windows={"fallback": 4096})
-    # Production persists this field in PostgreSQL; legacy SQLite fixtures omit it.
-    with db.transaction() as connection:
-        db._add_column(connection, "model_invocations", "root_budget_id TEXT")
+    db, bundle, versions = _configured_control_plane(
+        tmp_path, monkeypatch, context_windows={"fallback": 4096}, database=database,
+    )
     manifest = dict(bundle.manifest)
     policy = ModelAdminService(db).create_policy("review-runtime", {
         **manifest["model_role_bindings"], "reflector": {"primary": versions["fallback"], "fallback": []},
@@ -324,6 +325,19 @@ async def test_review_uses_reflector_profile_and_preserves_pinned_context(tmp_pa
     manifest["model_role_bindings"] = policy["roles"]
     manifest["model_routing"] = {"policy_id": policy["id"], "digest": policy["policy_digest"]}
     pinned = BehaviorBundleService(db).ensure(manifest)
+    with db.transaction() as connection:
+        connection.execute(
+            "INSERT INTO task_budget_roots(id, owner_id, root_kind, root_object_id, max_attempts, deadline_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (
+                "preserved-budget",
+                "local-user",
+                "goal_operation",
+                "review-pinned-context",
+                30,
+                "2099-01-01T00:00:00+00:00",
+            ),
+        )
     selected = []
 
     async def execute(profile, request, **kwargs):
@@ -349,4 +363,3 @@ async def test_review_uses_reflector_profile_and_preserves_pinned_context(tmp_pa
         assert (invocation["role"], invocation["purpose"]) == ("reflector", "daily_review")
         assert invocation["runtime_bundle_id"] == pinned.id
         assert invocation["root_budget_id"] == "preserved-budget"
-    db.close()

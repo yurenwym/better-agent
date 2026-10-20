@@ -4,12 +4,13 @@ import os
 
 import pytest
 
+from pg02_helpers import database
 
-def _service(tmp_path):
-    from app.db import Database
+
+def _service(database, tmp_path):
     from app.plan_documents import PlanDocumentService
 
-    db = Database(tmp_path / "agent.db")
+    db = database
     with db.transaction() as connection:
         connection.execute(
             "INSERT INTO threads(id, title, created_at, updated_at) VALUES (?, ?, ?, ?)",
@@ -18,8 +19,8 @@ def _service(tmp_path):
     return db, PlanDocumentService(db, tmp_path)
 
 
-def test_external_file_change_during_import_is_rejected_without_new_revision(tmp_path, monkeypatch) -> None:
-    db, service = _service(tmp_path)
+def test_external_file_change_during_import_is_rejected_without_new_revision(database, tmp_path, monkeypatch) -> None:
+    db, service = _service(database, tmp_path)
     first = service.save_model_revision(
         thread_id="thread-1",
         title="Plan",
@@ -74,11 +75,11 @@ def test_external_file_change_during_import_is_rejected_without_new_revision(tmp
     assert path.read_text(encoding="utf-8") == "# Changed while importing\n"
 
 
-def test_database_and_file_conflict_emits_one_semantic_conflict_event(tmp_path) -> None:
+def test_database_and_file_conflict_emits_one_semantic_conflict_event(database, tmp_path) -> None:
     from app.events import ThreadEventStore
     from app.plan_documents import PlanDocumentConflict
 
-    db, service = _service(tmp_path)
+    db, service = _service(database, tmp_path)
     service.events = ThreadEventStore(db)
     first = service.save_model_revision(
         thread_id="thread-1",

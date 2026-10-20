@@ -112,7 +112,7 @@ def _control_plane(db, monkeypatch):
     )
 
 
-def build_runtime(tmp_path, monkeypatch, script, *, evolution=None):
+def build_runtime(tmp_path, monkeypatch, script, *, evolution=None, database=None):
     """The real runtime, wired to a routed gateway driven by ``script``."""
     from app.db import Database
     from app.domain import ApprovalService, CheckpointStore, PlanVersionService
@@ -124,7 +124,9 @@ def build_runtime(tmp_path, monkeypatch, script, *, evolution=None):
     from app.runtime import AgentRuntime
     from app.tools import create_default_registry
 
-    db = Database(tmp_path / "agent.db", workspace=tmp_path / "workspace")
+    db = database if database is not None else Database(
+        tmp_path / "agent.db", workspace=tmp_path / "workspace",
+    )
     control = _control_plane(db, monkeypatch)
     gateway = RoutedModelGateway(db, ModelControlStore(db), execute_attempt=script)
     events = EventStore(db)
@@ -212,7 +214,7 @@ def _versioned(runtime):
     return runtime
 
 
-def reopen_runtime(tmp_path, script, *, evolution=None):
+def reopen_runtime(tmp_path, script, *, evolution=None, database=None):
     """A second runtime over the *same* database.
 
     Nothing is carried over in memory: a resumed approval must be able to rebuild
@@ -229,7 +231,10 @@ def reopen_runtime(tmp_path, script, *, evolution=None):
     from app.runtime import AgentRuntime
     from app.tools import create_default_registry
 
-    db = Database(tmp_path / "agent.db", workspace=tmp_path / "workspace")
+    if database is not None:
+        db = Database(database.database_url, workspace=tmp_path / "workspace")
+    else:
+        db = Database(tmp_path / "agent.db", workspace=tmp_path / "workspace")
     with db.connection() as connection:
         row = connection.execute("SELECT bundle_id FROM runtime_channels WHERE name='stable'").fetchone()
     events = EventStore(db)
